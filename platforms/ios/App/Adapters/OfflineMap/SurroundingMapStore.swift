@@ -529,16 +529,28 @@ final class SurroundingMapStore: ObservableObject {
                 let tiles = try await self.cache.tiles(for: id)
                 var verifiedBytes: Int64 = 0
                 await self.reloadPacks()
-                for (index, tile) in tiles.enumerated() {
-                    try Task.checkCancellation()
-                    _ = try await self.cache.fetch(tile, refresh: false)
-                    try Task.checkCancellation()
-                    guard self.downloadGeneration == current else { return }
-                    self.downloadProgress = Double(index + 1) / Double(tiles.count)
-                    verifiedBytes += await self.cache.byteCount(of: tile)
-                    let size = ByteCountFormatter.string(fromByteCount: verifiedBytes, countStyle: .file)
-                    self.downloadMessage = "已下载 \(size) · \(Int(self.downloadProgress * 100))%"
+                try await withThrowingTaskGroup(of: Int64.self) { group in
+                    for tile in tiles {
+                        group.addTask { [cache = self.cache] in
+                            _ = try await cache.fetch(tile, refresh: false)
+                            return await cache.byteCount(of: tile)
+                        }
+                    }
+                    var completed = 0
+                    for try await bytes in group {
+                        try Task.checkCancellation()
+                        guard self.downloadGeneration == current else {
+                            group.cancelAll()
+                            return
+                        }
+                        completed += 1
+                        self.downloadProgress = Double(completed) / Double(tiles.count)
+                        verifiedBytes += bytes
+                        let size = ByteCountFormatter.string(fromByteCount: verifiedBytes, countStyle: .file)
+                        self.downloadMessage = "已下载 \(size) · \(Int(self.downloadProgress * 100))%"
+                    }
                 }
+                guard self.downloadGeneration == current else { return }
                 self.downloadMessage = "下载完成，可离线使用"
             } catch is CancellationError {
                 if self.downloadGeneration == current { self.downloadMessage = "下载已暂停，可继续下载" }
