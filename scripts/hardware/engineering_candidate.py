@@ -6,8 +6,6 @@ inspected while the physical-sample gates are still open.  It deliberately
 requires NOT-FOR-FAB markers and does not create a Gerber-only order ZIP.
 """
 
-from __future__ import annotations
-
 import argparse
 import datetime as dt
 import json
