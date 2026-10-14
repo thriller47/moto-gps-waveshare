@@ -19,7 +19,6 @@ import os
 from pathlib import Path
 import re
 import subprocess
-import sys
 import xml.etree.ElementTree as ET
 
 import pcbnew
