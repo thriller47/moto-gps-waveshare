@@ -1,6 +1,5 @@
 package com.motogps.android.location
 
-import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -11,12 +10,14 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
+import androidx.core.app.NotificationCompat
+import com.motogps.android.MainActivity
 
 class LocationForegroundService : Service() {
 
     companion object {
         const val CHANNEL_ID = "moto_gps_nav_channel"
-        const val NOTIFICATION_ID = 1
+        const val NOTIFICATION_ID = 1001
         const val ACTION_STOP = "com.motogps.android.action.STOP"
         const val ACTION_TEST_START = "com.motogps.android.action.TEST_START"
         const val TAG = "LocationService"
@@ -67,6 +68,11 @@ class LocationForegroundService : Service() {
             } else {
                 startForeground(NOTIFICATION_ID, notification)
             }
+
+            // Location Engine and BLE Streams should be started here AFTER foreground is committed
+            // e.g. startLocationTracking()
+            // e.g. startBLEStream()
+
         } catch (e: Exception) {
             Log.e(TAG, "Error starting foreground service", e)
         }
@@ -82,51 +88,45 @@ class LocationForegroundService : Service() {
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
                 description = "Shows active navigation connection and location tracking status"
-                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+                lockscreenVisibility = NotificationCompat.VISIBILITY_PUBLIC
             }
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.createNotificationChannel(channel)
         }
     }
 
-    private fun createNotification(): Notification {
+    private fun createNotification(): android.app.Notification {
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            0,
+            Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
         val stopIntent = Intent(applicationContext, LocationForegroundService::class.java).apply {
             action = ACTION_STOP
         }
         val pendingStopIntent = PendingIntent.getService(
             applicationContext,
-            0,
+            1,
             stopIntent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            Notification.Builder(applicationContext, CHANNEL_ID)
-        } else {
-            @Suppress("DEPRECATION")
-            Notification.Builder(applicationContext)
-        }
-
-        val notificationBuilder = builder
-            .setContentTitle("MOTO GPS Navigation")
-            .setContentText("Navigating and connected to display")
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("Glimpse MOTO GPS")
+            .setContentText("Navigation session active...")
+            .setSmallIcon(android.R.drawable.ic_menu_mylocation)
+            .setContentIntent(pendingIntent)
             .setOngoing(true)
-            .setVisibility(Notification.VISIBILITY_PUBLIC)
+            .setCategory(NotificationCompat.CATEGORY_NAVIGATION)
+            .addAction(0, "End Navigation", pendingStopIntent)
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT_WATCH) {
-            notificationBuilder.addAction(
-                Notification.Action.Builder(
-                    0,
-                    "End Navigation",
-                    pendingStopIntent
-                ).build()
-            )
-        } else {
-             @Suppress("DEPRECATION")
-             notificationBuilder.addAction(0, "End Navigation", pendingStopIntent)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            builder.setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
         }
 
-        return notificationBuilder.build()
+        return builder.build()
     }
 
     override fun onBind(intent: Intent?): IBinder? {
