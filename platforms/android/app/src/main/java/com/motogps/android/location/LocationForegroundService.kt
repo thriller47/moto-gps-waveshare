@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 
@@ -25,7 +26,12 @@ class LocationForegroundService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
-            stopForeground(true)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+            } else {
+                @Suppress("DEPRECATION")
+                stopForeground(true)
+            }
             stopSelf()
             return START_NOT_STICKY
         }
@@ -35,14 +41,17 @@ class LocationForegroundService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             var serviceType = 0
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                // FOREGROUND_SERVICE_TYPE_LOCATION
-                serviceType = serviceType or 8
+                serviceType = serviceType or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                // FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
-                serviceType = serviceType or 16
+                serviceType = serviceType or ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
             }
-            startForeground(NOTIFICATION_ID, notification, serviceType)
+            try {
+                startForeground(NOTIFICATION_ID, notification, serviceType)
+            } catch (e: Exception) {
+                // If permission dropped unexpectedly before executing this line
+                e.printStackTrace()
+            }
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
@@ -82,12 +91,25 @@ class LocationForegroundService : Service() {
             Notification.Builder(this)
         }
 
-        return builder
+        val notificationBuilder = builder
             .setContentTitle("MOTO GPS Navigation")
             .setContentText("Navigating and connected to display")
             .setOngoing(true)
-            .addAction(0, "End Navigation", pendingStopIntent)
-            .build()
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT_WATCH) {
+            notificationBuilder.addAction(
+                Notification.Action.Builder(
+                    0,
+                    "End Navigation",
+                    pendingStopIntent
+                ).build()
+            )
+        } else {
+             @Suppress("DEPRECATION")
+             notificationBuilder.addAction(0, "End Navigation", pendingStopIntent)
+        }
+
+        return notificationBuilder.build()
     }
 
     override fun onBind(intent: Intent?): IBinder? {
