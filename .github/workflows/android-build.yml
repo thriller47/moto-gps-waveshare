@@ -1,0 +1,34 @@
+name: Android Build
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - uses: actions/setup-java@v3
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Make gradlew executable
+        run: chmod +x platforms/android/gradlew
+
+      - name: Lint and Unit Test
+        run: cd platforms/android && ./gradlew test lintDebug
+
+      - name: Build Debug APK
+        run: cd platforms/android && ./gradlew assembleDebug
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Glimpse-MOTO-GPS-Android-Final.apk
+          path: platforms/android/app/build/outputs/apk/debug/app-debug.apk
