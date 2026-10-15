@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -39,6 +40,7 @@ class MainActivity : ComponentActivity() {
 
     private var bleStatus by mutableStateOf("Idle/Disconnected")
     private var isNavigating by mutableStateOf(false)
+    private var serviceError by mutableStateOf<String?>(null)
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -46,6 +48,7 @@ class MainActivity : ComponentActivity() {
         val granted = permissions.entries.all { it.value }
         if (granted) {
             bleStatus = "Permissions Granted."
+            serviceError = null
         } else {
             bleStatus = "Permissions Denied. Core functionality restricted."
         }
@@ -72,6 +75,7 @@ class MainActivity : ComponentActivity() {
                     NavigationUI(
                         loadError = loadError,
                         bleStatus = bleStatus,
+                        serviceError = serviceError,
                         isNavigating = isNavigating,
                         onAction = { action -> handleAction(action) }
                     )
@@ -82,7 +86,7 @@ class MainActivity : ComponentActivity() {
         checkPermissions()
     }
 
-    private fun checkPermissions() {
+    private fun hasRequiredPermissions(): Boolean {
         val permissions = mutableListOf(
             Manifest.permission.ACCESS_FINE_LOCATION,
             Manifest.permission.ACCESS_COARSE_LOCATION
@@ -97,7 +101,22 @@ class MainActivity : ComponentActivity() {
             permissions.add(Manifest.permission.POST_NOTIFICATIONS)
         }
 
-        if (!permissions.all { ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED }) {
+        return permissions.all { ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED }
+    }
+
+    private fun checkPermissions() {
+        if (!hasRequiredPermissions()) {
+            val permissions = mutableListOf(
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+            )
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                permissions.add(Manifest.permission.BLUETOOTH_SCAN)
+                permissions.add(Manifest.permission.BLUETOOTH_CONNECT)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+            }
             requestPermissionLauncher.launch(permissions.toTypedArray())
         } else {
             bleStatus = "Permissions Granted."
@@ -107,27 +126,50 @@ class MainActivity : ComponentActivity() {
     private fun handleAction(action: String) {
         when (action) {
             "START_NAV" -> {
-                isNavigating = true
-                val intent = Intent(this, LocationForegroundService::class.java)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    startForegroundService(intent)
-                } else {
-                    startService(intent)
+                if (!hasRequiredPermissions()) {
+                    serviceError = "Cannot start: Missing required permissions."
+                    checkPermissions()
+                    return
+                }
+
+                try {
+                    val intent = Intent(this, LocationForegroundService::class.java)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        startForegroundService(intent)
+                    } else {
+                        startService(intent)
+                    }
+                    isNavigating = true
+                    serviceError = null
+                } catch (e: SecurityException) {
+                    isNavigating = false
+                    serviceError = "Security Exception: ${e.message}"
+                } catch (e: IllegalArgumentException) {
+                    isNavigating = false
+                    serviceError = "Illegal Argument: ${e.message}"
+                } catch (e: Exception) {
+                    isNavigating = false
+                    serviceError = "Startup Error: ${e.message}"
                 }
             }
             "STOP_NAV" -> {
-                isNavigating = false
-                val intent = Intent(this, LocationForegroundService::class.java).apply {
-                    this.action = LocationForegroundService.ACTION_STOP
+                try {
+                    val intent = Intent(this, LocationForegroundService::class.java).apply {
+                        this.action = LocationForegroundService.ACTION_STOP
+                    }
+                    startService(intent)
+                } catch (e: Exception) {
+                    // Just log or update status if needed
+                } finally {
+                    isNavigating = false
                 }
-                startService(intent)
             }
         }
     }
 }
 
 @Composable
-fun NavigationUI(loadError: String?, bleStatus: String, isNavigating: Boolean, onAction: (String) -> Unit) {
+fun NavigationUI(loadError: String?, bleStatus: String, serviceError: String?, isNavigating: Boolean, onAction: (String) -> Unit) {
     var gatewayUrl by remember { mutableStateOf("https://example.invalid/moto-gps/api/") }
     var destination by remember { mutableStateOf("") }
 
@@ -156,6 +198,11 @@ fun NavigationUI(loadError: String?, bleStatus: String, isNavigating: Boolean, o
 
             Spacer(modifier = Modifier.height(8.dp))
             Text(text = "Navigation Provider: OpenStreetMap (OSM)", color = Color.Cyan)
+
+            if (serviceError != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(text = serviceError, color = Color.Red, fontSize = 12.sp)
+            }
 
             Spacer(modifier = Modifier.height(24.dp))
 
