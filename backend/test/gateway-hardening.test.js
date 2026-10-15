@@ -14,7 +14,7 @@ test("a direct client cannot spoof its rate-limit address", () => {
     remoteAddress: "203.0.113.7",
     realIp: "9.9.9.9",
   });
-  assert.equal(clientAddress(request), "203.0.113.7");
+  assert.equal(clientAddress(request, true), "203.0.113.7");
 });
 
 test("the loopback nginx proxy may provide the real client address", () => {
@@ -23,12 +23,14 @@ test("the loopback nginx proxy may provide the real client address", () => {
       remoteAddress: loopback,
       realIp: "198.51.100.23",
     });
-    assert.equal(clientAddress(request), "198.51.100.23");
+    assert.equal(clientAddress(request, true), "198.51.100.23");
+    // Verify that without trustProxy, the header is ignored even for loopback
+    assert.equal(clientAddress(request, false), loopback);
   }
 });
 
 test("rotating spoofed headers cannot evade the route limit", () => {
-  const rateLimit = createRateLimiter();
+  const rateLimit = createRateLimiter(true);
   let allowed = 0;
   for (let i = 0; i < 40; i += 1) {
     const request = fakeRequest({
