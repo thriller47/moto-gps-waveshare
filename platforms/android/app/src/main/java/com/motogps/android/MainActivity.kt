@@ -1,6 +1,7 @@
 package com.motogps.android
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -11,12 +12,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -30,19 +33,21 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.motogps.android.jni.MotoBLEProtocolCodec
+import com.motogps.android.location.LocationForegroundService
 
 class MainActivity : ComponentActivity() {
 
     private var bleStatus by mutableStateOf("Idle/Disconnected")
+    private var isNavigating by mutableStateOf(false)
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
         val granted = permissions.entries.all { it.value }
         if (granted) {
-            bleStatus = "Permissions Granted. Ready to Scan."
+            bleStatus = "Permissions Granted."
         } else {
-            bleStatus = "Permissions Denied."
+            bleStatus = "Permissions Denied. Core functionality restricted."
         }
     }
 
@@ -64,9 +69,12 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = Color.Black
                 ) {
-                    SandboxUI(loadError, bleStatus) { action ->
-                        handleMockAction(action)
-                    }
+                    NavigationUI(
+                        loadError = loadError,
+                        bleStatus = bleStatus,
+                        isNavigating = isNavigating,
+                        onAction = { action -> handleAction(action) }
+                    )
                 }
             }
         }
@@ -75,96 +83,114 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun checkPermissions() {
+        val permissions = mutableListOf(
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.ACCESS_COARSE_LOCATION
+        )
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val permissions = arrayOf(
-                Manifest.permission.BLUETOOTH_SCAN,
-                Manifest.permission.BLUETOOTH_CONNECT
-            )
-            if (permissions.all { ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED }) {
-                bleStatus = "Permissions Granted. Ready to Scan."
-            } else {
-                requestPermissionLauncher.launch(permissions)
-            }
+            permissions.add(Manifest.permission.BLUETOOTH_SCAN)
+            permissions.add(Manifest.permission.BLUETOOTH_CONNECT)
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+
+        if (!permissions.all { ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED }) {
+            requestPermissionLauncher.launch(permissions.toTypedArray())
         } else {
-            bleStatus = "Permissions Granted (Legacy API). Ready to Scan."
+            bleStatus = "Permissions Granted."
         }
     }
 
-    private fun handleMockAction(action: String) {
+    private fun handleAction(action: String) {
         when (action) {
-            "SCAN" -> bleStatus = "Scanning for Waveshare device..."
-            "HANDSHAKE" -> bleStatus = "Handshaking..."
-            "CONNECT" -> bleStatus = "Connected (Ready)"
-            "DISCONNECT" -> bleStatus = "Disconnected (Queue Cleared)"
-            "ERROR" -> bleStatus = "Error (Timeout)"
+            "START_NAV" -> {
+                isNavigating = true
+                val intent = Intent(this, LocationForegroundService::class.java)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(intent)
+                } else {
+                    startService(intent)
+                }
+            }
+            "STOP_NAV" -> {
+                isNavigating = false
+                val intent = Intent(this, LocationForegroundService::class.java).apply {
+                    this.action = LocationForegroundService.ACTION_STOP
+                }
+                startService(intent)
+            }
         }
     }
 }
 
 @Composable
-fun SandboxUI(loadError: String?, bleStatus: String, onAction: (String) -> Unit) {
+fun NavigationUI(loadError: String?, bleStatus: String, isNavigating: Boolean, onAction: (String) -> Unit) {
+    var gatewayUrl by remember { mutableStateOf("https://example.invalid/moto-gps/api/") }
+    var destination by remember { mutableStateOf("") }
+
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.padding(16.dp)
+            modifier = Modifier.padding(16.dp).fillMaxWidth()
         ) {
             Text(
-                text = "Glimpse MOTO GPS - Android Port Sandbox",
+                text = "Glimpse MOTO GPS",
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.White
             )
 
-            Spacer(modifier = Modifier.height(24.dp))
-
-            if (loadError != null) {
-                Text(
-                    text = "Status: Native C++ Library FAILED",
-                    color = Color.Red,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = loadError,
-                    color = Color.Gray,
-                    fontSize = 12.sp
-                )
-            } else {
-                Text(
-                    text = "Status: Native C++ Library Loaded Successfully",
-                    color = Color.Green,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-
-            Spacer(modifier = Modifier.height(32.dp))
-
-            Text(
-                text = "Bluetooth State: $bleStatus",
-                color = Color.Cyan,
-                fontWeight = FontWeight.Bold
-            )
-
             Spacer(modifier = Modifier.height(16.dp))
 
-            Button(onClick = { onAction("SCAN") }) {
-                Text("Mock Scan")
+            if (loadError != null) {
+                Text(text = "Status: Native Library FAILED", color = Color.Red, fontWeight = FontWeight.Bold)
+            } else {
+                Text(text = "Status: Native Library Loaded", color = Color.Green, fontWeight = FontWeight.Bold)
             }
+
             Spacer(modifier = Modifier.height(8.dp))
-            Button(onClick = { onAction("HANDSHAKE") }) {
-                Text("Mock Handshake")
-            }
+            Text(text = "State: $bleStatus", color = Color.Cyan)
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            TextField(
+                value = gatewayUrl,
+                onValueChange = { gatewayUrl = it },
+                label = { Text("Gateway URL") },
+                modifier = Modifier.fillMaxWidth()
+            )
+
             Spacer(modifier = Modifier.height(8.dp))
-            Button(onClick = { onAction("CONNECT") }) {
-                Text("Mock Connect")
+
+            TextField(
+                value = destination,
+                onValueChange = { destination = it },
+                label = { Text("Destination Search") },
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            if (!isNavigating) {
+                Button(onClick = { onAction("START_NAV") }) {
+                    Text("Start Navigation")
+                }
+            } else {
+                Text(text = "Navigation Active", color = Color.Yellow, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(onClick = { onAction("STOP_NAV") }) {
+                    Text("End Navigation")
+                }
             }
-            Spacer(modifier = Modifier.height(8.dp))
-            Button(onClick = { onAction("DISCONNECT") }) {
-                Text("Mock Disconnect")
-            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+            Text(text = "GPS: Waiting for fix... (WGS84)", color = Color.LightGray, fontSize = 12.sp)
         }
     }
 }
