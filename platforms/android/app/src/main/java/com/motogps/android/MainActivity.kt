@@ -1,11 +1,11 @@
 package com.motogps.android
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -22,6 +22,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -73,11 +74,12 @@ class MainActivity : ComponentActivity() {
                     color = Color.Black
                 ) {
                     NavigationUI(
+                        context = this,
                         loadError = loadError,
                         bleStatus = bleStatus,
                         serviceError = serviceError,
                         isNavigating = isNavigating,
-                        onAction = { action -> handleAction(action) }
+                        onAction = { action, gatewayUrl -> handleAction(action, gatewayUrl) }
                     )
                 }
             }
@@ -123,22 +125,18 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun handleAction(action: String) {
+    private fun handleAction(action: String, gatewayUrl: String?) {
         when (action) {
             "START_NAV" -> {
-                // Pure UI Simulation Mode
-                isNavigating = true
-                serviceError = "STATUS: Simulation Active - UI Thread Intact"
-            }
-            "STOP_NAV" -> {
-                isNavigating = false
-                serviceError = null
-            }
-            "TEST_SERVICE" -> {
                 if (!hasRequiredPermissions()) {
                     serviceError = "Cannot start: Missing required permissions."
                     checkPermissions()
                     return
+                }
+
+                if (gatewayUrl != null) {
+                    val prefs = getSharedPreferences("MotoGPSPrefs", Context.MODE_PRIVATE)
+                    prefs.edit().putString("saved_gateway_url", gatewayUrl).apply()
                 }
 
                 try {
@@ -150,13 +148,29 @@ class MainActivity : ComponentActivity() {
                     } else {
                         applicationContext.startService(intent)
                     }
-                    serviceError = "Status: Test Service Started Successfully"
+                    isNavigating = true
+                    serviceError = null
                 } catch (e: SecurityException) {
+                    isNavigating = false
                     serviceError = "Security Exception: ${e.message}"
                 } catch (e: IllegalArgumentException) {
+                    isNavigating = false
                     serviceError = "Illegal Argument: ${e.message}"
                 } catch (e: Exception) {
+                    isNavigating = false
                     serviceError = "Startup Error: ${e.message}"
+                }
+            }
+            "STOP_NAV" -> {
+                try {
+                    val intent = Intent(applicationContext, LocationForegroundService::class.java).apply {
+                        this.action = LocationForegroundService.ACTION_STOP
+                    }
+                    applicationContext.startService(intent)
+                } catch (e: Exception) {
+                    // Just log or update status if needed
+                } finally {
+                    isNavigating = false
                 }
             }
         }
@@ -164,9 +178,17 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun NavigationUI(loadError: String?, bleStatus: String, serviceError: String?, isNavigating: Boolean, onAction: (String) -> Unit) {
-    var gatewayUrl by remember { mutableStateOf("https://example.invalid/moto-gps/api/") }
+fun NavigationUI(context: Context, loadError: String?, bleStatus: String, serviceError: String?, isNavigating: Boolean, onAction: (String, String?) -> Unit) {
+    var gatewayUrl by remember { mutableStateOf("") }
     var destination by remember { mutableStateOf("") }
+
+    LaunchedEffect(Unit) {
+        val prefs = context.getSharedPreferences("MotoGPSPrefs", Context.MODE_PRIVATE)
+        val savedUrl = prefs.getString("saved_gateway_url", "https://example.invalid/moto-gps/api/")
+        if (savedUrl != null) {
+            gatewayUrl = savedUrl
+        }
+    }
 
     Box(
         modifier = Modifier.fillMaxSize(),
@@ -196,7 +218,7 @@ fun NavigationUI(loadError: String?, bleStatus: String, serviceError: String?, i
 
             if (serviceError != null) {
                 Spacer(modifier = Modifier.height(8.dp))
-                Text(text = serviceError, color = Color.Yellow, fontSize = 12.sp)
+                Text(text = serviceError, color = Color.Red, fontSize = 12.sp)
             }
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -220,21 +242,15 @@ fun NavigationUI(loadError: String?, bleStatus: String, serviceError: String?, i
             Spacer(modifier = Modifier.height(24.dp))
 
             if (!isNavigating) {
-                Button(onClick = { onAction("START_NAV") }) {
-                    Text("Start Navigation (Simulation)")
+                Button(onClick = { onAction("START_NAV", gatewayUrl) }) {
+                    Text("Start Navigation")
                 }
             } else {
                 Text(text = "Navigation Active", color = Color.Yellow, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(8.dp))
-                Button(onClick = { onAction("STOP_NAV") }) {
+                Button(onClick = { onAction("STOP_NAV", null) }) {
                     Text("End Navigation")
                 }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Button(onClick = { onAction("TEST_SERVICE") }) {
-                Text("Test Pure Service Startup")
             }
 
             Spacer(modifier = Modifier.height(24.dp))
