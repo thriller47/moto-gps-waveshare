@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 
 class LocationForegroundService : Service() {
 
@@ -18,48 +19,56 @@ class LocationForegroundService : Service() {
         const val NOTIFICATION_ID = 1
         const val ACTION_STOP = "com.motogps.android.action.STOP"
         const val ACTION_TEST_START = "com.motogps.android.action.TEST_START"
+        const val TAG = "LocationService"
     }
 
     override fun onCreate() {
         super.onCreate()
-        createNotificationChannel()
+        try {
+            createNotificationChannel()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to create notification channel", e)
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                stopForeground(STOP_FOREGROUND_REMOVE)
-            } else {
-                @Suppress("DEPRECATION")
-                stopForeground(true)
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                } else {
+                    @Suppress("DEPRECATION")
+                    stopForeground(true)
+                }
+                stopSelf()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error stopping service", e)
             }
-            stopSelf()
             return START_NOT_STICKY
         }
 
-        val notification = createNotification()
+        try {
+            val notification = createNotification()
 
-        if (intent?.action == ACTION_TEST_START) {
-            // Pure service startup without type mappings (legacy behavior testing)
-            startForeground(NOTIFICATION_ID, notification)
-            return START_STICKY
-        }
+            if (intent?.action == ACTION_TEST_START) {
+                startForeground(NOTIFICATION_ID, notification)
+                return START_STICKY
+            }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            var serviceType = 0
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                serviceType = serviceType or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                serviceType = serviceType or ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
-            }
-            try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                var serviceType = 0
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    serviceType = serviceType or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    serviceType = serviceType or ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+                }
                 startForeground(NOTIFICATION_ID, notification, serviceType)
-            } catch (e: Exception) {
-                e.printStackTrace()
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
             }
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error starting foreground service", e)
         }
 
         return START_STICKY
@@ -73,6 +82,7 @@ class LocationForegroundService : Service() {
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
                 description = "Shows active navigation connection and location tracking status"
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             }
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.createNotificationChannel(channel)
@@ -80,27 +90,28 @@ class LocationForegroundService : Service() {
     }
 
     private fun createNotification(): Notification {
-        val stopIntent = Intent(this, LocationForegroundService::class.java).apply {
+        val stopIntent = Intent(applicationContext, LocationForegroundService::class.java).apply {
             action = ACTION_STOP
         }
         val pendingStopIntent = PendingIntent.getService(
-            this,
+            applicationContext,
             0,
             stopIntent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
         val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            Notification.Builder(this, CHANNEL_ID)
+            Notification.Builder(applicationContext, CHANNEL_ID)
         } else {
             @Suppress("DEPRECATION")
-            Notification.Builder(this)
+            Notification.Builder(applicationContext)
         }
 
         val notificationBuilder = builder
             .setContentTitle("MOTO GPS Navigation")
             .setContentText("Navigating and connected to display")
             .setOngoing(true)
+            .setVisibility(Notification.VISIBILITY_PUBLIC)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT_WATCH) {
             notificationBuilder.addAction(

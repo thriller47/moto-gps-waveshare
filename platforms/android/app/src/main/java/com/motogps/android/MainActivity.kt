@@ -142,13 +142,13 @@ class MainActivity : ComponentActivity() {
                 }
 
                 try {
-                    val intent = Intent(this, LocationForegroundService::class.java).apply {
+                    val intent = Intent(applicationContext, LocationForegroundService::class.java).apply {
                         this.action = LocationForegroundService.ACTION_TEST_START
                     }
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        startForegroundService(intent)
+                        applicationContext.startForegroundService(intent)
                     } else {
-                        startService(intent)
+                        applicationContext.startService(intent)
                     }
                     serviceError = "Status: Test Service Started Successfully"
                 } catch (e: SecurityException) {
