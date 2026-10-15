@@ -67,7 +67,7 @@ async function main() {
   } else {
     throw new Error(`unsupported MOTO_PROVIDER: ${providerMode}`);
   }
-  const port = Number(process.env.PORT ?? 8787);
+  const port = Number(process.env.PORT ?? 10000);
   const allowedOrigin = process.env.WEB_ORIGIN ?? "http://localhost:5173";
   const mapProvider = createMapTileProvider({
     url: process.env.MOTO_MAP_PMTILES_URL ?? (providerMode === "osrm" ? "auto" : "disabled"),
@@ -80,8 +80,9 @@ async function main() {
   // Expose routing directly via OSRM structures
   const server = createGateway({ provider, mapProvider, allowedOrigin, providerMode });
 
-  server.listen(port, "127.0.0.1", () => {
-    console.log(`MOTO GPS gateway listening on http://127.0.0.1:${port} (${providerMode})`);
+  const HOST = '0.0.0.0'; // Force 0.0.0.0 to clear Render health checks
+  server.listen(port, HOST, () => {
+    console.log(`MOTO GPS gateway successfully listening on http://${HOST}:${port} (${providerMode})`);
   });
 
   const close = () => { mapProvider?.close(); server.close(); };
