@@ -80,9 +80,9 @@ async function main() {
   // Expose routing directly via OSRM structures
   const server = createGateway({ provider, mapProvider, allowedOrigin, providerMode });
 
-  const HOST = '0.0.0.0'; // Force 0.0.0.0 to clear Render health checks
+  const HOST = '0.0.0.0'; // Enforce 0.0.0.0 globally across all runtime provider modes
   server.listen(port, HOST, () => {
-    console.log(`MOTO GPS gateway successfully listening on http://${HOST}:${port} (${providerMode})`);
+    console.log(`MOTO GPS backend fully live and listening on http://${HOST}:${port}`);
   });
 
   const close = () => { mapProvider?.close(); server.close(); };
