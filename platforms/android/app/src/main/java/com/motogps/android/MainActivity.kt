@@ -1,9 +1,12 @@
 package com.motogps.android
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.background
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -25,9 +28,23 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import com.motogps.android.jni.MotoBLEProtocolCodec
 
 class MainActivity : ComponentActivity() {
+
+    private var bleStatus by mutableStateOf("Idle/Disconnected")
+
+    private val requestPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val granted = permissions.entries.all { it.value }
+        if (granted) {
+            bleStatus = "Permissions Granted. Ready to Scan."
+        } else {
+            bleStatus = "Permissions Denied."
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -45,19 +62,47 @@ class MainActivity : ComponentActivity() {
             MaterialTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
-                    color = Color.Black // Ensuring black background to contrast white text
+                    color = Color.Black
                 ) {
-                    SandboxUI(loadError)
+                    SandboxUI(loadError, bleStatus) { action ->
+                        handleMockAction(action)
+                    }
                 }
             }
+        }
+
+        checkPermissions()
+    }
+
+    private fun checkPermissions() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val permissions = arrayOf(
+                Manifest.permission.BLUETOOTH_SCAN,
+                Manifest.permission.BLUETOOTH_CONNECT
+            )
+            if (permissions.all { ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED }) {
+                bleStatus = "Permissions Granted. Ready to Scan."
+            } else {
+                requestPermissionLauncher.launch(permissions)
+            }
+        } else {
+            bleStatus = "Permissions Granted (Legacy API). Ready to Scan."
+        }
+    }
+
+    private fun handleMockAction(action: String) {
+        when (action) {
+            "SCAN" -> bleStatus = "Scanning for Waveshare device..."
+            "HANDSHAKE" -> bleStatus = "Handshaking..."
+            "CONNECT" -> bleStatus = "Connected (Ready)"
+            "DISCONNECT" -> bleStatus = "Disconnected (Queue Cleared)"
+            "ERROR" -> bleStatus = "Error (Timeout)"
         }
     }
 }
 
 @Composable
-fun SandboxUI(loadError: String?) {
-    var scanStatus by remember { mutableStateOf("Idle/Disconnected") }
-
+fun SandboxUI(loadError: String?, bleStatus: String, onAction: (String) -> Unit) {
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
@@ -98,14 +143,27 @@ fun SandboxUI(loadError: String?) {
             Spacer(modifier = Modifier.height(32.dp))
 
             Text(
-                text = "Bluetooth State: $scanStatus",
-                color = Color.LightGray
+                text = "Bluetooth State: $bleStatus",
+                color = Color.Cyan,
+                fontWeight = FontWeight.Bold
             )
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            Button(onClick = { scanStatus = "Scanning for Waveshare device..." }) {
-                Text("Trigger Mock Scan")
+            Button(onClick = { onAction("SCAN") }) {
+                Text("Mock Scan")
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Button(onClick = { onAction("HANDSHAKE") }) {
+                Text("Mock Handshake")
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Button(onClick = { onAction("CONNECT") }) {
+                Text("Mock Connect")
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Button(onClick = { onAction("DISCONNECT") }) {
+                Text("Mock Disconnect")
             }
         }
     }

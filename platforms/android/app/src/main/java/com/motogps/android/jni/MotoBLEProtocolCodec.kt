@@ -104,5 +104,9 @@ class MotoBLEProtocolCodec(maximumFrameSize: Int) {
                 isLibraryLoaded = false
             }
         }
+
+        const val SERVICE_UUID_STRING = "7e57a000-b50c-4b6a-9c57-40a54e8e1000"
+        const val PHONE_TO_DEVICE_UUID_STRING = "7e57a001-b50c-4b6a-9c57-40a54e8e1000"
+        const val DEVICE_TO_PHONE_UUID_STRING = "7e57a002-b50c-4b6a-9c57-40a54e8e1000"
     }
 }
