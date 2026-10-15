@@ -124,14 +124,18 @@ export function createRateLimiter() {
     let bucket = buckets.get(key);
     if (!bucket || now - bucket.startedAt >= RATE_WINDOW_MS) {
       bucket = { startedAt: now, count: 0 };
+      buckets.delete(key);
       buckets.set(key, bucket);
     }
     bucket.count += 1;
 
     if (buckets.size > MAXIMUM_RATE_BUCKETS) {
       for (const [bucketKey, value] of buckets) {
-        if (now - value.startedAt >= RATE_WINDOW_MS) buckets.delete(bucketKey);
-        if (buckets.size <= MAXIMUM_RATE_BUCKETS) break;
+        if (now - value.startedAt >= RATE_WINDOW_MS) {
+          buckets.delete(bucketKey);
+        } else {
+          break;
+        }
       }
       while (buckets.size > MAXIMUM_RATE_BUCKETS) {
         buckets.delete(buckets.keys().next().value);
