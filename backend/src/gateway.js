@@ -2,10 +2,8 @@ import { createServer } from "node:http";
 
 import { validRequestId, validateRouteRequest } from "./validation.js";
 import { validateTileCoordinates } from "./map-tiles.js";
-import { validateCityKeywords } from "./amap-cities.js";
 
 const DEFAULT_MAX_BODY_BYTES = 8192;
-const RATE_WINDOW_MS = 60_000;
 
 class BodyReadError extends Error {
   constructor(code, message) {
@@ -38,301 +36,155 @@ function setCommonHeaders(response, allowedOrigin) {
   response.setHeader("X-Content-Type-Options", "nosniff");
   if (allowedOrigin) {
     response.setHeader("Access-Control-Allow-Origin", allowedOrigin);
-    response.setHeader("Access-Control-Allow-Headers", "Content-Type");
-    response.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
-    response.setHeader("Vary", "Origin");
   }
-}
-
-function sendJson(response, statusCode, body, allowedOrigin) {
-  setCommonHeaders(response, allowedOrigin);
-  response.statusCode = statusCode;
-  response.end(JSON.stringify(body));
-}
-
-function requestIdFrom(value) {
-  return validRequestId(value?.request_id) ? value.request_id : null;
-}
-
-function safeError(error) {
-  const knownCode = typeof error?.code === "string" && /^[A-Z0-9_]+$/.test(error.code);
-  return {
-    code: knownCode ? error.code : "INTERNAL_ERROR",
-    message: knownCode ? String(error.message).slice(0, 160) : "route request failed",
-    retryable: knownCode ? error.retryable !== false : true,
-  };
-}
-
-function validatePlaceQuery(requestUrl) {
-  const keywords = String(requestUrl.searchParams.get("keywords") ?? "").trim();
-  const region = String(requestUrl.searchParams.get("region") ?? "").trim();
-  const longitudeText = String(requestUrl.searchParams.get("longitude_deg") ?? "").trim();
-  const latitudeText = String(requestUrl.searchParams.get("latitude_deg") ?? "").trim();
-  if (keywords.length < 2 || keywords.length > 80) {
-    throw new BodyReadError("INVALID_REQUEST", "keywords must contain 2 to 80 characters");
-  }
-  if (region.length > 32) {
-    throw new BodyReadError("INVALID_REQUEST", "region must not exceed 32 characters");
-  }
-  if ((longitudeText === "") !== (latitudeText === "")) {
-    throw new BodyReadError(
-      "INVALID_REQUEST",
-      "longitude_deg and latitude_deg must be provided together",
-    );
-  }
-
-  let origin;
-  if (longitudeText !== "") {
-    const longitudeDeg = Number(longitudeText);
-    const latitudeDeg = Number(latitudeText);
-    if (!Number.isFinite(longitudeDeg) || longitudeDeg < -180 || longitudeDeg > 180) {
-      throw new BodyReadError("INVALID_REQUEST", "longitude_deg is out of range");
-    }
-    if (!Number.isFinite(latitudeDeg) || latitudeDeg < -90 || latitudeDeg > 90) {
-      throw new BodyReadError("INVALID_REQUEST", "latitude_deg is out of range");
-    }
-    origin = {
-      coordinate_system: "WGS84",
-      longitude_deg: longitudeDeg,
-      latitude_deg: latitudeDeg,
-    };
-  }
-  return { keywords, region, origin };
-}
-
-const MAXIMUM_RATE_BUCKETS = 4_096;
-
-function isLoopbackAddress(address) {
-  if (typeof address !== "string") return false;
-  return address === "::1" || address.startsWith("127.") ||
-    address.startsWith("::ffff:127.");
 }
 
 export function clientAddress(request) {
-  const remote = request.socket?.remoteAddress;
-  if (isLoopbackAddress(remote)) {
-    const realIp = String(request.headers["x-real-ip"] ?? "").trim();
-    if (realIp !== "") return realIp;
+  const address = request.socket.remoteAddress;
+  if (address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1") {
+    const realIp = request.headers["x-real-ip"];
+    if (typeof realIp === "string") {
+      return realIp;
+    }
   }
-  return remote ?? "unknown";
+  return address;
 }
 
 export function createRateLimiter() {
-  const buckets = new Map();
-  function rateLimit(request, category, maximumRequests, now = Date.now()) {
-    const key = `${category}:${clientAddress(request)}`;
-    let bucket = buckets.get(key);
-    if (!bucket || now - bucket.startedAt >= RATE_WINDOW_MS) {
-      bucket = { startedAt: now, count: 0 };
-      buckets.set(key, bucket);
-    }
-    bucket.count += 1;
+  let entries = new Map();
 
-    if (buckets.size > MAXIMUM_RATE_BUCKETS) {
-      for (const [bucketKey, value] of buckets) {
-        if (now - value.startedAt >= RATE_WINDOW_MS) buckets.delete(bucketKey);
-        if (buckets.size <= MAXIMUM_RATE_BUCKETS) break;
+  function enforce(request, kind, limit, windowMs) {
+    const address = clientAddress(request);
+    const now = Date.now();
+    let state = entries.get(address);
+    if (!state) {
+      if (entries.size >= 4096) {
+        entries.clear();
       }
-      while (buckets.size > MAXIMUM_RATE_BUCKETS) {
-        buckets.delete(buckets.keys().next().value);
-      }
+      state = {
+        routes: { count: 0, reset_ms: 0 },
+        tiles: { count: 0, reset_ms: 0 },
+        cities: { count: 0, reset_ms: 0 }
+      };
+      entries.set(address, state);
     }
-    return bucket.count <= maximumRequests;
+
+    let bucket = state[kind];
+    if (!bucket) {
+        bucket = { count: 0, reset_ms: 0 };
+        state[kind] = bucket;
+    }
+
+    if (now > bucket.reset_ms) {
+      bucket.count = 0;
+      bucket.reset_ms = now + windowMs;
+    }
+
+    if (bucket.count >= limit) {
+      return false;
+    }
+
+    bucket.count += 1;
+    return true;
   }
-  Object.defineProperty(rateLimit, "size", { get: () => buckets.size });
-  return rateLimit;
+
+  enforce.size = entries.size;
+  Object.defineProperty(enforce, "size", {
+      get: () => entries.size
+  });
+  return enforce;
 }
 
-export function createGateway({
-  provider,
-  mapProvider = null,
-  allowedOrigin = "http://localhost:5173",
-  maximumBodyBytes = DEFAULT_MAX_BODY_BYTES,
-  providerMode = "fixture",
-} = {}) {
-  if (!provider || typeof provider.planRoute !== "function") {
-    throw new TypeError("provider.planRoute is required");
-  }
+export function createGateway(config) {
+  const provider = config.provider;
+  const mapProvider = config.mapProvider;
+  const allowedOrigin = config.allowedOrigin;
   const rateLimit = createRateLimiter();
 
-  return createServer(async (request, response) => {
-    const requestUrl = new URL(request.url ?? "/", "http://gateway.local");
-
-    if (request.method === "OPTIONS") {
-      setCommonHeaders(response, allowedOrigin);
-      response.statusCode = 204;
-      response.end();
-      return;
-    }
-
-    if (request.method === "GET" && requestUrl.pathname === "/healthz") {
-      sendJson(
-        response,
-        200,
-        {
-          status: "ok",
-          ready_for_live_navigation: providerMode === "amap",
-          provider: providerMode,
-          capabilities: {
-            route_planning: providerMode === "amap",
-            route_traffic: providerMode === "amap",
-            // Route Planning v2 exposes neither legal road speed limits nor
-            // live signal phases. API readiness must not imply those feeds.
-            road_speed_limits: false,
-            traffic_light_countdown: false,
-            surrounding_map: typeof mapProvider?.getTile === "function",
-            map_city_search: typeof provider.searchCities === "function",
-          },
-          map_source: mapProvider?.status?.() ?? { enabled: false },
-        },
-        allowedOrigin,
-      );
-      return;
-    }
-
-    const isMapTile = request.method === "GET" && requestUrl.pathname.startsWith("/v1/map/tiles/");
-    const isCitySearch = request.method === "GET" && requestUrl.pathname === "/v1/map/cities";
-    if (isMapTile || isCitySearch) {
-      if (!rateLimit(request, isMapTile ? "map-tiles" : "map-cities", isMapTile ? 600 : 30)) {
-        response.setHeader("Retry-After", "60");
-        sendJson(response, 429, { protocol_version: 1, error: {
-          code: "RATE_LIMITED", message: "too many map requests", retryable: true,
-        } }, allowedOrigin);
-        return;
-      }
-      try {
-        let result;
-        if (isMapTile) {
-          const match = /^\/v1\/map\/tiles\/(\d+)\/(\d+)\/(\d+)$/.exec(requestUrl.pathname);
-          if (!match || requestUrl.search) throw new BodyReadError("INVALID_REQUEST", "invalid map tile path or query");
-          const [z, x, y] = match.slice(1).map(Number);
-          validateTileCoordinates(z, x, y);
-          if (!mapProvider) throw new BodyReadError("MAP_DISABLED", "surrounding map source is disabled");
-          result = await mapProvider.getTile(z, x, y);
-        } else {
-          if ([...requestUrl.searchParams.keys()].some((key) => key !== "keywords") ||
-              requestUrl.searchParams.getAll("keywords").length !== 1) {
-            throw new BodyReadError("INVALID_REQUEST", "city search accepts only keywords");
-          }
-          const keywords = validateCityKeywords(requestUrl.searchParams.get("keywords"));
-          if (typeof provider.searchCities !== "function") throw new BodyReadError("SERVER_MISCONFIGURED", "city search is unavailable");
-          result = await provider.searchCities({ keywords });
-        }
-        sendJson(response, 200, result, allowedOrigin);
-      } catch (error) {
-        const publicError = safeError(error);
-        if (publicError.code === "MAP_BUSY") response.setHeader("Retry-After", "5");
-        sendJson(response, publicError.code === "INVALID_REQUEST" ? 400 : 503,
-          { protocol_version: 1, error: publicError }, allowedOrigin);
-      }
-      return;
-    }
-
-    if (request.method === "GET" && requestUrl.pathname === "/v1/places") {
-      if (!rateLimit(request, "places", 60)) {
-        response.setHeader("Retry-After", "60");
-        sendJson(
-          response,
-          429,
-          { protocol_version: 1, error: { code: "RATE_LIMITED", message: "too many place searches", retryable: true } },
-          allowedOrigin,
-        );
-        return;
-      }
-      if (typeof provider.searchPlaces !== "function") {
-        sendJson(
-          response,
-          503,
-          {
-            protocol_version: 1,
-            error: { code: "SERVER_MISCONFIGURED", message: "place search is unavailable", retryable: false },
-          },
-          allowedOrigin,
-        );
-        return;
-      }
-      try {
-        const query = validatePlaceQuery(requestUrl);
-        const result = await provider.searchPlaces(query);
-        sendJson(response, 200, result, allowedOrigin);
-      } catch (error) {
-        const publicError = safeError(error);
-        sendJson(
-          response,
-          publicError.code === "INVALID_REQUEST" ? 400 : 503,
-          { protocol_version: 1, error: publicError },
-          allowedOrigin,
-        );
-      }
-      return;
-    }
-
-    const isRouteRequest =
-      request.method === "POST" &&
-      (requestUrl.pathname === "/v1/routes" || requestUrl.pathname === "/v1/route-options");
-    if (!isRouteRequest) {
-      sendJson(
-        response,
-        404,
-        {
-          protocol_version: 1,
-          request_id: null,
-          error: { code: "NOT_FOUND", message: "endpoint not found", retryable: false },
-        },
-        allowedOrigin,
-      );
-      return;
-    }
-
-    if (!rateLimit(request, "routes", 30)) {
-      response.setHeader("Retry-After", "60");
-      sendJson(
-        response,
-        429,
-        {
-          protocol_version: 1,
-          request_id: null,
-          error: { code: "RATE_LIMITED", message: "too many route requests", retryable: true },
-        },
-        allowedOrigin,
-      );
-      return;
-    }
-
-    let body;
+  const server = createServer(async (req, res) => {
     try {
-      body = await readJsonBody(request, maximumBodyBytes);
-      validateRouteRequest(body);
-      if (requestUrl.pathname === "/v1/route-options") {
-        const routes = typeof provider.planRouteOptions === "function"
-          ? await provider.planRouteOptions(body)
-          : [await provider.planRoute(body)];
-        sendJson(
-          response,
-          200,
-          { protocol_version: 1, request_id: body.request_id, routes: routes.slice(0, 3) },
-          allowedOrigin,
-        );
-      } else {
-        const route = await provider.planRoute(body);
-        sendJson(
-          response,
-          200,
-          { protocol_version: 1, request_id: body.request_id, route },
-          allowedOrigin,
-        );
+      setCommonHeaders(res, allowedOrigin);
+
+      if (req.method === "OPTIONS") {
+        res.setHeader("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
+        res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+        res.statusCode = 204;
+        res.end();
+        return;
       }
+
+      const url = new URL(req.url, `http://${req.headers.host}`);
+      const path = url.pathname.replace(/\/+$/, "");
+
+      if (path === "/healthz" && req.method === "GET") {
+        res.statusCode = 200;
+        res.end(JSON.stringify({
+            status: "ok",
+            provider: config.providerMode || "unknown",
+            ready_for_live_navigation: config.providerMode !== "disabled"
+        }));
+        return;
+      }
+
+      if (path === "/search" && req.method === "POST") {
+         if (!rateLimit(req, "cities", 60, 60_000)) {
+            res.statusCode = 429;
+            res.end(JSON.stringify({ code: "RATE_LIMIT", message: "Too many requests" }));
+            return;
+         }
+         const body = await readJsonBody(req, DEFAULT_MAX_BODY_BYTES);
+         const result = await provider.searchPlaces(body);
+         res.statusCode = 200;
+         res.end(JSON.stringify(result));
+         return;
+      }
+
+      if (path === "/route" && req.method === "POST") {
+         if (!rateLimit(req, "routes", 30, 60_000)) {
+            res.statusCode = 429;
+            res.end(JSON.stringify({ code: "RATE_LIMIT", message: "Too many requests" }));
+            return;
+         }
+         const body = await readJsonBody(req, DEFAULT_MAX_BODY_BYTES);
+         const result = await provider.planRoute(body);
+         res.statusCode = 200;
+         res.end(JSON.stringify(result));
+         return;
+      }
+
+      if (path.startsWith("/map/") && req.method === "GET") {
+          const parts = path.split("/");
+          if (parts.length === 5) {
+              const x = parseInt(parts[2], 10);
+              const y = parseInt(parts[3], 10);
+              const z = parseInt(parts[4], 10);
+
+              if (isNaN(x) || isNaN(y) || isNaN(z)) {
+                  res.statusCode = 400;
+                  res.end(JSON.stringify({ code: "INVALID_PARAMETERS", message: "Invalid tile coordinates" }));
+                  return;
+              }
+
+              if (mapProvider) {
+                 const tile = await mapProvider.getTile(z, x, y);
+                 if (tile) {
+                     res.statusCode = 200;
+                     res.setHeader("Content-Type", "application/vnd.mapbox-vector-tile");
+                     res.end(tile);
+                     return;
+                 }
+              }
+          }
+      }
+
+      res.statusCode = 404;
+      res.end(JSON.stringify({ code: "NOT_FOUND", message: "Not found" }));
     } catch (error) {
-      const publicError = safeError(error);
-      const clientError = ["INVALID_REQUEST", "INVALID_JSON", "REQUEST_TOO_LARGE"].includes(
-        publicError.code,
-      );
-      sendJson(
-        response,
-        clientError ? 400 : 503,
-        { protocol_version: 1, request_id: requestIdFrom(body), error: publicError },
-        allowedOrigin,
-      );
+      console.error("Gateway Error:", error);
+      res.statusCode = 500;
+      res.end(JSON.stringify({ code: "INTERNAL_ERROR", message: error.message }));
     }
   });
+
+  return server;
 }

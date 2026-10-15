@@ -155,7 +155,7 @@ fun NavigationUI(loadError: String?, bleStatus: String, isNavigating: Boolean, o
             }
 
             Spacer(modifier = Modifier.height(8.dp))
-            Text(text = "State: $bleStatus", color = Color.Cyan)
+            Text(text = "Navigation Provider: OpenStreetMap (OSM)", color = Color.Cyan)
 
             Spacer(modifier = Modifier.height(24.dp))
 
@@ -190,7 +190,7 @@ fun NavigationUI(loadError: String?, bleStatus: String, isNavigating: Boolean, o
             }
 
             Spacer(modifier = Modifier.height(24.dp))
-            Text(text = "GPS: Waiting for fix... (WGS84)", color = Color.LightGray, fontSize = 12.sp)
+            Text(text = "GPS: Waiting for fix... (WGS84 strictly)", color = Color.LightGray, fontSize = 12.sp)
         }
     }
 }

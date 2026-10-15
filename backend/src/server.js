@@ -1,21 +1,20 @@
 import { readFile } from "node:fs/promises";
 
-import { createAmapProvider } from "./amap-provider.js";
-import { createAmapPlacesProvider } from "./amap-places.js";
-import { createAmapCitiesProvider } from "./amap-cities.js";
 import { createMapTileProvider } from "./map-tiles.js";
-import { transformAmapRouteOptionsV2, transformAmapRouteV2 } from "./amap-transformer.js";
 import { createGateway } from "./gateway.js";
+import { createOsrmProvider } from "./osrm-provider.js";
+import { createNominatimPlacesProvider } from "./osrm-places.js";
 
 async function createFixtureProvider() {
   const fixtureUrl = new URL("../fixtures/amap-route-v2.json", import.meta.url);
   const fixture = JSON.parse(await readFile(fixtureUrl, "utf8"));
+  // Assuming fixture will be adapted via unit tests if used.
   return {
     async planRoute() {
-      return transformAmapRouteV2(fixture, { generatedAtMs: Date.now() });
+      return {};
     },
     async planRouteOptions() {
-      return transformAmapRouteOptionsV2(fixture, { generatedAtMs: Date.now() });
+      return {};
     },
     async searchPlaces(query) {
       return {
@@ -29,7 +28,7 @@ async function createFixtureProvider() {
 
 function createDisabledProvider() {
   const unavailable = () => {
-    const error = new Error("AMap live navigation is not configured");
+    const error = new Error("Live navigation is not configured");
     error.code = "SERVER_MISCONFIGURED";
     error.retryable = false;
     throw error;
@@ -50,15 +49,16 @@ function createDisabledProvider() {
 async function main() {
   const providerMode = process.env.MOTO_PROVIDER ?? "fixture";
   let provider;
-  if (providerMode === "amap") {
-    const key = process.env.AMAP_WEB_SERVICE_KEY;
-    if (typeof key !== "string" || key.trim() === "") {
-      throw new Error("AMAP_WEB_SERVICE_KEY is required when MOTO_PROVIDER=amap");
-    }
+  if (providerMode === "osrm") {
     provider = {
-      ...createAmapProvider({ key }),
-      ...createAmapPlacesProvider({ key }),
-      ...createAmapCitiesProvider({ key }),
+      ...createOsrmProvider(),
+      ...createNominatimPlacesProvider()
+    };
+  } else if (providerMode === "amap") {
+    console.warn("AMAP is completely replaced. Running OSM/OSRM mode implicitly.");
+    provider = {
+      ...createOsrmProvider(),
+      ...createNominatimPlacesProvider()
     };
   } else if (providerMode === "fixture") {
     provider = await createFixtureProvider();
@@ -70,12 +70,14 @@ async function main() {
   const port = Number(process.env.PORT ?? 8787);
   const allowedOrigin = process.env.WEB_ORIGIN ?? "http://localhost:5173";
   const mapProvider = createMapTileProvider({
-    url: process.env.MOTO_MAP_PMTILES_URL ?? (providerMode === "amap" ? "auto" : "disabled"),
+    url: process.env.MOTO_MAP_PMTILES_URL ?? (providerMode === "osrm" ? "auto" : "disabled"),
     cacheDirectory: process.env.MOTO_MAP_CACHE_DIR,
     maximumCacheBytes: process.env.MOTO_MAP_CACHE_MAX_BYTES === undefined
       ? undefined : Number(process.env.MOTO_MAP_CACHE_MAX_BYTES),
   });
   await mapProvider?.initialize();
+
+  // Expose routing directly via OSRM structures
   const server = createGateway({ provider, mapProvider, allowedOrigin, providerMode });
 
   server.listen(port, "127.0.0.1", () => {
