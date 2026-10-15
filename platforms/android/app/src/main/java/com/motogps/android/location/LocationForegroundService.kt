@@ -17,6 +17,7 @@ class LocationForegroundService : Service() {
         const val CHANNEL_ID = "moto_gps_nav_channel"
         const val NOTIFICATION_ID = 1
         const val ACTION_STOP = "com.motogps.android.action.STOP"
+        const val ACTION_TEST_START = "com.motogps.android.action.TEST_START"
     }
 
     override fun onCreate() {
@@ -38,6 +39,12 @@ class LocationForegroundService : Service() {
 
         val notification = createNotification()
 
+        if (intent?.action == ACTION_TEST_START) {
+            // Pure service startup without type mappings (legacy behavior testing)
+            startForeground(NOTIFICATION_ID, notification)
+            return START_STICKY
+        }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             var serviceType = 0
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -49,7 +56,6 @@ class LocationForegroundService : Service() {
             try {
                 startForeground(NOTIFICATION_ID, notification, serviceType)
             } catch (e: Exception) {
-                // If permission dropped unexpectedly before executing this line
                 e.printStackTrace()
             }
         } else {

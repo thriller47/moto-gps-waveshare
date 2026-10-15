@@ -126,6 +126,15 @@ class MainActivity : ComponentActivity() {
     private fun handleAction(action: String) {
         when (action) {
             "START_NAV" -> {
+                // Pure UI Simulation Mode
+                isNavigating = true
+                serviceError = "STATUS: Simulation Active - UI Thread Intact"
+            }
+            "STOP_NAV" -> {
+                isNavigating = false
+                serviceError = null
+            }
+            "TEST_SERVICE" -> {
                 if (!hasRequiredPermissions()) {
                     serviceError = "Cannot start: Missing required permissions."
                     checkPermissions()
@@ -133,35 +142,21 @@ class MainActivity : ComponentActivity() {
                 }
 
                 try {
-                    val intent = Intent(this, LocationForegroundService::class.java)
+                    val intent = Intent(this, LocationForegroundService::class.java).apply {
+                        this.action = LocationForegroundService.ACTION_TEST_START
+                    }
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                         startForegroundService(intent)
                     } else {
                         startService(intent)
                     }
-                    isNavigating = true
-                    serviceError = null
+                    serviceError = "Status: Test Service Started Successfully"
                 } catch (e: SecurityException) {
-                    isNavigating = false
                     serviceError = "Security Exception: ${e.message}"
                 } catch (e: IllegalArgumentException) {
-                    isNavigating = false
                     serviceError = "Illegal Argument: ${e.message}"
                 } catch (e: Exception) {
-                    isNavigating = false
                     serviceError = "Startup Error: ${e.message}"
-                }
-            }
-            "STOP_NAV" -> {
-                try {
-                    val intent = Intent(this, LocationForegroundService::class.java).apply {
-                        this.action = LocationForegroundService.ACTION_STOP
-                    }
-                    startService(intent)
-                } catch (e: Exception) {
-                    // Just log or update status if needed
-                } finally {
-                    isNavigating = false
                 }
             }
         }
@@ -201,7 +196,7 @@ fun NavigationUI(loadError: String?, bleStatus: String, serviceError: String?, i
 
             if (serviceError != null) {
                 Spacer(modifier = Modifier.height(8.dp))
-                Text(text = serviceError, color = Color.Red, fontSize = 12.sp)
+                Text(text = serviceError, color = Color.Yellow, fontSize = 12.sp)
             }
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -226,7 +221,7 @@ fun NavigationUI(loadError: String?, bleStatus: String, serviceError: String?, i
 
             if (!isNavigating) {
                 Button(onClick = { onAction("START_NAV") }) {
-                    Text("Start Navigation")
+                    Text("Start Navigation (Simulation)")
                 }
             } else {
                 Text(text = "Navigation Active", color = Color.Yellow, fontWeight = FontWeight.Bold)
@@ -234,6 +229,12 @@ fun NavigationUI(loadError: String?, bleStatus: String, serviceError: String?, i
                 Button(onClick = { onAction("STOP_NAV") }) {
                     Text("End Navigation")
                 }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Button(onClick = { onAction("TEST_SERVICE") }) {
+                Text("Test Pure Service Startup")
             }
 
             Spacer(modifier = Modifier.height(24.dp))
