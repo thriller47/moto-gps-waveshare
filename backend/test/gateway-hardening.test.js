@@ -14,16 +14,26 @@ test("a direct client cannot spoof its rate-limit address", () => {
     remoteAddress: "203.0.113.7",
     realIp: "9.9.9.9",
   });
-  assert.equal(clientAddress(request), "203.0.113.7");
+  assert.equal(clientAddress(request, true), "203.0.113.7");
 });
 
-test("the loopback nginx proxy may provide the real client address", () => {
+test("the loopback nginx proxy may provide the real client address if configured", () => {
   for (const loopback of ["127.0.0.1", "::1", "::ffff:127.0.0.1"]) {
     const request = fakeRequest({
       remoteAddress: loopback,
       realIp: "198.51.100.23",
     });
-    assert.equal(clientAddress(request), "198.51.100.23");
+    assert.equal(clientAddress(request, true), "198.51.100.23");
+  }
+});
+
+test("the loopback nginx proxy does not provide the real client address if not configured", () => {
+  for (const loopback of ["127.0.0.1", "::1", "::ffff:127.0.0.1"]) {
+    const request = fakeRequest({
+      remoteAddress: loopback,
+      realIp: "198.51.100.23",
+    });
+    assert.equal(clientAddress(request, false), loopback);
   }
 });
 
