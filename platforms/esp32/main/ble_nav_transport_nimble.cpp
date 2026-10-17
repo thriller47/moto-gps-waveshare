@@ -67,9 +67,8 @@ esp_err_t BleNavTransport::start() {
   }
 
   esp_err_t result = nvs_flash_init();
-  if (result == ESP_ERR_NVS_NO_FREE_PAGES ||
-      result == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-    ESP_LOGW(kTag, "NVS layout changed; rebuilding this firmware's NVS");
+  if (result != ESP_OK) {
+    ESP_LOGW(kTag, "NVS layout changed or unformatted; rebuilding this firmware's NVS");
     result = nvs_flash_erase();
     if (result == ESP_OK) {
       result = nvs_flash_init();
