@@ -2,3 +2,5 @@ platforms/android/app/.cxx/
 platforms/android/app/build/
 platforms/android/.gradle/
 platforms/android/local.properties
+build/
+platforms/esp32/build/
