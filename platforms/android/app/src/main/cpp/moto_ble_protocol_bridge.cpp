@@ -251,6 +251,24 @@ Java_com_motogps_android_jni_MotoBLEProtocolCodec_nativeEncodeAck(JNIEnv *env, j
 }
 
 extern "C" JNIEXPORT jobjectArray JNICALL
+Java_com_motogps_android_jni_MotoBLEProtocolCodec_nativeEncodeAcceptRoute(JNIEnv *env, jobject thiz, jlong ptr, jlong requestID, jobject route, jlong receivedAtMs) {
+    auto* storage = reinterpret_cast<CodecStorage*>(ptr);
+    // Stub implementation to fix missing Android method compared to iOS
+    // MotoNavRouteValue is not defined in this file, we return an empty array for now as a stub
+    return CreateByteArrayArray(env, {});
+}
+
+extern "C" JNIEXPORT jobjectArray JNICALL
+Java_com_motogps_android_jni_MotoBLEProtocolCodec_nativeEncodeRejectRoute(JNIEnv *env, jobject thiz, jlong ptr, jlong requestID, jboolean retryable, jlong receivedAtMs) {
+    return CreateByteArrayArray(env, {});
+}
+
+extern "C" JNIEXPORT jobjectArray JNICALL
+Java_com_motogps_android_jni_MotoBLEProtocolCodec_nativeEncodeAcceptTraffic(JNIEnv *env, jobject thiz, jlong ptr, jstring routeID, jobjectArray segments, jlong remainingDurationS, jlong requestID, jlong observedAtMs) {
+    return CreateByteArrayArray(env, {});
+}
+
+extern "C" JNIEXPORT jobjectArray JNICALL
 Java_com_motogps_android_jni_MotoBLEProtocolCodec_nativeEncodeNavigationSnapshot(JNIEnv *env, jobject thiz, jlong ptr, jobject snapshot) {
     auto* storage = reinterpret_cast<CodecStorage*>(ptr);
     NavigationSnapshot s = ConvertNavigationSnapshot(env, snapshot);
