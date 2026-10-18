@@ -39,7 +39,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        actionBar?.hide()
         bleManager = MotoBLEManager(this).apply {
             onConnectionStateChange = { state ->
                 viewModel.setConnectionState(state)
@@ -59,6 +58,7 @@ class MainActivity : ComponentActivity() {
             val isLoading = viewModel.isLoading.collectAsState().value
             val searchResults = viewModel.searchResults.collectAsState().value
             val errorMessage = viewModel.errorMessage.collectAsState().value
+            val routePreview = viewModel.routePreview.collectAsState().value
 
             if (errorMessage != null) {
                 LaunchedEffect(errorMessage) {
@@ -83,9 +83,17 @@ class MainActivity : ComponentActivity() {
                     connectionState = connectionState,
                     isLoading = isLoading,
                     searchResults = searchResults,
+                    routePreview = routePreview,
                     onRouteSelected = { place ->
                         val savedGateway = sharedPrefs.getString("gateway_address", "") ?: ""
+                        viewModel.previewRoute(place, savedGateway)
+                    },
+                    onStartNavigation = { place ->
+                        val savedGateway = sharedPrefs.getString("gateway_address", "") ?: ""
                         viewModel.startNavigation(place, savedGateway)
+                    },
+                    onBackToSearch = {
+                        viewModel.clearRoutePreview()
                     }
                 )
             }

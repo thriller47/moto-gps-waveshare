@@ -37,6 +37,9 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage
 
+    private val _routePreview = MutableStateFlow<PlaceSearchResult?>(null)
+    val routePreview: StateFlow<PlaceSearchResult?> = _routePreview
+
     private val bleCodec = MotoBLEProtocolCodec()
     private var codecPtr: Long = 0
 
@@ -57,6 +60,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         viewModelScope.launch {
             _isLoading.value = true
             _errorMessage.value = null
+            _routePreview.value = null // hide preview if any
 
             try {
                 val results = withContext(Dispatchers.IO) {
@@ -69,6 +73,14 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                 _isLoading.value = false
             }
         }
+    }
+
+    fun previewRoute(place: PlaceSearchResult, gatewayUrl: String) {
+        _routePreview.value = place
+    }
+
+    fun clearRoutePreview() {
+        _routePreview.value = null
     }
 
     fun startNavigation(place: PlaceSearchResult, gatewayUrl: String) {
@@ -85,7 +97,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
 
                 if (codecPtr != 0L) {
                     val frames = bleCodec.nativeEncodeNavigationSnapshot(codecPtr, snapshot)
-                    bleManager.sendFrames(frames)
+                    bleManager.enqueueSendFramesTask(frames)
                 }
             } catch (e: Exception) {
                 _errorMessage.value = "Errore durante la navigazione: ${e.message}"

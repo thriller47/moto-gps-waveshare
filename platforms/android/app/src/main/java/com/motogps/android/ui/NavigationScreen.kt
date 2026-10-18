@@ -15,6 +15,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.ArrowBack
 import com.motogps.android.viewmodel.PlaceSearchResult
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -27,7 +28,10 @@ fun NavigationScreen(
     connectionState: String,
     isLoading: Boolean,
     searchResults: List<PlaceSearchResult>,
-    onRouteSelected: (PlaceSearchResult) -> Unit
+    routePreview: PlaceSearchResult?,
+    onRouteSelected: (PlaceSearchResult) -> Unit,
+    onStartNavigation: (PlaceSearchResult) -> Unit,
+    onBackToSearch: () -> Unit
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var currentGateway by remember { mutableStateOf(initialGateway) }
@@ -66,79 +70,153 @@ fun NavigationScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("MOTO GPS") },
-                actions = {
-                    IconButton(onClick = { showGatewayDialog = true }) {
-                        Icon(Icons.Default.Settings, contentDescription = "Impostazioni Gateway")
+            if (routePreview != null) {
+                TopAppBar(
+                    title = { Text("Percorso") },
+                    navigationIcon = {
+                        IconButton(onClick = onBackToSearch) {
+                            Icon(Icons.Default.ArrowBack, contentDescription = "Indietro")
+                        }
+                    },
+                    actions = {
+                        TextButton(onClick = onBackToSearch) {
+                            Text("Cambia", color = MaterialTheme.colorScheme.onSurface)
+                        }
                     }
-                }
-            )
+                )
+            } else {
+                TopAppBar(
+                    title = { Text("MOTO GPS") },
+                    actions = {
+                        IconButton(onClick = { showGatewayDialog = true }) {
+                            Icon(Icons.Default.Settings, contentDescription = "Impostazioni Gateway")
+                        }
+                    }
+                )
+            }
         }
     ) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                placeholder = { Text("Cerca destinazione") },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = {
-                    focusManager.clearFocus()
-                    onSearch(searchQuery)
-                })
-            )
-
-            ListItem(
-                headlineContent = { Text("Il mio display") },
-                supportingContent = { Text(connectionState) },
-                leadingContent = {
-                    Icon(Icons.Default.Settings, contentDescription = null)
-                },
-                modifier = Modifier.clickable { onConnectRequest() }
-            )
-
-            HorizontalDivider()
-
-            if (isLoading) {
-                Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
+            if (routePreview != null) {
+                // Top Half: Map View Placeholder
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("Mappa: Vista Percorso (OSM)", style = MaterialTheme.typography.titleMedium)
                 }
-            } else if (searchResults.isNotEmpty()) {
-                LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                    items(searchResults) { place ->
-                        ListItem(
-                            headlineContent = { Text(place.name) },
-                            supportingContent = {
-                                val subtitle = listOf(place.displayArea, place.address).filter { it.isNotBlank() }.joinToString(" · ")
-                                Text(subtitle)
-                            },
-                            modifier = Modifier.clickable {
-                                onRouteSelected(place)
-                            }
-                        )
-                        HorizontalDivider()
+
+                HorizontalDivider()
+
+                // Bottom Half: Seleziona percorso
+                Column(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                    Text(
+                        text = "Seleziona percorso",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(16.dp)
+                    )
+
+                    LazyColumn(modifier = Modifier.weight(1f)) {
+                        item {
+                            ListItem(
+                                headlineContent = { Text("Percorso consigliato") },
+                                supportingContent = { Text("25 min · 12 km · Traffico regolare") },
+                                trailingContent = { Icon(Icons.Default.Check, contentDescription = "Selezionato", tint = MaterialTheme.colorScheme.primary) }
+                            )
+                            HorizontalDivider()
+                        }
+                        item {
+                            ListItem(
+                                headlineContent = { Text("Percorso alternativo 1") },
+                                supportingContent = { Text("28 min · 14 km") }
+                            )
+                            HorizontalDivider()
+                        }
+                        item {
+                            ListItem(
+                                headlineContent = { Text("Percorso alternativo 2") },
+                                supportingContent = { Text("30 min · 11 km") }
+                            )
+                            HorizontalDivider()
+                        }
+                    }
+
+                    Button(
+                        onClick = { onStartNavigation(routePreview) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp)
+                            .height(56.dp)
+                    ) {
+                        Text("Avvia navigazione", style = MaterialTheme.typography.titleMedium)
                     }
                 }
             } else {
-                Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                    Column(
-                        modifier = Modifier.padding(32.dp),
-                        verticalArrangement = Arrangement.Center,
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Icon(
-                            Icons.Default.Place,
-                            contentDescription = null,
-                            modifier = Modifier.size(48.dp)
-                        )
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text("Seleziona destinazione", style = MaterialTheme.typography.titleMedium)
-                        Text("Cerca un luogo o un indirizzo, scegli il percorso e parti.")
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    placeholder = { Text("Cerca destinazione") },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(onSearch = {
+                        focusManager.clearFocus()
+                        onSearch(searchQuery)
+                    })
+                )
+
+                ListItem(
+                    headlineContent = { Text("Il mio display") },
+                    supportingContent = { Text(connectionState) },
+                    leadingContent = {
+                        Icon(Icons.Default.Settings, contentDescription = null)
+                    },
+                    modifier = Modifier.clickable { onConnectRequest() }
+                )
+
+                HorizontalDivider()
+
+                if (isLoading) {
+                    Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
+                } else if (searchResults.isNotEmpty()) {
+                    LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                        items(searchResults) { place ->
+                            ListItem(
+                                headlineContent = { Text(place.name) },
+                                supportingContent = {
+                                    val subtitle = listOf(place.displayArea, place.address).filter { it.isNotBlank() }.joinToString(" · ")
+                                    Text(subtitle)
+                                },
+                                modifier = Modifier.clickable {
+                                    onRouteSelected(place)
+                                }
+                            )
+                            HorizontalDivider()
+                        }
+                    }
+                } else {
+                    Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                        Column(
+                            modifier = Modifier.padding(32.dp),
+                            verticalArrangement = Arrangement.Center,
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Icon(
+                                Icons.Default.Place,
+                                contentDescription = null,
+                                modifier = Modifier.size(48.dp)
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text("Seleziona destinazione", style = MaterialTheme.typography.titleMedium)
+                            Text("Cerca un luogo o un indirizzo, scegli il percorso e parti.")
+                        }
                     }
                 }
             }

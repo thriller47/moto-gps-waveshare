@@ -5,6 +5,7 @@ import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCallback
 import android.bluetooth.BluetoothGattCharacteristic
+import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
 import android.bluetooth.le.ScanCallback
@@ -16,25 +17,58 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.ParcelUuid
+import android.util.Log
+import com.motogps.android.jni.MotoBLEProtocolCodec
 import java.util.UUID
 
 @SuppressLint("MissingPermission")
 class MotoBLEManager(private val context: Context) {
     val serviceUuid = UUID.fromString("7e57a000-b50c-4b6a-9c57-40a54e8e1000")
     val phoneToDeviceUuid = UUID.fromString("7e57a001-b50c-4b6a-9c57-40a54e8e1000")
+    val deviceToPhoneUuid = UUID.fromString("7e57a002-b50c-4b6a-9c57-40a54e8e1000")
+    val cccdUuid = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
 
     var onConnectionStateChange: ((String) -> Unit)? = null
     var onConnectionError: ((String) -> Unit)? = null
     private var bluetoothGatt: BluetoothGatt? = null
     private var writeCharacteristic: BluetoothGattCharacteristic? = null
+    private var readCharacteristic: BluetoothGattCharacteristic? = null
     private val mainHandler = Handler(Looper.getMainLooper())
+
+    // Asynchronous Operation Queue logic for sequential GATT operations (Critical for Android 17+)
+    private val operationQueue = mutableListOf<() -> Unit>()
+    private var operationInProgress = false
+
+    private fun enqueueOperation(operation: () -> Unit) {
+        operationQueue.add(operation)
+        if (!operationInProgress) {
+            executeNextOperation()
+        }
+    }
+
+    private fun executeNextOperation() {
+        if (operationQueue.isNotEmpty()) {
+            operationInProgress = true
+            val operation = operationQueue.removeAt(0)
+            operation()
+        } else {
+            operationInProgress = false
+        }
+    }
+
+    private fun completeOperation() {
+        operationInProgress = false
+        executeNextOperation()
+    }
 
     private val gattCallback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
             when (newState) {
                 BluetoothProfile.STATE_CONNECTED -> {
-                    mainHandler.post { onConnectionStateChange?.invoke("Connesso") }
-                    gatt.discoverServices()
+                    // Start sequential configuration Queue
+                    enqueueOperation {
+                        gatt.discoverServices()
+                    }
                 }
                 BluetoothProfile.STATE_DISCONNECTED -> {
                     mainHandler.post { onConnectionStateChange?.invoke("Non connesso") }
@@ -42,6 +76,9 @@ class MotoBLEManager(private val context: Context) {
                         mainHandler.post { onConnectionError?.invoke("Errore di connessione GATT ($status)") }
                     }
                     writeCharacteristic = null
+                    readCharacteristic = null
+                    operationQueue.clear()
+                    operationInProgress = false
                     bluetoothGatt?.close()
                     bluetoothGatt = null
                 }
@@ -53,10 +90,61 @@ class MotoBLEManager(private val context: Context) {
                 val service = gatt.getService(serviceUuid)
                 if (service != null) {
                     writeCharacteristic = service.getCharacteristic(phoneToDeviceUuid)
+                    readCharacteristic = service.getCharacteristic(deviceToPhoneUuid)
+
+                    // Proceed to request MTU
+                    enqueueOperation {
+                        gatt.requestMtu(247) // or 512
+                    }
+                } else {
+                    mainHandler.post { onConnectionError?.invoke("Errore: Servizio non trovato") }
                 }
             } else {
                 mainHandler.post { onConnectionError?.invoke("Errore discovery servizi GATT ($status)") }
             }
+            completeOperation() // End discoverServices operation
+        }
+
+        override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                // Proceed to enable notifications
+                enqueueOperation {
+                    val characteristic = readCharacteristic
+                    if (characteristic != null) {
+                        gatt.setCharacteristicNotification(characteristic, true)
+                        val descriptor = characteristic.getDescriptor(cccdUuid)
+                        if (descriptor != null) {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                gatt.writeDescriptor(descriptor, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
+                            } else {
+                                @Suppress("DEPRECATION")
+                                descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                                @Suppress("DEPRECATION")
+                                gatt.writeDescriptor(descriptor)
+                            }
+                        } else {
+                            completeOperation()
+                        }
+                    } else {
+                        completeOperation()
+                    }
+                }
+            }
+            completeOperation() // End requestMtu operation
+        }
+
+        override fun onDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
+            if (status == BluetoothGatt.GATT_SUCCESS && descriptor.uuid == cccdUuid) {
+                // Configuration complete! Safe to transition to connected state
+                mainHandler.post { onConnectionStateChange?.invoke("Connesso") }
+
+                // Immediately send initial handshake (PhoneStarting) frame
+                enqueueOperation {
+                    sendHandshakeFrames()
+                    completeOperation()
+                }
+            }
+            completeOperation() // End enable notification operation
         }
     }
 
@@ -64,10 +152,11 @@ class MotoBLEManager(private val context: Context) {
         override fun onScanResult(callbackType: Int, result: ScanResult?) {
             result?.device?.let { device ->
                 mainHandler.post { onConnectionStateChange?.invoke("Connessione in corso...") }
-                connectToDevice(device)
 
                 val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
                 bluetoothManager.adapter?.bluetoothLeScanner?.stopScan(this)
+
+                connectToDevice(device)
             }
         }
 
@@ -100,25 +189,41 @@ class MotoBLEManager(private val context: Context) {
         scanner.startScan(listOf(filter), settings, scanCallback)
     }
 
-    fun sendFrames(frames: Array<ByteArray>) {
+    private fun sendHandshakeFrames() {
+        val codec = MotoBLEProtocolCodec()
+        val ptr = codec.nativeInit(247)
+        val frames = codec.nativeEncodePhoneStarting(ptr, System.currentTimeMillis() % Int.MAX_VALUE)
+        for (frame in frames) {
+            internalWriteFrame(frame)
+            Thread.sleep(10) // Pacing
+        }
+        codec.nativeDestroy(ptr)
+    }
+
+    private fun internalWriteFrame(frame: ByteArray) {
         val gatt = bluetoothGatt ?: return
         val characteristic = writeCharacteristic ?: return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            gatt.writeCharacteristic(characteristic, frame, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE)
+        } else {
+            @Suppress("DEPRECATION")
+            characteristic.value = frame
+            characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+            @Suppress("DEPRECATION")
+            gatt.writeCharacteristic(characteristic)
+        }
+    }
 
-        // Execute writing on a background thread to prevent Main/UI blocking
-        Thread {
+    fun enqueueSendFramesTask(frames: Array<ByteArray>) {
+        // Enqueue sending application data as a sequence of writes on the background queue
+        enqueueOperation {
             for (frame in frames) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    gatt.writeCharacteristic(characteristic, frame, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE)
-                } else {
-                    @Suppress("DEPRECATION")
-                    characteristic.value = frame
-                    characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                    @Suppress("DEPRECATION")
-                    gatt.writeCharacteristic(characteristic)
-                }
-                Thread.sleep(10)
+                internalWriteFrame(frame)
+                // Small pacing delay
+                Thread.sleep(20)
             }
-        }.start()
+            completeOperation()
+        }
     }
 
     fun disconnect() {
