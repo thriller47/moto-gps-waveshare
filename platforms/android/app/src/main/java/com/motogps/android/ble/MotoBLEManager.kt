@@ -187,7 +187,7 @@ class MotoBLEManager(private val context: Context) {
             if (status == BluetoothGatt.GATT_SUCCESS && descriptor.uuid == cccdUuid) {
                 mainHandler.post { onConnectionStateChange?.invoke("Connesso") }
 
-                // Immediately send initial handshake (PhoneStarting) frame and start heartbeat
+                // Immediately send initial handshake (PhoneReady) frame and start heartbeat
                 enqueueOperation {
                     sendHandshakeFrames()
                     startHeartbeat()
@@ -197,6 +197,12 @@ class MotoBLEManager(private val context: Context) {
                 connectedDevice?.createBond()
             }
             completeOperation() // End enable notification operation
+        }
+
+        override fun onCharacteristicWrite(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) {
+            if (status == 15 /* GATT_INSUFFICIENT_ENCRYPTION */) {
+                connectedDevice?.createBond()
+            }
         }
     }
 
@@ -244,7 +250,8 @@ class MotoBLEManager(private val context: Context) {
     private fun sendHandshakeFrames() {
         val codec = MotoBLEProtocolCodec()
         val ptr = codec.nativeInit(247)
-        val frames = codec.nativeEncodePhoneStarting(ptr, System.currentTimeMillis() % Int.MAX_VALUE)
+        val sessionMs = System.currentTimeMillis() % Int.MAX_VALUE
+        val frames = codec.nativeEncodePhoneReady(ptr, sessionMs)
         for (frame in frames) {
             internalWriteFrame(frame)
             Thread.sleep(10) // Pacing
