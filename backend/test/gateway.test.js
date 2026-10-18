@@ -61,6 +61,33 @@ test("exposes live readiness and provider-neutral place search", async (t) => {
   });
 });
 
+test("exposes live readiness for osm provider mode", async (t) => {
+  const provider = {
+    async planRoute() {
+      throw new Error("not used");
+    },
+  };
+  const server = createGateway({ provider, allowedOrigin: "http://localhost:5173", providerMode: "osm" });
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+
+  const health = await (await fetch(`${baseUrl}/healthz`)).json();
+  assert.equal(health.ready_for_live_navigation, true);
+  assert.equal(health.provider, "osm");
+  assert.deepEqual(health.capabilities, {
+    route_planning: true,
+    route_traffic: false,
+    road_speed_limits: false,
+    traffic_light_countdown: false,
+    surrounding_map: false,
+    map_city_search: false,
+  });
+});
+
 test("keeps old place queries compatible and rejects incomplete phone coordinates", async (t) => {
   let calls = 0;
   const provider = {

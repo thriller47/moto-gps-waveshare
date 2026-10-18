@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { createAmapProvider } from "./amap-provider.js";
 import { createAmapPlacesProvider } from "./amap-places.js";
 import { createAmapCitiesProvider } from "./amap-cities.js";
+import { createOsmProvider } from "./osm-provider.js";
 import { createMapTileProvider } from "./map-tiles.js";
 import { transformAmapRouteOptionsV2, transformAmapRouteV2 } from "./amap-transformer.js";
 import { createGateway } from "./gateway.js";
@@ -48,9 +49,11 @@ function createDisabledProvider() {
 }
 
 async function main() {
-  const providerMode = process.env.MOTO_PROVIDER ?? "fixture";
+  const providerMode = process.env.PROVIDER_MODE ?? process.env.MOTO_PROVIDER ?? "osm";
   let provider;
-  if (providerMode === "amap") {
+  if (providerMode === "osm") {
+    provider = createOsmProvider();
+  } else if (providerMode === "amap") {
     const key = process.env.AMAP_WEB_SERVICE_KEY;
     if (typeof key !== "string" || key.trim() === "") {
       throw new Error("AMAP_WEB_SERVICE_KEY is required when MOTO_PROVIDER=amap");
@@ -65,7 +68,7 @@ async function main() {
   } else if (providerMode === "disabled") {
     provider = createDisabledProvider();
   } else {
-    throw new Error(`unsupported MOTO_PROVIDER: ${providerMode}`);
+    throw new Error(`unsupported providerMode: ${providerMode}`);
   }
   const port = Number(process.env.PORT ?? 8787);
   const allowedOrigin = process.env.WEB_ORIGIN ?? "http://localhost:5173";
