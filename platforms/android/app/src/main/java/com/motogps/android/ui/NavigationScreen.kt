@@ -4,6 +4,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
@@ -17,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.filled.ArrowBack
 import com.motogps.android.viewmodel.PlaceSearchResult
+import com.motogps.android.viewmodel.RouteOption
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -29,6 +31,9 @@ fun NavigationScreen(
     isLoading: Boolean,
     searchResults: List<PlaceSearchResult>,
     routePreview: PlaceSearchResult?,
+    routeOptions: List<RouteOption>,
+    selectedRouteIndex: Int,
+    onRouteOptionSelect: (Int) -> Unit,
     onRouteSelected: (PlaceSearchResult) -> Unit,
     onStartNavigation: (PlaceSearchResult) -> Unit,
     onBackToSearch: () -> Unit
@@ -113,33 +118,41 @@ fun NavigationScreen(
                 // Bottom Half: Seleziona percorso
                 Column(modifier = Modifier.weight(1f).fillMaxWidth()) {
                     Text(
-                        text = "Seleziona percorso",
+                        text = "Seleziona percorso (OSM)",
                         style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.padding(16.dp)
                     )
 
-                    LazyColumn(modifier = Modifier.weight(1f)) {
-                        item {
-                            ListItem(
-                                headlineContent = { Text("Percorso consigliato") },
-                                supportingContent = { Text("25 min · 12 km · Traffico regolare") },
-                                trailingContent = { Icon(Icons.Default.Check, contentDescription = "Selezionato", tint = MaterialTheme.colorScheme.primary) }
-                            )
-                            HorizontalDivider()
+                    if (isLoading) {
+                        Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator()
                         }
-                        item {
-                            ListItem(
-                                headlineContent = { Text("Percorso alternativo 1") },
-                                supportingContent = { Text("28 min · 14 km") }
-                            )
-                            HorizontalDivider()
+                    } else if (routeOptions.isNotEmpty()) {
+                        LazyColumn(modifier = Modifier.weight(1f)) {
+                            itemsIndexed(routeOptions) { index, option ->
+                                val isSelected = index == selectedRouteIndex
+                                val mins = option.durationSeconds / 60
+                                val km = String.format("%.1f", option.distanceMeters / 1000.0)
+                                ListItem(
+                                    headlineContent = { Text(option.name) },
+                                    supportingContent = { Text("$mins min · $km km") },
+                                    trailingContent = {
+                                        if (isSelected) {
+                                            Icon(
+                                                Icons.Default.Check,
+                                                contentDescription = "Selezionato",
+                                                tint = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
+                                    },
+                                    modifier = Modifier.clickable { onRouteOptionSelect(index) }
+                                )
+                                HorizontalDivider()
+                            }
                         }
-                        item {
-                            ListItem(
-                                headlineContent = { Text("Percorso alternativo 2") },
-                                supportingContent = { Text("30 min · 11 km") }
-                            )
-                            HorizontalDivider()
+                    } else {
+                        Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                            Text("Calcolo del percorso in corso...")
                         }
                     }
 

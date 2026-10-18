@@ -59,6 +59,8 @@ class MainActivity : ComponentActivity() {
             val searchResults = viewModel.searchResults.collectAsState().value
             val errorMessage = viewModel.errorMessage.collectAsState().value
             val routePreview = viewModel.routePreview.collectAsState().value
+            val routeOptions = viewModel.routeOptions.collectAsState().value
+            val selectedRouteIndex = viewModel.selectedRouteIndex.collectAsState().value
 
             if (errorMessage != null) {
                 LaunchedEffect(errorMessage) {
@@ -84,6 +86,11 @@ class MainActivity : ComponentActivity() {
                     isLoading = isLoading,
                     searchResults = searchResults,
                     routePreview = routePreview,
+                    routeOptions = routeOptions,
+                    selectedRouteIndex = selectedRouteIndex,
+                    onRouteOptionSelect = { index ->
+                        viewModel.selectRouteOption(index)
+                    },
                     onRouteSelected = { place ->
                         val savedGateway = sharedPrefs.getString("gateway_address", "") ?: ""
                         viewModel.previewRoute(place, savedGateway)

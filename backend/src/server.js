@@ -70,7 +70,7 @@ async function main() {
   } else {
     throw new Error(`unsupported MOTO_PROVIDER: ${providerMode}`);
   }
-  const port = Number(process.env.PORT) || 10000;
+  const PORT = Number(process.env.PORT) || 10000;
   const allowedOrigin = process.env.WEB_ORIGIN ?? "http://localhost:5173";
   const mapProvider = createMapTileProvider({
     url: process.env.MOTO_MAP_PMTILES_URL ?? (providerMode === "amap" || providerMode === "osm" ? "auto" : "disabled"),
@@ -82,8 +82,8 @@ async function main() {
   const trustProxy = process.env.MOTO_TRUST_PROXY === "true";
   const server = createGateway({ provider, mapProvider, allowedOrigin, providerMode, trustProxy });
 
-  server.listen(port, "0.0.0.0", () => {
-    console.log(`MOTO GPS gateway listening on http://0.0.0.0:${port} (${providerMode})`);
+  server.listen(PORT, "0.0.0.0", () => {
+    console.log(`Server listening on 0.0.0.0:${PORT} (${providerMode})`);
   });
 
   const close = () => { mapProvider?.close(); server.close(); };

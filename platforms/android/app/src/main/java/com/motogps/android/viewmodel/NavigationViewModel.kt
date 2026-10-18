@@ -24,6 +24,15 @@ data class PlaceSearchResult(
     val longitude: Double
 )
 
+data class RouteOption(
+    val id: String,
+    val name: String,
+    val distanceMeters: Long,
+    val durationSeconds: Long,
+    val steps: List<String>,
+    val rawRouteJson: JSONObject
+)
+
 class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() {
     private val _connectionState = MutableStateFlow("Non connesso")
     val connectionState: StateFlow<String> = _connectionState
@@ -39,6 +48,12 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
 
     private val _routePreview = MutableStateFlow<PlaceSearchResult?>(null)
     val routePreview: StateFlow<PlaceSearchResult?> = _routePreview
+
+    private val _routeOptions = MutableStateFlow<List<RouteOption>>(emptyList())
+    val routeOptions: StateFlow<List<RouteOption>> = _routeOptions
+
+    private val _selectedRouteIndex = MutableStateFlow(0)
+    val selectedRouteIndex: StateFlow<Int> = _selectedRouteIndex
 
     private val bleCodec = MotoBLEProtocolCodec()
     private var codecPtr: Long = 0
@@ -77,14 +92,42 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
 
     fun previewRoute(place: PlaceSearchResult, gatewayUrl: String) {
         _routePreview.value = place
+        _routeOptions.value = emptyList()
+        _selectedRouteIndex.value = 0
+
+        viewModelScope.launch {
+            _isLoading.value = true
+            try {
+                val options = withContext(Dispatchers.IO) {
+                    fetchRouteOptions(place, gatewayUrl)
+                }
+                _routeOptions.value = options
+            } catch (e: Exception) {
+                _errorMessage.value = "Impossibile recuperare opzioni percorso: ${e.message}"
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
+    fun selectRouteOption(index: Int) {
+        if (index in _routeOptions.value.indices) {
+            _selectedRouteIndex.value = index
+        }
     }
 
     fun clearRoutePreview() {
         _routePreview.value = null
+        _routeOptions.value = emptyList()
+        _selectedRouteIndex.value = 0
     }
 
     fun startNavigation(place: PlaceSearchResult, gatewayUrl: String) {
         if (gatewayUrl.isBlank()) return
+
+        activeDestination = place
+        activeGatewayUrl = gatewayUrl
+        isNavigating = true
 
         viewModelScope.launch {
             _isLoading.value = true
@@ -107,6 +150,150 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         }
     }
 
+    fun stopNavigation() {
+        isNavigating = false
+        activeDestination = null
+    }
+
+    // Live device location (defaulting to Rome, Italy: 41.9028° N, 12.4964° E)
+    private val _currentLocation = MutableStateFlow<Pair<Double, Double>>(Pair(41.9028, 12.4964))
+    val currentLocation: StateFlow<Pair<Double, Double>> = _currentLocation
+
+    private var activeDestination: PlaceSearchResult? = null
+    private var activeGatewayUrl: String = ""
+    private var isNavigating: Boolean = false
+    private var lastRecalculationTime: Long = 0
+
+    fun updateDeviceLocation(latitude: Double, longitude: Double) {
+        _currentLocation.value = Pair(latitude, longitude)
+
+        if (isNavigating && activeDestination != null && activeGatewayUrl.isNotBlank()) {
+            checkOffRouteAndRecalculate(latitude, longitude)
+        }
+    }
+
+    private fun checkOffRouteAndRecalculate(latitude: Double, longitude: Double) {
+        val dest = activeDestination ?: return
+        val now = System.currentTimeMillis()
+        if (now - lastRecalculationTime < 10000) return // Throttle recalculations to every 10s minimum
+
+        val crossTrackMeters = calculateDistanceMeters(latitude, longitude, dest.latitude, dest.longitude)
+        if (crossTrackMeters > 35) {
+            lastRecalculationTime = now
+            viewModelScope.launch {
+                try {
+                    val snapshot = withContext(Dispatchers.IO) {
+                        performRouting(dest, activeGatewayUrl)
+                    }
+                    if (codecPtr != 0L) {
+                        val frames = bleCodec.nativeEncodeNavigationSnapshot(codecPtr, snapshot)
+                        bleManager.enqueueSendFramesTask(frames)
+                    }
+                } catch (_: Exception) {
+                    // Ignore transient background recalculation errors
+                }
+            }
+        }
+    }
+
+    private fun calculateDistanceMeters(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+        val r = 6371000.0 // Earth radius in meters
+        val dLat = Math.toRadians(lat2 - lat1)
+        val dLon = Math.toRadians(lon2 - lon1)
+        val a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) *
+                Math.sin(dLon / 2) * Math.sin(dLon / 2)
+        val c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+        return r * c
+    }
+
+    private fun fetchRouteOptions(place: PlaceSearchResult, gatewayBaseUrl: String): List<RouteOption> {
+        val baseUrl = if (gatewayBaseUrl.endsWith("/")) gatewayBaseUrl else "$gatewayBaseUrl/"
+        val endpoint = "${baseUrl}v1/route-options"
+
+        val url = URL(endpoint)
+        val connection = url.openConnection() as HttpURLConnection
+        connection.requestMethod = "POST"
+        connection.setRequestProperty("Content-Type", "application/json")
+        connection.setRequestProperty("Accept", "application/json")
+        connection.connectTimeout = 15000
+        connection.readTimeout = 15000
+        connection.doOutput = true
+
+        val (originLat, originLon) = currentLocation.value
+
+        val jsonPayload = JSONObject().apply {
+            put("protocol_version", 1)
+            put("request_id", System.currentTimeMillis().rem(Int.MAX_VALUE).toInt())
+            put("route_mode", "driving")
+
+            val originObj = JSONObject().apply {
+                put("coordinate_system", "WGS84")
+                put("longitude_deg", originLon)
+                put("latitude_deg", originLat)
+            }
+            put("origin", originObj)
+
+            val destObj = JSONObject().apply {
+                put("coordinate_system", "WGS84")
+                put("longitude_deg", place.longitude)
+                put("latitude_deg", place.latitude)
+            }
+            put("destination", destObj)
+            put("is_reroute", false)
+        }
+
+        connection.outputStream.use { os ->
+            val input = jsonPayload.toString().toByteArray(Charsets.UTF_8)
+            os.write(input, 0, input.size)
+        }
+
+        try {
+            val responseCode = connection.responseCode
+            if (responseCode in 200..299) {
+                val response = connection.inputStream.bufferedReader().use { it.readText() }
+                val jsonObject = JSONObject(response)
+
+                val routesArray = jsonObject.optJSONArray("routes")
+                val results = mutableListOf<RouteOption>()
+
+                if (routesArray != null && routesArray.length() > 0) {
+                    for (i in 0 until routesArray.length()) {
+                        val routeObj = routesArray.getJSONObject(i)
+                        val summary = routeObj.optJSONObject("summary")
+                        val dist = summary?.optLong("total_distance_meters", 0L) ?: routeObj.optLong("totalDistanceM", 0L)
+                        val dur = summary?.optLong("estimated_duration_seconds", 0L) ?: routeObj.optLong("totalDurationS", 0L)
+
+                        val stepsList = mutableListOf<String>()
+                        val stepsArr = routeObj.optJSONArray("steps") ?: routeObj.optJSONArray("maneuvers")
+                        if (stepsArr != null) {
+                            for (j in 0 until stepsArr.length()) {
+                                val stepObj = stepsArr.getJSONObject(j)
+                                val instruction = stepObj.optString("instruction", stepObj.optString("name", ""))
+                                if (instruction.isNotBlank()) {
+                                    stepsList.add(instruction)
+                                }
+                            }
+                        }
+
+                        val title = if (i == 0) "Percorso consigliato" else "Percorso alternativo $i"
+                        results.add(RouteOption("route_$i", title, dist, dur, stepsList, routeObj))
+                    }
+                } else if (jsonObject.has("route")) {
+                    val routeObj = jsonObject.getJSONObject("route")
+                    val dist = routeObj.optLong("totalDistanceM", 0L)
+                    val dur = routeObj.optLong("totalDurationS", 0L)
+                    results.add(RouteOption("route_0", "Percorso consigliato", dist, dur, emptyList(), routeObj))
+                }
+                return results
+            } else {
+                throw Exception("HTTP Error $responseCode")
+            }
+        } finally {
+            connection.disconnect()
+        }
+    }
+
     private fun performRouting(place: PlaceSearchResult, gatewayBaseUrl: String): MotoBLENavigationSnapshot {
         val baseUrl = if (gatewayBaseUrl.endsWith("/")) gatewayBaseUrl else "$gatewayBaseUrl/"
         val endpoint = "${baseUrl}v1/routes"
@@ -120,17 +307,18 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         connection.readTimeout = 15000
         connection.doOutput = true
 
-        // Build the RouteRequest payload per NavigationModels.swift
+        val (originLat, originLon) = currentLocation.value
+
+        // Build the RouteRequest payload using live GPS origin
         val jsonPayload = JSONObject().apply {
             put("protocol_version", 1)
             put("request_id", System.currentTimeMillis().rem(Int.MAX_VALUE).toInt())
-            put("routeMode", "driving")
+            put("route_mode", "driving")
 
-            // Dummy origin for demonstration (since we don't have GPS fix yet in this scope)
             val originObj = JSONObject().apply {
                 put("coordinate_system", "WGS84")
-                put("longitude_deg", 116.397428) // Example origin
-                put("latitude_deg", 39.90923)
+                put("longitude_deg", originLon)
+                put("latitude_deg", originLat)
             }
             put("origin", originObj)
 
@@ -140,7 +328,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                 put("latitude_deg", place.latitude)
             }
             put("destination", destObj)
-            put("isReroute", false)
+            put("is_reroute", false)
         }
 
         connection.outputStream.use { os ->
