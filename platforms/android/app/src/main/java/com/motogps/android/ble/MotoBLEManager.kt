@@ -12,7 +12,10 @@ import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -20,6 +23,9 @@ import android.os.ParcelUuid
 import android.util.Log
 import com.motogps.android.jni.MotoBLEProtocolCodec
 import java.util.UUID
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.TimeUnit
 
 @SuppressLint("MissingPermission")
 class MotoBLEManager(private val context: Context) {
@@ -31,13 +37,34 @@ class MotoBLEManager(private val context: Context) {
     var onConnectionStateChange: ((String) -> Unit)? = null
     var onConnectionError: ((String) -> Unit)? = null
     private var bluetoothGatt: BluetoothGatt? = null
+    private var connectedDevice: BluetoothDevice? = null
     private var writeCharacteristic: BluetoothGattCharacteristic? = null
     private var readCharacteristic: BluetoothGattCharacteristic? = null
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    // Asynchronous Operation Queue logic for sequential GATT operations (Critical for Android 17+)
+    private var heartbeatScheduler: ScheduledExecutorService? = null
+
+    // Asynchronous Operation Queue logic for sequential GATT operations
     private val operationQueue = mutableListOf<() -> Unit>()
     private var operationInProgress = false
+
+    private val bondReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == BluetoothDevice.ACTION_BOND_STATE_CHANGED) {
+                val device = intent.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE)
+                val bondState = intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.BOND_NONE)
+                if (device?.address == connectedDevice?.address && bondState == BluetoothDevice.BOND_BONDED) {
+                    try {
+                        context?.unregisterReceiver(this)
+                    } catch (_: Exception) {}
+                    // Resume sequential GATT setup after bonding completes
+                    enqueueOperation {
+                        bluetoothGatt?.discoverServices()
+                    }
+                }
+            }
+        }
+    }
 
     private fun enqueueOperation(operation: () -> Unit) {
         operationQueue.add(operation)
@@ -65,18 +92,32 @@ class MotoBLEManager(private val context: Context) {
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
             when (newState) {
                 BluetoothProfile.STATE_CONNECTED -> {
-                    // Start sequential configuration Queue
-                    enqueueOperation {
-                        gatt.discoverServices()
+                    connectedDevice = gatt.device
+                    if (gatt.device.bondState != BluetoothDevice.BOND_BONDED) {
+                        // Register receiver for bonding state
+                        val filter = IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            context.registerReceiver(bondReceiver, filter, Context.RECEIVER_EXPORTED)
+                        } else {
+                            context.registerReceiver(bondReceiver, filter)
+                        }
+                        gatt.device.createBond()
+                    } else {
+                        // Already bonded, start sequential configuration queue
+                        enqueueOperation {
+                            gatt.discoverServices()
+                        }
                     }
                 }
                 BluetoothProfile.STATE_DISCONNECTED -> {
+                    stopHeartbeat()
                     mainHandler.post { onConnectionStateChange?.invoke("Non connesso") }
                     if (status != BluetoothGatt.GATT_SUCCESS) {
                         mainHandler.post { onConnectionError?.invoke("Errore di connessione GATT ($status)") }
                     }
                     writeCharacteristic = null
                     readCharacteristic = null
+                    connectedDevice = null
                     operationQueue.clear()
                     operationInProgress = false
                     bluetoothGatt?.close()
@@ -135,14 +176,16 @@ class MotoBLEManager(private val context: Context) {
 
         override fun onDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
             if (status == BluetoothGatt.GATT_SUCCESS && descriptor.uuid == cccdUuid) {
-                // Configuration complete! Safe to transition to connected state
                 mainHandler.post { onConnectionStateChange?.invoke("Connesso") }
 
-                // Immediately send initial handshake (PhoneStarting) frame
+                // Immediately send initial handshake (PhoneStarting) frame and start heartbeat
                 enqueueOperation {
                     sendHandshakeFrames()
+                    startHeartbeat()
                     completeOperation()
                 }
+            } else if (status == 15 /* GATT_INSUFFICIENT_ENCRYPTION */) {
+                connectedDevice?.createBond()
             }
             completeOperation() // End enable notification operation
         }
@@ -196,6 +239,34 @@ class MotoBLEManager(private val context: Context) {
         for (frame in frames) {
             internalWriteFrame(frame)
             Thread.sleep(10) // Pacing
+        }
+        codec.nativeDestroy(ptr)
+    }
+
+    private fun startHeartbeat() {
+        stopHeartbeat()
+        heartbeatScheduler = Executors.newSingleThreadScheduledExecutor()
+        heartbeatScheduler?.scheduleAtFixedRate({
+            try {
+                sendHeartbeatFrame()
+            } catch (e: Exception) {
+                Log.w("MotoBLEManager", "Heartbeat write failed: ${e.message}")
+            }
+        }, 1000, 1000, TimeUnit.MILLISECONDS)
+    }
+
+    private fun stopHeartbeat() {
+        heartbeatScheduler?.shutdownNow()
+        heartbeatScheduler = null
+    }
+
+    private fun sendHeartbeatFrame() {
+        val codec = MotoBLEProtocolCodec()
+        val ptr = codec.nativeInit(247)
+        val sessionMs = System.currentTimeMillis() % Int.MAX_VALUE
+        val frames = codec.nativeEncodeHeartbeat(ptr, sessionMs, sessionMs)
+        for (frame in frames) {
+            internalWriteFrame(frame)
         }
         codec.nativeDestroy(ptr)
     }

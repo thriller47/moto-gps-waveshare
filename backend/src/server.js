@@ -49,7 +49,7 @@ function createDisabledProvider() {
 }
 
 async function main() {
-  const providerMode = process.env.PROVIDER_MODE || process.env.MOTO_PROVIDER || "osm";
+  const providerMode = process.env.MOTO_PROVIDER ?? process.env.PROVIDER_MODE ?? "osm";
   let provider;
   if (providerMode === "osm") {
     provider = createOsmProvider();

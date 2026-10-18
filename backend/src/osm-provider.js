@@ -28,7 +28,7 @@ export function createOsmProvider({
   return {
     async searchPlaces(query) {
       const keywords = encodeURIComponent(query.keywords);
-      const url = `${nominatimBaseUrl}/search?q=${keywords}&format=json&addressdetails=1&limit=10`;
+      const url = `${nominatimBaseUrl}/search?q=${keywords}&format=json&addressdetails=1&limit=10&accept-language=it`;
       
       const data = await fetchJson(url);
 
