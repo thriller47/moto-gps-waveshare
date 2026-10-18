@@ -3,26 +3,45 @@ import { Buffer } from "node:buffer";
 export function createOsmProvider({
   nominatimBaseUrl = "https://nominatim.openstreetmap.org",
   osrmBaseUrl = "https://router.project-osrm.org",
-  userAgent = "MotoGPSGateway/1.0",
+  userAgent = "MotoGPSWaveshare/1.0 (Android; contact@motogps.local)",
+  timeoutMs = 15000,
 } = {}) {
-  
+
   async function fetchJson(url, options = {}) {
-    const response = await fetch(url, {
-      ...options,
-      headers: {
-        "User-Agent": userAgent,
-        ...(options.headers || {}),
-      },
-    });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-    if (!response.ok) {
-      const error = new Error(`External service failed with status ${response.status}`);
-      error.code = "UPSTREAM_ERROR";
-      error.retryable = true;
+    try {
+      const response = await fetch(url, {
+        ...options,
+        signal: controller.signal,
+        headers: {
+          "User-Agent": userAgent,
+          "Accept": "application/json",
+          ...(options.headers || {}),
+        },
+      });
+
+      if (!response.ok) {
+        const error = new Error(`External OSM service failed with status ${response.status}`);
+        error.code = "UPSTREAM_ERROR";
+        error.retryable = true;
+        throw error;
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error(`[OSM_GATEWAY] Errore chiamata OSM (${url}):`, error.message, error);
+      if (error.name === "AbortError") {
+        const timeoutError = new Error(`OSM service request timed out after ${timeoutMs}ms`);
+        timeoutError.code = "UPSTREAM_TIMEOUT";
+        timeoutError.retryable = true;
+        throw timeoutError;
+      }
       throw error;
+    } finally {
+      clearTimeout(timer);
     }
-
-    return response.json();
   }
 
   return {
