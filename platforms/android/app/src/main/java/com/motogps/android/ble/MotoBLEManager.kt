@@ -57,10 +57,12 @@ class MotoBLEManager(private val context: Context) {
                     try {
                         context?.unregisterReceiver(this)
                     } catch (_: Exception) {}
-                    // Resume sequential GATT setup after bonding completes
-                    enqueueOperation {
-                        bluetoothGatt?.discoverServices()
-                    }
+                    // Resume sequential GATT setup after bonding completes with 300ms delay
+                    mainHandler.postDelayed({
+                        enqueueOperation {
+                            bluetoothGatt?.discoverServices()
+                        }
+                    }, 300)
                 }
             }
         }
@@ -112,10 +114,12 @@ class MotoBLEManager(private val context: Context) {
                         }
                         gatt.device.createBond()
                     } else {
-                        // Fully BOND_BONDED, start sequential configuration queue
-                        enqueueOperation {
-                            gatt.discoverServices()
-                        }
+                        // Fully BOND_BONDED, start sequential configuration queue after 300ms delay
+                        mainHandler.postDelayed({
+                            enqueueOperation {
+                                gatt.discoverServices()
+                            }
+                        }, 300)
                     }
                 }
                 BluetoothProfile.STATE_DISCONNECTED -> {
@@ -129,8 +133,15 @@ class MotoBLEManager(private val context: Context) {
                     connectedDevice = null
                     operationQueue.clear()
                     operationInProgress = false
-                    bluetoothGatt?.close()
-                    bluetoothGatt = null
+                    try {
+                        gatt.disconnect()
+                    } catch (_: Exception) {}
+                    try {
+                        gatt.close()
+                    } catch (_: Exception) {}
+                    if (bluetoothGatt == gatt) {
+                        bluetoothGatt = null
+                    }
                 }
             }
         }
@@ -227,7 +238,7 @@ class MotoBLEManager(private val context: Context) {
     }
 
     private fun connectToDevice(device: BluetoothDevice) {
-        bluetoothGatt = device.connectGatt(context, false, gattCallback)
+        bluetoothGatt = device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
     }
 
     fun startScan() {

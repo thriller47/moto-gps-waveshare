@@ -221,8 +221,19 @@ int BleNavTransport::gap_event(ble_gap_event* event, void* argument) {
         self->peer_max_frame_size_.store(20);
         self->session_id_.store(0);
         self->connection_epoch_.fetch_add(1);
+
+        // Relax connection parameters to prevent link timeout during UI rendering
+        struct ble_gap_upd_params update_params {};
+        update_params.itvl_min = 0x10;  // 20 ms
+        update_params.itvl_max = 0x20;  // 40 ms
+        update_params.latency = 0;
+        update_params.supervision_timeout = 400;  // 4000 ms
+        update_params.min_ce_len = 0;
+        update_params.max_ce_len = 0;
+        ble_gap_update_params(event->connect.conn_handle, &update_params);
+
         ESP_LOGI(kTag,
-                 "iPhone connected; handle=%u encrypted=%u subscribed=%u",
+                 "Phone connected; handle=%u encrypted=%u subscribed=%u",
                  event->connect.conn_handle,
                  self->encrypted_.load() ? 1U : 0U,
                  self->subscribed_.load() ? 1U : 0U);
