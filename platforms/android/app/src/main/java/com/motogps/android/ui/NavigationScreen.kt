@@ -1,9 +1,13 @@
 package com.motogps.android.ui
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -15,6 +19,7 @@ fun NavigationScreen(initialGateway: String, onGatewaySave: (String) -> Unit) {
     var currentGateway by remember { mutableStateOf(initialGateway) }
     var showGatewayDialog by remember { mutableStateOf(initialGateway.isBlank()) }
     var tempGateway by remember { mutableStateOf(initialGateway) }
+    val focusManager = LocalFocusManager.current
 
     if (showGatewayDialog) {
         AlertDialog(
@@ -65,7 +70,10 @@ fun NavigationScreen(initialGateway: String, onGatewaySave: (String) -> Unit) {
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 placeholder = { Text("Cerca destinazione") },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) }
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() })
             )
 
             ListItem(
