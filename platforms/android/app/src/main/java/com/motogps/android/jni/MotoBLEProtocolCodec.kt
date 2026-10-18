@@ -1,79 +1,112 @@
 package com.motogps.android.jni
 
-class MotoBLEProtocolCodec(maximumFrameSize: Int = 182) {
-    private var nativePtr: Long = 0L
+class MotoBLEProtocolCodec(maximumFrameSize: Int) {
+
+    private var nativePtr: Long = 0
 
     init {
-        System.loadLibrary("motogps_jni")
-        nativePtr = nativeInit(maximumFrameSize)
-    }
-
-    fun destroy() {
-        if (nativePtr != 0L) {
-            nativeDestroy(nativePtr)
-            nativePtr = 0L
+        if (isLibraryLoaded) {
+            nativePtr = nativeInit(maximumFrameSize)
         }
     }
 
     fun setMaximumFrameSize(maximumFrameSize: Int) {
-        if (nativePtr != 0L) {
+        if (isLibraryLoaded) {
             nativeSetMaximumFrameSize(nativePtr, maximumFrameSize)
         }
     }
 
     fun resetInboundState() {
-        if (nativePtr != 0L) {
+        if (isLibraryLoaded) {
             nativeResetInboundState(nativePtr)
         }
     }
 
-    fun encodePhoneStarting(sessionId: Long): Array<ByteArray> {
-        return if (nativePtr != 0L) nativeEncodePhoneStarting(nativePtr, sessionId) else emptyArray()
+    fun encodePhoneStarting(sessionID: Long): List<ByteArray> {
+        if (!isLibraryLoaded) return emptyList()
+        return nativeEncodePhoneStarting(nativePtr, sessionID).toList()
     }
 
-    fun encodePhoneReady(sessionId: Long): Array<ByteArray> {
-        return if (nativePtr != 0L) nativeEncodePhoneReady(nativePtr, sessionId) else emptyArray()
+    fun encodePhoneReady(sessionID: Long): List<ByteArray> {
+        if (!isLibraryLoaded) return emptyList()
+        return nativeEncodePhoneReady(nativePtr, sessionID).toList()
     }
 
-    fun encodeHeartbeat(sessionId: Long, monotonicMs: Long): Array<ByteArray> {
-        return if (nativePtr != 0L) nativeEncodeHeartbeat(nativePtr, sessionId, monotonicMs) else emptyArray()
+    fun encodeHeartbeat(sessionID: Long, monotonicMs: Long): List<ByteArray> {
+        if (!isLibraryLoaded) return emptyList()
+        return nativeEncodeHeartbeat(nativePtr, sessionID, monotonicMs).toList()
     }
 
-    fun encodeAck(sequence: Int, status: Int, commandId: Int): Array<ByteArray> {
-        return if (nativePtr != 0L) nativeEncodeAck(nativePtr, sequence, status, commandId) else emptyArray()
+    fun encodeAck(sequence: Int, status: Int, commandID: Int): List<ByteArray> {
+        if (!isLibraryLoaded) return emptyList()
+        return nativeEncodeAck(nativePtr, sequence, status, commandID).toList()
     }
 
-    fun encodeNavigationSnapshot(snapshot: MotoBLENavigationSnapshot): Array<ByteArray> {
-        return if (nativePtr != 0L) nativeEncodeNavigationSnapshot(nativePtr, snapshot) else emptyArray()
+    fun encodeNavigationSnapshot(snapshot: MotoBLENavigationSnapshotInput): List<ByteArray> {
+        if (!isLibraryLoaded) return emptyList()
+        return nativeEncodeNavigationSnapshot(nativePtr, snapshot).toList()
     }
 
-    fun encodeNavigationPayloadForGoldenCheck(snapshot: MotoBLENavigationSnapshot): ByteArray? {
-        return if (nativePtr != 0L) nativeEncodeNavigationPayloadForGoldenCheck(nativePtr, snapshot) else null
+    fun encodeNavigationPayloadForGoldenCheck(snapshot: MotoBLENavigationSnapshotInput): ByteArray {
+        if (!isLibraryLoaded) return ByteArray(0)
+        return nativeEncodeNavigationPayloadForGoldenCheck(nativePtr, snapshot)
     }
 
-    fun encodeMediaState(state: MotoBLEMediaState): Array<ByteArray> {
-        return if (nativePtr != 0L) nativeEncodeMediaState(nativePtr, state) else emptyArray()
+    fun encodeMediaState(state: MotoBLEMediaStateInput): List<ByteArray> {
+        if (!isLibraryLoaded) return emptyList()
+        return nativeEncodeMediaState(nativePtr, state).toList()
     }
 
     fun pushDeviceFrame(frame: ByteArray, receivedAtMs: Long): MotoBLEInboundMessage? {
-        return if (nativePtr != 0L) nativePushDeviceFrame(nativePtr, frame, receivedAtMs) else null
+        if (!isLibraryLoaded) return null
+        return nativePushDeviceFrame(nativePtr, frame, receivedAtMs)
     }
 
     fun getLastEncodedSequence(): Int {
-        return if (nativePtr != 0L) nativeGetLastEncodedSequence(nativePtr) else 0
+        if (!isLibraryLoaded) return 0
+        return nativeGetLastEncodedSequence(nativePtr)
+    }
+
+    protected fun finalize() {
+        if (nativePtr != 0L && isLibraryLoaded) {
+            nativeDestroy(nativePtr)
+            nativePtr = 0
+        }
     }
 
     private external fun nativeInit(maximumFrameSize: Int): Long
     private external fun nativeDestroy(ptr: Long)
     private external fun nativeSetMaximumFrameSize(ptr: Long, maximumFrameSize: Int)
     private external fun nativeResetInboundState(ptr: Long)
-    private external fun nativeEncodePhoneStarting(ptr: Long, sessionId: Long): Array<ByteArray>
-    private external fun nativeEncodePhoneReady(ptr: Long, sessionId: Long): Array<ByteArray>
-    private external fun nativeEncodeHeartbeat(ptr: Long, sessionId: Long, monotonicMs: Long): Array<ByteArray>
-    private external fun nativeEncodeAck(ptr: Long, sequence: Int, status: Int, commandId: Int): Array<ByteArray>
-    private external fun nativeEncodeNavigationSnapshot(ptr: Long, snapshot: MotoBLENavigationSnapshot): Array<ByteArray>
-    private external fun nativeEncodeNavigationPayloadForGoldenCheck(ptr: Long, snapshot: MotoBLENavigationSnapshot): ByteArray?
-    private external fun nativeEncodeMediaState(ptr: Long, state: MotoBLEMediaState): Array<ByteArray>
+    private external fun nativeEncodePhoneStarting(ptr: Long, sessionID: Long): Array<ByteArray>
+    private external fun nativeEncodePhoneReady(ptr: Long, sessionID: Long): Array<ByteArray>
+    private external fun nativeEncodeHeartbeat(ptr: Long, sessionID: Long, monotonicMs: Long): Array<ByteArray>
+    private external fun nativeEncodeAck(ptr: Long, sequence: Int, status: Int, commandID: Int): Array<ByteArray>
+    private external fun nativeEncodeNavigationSnapshot(ptr: Long, snapshot: MotoBLENavigationSnapshotInput): Array<ByteArray>
+    private external fun nativeEncodeNavigationPayloadForGoldenCheck(ptr: Long, snapshot: MotoBLENavigationSnapshotInput): ByteArray
+    private external fun nativeEncodeMediaState(ptr: Long, state: MotoBLEMediaStateInput): Array<ByteArray>
     private external fun nativePushDeviceFrame(ptr: Long, frame: ByteArray, receivedAtMs: Long): MotoBLEInboundMessage?
     private external fun nativeGetLastEncodedSequence(ptr: Long): Int
+
+    companion object {
+        var isLibraryLoaded = false
+            private set
+
+        var libraryLoadError: Throwable? = null
+            private set
+
+        init {
+            try {
+                System.loadLibrary("motogps_jni")
+                isLibraryLoaded = true
+            } catch (t: Throwable) {
+                libraryLoadError = t
+                isLibraryLoaded = false
+            }
+        }
+
+        const val SERVICE_UUID_STRING = "7e57a000-b50c-4b6a-9c57-40a54e8e1000"
+        const val PHONE_TO_DEVICE_UUID_STRING = "7e57a001-b50c-4b6a-9c57-40a54e8e1000"
+        const val DEVICE_TO_PHONE_UUID_STRING = "7e57a002-b50c-4b6a-9c57-40a54e8e1000"
+    }
 }

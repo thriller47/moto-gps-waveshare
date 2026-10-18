@@ -72,9 +72,13 @@ data class MotoBLENavigationSnapshot(
     val instructionText: String = "Continua su"
 )
 
+typealias MotoBLENavigationSnapshotInput = MotoBLENavigationSnapshot
+
 data class MotoBLEMediaState(
     val sourceName: String = "Smartphone",
     val trackTitle: String = "In attesa di connessione",
     val artistName: String = "Media",
     val flags: Long = 0L
 )
+
+typealias MotoBLEMediaStateInput = MotoBLEMediaState
