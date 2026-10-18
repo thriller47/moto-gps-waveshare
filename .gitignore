@@ -2,3 +2,8 @@ platforms/android/app/.cxx/
 platforms/android/app/build/
 platforms/android/.gradle/
 platforms/android/local.properties
+platforms/esp32/build/
+build/
+backend/node_modules/
+__pycache__/
+.pytest_cache/
