@@ -55,6 +55,7 @@ data class MotoBLENavigationSnapshot(
     val offRoute: Boolean = false,
     val routeRequestInFlight: Boolean = false,
     val trafficRequestInFlight: Boolean = false,
+    val hasRouteView: Boolean = false,
     val routeToken: Long = 0L,
     val routeGeneration: Long = 0L,
     val maneuverID: Long = 0L,
@@ -69,6 +70,7 @@ data class MotoBLENavigationSnapshot(
     val accuracyDecimeters: Int = 0,
     val crossTrackDecimeters: Int = 0,
     val roundaboutExit: Int = 0,
+    val roadName: String = "",
     val instructionText: String = "Continua su"
 )
 
