@@ -222,7 +222,7 @@ int BleNavTransport::gap_event(ble_gap_event* event, void* argument) {
         self->session_id_.store(0);
         self->connection_epoch_.fetch_add(1);
         ESP_LOGI(kTag,
-                 "iPhone connected; handle=%u encrypted=%u subscribed=%u",
+                 "Smartphone connected; handle=%u encrypted=%u subscribed=%u",
                  event->connect.conn_handle,
                  self->encrypted_.load() ? 1U : 0U,
                  self->subscribed_.load() ? 1U : 0U);

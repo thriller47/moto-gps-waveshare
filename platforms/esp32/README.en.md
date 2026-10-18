@@ -55,11 +55,11 @@ idf.py -C platforms/esp32 -p PORT flash monitor
 
 `erase-flash` is not needed; leave the serial log with Ctrl+]. Use only the flash parameters generated
 by this local build, and do not apply another board's image offsets. On first use complete the system
-Bluetooth pairing in the iPhone.
+Bluetooth pairing in the smartphone.
 
 ## Behaviour and limitations
 
-- Advertised name `MOTO GPS`; the iPhone provides positioning, routes, scene and music state over BLE.
+- Advertised name `MOTO GPS`; the smartphone provides positioning, routes, scene and music state over BLE.
 - After the black-and-white boot animation it enters the connection page; once connected it waits for
   the phone to select a route and does not draw an empty route as `0 m`.
 - Swipe left and right to change pages; the page dots hide after five seconds. Whether the music page

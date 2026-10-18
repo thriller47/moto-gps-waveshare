@@ -345,8 +345,8 @@ void PhoneNavBridge::on_link_state(bool active) {
       last_motion_present_ms_ = 0;
       music_page_enabled_ = false;
       media_state_ = {};
-      media_state_.source_name = "Android";
-      media_state_.track_title = "In Attesa...";
+      media_state_.source_name = "Smartphone";
+      media_state_.track_title = "In attesa di connessione";
     }
   }
   const std::uint32_t flags = static_cast<std::uint32_t>(RenderNavigation) |
@@ -741,7 +741,7 @@ moto::ble::AckStatus PhoneNavBridge::consume_geometry(
     }
   }
   // RouteGeometry is queued immediately before its matching
-  // NavigationSnapshot by the iPhone.  Retain the completed geometry here and
+  // NavigationSnapshot by the phone.  Retain the completed geometry here and
   // let that snapshot perform the single full LVGL update for the pair.  A
   // second blocking redraw in the BLE worker halved receive throughput and
   // could eventually fill the bounded RX queue during continuous navigation.

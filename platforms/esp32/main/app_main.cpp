@@ -214,6 +214,6 @@ extern "C" void app_main(void) {
   }
 
   ESP_LOGI(kTag,
-           "iPhone BLE + QMI heading -> NavPresenter -> shared LVGL running");
+           "Smartphone BLE + QMI heading -> NavPresenter -> shared LVGL running");
   vTaskDelete(nullptr);
 }
