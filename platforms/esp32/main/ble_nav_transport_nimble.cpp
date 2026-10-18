@@ -97,17 +97,13 @@ esp_err_t BleNavTransport::start() {
   ble_hs_cfg.reset_cb = host_reset;
   ble_hs_cfg.sync_cb = host_sync;
   ble_hs_cfg.store_status_cb = ble_store_util_status_rr;
-  // iOS triggers Just Works pairing when it first writes RX or enables TX
-  // notifications. LESC + bonding gives Security Mode 1 Level 2 without a
-  // keyboard/display passkey flow on this tiny instrument.
+  // Leave BLE connection open without mandatory bonding/encryption requirements
   ble_hs_cfg.sm_io_cap = BLE_HS_IO_NO_INPUT_OUTPUT;
-  ble_hs_cfg.sm_bonding = 1;
+  ble_hs_cfg.sm_bonding = 0;
   ble_hs_cfg.sm_mitm = 0;
-  ble_hs_cfg.sm_sc = 1;
-  ble_hs_cfg.sm_our_key_dist =
-      BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
-  ble_hs_cfg.sm_their_key_dist =
-      BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
+  ble_hs_cfg.sm_sc = 0;
+  ble_hs_cfg.sm_our_key_dist = 0;
+  ble_hs_cfg.sm_their_key_dist = 0;
 
   const int gatt_result = register_gatt_service();
   if (gatt_result != 0) {
@@ -143,15 +139,14 @@ int BleNavTransport::register_gatt_service() {
   g_characteristics[0].access_cb = gatt_access;
   g_characteristics[0].arg = this;
   g_characteristics[0].flags =
-      BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP |
-      BLE_GATT_CHR_F_WRITE_ENC;
+      BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP;
   g_characteristics[0].val_handle = &g_rx_value_handle;
 
   g_characteristics[1].uuid = &kTxUuid.u;
   g_characteristics[1].access_cb = gatt_access;
   g_characteristics[1].arg = this;
   g_characteristics[1].flags =
-      BLE_GATT_CHR_F_NOTIFY | BLE_GATT_CHR_F_NOTIFY_INDICATE_ENC;
+      BLE_GATT_CHR_F_NOTIFY;
   // The handle is written during GATT registration, before host sync.
   g_characteristics[1].val_handle = &tx_value_handle_;
 
@@ -213,29 +208,14 @@ int BleNavTransport::gap_event(ble_gap_event* event, void* argument) {
       if (event->connect.status == 0) {
         self->connection_handle_.store(event->connect.conn_handle);
         self->connected_.store(true);
-        // With a restored iOS bond NimBLE can report encryption and the TX
-        // subscription before it delivers CONNECT to this callback. DISCONNECT
-        // already clears both flags, so do not erase those valid early events
-        // here or the first Device Ready response will be suppressed forever.
         self->max_frame_size_.store(20);
         self->peer_max_frame_size_.store(20);
         self->session_id_.store(0);
         self->connection_epoch_.fetch_add(1);
 
-        // Relax connection parameters to prevent link timeout during UI rendering
-        struct ble_gap_upd_params update_params {};
-        update_params.itvl_min = 0x10;  // 20 ms
-        update_params.itvl_max = 0x20;  // 40 ms
-        update_params.latency = 0;
-        update_params.supervision_timeout = 400;  // 4000 ms
-        update_params.min_ce_len = 0;
-        update_params.max_ce_len = 0;
-        ble_gap_update_params(event->connect.conn_handle, &update_params);
-
         ESP_LOGI(kTag,
-                 "Phone connected; handle=%u encrypted=%u subscribed=%u",
+                 "Phone connected; handle=%u subscribed=%u",
                  event->connect.conn_handle,
-                 self->encrypted_.load() ? 1U : 0U,
                  self->subscribed_.load() ? 1U : 0U);
       } else {
         ESP_LOGW(kTag, "connection failed: status=%d",
@@ -585,7 +565,7 @@ void BleNavTransport::run_rx_worker() {
       xSemaphoreGive(tx_mutex_);
     }
     if (!awaiting_ack && protocol_ready && session_id_.load() != 0 &&
-        connected_.load() && encrypted_.load() && subscribed_.load() &&
+        connected_.load() && subscribed_.load() &&
         static_cast<std::uint32_t>(now) - last_tx_ms_.load() >= 1'000U) {
       moto::ble::Heartbeat heartbeat;
       heartbeat.session_id = session_id_.load();
@@ -669,7 +649,7 @@ void BleNavTransport::service_pending_ack(std::uint64_t now_ms) {
     return;
   }
   if (pending_ack_.active && now_ms >= pending_ack_.deadline_ms) {
-    if (pending_ack_.retries < 2 && connected_.load() && encrypted_.load() &&
+    if (pending_ack_.retries < 2 && connected_.load() &&
         subscribed_.load()) {
       ESP_LOGW(kTag, "command ACK timeout; retry %u/2",
                static_cast<unsigned>(pending_ack_.retries + 1U));
@@ -690,7 +670,7 @@ void BleNavTransport::service_pending_ack(std::uint64_t now_ms) {
 
 bool BleNavTransport::notify_frames(
     const std::vector<moto::ble::Bytes>& frames) {
-  if (!connected_.load() || !encrypted_.load() || !subscribed_.load()) {
+  if (!connected_.load() || !subscribed_.load()) {
     return false;
   }
   for (const auto& frame : frames) {
@@ -724,8 +704,7 @@ std::size_t BleNavTransport::negotiated_frame_size() const noexcept {
 
 bool BleNavTransport::send_message(const moto::ble::Message& message,
                                    std::uint8_t frame_flags) {
-  if (!started_ || !connected_.load() || !encrypted_.load() ||
-      !subscribed_.load() ||
+  if (!started_ || !connected_.load() || !subscribed_.load() ||
       tx_value_handle_ == 0 || tx_mutex_ == nullptr) {
     return false;
   }
