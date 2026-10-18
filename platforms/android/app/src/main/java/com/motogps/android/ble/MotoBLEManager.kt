@@ -93,8 +93,17 @@ class MotoBLEManager(private val context: Context) {
             when (newState) {
                 BluetoothProfile.STATE_CONNECTED -> {
                     connectedDevice = gatt.device
-                    if (gatt.device.bondState != BluetoothDevice.BOND_BONDED) {
-                        // Register receiver for bonding state
+                    val bondState = gatt.device.bondState
+                    if (bondState == BluetoothDevice.BOND_BONDING) {
+                        // Bonding in progress, wait for BOND_BONDED broadcast receiver
+                        val filter = IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            context.registerReceiver(bondReceiver, filter, Context.RECEIVER_EXPORTED)
+                        } else {
+                            context.registerReceiver(bondReceiver, filter)
+                        }
+                    } else if (bondState != BluetoothDevice.BOND_BONDED) {
+                        // Register receiver and initiate bond
                         val filter = IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                             context.registerReceiver(bondReceiver, filter, Context.RECEIVER_EXPORTED)
@@ -103,7 +112,7 @@ class MotoBLEManager(private val context: Context) {
                         }
                         gatt.device.createBond()
                     } else {
-                        // Already bonded, start sequential configuration queue
+                        // Fully BOND_BONDED, start sequential configuration queue
                         enqueueOperation {
                             gatt.discoverServices()
                         }
