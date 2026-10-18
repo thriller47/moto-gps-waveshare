@@ -10,12 +10,51 @@ import androidx.compose.material.icons.filled.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NavigationScreen() {
+fun NavigationScreen(initialGateway: String, onGatewaySave: (String) -> Unit) {
     var searchQuery by remember { mutableStateOf("") }
+    var currentGateway by remember { mutableStateOf(initialGateway) }
+    var showGatewayDialog by remember { mutableStateOf(initialGateway.isBlank()) }
+    var tempGateway by remember { mutableStateOf(initialGateway) }
+
+    if (showGatewayDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                if (currentGateway.isNotBlank()) showGatewayDialog = false
+            },
+            title = { Text("Configurazione Gateway") },
+            text = {
+                OutlinedTextField(
+                    value = tempGateway,
+                    onValueChange = { tempGateway = it },
+                    label = { Text("Indirizzo Gateway") }
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (tempGateway.isNotBlank()) {
+                            onGatewaySave(tempGateway)
+                            currentGateway = tempGateway
+                            showGatewayDialog = false
+                        }
+                    }
+                ) {
+                    Text("Salva")
+                }
+            }
+        )
+    }
 
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text("MOTO GPS") })
+            TopAppBar(
+                title = { Text("MOTO GPS") },
+                actions = {
+                    IconButton(onClick = { showGatewayDialog = true }) {
+                        Icon(Icons.Default.Settings, contentDescription = "Impostazioni Gateway")
+                    }
+                }
+            )
         }
     ) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
@@ -25,22 +64,20 @@ fun NavigationScreen() {
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 8.dp),
-                placeholder = { Text("Search Destination") },
+                placeholder = { Text("Cerca destinazione") },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) }
             )
 
-            // Mimic iOS device summary section
             ListItem(
-                headlineContent = { Text("我的圆屏") },
-                supportingContent = { Text("未连接") }, // idle state
+                headlineContent = { Text("Il mio display") },
+                supportingContent = { Text("Non connesso") },
                 leadingContent = {
-                    Icon(Icons.Default.Settings, contentDescription = null) // placeholder icon
+                    Icon(Icons.Default.Settings, contentDescription = null)
                 }
             )
 
-            Divider()
+            HorizontalDivider()
 
-            // Placeholder for iOS "Select Destination" view
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 Column(
                     modifier = Modifier.padding(32.dp),
@@ -52,8 +89,8 @@ fun NavigationScreen() {
                         modifier = Modifier.size(48.dp)
                     )
                     Spacer(modifier = Modifier.height(16.dp))
-                    Text("选择目的地", style = MaterialTheme.typography.titleMedium)
-                    Text("搜索地点或地址，选好路线就出发。")
+                    Text("Seleziona destinazione", style = MaterialTheme.typography.titleMedium)
+                    Text("Cerca un luogo o un indirizzo, scegli il percorso e parti.")
                 }
             }
         }
