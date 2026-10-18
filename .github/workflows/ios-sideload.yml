@@ -55,7 +55,7 @@ jobs:
             xcrun xcresulttool export attachments --path build/GatewayTests.xcresult --output-path build/ui-screenshots
           fi
       - name: Upload IPA and checksum
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@v4
         with:
           name: MOTO-GPS-unsigned-IPA
           path: |
@@ -64,7 +64,7 @@ jobs:
           if-no-files-found: error
       - name: Upload test results and screenshots
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@v4
         with:
           name: iOS-test-results
           path: |
