@@ -57,6 +57,19 @@ idf.py -C platforms/esp32 -p PORT flash monitor
 by this local build, and do not apply another board's image offsets. On first use complete the system
 Bluetooth pairing in the iPhone.
 
+## Flash Partitions and Offsets
+
+The board features 32MB Flash. The partition layout (`partitions.csv`) is configured as follows:
+- `nvs`: `0x9000` (size 24KB / `0x6000`)
+- `phy_init`: `0xF000` (size 4KB / `0x1000`)
+- `factory` (Factory App): offset `0x10000`, size 12MB (`0xC00000`)
+- `storage` (SPIFFS/Map storage): offset `0xC10000`, size 19MB (`0x1300000`)
+
+When flashing an offline map partition image separately, use the offset `0xc10000`:
+```sh
+python -m esptool --chip esp32s3 --port PORT write_flash 0xc10000 map_storage.bin
+```
+
 ## Behaviour and limitations
 
 - Advertised name `MOTO GPS`; the iPhone provides positioning, routes, scene and music state over BLE.

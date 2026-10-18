@@ -48,6 +48,19 @@ idf.py -C platforms/esp32 -p PORT flash monitor
 不需要 `erase-flash`；串口日志用 Ctrl+] 退出。只使用本机这次编译生成的 flash 参数，
 不要套用其他板卡镜像偏移。首次使用在 iPhone 中完成系统蓝牙配对。
 
+## Flash 分区与存储偏移
+
+开发板配备 32MB Flash，分区表（`partitions.csv`）配置如下：
+- `nvs`: `0x9000` (大小 24KB / `0x6000`)
+- `phy_init`: `0xF000` (大小 4KB / `0x1000`)
+- `factory` (Factory App): 偏移 `0x10000`，大小 12MB (`0xC00000`)
+- `storage` (SPIFFS/地图存储): 偏移 `0xC10000`，大小 19MB (`0x1300000`)
+
+刷写独立的离线地图镜像时，请指定存储分区偏移地址 `0xc10000`：
+```sh
+python -m esptool --chip esp32s3 --port PORT write_flash 0xc10000 map_storage.bin
+```
+
 ## 行为与限制
 
 - 广播名称 `MOTO GPS`；iPhone 通过 BLE 提供定位、路线、场景与音乐状态。
