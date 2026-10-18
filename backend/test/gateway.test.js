@@ -20,6 +20,30 @@ async function startGateway(t, provider) {
   return `http://127.0.0.1:${address.port}`;
 }
 
+test("exposes live readiness and provider-neutral place search for osm provider", async (t) => {
+  const provider = {
+    async planRoute() {
+      throw new Error("not used");
+    },
+    async searchPlaces(query) {
+      return { protocol_version: 1, query: query.keywords, places: [] };
+    },
+  };
+  const server = createGateway({ provider, allowedOrigin: "http://localhost:5173", providerMode: "osm" });
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+
+  const health = await (await fetch(`${baseUrl}/healthz`)).json();
+  assert.equal(health.ready_for_live_navigation, true);
+  assert.equal(health.provider, "osm");
+  assert.equal(health.capabilities.route_planning, true);
+  assert.equal(health.capabilities.route_traffic, false);
+});
+
 test("exposes live readiness and provider-neutral place search", async (t) => {
   let receivedPlaceQuery;
   const provider = {

@@ -15,9 +15,9 @@ test("protocol schemas are versioned and make coordinate systems explicit", asyn
   assert.equal(requestSchema.properties.protocol_version.const, 1);
   assert.equal(requestSchema.$defs.wgs84Point.properties.coordinate_system.const, "WGS84");
   assert.equal(bundleSchema.properties.protocol_version.const, 1);
-  assert.equal(
-    bundleSchema.$defs.routeBundle.properties.coordinate_system.const,
-    "GCJ-02",
+  assert.deepEqual(
+    bundleSchema.$defs.routeBundle.properties.coordinate_system.enum,
+    ["GCJ-02", "WGS84"],
   );
   assert.ok(bundleSchema.required.includes("request_id"));
   assert.equal(optionsSchema.properties.protocol_version.const, 1);

@@ -167,15 +167,16 @@ export function createGateway({
     }
 
     if (request.method === "GET" && requestUrl.pathname === "/healthz") {
+      const isLiveProvider = providerMode === "amap" || providerMode === "osm";
       sendJson(
         response,
         200,
         {
           status: "ok",
-          ready_for_live_navigation: providerMode === "amap",
+          ready_for_live_navigation: isLiveProvider,
           provider: providerMode,
           capabilities: {
-            route_planning: providerMode === "amap",
+            route_planning: isLiveProvider,
             route_traffic: providerMode === "amap",
             // Route Planning v2 exposes neither legal road speed limits nor
             // live signal phases. API readiness must not imply those feeds.

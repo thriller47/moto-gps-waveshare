@@ -46,11 +46,13 @@
           "maxLength": 96
         },
         "provider": {
-          "const": "amap"
+          "type": "string",
+          "enum": ["amap", "osm"]
         },
         "coordinate_system": {
-          "const": "GCJ-02",
-          "description": "Every point in this bundle is GCJ-02. WGS84 GNSS fixes must cross the same explicit transform boundary before matching."
+          "type": "string",
+          "enum": ["GCJ-02", "WGS84"],
+          "description": "Coordinate system used in this bundle. WGS84 GNSS fixes must cross the explicit transform boundary when using GCJ-02."
         },
         "generated_at_ms": {
           "type": "integer",

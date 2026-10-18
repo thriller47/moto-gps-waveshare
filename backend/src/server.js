@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { createAmapProvider } from "./amap-provider.js";
 import { createAmapPlacesProvider } from "./amap-places.js";
 import { createAmapCitiesProvider } from "./amap-cities.js";
+import { createOsmProvider } from "./osm-provider.js";
 import { createMapTileProvider } from "./map-tiles.js";
 import { transformAmapRouteOptionsV2, transformAmapRouteV2 } from "./amap-transformer.js";
 import { createGateway } from "./gateway.js";
@@ -29,7 +30,7 @@ async function createFixtureProvider() {
 
 function createDisabledProvider() {
   const unavailable = () => {
-    const error = new Error("AMap live navigation is not configured");
+    const error = new Error("Live navigation is not configured");
     error.code = "SERVER_MISCONFIGURED";
     error.retryable = false;
     throw error;
@@ -48,9 +49,20 @@ function createDisabledProvider() {
 }
 
 async function main() {
-  const providerMode = process.env.MOTO_PROVIDER ?? "fixture";
+  const providerMode = String(
+    process.env.MOTO_PROVIDER ?? process.env.PROVIDER_MODE ?? "osm",
+  )
+    .trim()
+    .toLowerCase();
+
   let provider;
-  if (providerMode === "amap") {
+  if (providerMode === "osm") {
+    provider = createOsmProvider({
+      nominatimBaseUrl: process.env.NOMINATIM_BASE_URL,
+      osrmBaseUrl: process.env.OSRM_BASE_URL,
+      userAgent: process.env.OSM_USER_AGENT ?? "moto-gps-waveshare/1.0",
+    });
+  } else if (providerMode === "amap") {
     const key = process.env.AMAP_WEB_SERVICE_KEY;
     if (typeof key !== "string" || key.trim() === "") {
       throw new Error("AMAP_WEB_SERVICE_KEY is required when MOTO_PROVIDER=amap");
@@ -67,10 +79,12 @@ async function main() {
   } else {
     throw new Error(`unsupported MOTO_PROVIDER: ${providerMode}`);
   }
+
   const port = Number(process.env.PORT ?? 8787);
   const allowedOrigin = process.env.WEB_ORIGIN ?? "http://localhost:5173";
+  const isLiveProvider = providerMode === "amap" || providerMode === "osm";
   const mapProvider = createMapTileProvider({
-    url: process.env.MOTO_MAP_PMTILES_URL ?? (providerMode === "amap" ? "auto" : "disabled"),
+    url: process.env.MOTO_MAP_PMTILES_URL ?? (isLiveProvider ? "auto" : "disabled"),
     cacheDirectory: process.env.MOTO_MAP_CACHE_DIR,
     maximumCacheBytes: process.env.MOTO_MAP_CACHE_MAX_BYTES === undefined
       ? undefined : Number(process.env.MOTO_MAP_CACHE_MAX_BYTES),
