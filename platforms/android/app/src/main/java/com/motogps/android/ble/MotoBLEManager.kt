@@ -350,6 +350,7 @@ class MotoBLEManager(private val context: Context) {
     }
 
     private fun connectToDevice(device: BluetoothDevice) {
+        stopScan()
         bluetoothGatt = device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
     }
 
