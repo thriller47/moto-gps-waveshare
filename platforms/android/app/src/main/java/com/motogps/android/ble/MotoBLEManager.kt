@@ -1,5 +1,6 @@
 package com.motogps.android.ble
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
@@ -16,11 +17,13 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.ParcelUuid
 import android.util.Log
+import androidx.core.content.ContextCompat
 import com.motogps.android.jni.MotoBLEProtocolCodec
 import java.util.ArrayDeque
 import java.util.UUID
@@ -94,6 +97,36 @@ class MotoBLEManager(private val context: Context) {
             bleCodec = null
             codecPtr = 0L
         }
+    }
+
+    private fun hasPermission(permission: String): Boolean {
+        return ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun checkScanPermissions(): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (!hasPermission(Manifest.permission.BLUETOOTH_SCAN) || !hasPermission(Manifest.permission.BLUETOOTH_CONNECT)) {
+                return false
+            }
+        } else {
+            if (!hasPermission(Manifest.permission.ACCESS_FINE_LOCATION)) {
+                return false
+            }
+        }
+        return true
+    }
+
+    private fun checkConnectPermissions(): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (!hasPermission(Manifest.permission.BLUETOOTH_CONNECT)) {
+                return false
+            }
+        } else {
+            if (!hasPermission(Manifest.permission.ACCESS_FINE_LOCATION)) {
+                return false
+            }
+        }
+        return true
     }
 
     private val bondReceiver = object : BroadcastReceiver() {
@@ -679,6 +712,14 @@ class MotoBLEManager(private val context: Context) {
 
     private fun connectToDevice(device: BluetoothDevice) {
         try {
+            if (!checkConnectPermissions()) {
+                Log.e("MotoBLEManager", "Bluetooth connect permission missing")
+                mainHandler.post {
+                    onConnectionStateChange?.invoke("Non connesso")
+                    onConnectionError?.invoke("Permessi Bluetooth mancanti (BLUETOOTH_CONNECT / Posizione)")
+                }
+                return
+            }
             bluetoothGatt = device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
         } catch (t: Throwable) {
             Log.e("MotoBLEManager", "Caught unhandled exception in connectToDevice", t)
@@ -690,6 +731,10 @@ class MotoBLEManager(private val context: Context) {
 
     fun stopScan() {
         try {
+            if (!checkScanPermissions()) {
+                isScanning = false
+                return
+            }
             val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
             bluetoothManager?.adapter?.bluetoothLeScanner?.stopScan(scanCallback)
         } catch (t: Throwable) {
@@ -704,11 +749,34 @@ class MotoBLEManager(private val context: Context) {
 
     fun startScan() {
         try {
+            if (!checkScanPermissions()) {
+                Log.e("MotoBLEManager", "Bluetooth scan permissions missing")
+                mainHandler.post {
+                    onConnectionStateChange?.invoke("Non connesso")
+                    onConnectionError?.invoke("Permessi Bluetooth mancanti (BLUETOOTH_SCAN / Posizione)")
+                }
+                return
+            }
+
             stopScan()
-            onConnectionStateChange?.invoke("Ricerca in corso...")
+            mainHandler.post { onConnectionStateChange?.invoke("Ricerca in corso...") }
             val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
-            val adapter = bluetoothManager.adapter ?: return
-            val scanner = adapter.bluetoothLeScanner ?: return
+            val adapter = bluetoothManager.adapter
+            if (adapter == null) {
+                mainHandler.post {
+                    onConnectionStateChange?.invoke("Non connesso")
+                    onConnectionError?.invoke("Adattatore Bluetooth non disponibile")
+                }
+                return
+            }
+            val scanner = adapter.bluetoothLeScanner
+            if (scanner == null) {
+                mainHandler.post {
+                    onConnectionStateChange?.invoke("Non connesso")
+                    onConnectionError?.invoke("Scanner Bluetooth LE non disponibile")
+                }
+                return
+            }
 
             val filter = ScanFilter.Builder()
                 .setServiceUuid(ParcelUuid(serviceUuid))
@@ -724,8 +792,10 @@ class MotoBLEManager(private val context: Context) {
             } catch (e: Exception) {
                 isScanning = false
                 Log.e("MotoBLEManager", "Failed to start BLE scan: ${e.message}")
-                onConnectionStateChange?.invoke("Non connesso")
-                onConnectionError?.invoke("Impossibile avviare la scansione BLE")
+                mainHandler.post {
+                    onConnectionStateChange?.invoke("Non connesso")
+                    onConnectionError?.invoke("Impossibile avviare la scansione BLE")
+                }
             }
         } catch (t: Throwable) {
             isScanning = false
