@@ -21,3 +21,8 @@ target_link_libraries(
         motogps_jni
         moto_ble_protocol
         log)
+
+target_link_options(
+        motogps_jni
+        PRIVATE
+        "-Wl,-z,max-page-size=16384")

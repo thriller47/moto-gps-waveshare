@@ -243,6 +243,7 @@ int BleNavTransport::gap_event(ble_gap_event* event, void* argument) {
       self->peer_max_frame_size_.store(20);
       self->session_id_.store(0);
       self->connection_epoch_.fetch_add(1);
+      self->reassembler_.reset();
       self->advertise();
       return 0;
 
@@ -338,6 +339,9 @@ void BleNavTransport::advertise() {
   ble_gap_adv_params parameters{};
   parameters.conn_mode = BLE_GAP_CONN_MODE_UND;
   parameters.disc_mode = BLE_GAP_DISC_MODE_GEN;
+  if (ble_gap_adv_active()) {
+    ble_gap_adv_stop();
+  }
   result = ble_gap_adv_start(own_address_type_, nullptr, BLE_HS_FOREVER,
                              &parameters, gap_event, this);
   if (result != 0 && result != BLE_HS_EALREADY) {

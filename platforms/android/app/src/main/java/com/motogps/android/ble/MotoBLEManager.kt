@@ -45,8 +45,8 @@ class MotoBLEManager(private val context: Context) {
 
     private var heartbeatScheduler: ScheduledExecutorService? = null
 
-    // Temporarily disabled MotoBLEProtocolCodec initialization
-    // private val bleCodec = MotoBLEProtocolCodec()
+    private val codecLock = Any()
+    private val bleCodec = MotoBLEProtocolCodec()
     private var codecPtr: Long = 0L
 
     private enum class HandshakeState {
@@ -79,8 +79,14 @@ class MotoBLEManager(private val context: Context) {
     }
 
     init {
-        // Temporarily disabled nativeInit
-        // codecPtr = bleCodec.nativeInit(247)
+        synchronized(codecLock) {
+            try {
+                codecPtr = bleCodec.nativeInit(247)
+            } catch (e: Throwable) {
+                Log.e("MotoBLEManager", "Failed to initialize native BLE codec", e)
+                codecPtr = 0L
+            }
+        }
     }
 
     private val bondReceiver = object : BroadcastReceiver() {
@@ -261,10 +267,15 @@ class MotoBLEManager(private val context: Context) {
 
         override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
             if (status == BluetoothGatt.GATT_SUCCESS) {
-                // Temporarily disabled nativeSetMaximumFrameSize
-                /* if (codecPtr != 0L) {
-                    bleCodec.nativeSetMaximumFrameSize(codecPtr, mtu.coerceAtMost(247))
-                } */
+                synchronized(codecLock) {
+                    if (codecPtr != 0L) {
+                        try {
+                            bleCodec.nativeSetMaximumFrameSize(codecPtr, mtu.coerceAtMost(247))
+                        } catch (e: Throwable) {
+                            Log.e("MotoBLEManager", "Error in nativeSetMaximumFrameSize", e)
+                        }
+                    }
+                }
             }
             enqueueOperation {
                 mainHandler.postDelayed({
@@ -280,17 +291,22 @@ class MotoBLEManager(private val context: Context) {
                 if (status == BluetoothGatt.GATT_SUCCESS) {
                     cccdWritePending = false
                     cccdRetryCount = 0
-                    mainHandler.post { onConnectionStateChange?.invoke("Connesso (BLE OK)") }
-                    /*
                     // Initiate 4-way handshake step 1: Send PhoneStarting
                     currentSessionId = (System.currentTimeMillis() % 0x7FFFFFFF).coerceAtLeast(1)
                     handshakeState = HandshakeState.STARTING_SENT
-                    if (codecPtr != 0L) {
-                        bleCodec.nativeResetInboundState(codecPtr)
-                        val frames = bleCodec.nativeEncodePhoneStarting(codecPtr, currentSessionId)
-                        enqueueSendFramesTask(frames)
+                    synchronized(codecLock) {
+                        if (codecPtr != 0L) {
+                            try {
+                                bleCodec.nativeResetInboundState(codecPtr)
+                                val frames = bleCodec.nativeEncodePhoneStarting(codecPtr, currentSessionId)
+                                if (frames != null) {
+                                    enqueueSendFramesTask(frames)
+                                }
+                            } catch (e: Throwable) {
+                                Log.e("MotoBLEManager", "Error in nativeEncodePhoneStarting", e)
+                            }
+                        }
                     }
-                    */
                     startHeartbeat()
                 } else if (status == 15 /* GATT_INSUFFICIENT_ENCRYPTION */) {
                     connectedDevice?.createBond()
@@ -392,25 +408,30 @@ class MotoBLEManager(private val context: Context) {
     }
 
     private fun handleInboundFrame(frame: ByteArray) {
-        if (codecPtr == 0L) return
-        // Temporarily disabled JNI call nativePushDeviceFrame
-        /*
-        val inboundMessage = bleCodec.nativePushDeviceFrame(codecPtr, frame, System.currentTimeMillis())
-        if (inboundMessage.complete) {
-            val status = inboundMessage.connStatus
-            if (status != null && status.role == 2 /* Device */ && status.state == 1 /* Ready */) {
-                if (handshakeState == HandshakeState.STARTING_SENT) {
-                    handshakeState = HandshakeState.READY_SENT
-                    val frames = bleCodec.nativeEncodePhoneReady(codecPtr, currentSessionId)
-                    enqueueSendFramesTask(frames)
-                } else if (handshakeState == HandshakeState.READY_SENT) {
-                    handshakeState = HandshakeState.COMPLETED
-                    mainHandler.post { onConnectionStateChange?.invoke("Connesso") }
-                    startHeartbeat()
+        synchronized(codecLock) {
+            if (codecPtr == 0L) return@synchronized
+            try {
+                val inboundMessage = bleCodec.nativePushDeviceFrame(codecPtr, frame, System.currentTimeMillis()) ?: return@synchronized
+                if (inboundMessage.complete) {
+                    val status = inboundMessage.connStatus
+                    if (status != null && status.role == 2 /* Device */ && status.state == 1 /* Ready */) {
+                        if (handshakeState == HandshakeState.STARTING_SENT) {
+                            handshakeState = HandshakeState.READY_SENT
+                            val frames = bleCodec.nativeEncodePhoneReady(codecPtr, currentSessionId)
+                            if (frames != null) {
+                                enqueueSendFramesTask(frames)
+                            }
+                        } else if (handshakeState == HandshakeState.READY_SENT) {
+                            handshakeState = HandshakeState.COMPLETED
+                            mainHandler.post { onConnectionStateChange?.invoke("Connesso") }
+                            startHeartbeat()
+                        }
+                    }
                 }
+            } catch (e: Throwable) {
+                Log.e("MotoBLEManager", "Error in handleInboundFrame", e)
             }
         }
-        */
     }
 
     private val scanCallback = object : ScanCallback() {
@@ -479,13 +500,14 @@ class MotoBLEManager(private val context: Context) {
         heartbeatScheduler = Executors.newSingleThreadScheduledExecutor()
         heartbeatScheduler?.scheduleAtFixedRate({
             try {
-                // Temporarily disabled nativeEncodeHeartbeat
-                /*
-                if (codecPtr != 0L && currentSessionId != 0L) {
-                    val frames = bleCodec.nativeEncodeHeartbeat(codecPtr, currentSessionId, System.currentTimeMillis() % Int.MAX_VALUE)
-                    enqueueSendFramesTask(frames)
+                synchronized(codecLock) {
+                    if (codecPtr != 0L && currentSessionId != 0L) {
+                        val frames = bleCodec.nativeEncodeHeartbeat(codecPtr, currentSessionId, System.currentTimeMillis() % Int.MAX_VALUE)
+                        if (frames != null) {
+                            enqueueSendFramesTask(frames)
+                        }
+                    }
                 }
-                */
             } catch (e: Exception) {
                 Log.w("MotoBLEManager", "Heartbeat send failed: ${e.message}")
             }
