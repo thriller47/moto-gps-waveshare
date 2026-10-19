@@ -171,6 +171,14 @@ class MotoBLEManager(private val context: Context) {
                 BluetoothProfile.STATE_CONNECTED -> {
                     connectedDevice = gatt.device
                     handshakeState = HandshakeState.IDLE
+                    writeCharacteristic = null
+                    readCharacteristic = null
+                    operationQueue.clear()
+                    operationInProgress = false
+                    synchronized(writeQueue) {
+                        writeQueue.clear()
+                        writeInProgress = false
+                    }
                     val bondState = gatt.device.bondState
                     if (bondState == BluetoothDevice.BOND_BONDING) {
                         val filter = IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
