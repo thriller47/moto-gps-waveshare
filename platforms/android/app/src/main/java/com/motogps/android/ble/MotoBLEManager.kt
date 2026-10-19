@@ -12,10 +12,7 @@ import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
-import android.content.BroadcastReceiver
 import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -79,25 +76,6 @@ class MotoBLEManager(private val context: Context) {
 
     init {
         codecPtr = bleCodec.nativeInit(247)
-    }
-
-    private val bondReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action == BluetoothDevice.ACTION_BOND_STATE_CHANGED) {
-                val device = intent.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE)
-                val bondState = intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.BOND_NONE)
-                if (device?.address == connectedDevice?.address && bondState == BluetoothDevice.BOND_BONDED) {
-                    try {
-                        context?.unregisterReceiver(this)
-                    } catch (_: Exception) {}
-                    mainHandler.postDelayed({
-                        enqueueOperation {
-                            bluetoothGatt?.discoverServices()
-                        }
-                    }, 300)
-                }
-            }
-        }
     }
 
     private fun enqueueOperation(operation: () -> Unit) {
@@ -180,29 +158,11 @@ class MotoBLEManager(private val context: Context) {
                 BluetoothProfile.STATE_CONNECTED -> {
                     connectedDevice = gatt.device
                     handshakeState = HandshakeState.IDLE
-                    val bondState = gatt.device.bondState
-                    if (bondState == BluetoothDevice.BOND_BONDING) {
-                        val filter = IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                            context.registerReceiver(bondReceiver, filter, Context.RECEIVER_EXPORTED)
-                        } else {
-                            context.registerReceiver(bondReceiver, filter)
+                    mainHandler.postDelayed({
+                        enqueueOperation {
+                            gatt.discoverServices()
                         }
-                    } else if (bondState != BluetoothDevice.BOND_BONDED) {
-                        val filter = IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                            context.registerReceiver(bondReceiver, filter, Context.RECEIVER_EXPORTED)
-                        } else {
-                            context.registerReceiver(bondReceiver, filter)
-                        }
-                        gatt.device.createBond()
-                    } else {
-                        mainHandler.postDelayed({
-                            enqueueOperation {
-                                gatt.discoverServices()
-                            }
-                        }, 300)
-                    }
+                    }, 250)
                 }
                 BluetoothProfile.STATE_DISCONNECTED -> {
                     stopHeartbeat()
@@ -258,16 +218,12 @@ class MotoBLEManager(private val context: Context) {
         }
 
         override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
-            if (status == BluetoothGatt.GATT_SUCCESS) {
-                if (codecPtr != 0L) {
-                    bleCodec.nativeSetMaximumFrameSize(codecPtr, mtu.coerceAtMost(247))
-                }
+            if (status == BluetoothGatt.GATT_SUCCESS && codecPtr != 0L) {
+                bleCodec.nativeSetMaximumFrameSize(codecPtr, mtu.coerceAtMost(247))
             }
-            enqueueOperation {
-                mainHandler.postDelayed({
-                    startCccdWrite(gatt)
-                }, 300)
-            }
+            mainHandler.postDelayed({
+                startCccdWrite(gatt)
+            }, 150)
             completeOperation()
         }
 
@@ -286,10 +242,6 @@ class MotoBLEManager(private val context: Context) {
                         enqueueSendFramesTask(frames)
                     }
                     startHeartbeat()
-                } else if (status == 15 /* GATT_INSUFFICIENT_ENCRYPTION */) {
-                    connectedDevice?.createBond()
-                    retryCccdWrite()
-                    return
                 } else {
                     retryCccdWrite()
                     return
@@ -299,9 +251,6 @@ class MotoBLEManager(private val context: Context) {
         }
 
         override fun onCharacteristicWrite(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) {
-            if (status == 15 /* GATT_INSUFFICIENT_ENCRYPTION */) {
-                connectedDevice?.createBond()
-            }
             mainHandler.postDelayed({
                 processNextWrite()
             }, 18)
@@ -359,13 +308,6 @@ class MotoBLEManager(private val context: Context) {
         val descriptor = characteristic.getDescriptor(cccdUuid) ?: run {
             cccdWritePending = false
             completeOperation()
-            return
-        }
-
-        if (gatt.device.bondState == BluetoothDevice.BOND_BONDING) {
-            mainHandler.postDelayed({
-                if (cccdWritePending) performCccdWrite(gatt)
-            }, 300)
             return
         }
 

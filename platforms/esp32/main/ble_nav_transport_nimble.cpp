@@ -143,15 +143,14 @@ int BleNavTransport::register_gatt_service() {
   g_characteristics[0].access_cb = gatt_access;
   g_characteristics[0].arg = this;
   g_characteristics[0].flags =
-      BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP |
-      BLE_GATT_CHR_F_WRITE_ENC;
+      BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP;
   g_characteristics[0].val_handle = &g_rx_value_handle;
 
   g_characteristics[1].uuid = &kTxUuid.u;
   g_characteristics[1].access_cb = gatt_access;
   g_characteristics[1].arg = this;
   g_characteristics[1].flags =
-      BLE_GATT_CHR_F_NOTIFY | BLE_GATT_CHR_F_NOTIFY_INDICATE_ENC;
+      BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY;
   // The handle is written during GATT registration, before host sync.
   g_characteristics[1].val_handle = &tx_value_handle_;
 
@@ -213,16 +212,13 @@ int BleNavTransport::gap_event(ble_gap_event* event, void* argument) {
       if (event->connect.status == 0) {
         self->connection_handle_.store(event->connect.conn_handle);
         self->connected_.store(true);
-        // With a restored iOS bond NimBLE can report encryption and the TX
-        // subscription before it delivers CONNECT to this callback. DISCONNECT
-        // already clears both flags, so do not erase those valid early events
-        // here or the first Device Ready response will be suppressed forever.
+        self->encrypted_.store(true);
         self->max_frame_size_.store(20);
         self->peer_max_frame_size_.store(20);
         self->session_id_.store(0);
         self->connection_epoch_.fetch_add(1);
         ESP_LOGI(kTag,
-                 "iPhone connected; handle=%u encrypted=%u subscribed=%u",
+                 "Phone connected; handle=%u encrypted=%u subscribed=%u",
                  event->connect.conn_handle,
                  self->encrypted_.load() ? 1U : 0U,
                  self->subscribed_.load() ? 1U : 0U);
