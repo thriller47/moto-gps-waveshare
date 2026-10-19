@@ -38,7 +38,11 @@ class LocationForegroundService : Service(), LocationListener {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
 
-        startForeground(NOTIFICATION_ID, notification)
+        try {
+            startForeground(NOTIFICATION_ID, notification)
+        } catch (t: Throwable) {
+            android.util.Log.e("LocationForegroundService", "Failed to start foreground notification", t)
+        }
 
         startLocationUpdates()
         return START_STICKY

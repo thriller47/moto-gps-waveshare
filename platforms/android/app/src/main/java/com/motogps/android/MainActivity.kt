@@ -10,6 +10,9 @@ import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
+import android.app.AlertDialog
+import android.util.Log
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -46,7 +49,36 @@ class MainActivity : ComponentActivity(), LocationListener {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            try {
+                val stackTrace = Log.getStackTraceString(throwable)
+                val crashPrefs = getSharedPreferences("crash_prefs", Context.MODE_PRIVATE)
+                crashPrefs.edit().putString("last_crash", stackTrace).commit()
+            } catch (_: Throwable) {}
+            defaultHandler?.uncaughtException(thread, throwable) ?: kotlin.system.exitProcess(1)
+        }
+
         super.onCreate(savedInstanceState)
+
+        val crashPrefs = getSharedPreferences("crash_prefs", Context.MODE_PRIVATE)
+        val lastCrash = crashPrefs.getString("last_crash", null)
+        if (!lastCrash.isNullOrEmpty()) {
+            val textView = TextView(this).apply {
+                text = lastCrash
+                setPadding(32, 32, 32, 32)
+                setTextIsSelectable(true)
+            }
+            AlertDialog.Builder(this)
+                .setTitle("Ultimo Crash Rilevato")
+                .setView(textView)
+                .setPositiveButton("Cancella e Chiudi") { dialog, _: Int ->
+                    crashPrefs.edit().remove("last_crash").commit()
+                    dialog.dismiss()
+                }
+                .setCancelable(false)
+                .show()
+        }
 
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
 
@@ -191,11 +223,15 @@ class MainActivity : ComponentActivity(), LocationListener {
             }
 
             // Start LocationForegroundService as well
-            val serviceIntent = Intent(this, LocationForegroundService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                startForegroundService(serviceIntent)
-            } else {
-                startService(serviceIntent)
+            try {
+                val serviceIntent = Intent(this, LocationForegroundService::class.java)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(serviceIntent)
+                } else {
+                    startService(serviceIntent)
+                }
+            } catch (t: Throwable) {
+                Log.e("MainActivity", "Failed to start LocationForegroundService", t)
             }
         } catch (_: Exception) {}
     }
