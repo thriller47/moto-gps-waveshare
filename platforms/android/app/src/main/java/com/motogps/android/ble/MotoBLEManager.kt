@@ -45,7 +45,7 @@ class MotoBLEManager(private val context: Context) {
 
     private var heartbeatScheduler: ScheduledExecutorService? = null
 
-    private val bleCodec = MotoBLEProtocolCodec()
+    private var bleCodec: MotoBLEProtocolCodec? = null
     private var codecPtr: Long = 0L
 
     private enum class HandshakeState {
@@ -86,12 +86,13 @@ class MotoBLEManager(private val context: Context) {
 
     init {
         try {
-            codecPtr = bleCodec.nativeInit(247)
+            val codec = MotoBLEProtocolCodec()
+            bleCodec = codec
+            codecPtr = codec.nativeInit(247)
         } catch (t: Throwable) {
-            Log.e("MotoBLEManager", "Caught unhandled exception in init", t)
-            mainHandler.post {
-                onConnectionError?.invoke("Errore BLE: ${t.localizedMessage ?: t.javaClass.simpleName}")
-            }
+            Log.e("MotoBLEManager", "Failed to initialize JNI MotoBLEProtocolCodec, continuing without JNI codec", t)
+            bleCodec = null
+            codecPtr = 0L
         }
     }
 
@@ -366,11 +367,12 @@ class MotoBLEManager(private val context: Context) {
         override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
             try {
                 if (status == BluetoothGatt.GATT_SUCCESS) {
-                    if (codecPtr != 0L) {
+                    val codec = bleCodec
+                    if (codecPtr != 0L && codec != null) {
                         try {
-                            bleCodec.nativeSetMaximumFrameSize(codecPtr, mtu.coerceAtMost(247))
+                            codec.nativeSetMaximumFrameSize(codecPtr, mtu.coerceAtMost(247))
                         } catch (t: Throwable) {
-                            Log.e("MotoBLEManager", "Caught unhandled exception in nativeSetMaximumFrameSize", t)
+                            Log.e("MotoBLEManager", "Caught unhandled exception in nativeSetMaximumFrameSize JNI", t)
                         }
                     }
                 }
@@ -405,16 +407,19 @@ class MotoBLEManager(private val context: Context) {
                         // Initiate 4-way handshake step 1: Send PhoneStarting
                         currentSessionId = (System.currentTimeMillis() % 0x7FFFFFFF).coerceAtLeast(1)
                         handshakeState = HandshakeState.STARTING_SENT
-                        if (codecPtr != 0L) {
+                        val codec = bleCodec
+                        if (codecPtr != 0L && codec != null) {
                             try {
-                                bleCodec.nativeResetInboundState(codecPtr)
-                                val frames = bleCodec.nativeEncodePhoneStarting(codecPtr, currentSessionId)
+                                codec.nativeResetInboundState(codecPtr)
+                                val frames = codec.nativeEncodePhoneStarting(codecPtr, currentSessionId)
                                 if (frames != null) {
                                     enqueueSendFramesTask(frames)
                                 }
                             } catch (t: Throwable) {
                                 Log.e("MotoBLEManager", "Caught unhandled exception in nativeEncodePhoneStarting JNI", t)
                             }
+                        } else {
+                            Log.w("MotoBLEManager", "JNI codec unavailable, skipping nativeEncodePhoneStarting")
                         }
                         startHeartbeat()
                     } else if (status == 15 /* GATT_INSUFFICIENT_ENCRYPTION */) {
@@ -595,9 +600,13 @@ class MotoBLEManager(private val context: Context) {
 
     private fun handleInboundFrame(frame: ByteArray) {
         try {
-            if (codecPtr == 0L) return
+            val codec = bleCodec
+            if (codecPtr == 0L || codec == null) {
+                Log.w("MotoBLEManager", "JNI codec unavailable, skipping inbound frame parsing")
+                return
+            }
             val inboundMessage = try {
-                bleCodec.nativePushDeviceFrame(codecPtr, frame, System.currentTimeMillis())
+                codec.nativePushDeviceFrame(codecPtr, frame, System.currentTimeMillis())
             } catch (t: Throwable) {
                 Log.e("MotoBLEManager", "Caught unhandled exception in nativePushDeviceFrame JNI", t)
                 null
@@ -608,9 +617,9 @@ class MotoBLEManager(private val context: Context) {
                 if (status != null && status.role == 2 /* Device */ && status.state == 1 /* Ready */) {
                     if (handshakeState == HandshakeState.STARTING_SENT) {
                         handshakeState = HandshakeState.READY_SENT
-                        if (codecPtr != 0L) {
+                        if (codecPtr != 0L && bleCodec != null) {
                             val frames = try {
-                                bleCodec.nativeEncodePhoneReady(codecPtr, currentSessionId)
+                                bleCodec?.nativeEncodePhoneReady(codecPtr, currentSessionId)
                             } catch (t: Throwable) {
                                 Log.e("MotoBLEManager", "Caught unhandled exception in nativeEncodePhoneReady JNI", t)
                                 null
@@ -733,9 +742,10 @@ class MotoBLEManager(private val context: Context) {
             heartbeatScheduler = Executors.newSingleThreadScheduledExecutor()
             heartbeatScheduler?.scheduleAtFixedRate({
                 try {
-                    if (codecPtr != 0L && currentSessionId != 0L) {
+                    val codec = bleCodec
+                    if (codecPtr != 0L && codec != null && currentSessionId != 0L) {
                         val frames = try {
-                            bleCodec.nativeEncodeHeartbeat(codecPtr, currentSessionId, System.currentTimeMillis() % Int.MAX_VALUE)
+                            codec.nativeEncodeHeartbeat(codecPtr, currentSessionId, System.currentTimeMillis() % Int.MAX_VALUE)
                         } catch (t: Throwable) {
                             Log.e("MotoBLEManager", "Caught unhandled exception in nativeEncodeHeartbeat JNI", t)
                             null
