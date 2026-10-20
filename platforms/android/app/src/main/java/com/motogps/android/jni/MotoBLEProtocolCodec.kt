@@ -320,25 +320,32 @@ class MotoBLEProtocolCodec {
             else -> 2
         }
         val displayPage = when (snapshot.displayPageName) {
-            "speedometer" -> 1
-            "heading" -> 2
+            "navigation" -> 0
+            "speedometer", "speed" -> 1
+            "heading", "compass" -> 2
             "music" -> 3
             else -> 0
         }
         val maneuver = when (snapshot.maneuverName) {
-            "turn_left" -> 3
-            "turn_right" -> 7
-            "keep_left" -> 2
-            "keep_right" -> 6
-            "u_turn" -> 5
+            "continue", "straight" -> 1
+            "slight_left", "keep_left" -> 2
+            "turn_left", "left" -> 3
+            "sharp_left" -> 4
+            "u_turn_left" -> 5
+            "slight_right", "keep_right" -> 6
+            "turn_right", "right" -> 7
+            "sharp_right" -> 8
+            "u_turn_right", "u_turn" -> 9
             "roundabout" -> 10
+            "exit" -> 11
             "arrive" -> 12
             else -> 1
         }
         val traffic = when (snapshot.trafficName) {
-            "clear" -> 1
+            "clear", "free_flow" -> 1
             "slow" -> 2
             "congested" -> 3
+            "severe" -> 4
             else -> 0
         }
 
@@ -347,6 +354,7 @@ class MotoBLEProtocolCodec {
         if (snapshot.hasFix) flags = flags or 2
         if (snapshot.gnssStale) flags = flags or 4
         if (snapshot.offRoute) flags = flags or 8
+        if (maneuver != 0) flags = flags or 16
         if (snapshot.routeRequestInFlight) flags = flags or 32
         if (snapshot.trafficRequestInFlight) flags = flags or 64
 

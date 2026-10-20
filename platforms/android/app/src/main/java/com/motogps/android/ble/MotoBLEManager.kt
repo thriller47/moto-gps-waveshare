@@ -53,7 +53,8 @@ class MotoBLEManager(private val context: Context) {
     }
 
     private var handshakeState = HandshakeState.IDLE
-    private var currentSessionId: Long = 0L
+    var currentSessionId: Long = 0L
+        private set
 
     private var isScanning = false
 
@@ -72,6 +73,11 @@ class MotoBLEManager(private val context: Context) {
             Log.w("MotoBLEManager", "CCCD write timed out after 600ms, retrying")
             retryCccdWrite()
         }
+    }
+
+    private val writeTimeoutRunnable = Runnable {
+        Log.w("MotoBLEManager", "onCharacteristicWrite timed out after 150ms, processing next write")
+        processNextWrite()
     }
 
     init {
@@ -100,6 +106,13 @@ class MotoBLEManager(private val context: Context) {
         executeNextOperation()
     }
 
+    fun sendNavigationSnapshot(snapshot: com.motogps.android.jni.MotoBLENavigationSnapshot) {
+        if (codecPtr != 0L) {
+            val frames = bleCodec.nativeEncodeNavigationSnapshot(codecPtr, snapshot)
+            enqueueSendFramesTask(frames)
+        }
+    }
+
     fun enqueueSendFramesTask(frames: Array<ByteArray>) {
         synchronized(writeQueue) {
             for (frame in frames) {
@@ -113,13 +126,16 @@ class MotoBLEManager(private val context: Context) {
     }
 
     private fun processNextWrite() {
-        val frame: ByteArray?
+        mainHandler.removeCallbacks(writeTimeoutRunnable)
+
+        val frame: ByteArray
         synchronized(writeQueue) {
-            frame = if (writeQueue.isNotEmpty()) writeQueue.removeFirst() else null
-            if (frame == null) {
+            val nextFrame = if (writeQueue.isNotEmpty()) writeQueue.removeFirst() else null
+            if (nextFrame == null) {
                 writeInProgress = false
                 return
             }
+            frame = nextFrame
         }
 
         val gatt = bluetoothGatt ?: run {
@@ -131,14 +147,24 @@ class MotoBLEManager(private val context: Context) {
             return
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            gatt.writeCharacteristic(characteristic, frame!!, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE)
+        val success: Boolean = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val resCode = gatt.writeCharacteristic(characteristic, frame, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE)
+            resCode == android.bluetooth.BluetoothStatusCodes.SUCCESS
         } else {
             @Suppress("DEPRECATION")
-            characteristic.value = frame!!
+            characteristic.value = frame
             characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
             @Suppress("DEPRECATION")
             gatt.writeCharacteristic(characteristic)
+        }
+
+        if (!success) {
+            synchronized(writeQueue) {
+                writeQueue.addFirst(frame)
+            }
+            mainHandler.postDelayed({ processNextWrite() }, 25)
+        } else {
+            mainHandler.postDelayed(writeTimeoutRunnable, 150)
         }
     }
 
@@ -163,6 +189,7 @@ class MotoBLEManager(private val context: Context) {
                 BluetoothProfile.STATE_DISCONNECTED -> {
                     stopHeartbeat()
                     mainHandler.removeCallbacks(cccdTimeoutRunnable)
+                    mainHandler.removeCallbacks(writeTimeoutRunnable)
                     cccdWritePending = false
                     cccdRetryCount = 0
                     handshakeState = HandshakeState.IDLE
@@ -251,6 +278,7 @@ class MotoBLEManager(private val context: Context) {
         }
 
         override fun onCharacteristicWrite(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) {
+            mainHandler.removeCallbacks(writeTimeoutRunnable)
             mainHandler.postDelayed({
                 processNextWrite()
             }, 18)

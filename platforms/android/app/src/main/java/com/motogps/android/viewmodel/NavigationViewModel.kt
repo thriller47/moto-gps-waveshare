@@ -5,7 +5,6 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.motogps.android.ble.MotoBLEManager
 import com.motogps.android.jni.MotoBLENavigationSnapshot
-import com.motogps.android.jni.MotoBLEProtocolCodec
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -55,19 +54,6 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     private val _selectedRouteIndex = MutableStateFlow(0)
     val selectedRouteIndex: StateFlow<Int> = _selectedRouteIndex
 
-    private val bleCodec = MotoBLEProtocolCodec()
-    private var codecPtr: Long = 0
-
-    init {
-        codecPtr = bleCodec.nativeInit(512)
-    }
-
-    override fun onCleared() {
-        super.onCleared()
-        if (codecPtr != 0L) {
-            bleCodec.nativeDestroy(codecPtr)
-        }
-    }
 
     fun searchDestination(query: String, gatewayUrl: String) {
         if (query.isBlank() || gatewayUrl.isBlank()) return
@@ -122,12 +108,51 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         _selectedRouteIndex.value = 0
     }
 
-    fun startNavigation(place: PlaceSearchResult, gatewayUrl: String) {
-        if (gatewayUrl.isBlank()) return
+    private fun createFallbackSnapshot(place: PlaceSearchResult): MotoBLENavigationSnapshot {
+        val (lat, lon) = currentLocation.value
+        val distM = calculateDistanceMeters(lat, lon, place.latitude, place.longitude).toLong()
+        val durS = (distM / 13.8).toLong().coerceAtLeast(60L)
+        val routeId = "route_${System.currentTimeMillis()}"
 
+        return MotoBLENavigationSnapshot(
+            stateName = "navigating",
+            networkName = if (activeGatewayUrl.isNotBlank()) "online" else "offline",
+            displayPageName = "navigation",
+            maneuverName = "continue",
+            trafficName = "free_flow",
+            hasDestination = true,
+            hasFix = true,
+            gnssStale = false,
+            offRoute = false,
+            routeRequestInFlight = false,
+            trafficRequestInFlight = false,
+            routeToken = (routeId.hashCode().toLong() and 0xFFFFFFFFL),
+            routeGeneration = 1L,
+            maneuverID = 1L,
+            distanceToManeuverM = distM,
+            remainingDistanceM = distM,
+            remainingDurationS = durS,
+            routeProgressM = 0L,
+            totalDistanceM = distM,
+            speedDeciKPH = 0,
+            speedLimitKPH = 0,
+            headingCentiDegrees = 0,
+            accuracyDecimeters = 50,
+            crossTrackDecimeters = 0,
+            roundaboutExit = 0,
+            instructionText = "Verso ${place.name}"
+        )
+    }
+
+    fun startNavigation(place: PlaceSearchResult, gatewayUrl: String) {
         activeDestination = place
         activeGatewayUrl = gatewayUrl
         isNavigating = true
+
+        val immediateSnapshot = createFallbackSnapshot(place)
+        bleManager.sendNavigationSnapshot(immediateSnapshot)
+
+        if (gatewayUrl.isBlank()) return
 
         viewModelScope.launch {
             _isLoading.value = true
@@ -137,13 +162,9 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                 val snapshot = withContext(Dispatchers.IO) {
                     performRouting(place, gatewayUrl)
                 }
-
-                if (codecPtr != 0L) {
-                    val frames = bleCodec.nativeEncodeNavigationSnapshot(codecPtr, snapshot)
-                    bleManager.enqueueSendFramesTask(frames)
-                }
+                bleManager.sendNavigationSnapshot(snapshot)
             } catch (e: Exception) {
-                _errorMessage.value = "Errore durante la navigazione: ${e.message}"
+                _errorMessage.value = "Routing in corso: ${e.message}"
             } finally {
                 _isLoading.value = false
             }
@@ -186,10 +207,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                     val snapshot = withContext(Dispatchers.IO) {
                         performRouting(dest, activeGatewayUrl)
                     }
-                    if (codecPtr != 0L) {
-                        val frames = bleCodec.nativeEncodeNavigationSnapshot(codecPtr, snapshot)
-                        bleManager.enqueueSendFramesTask(frames)
-                    }
+                    bleManager.sendNavigationSnapshot(snapshot)
                 } catch (_: Exception) {
                 }
             }

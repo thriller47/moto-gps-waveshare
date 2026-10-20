@@ -136,4 +136,94 @@ class MotoBLEProtocolCodecTest {
         assertEquals(1, inbound.connStatus!!.state) // Ready
         assertEquals(100L, inbound.connStatus!!.sessionId)
     }
+
+    @Test
+    fun testNavigationSnapshotEncodingAndMultiFrame() {
+        val snapshot = com.motogps.android.jni.MotoBLENavigationSnapshot(
+            stateName = "navigating",
+            networkName = "online",
+            displayPageName = "navigation",
+            maneuverName = "turn_left",
+            trafficName = "free_flow",
+            hasDestination = true,
+            hasFix = true,
+            gnssStale = false,
+            offRoute = false,
+            routeRequestInFlight = false,
+            trafficRequestInFlight = false,
+            routeToken = 0x12345678L,
+            routeGeneration = 1L,
+            maneuverID = 10L,
+            distanceToManeuverM = 150L,
+            remainingDistanceM = 3500L,
+            remainingDurationS = 300L,
+            routeProgressM = 500L,
+            totalDistanceM = 4000L,
+            speedDeciKPH = 500,
+            speedLimitKPH = 50,
+            headingCentiDegrees = 18000,
+            accuracyDecimeters = 20,
+            crossTrackDecimeters = 0,
+            roundaboutExit = 0,
+            instructionText = "Gira a sinistra tra 150 metri in Via Roma e prosegui dritto per due chilometri"
+        )
+
+        // Set small frame size to trigger multi-frame fragmentation
+        codec.nativeSetMaximumFrameSize(handle, 40)
+
+        val frames = codec.nativeEncodeNavigationSnapshot(handle, snapshot)
+        assertTrue(frames.size > 1)
+
+        val reassembledPayload = mutableListOf<Byte>()
+        for (i in frames.indices) {
+            val frame = frames[i]
+            assertEquals(0xB7.toByte(), frame[0]) // MAGIC
+            assertEquals(0x01.toByte(), frame[1]) // PROTOCOL_VERSION
+            assertEquals(0x10.toByte(), frame[2]) // MSG_NAVIGATION_SNAPSHOT
+
+            val flags = frame[3].toInt() and 0xFF
+            if (i == 0) {
+                assertTrue((flags and MotoBLEProtocolCodec.FRAME_START) != 0)
+            } else {
+                assertEquals(0, flags and MotoBLEProtocolCodec.FRAME_START)
+            }
+
+            if (i == frames.size - 1) {
+                assertTrue((flags and MotoBLEProtocolCodec.FRAME_END) != 0)
+            } else {
+                assertEquals(0, flags and MotoBLEProtocolCodec.FRAME_END)
+            }
+
+            // CRC check
+            val crcOffset = frame.size - 2
+            val expectedCrc = (frame[crcOffset].toInt() and 0xFF) or ((frame[crcOffset + 1].toInt() and 0xFF) shl 8)
+            val actualCrc = MotoBLEProtocolCodec.crc16CcittFalse(frame, crcOffset)
+            assertEquals(expectedCrc, actualCrc)
+
+            for (j in 10 until crcOffset) {
+                reassembledPayload.add(frame[j])
+            }
+        }
+
+        val payload = reassembledPayload.toByteArray()
+        // Payload Revision (1)
+        assertEquals(0x01.toByte(), payload[0])
+        // State: Navigating (3)
+        assertEquals(0x03.toByte(), payload[1])
+        // Network: Online (2)
+        assertEquals(0x02.toByte(), payload[2])
+        // DisplayPage: Navigation (0)
+        assertEquals(0x00.toByte(), payload[3])
+        // Maneuver: turn_left (3)
+        assertEquals(0x03.toByte(), payload[4])
+        // Traffic: free_flow (1)
+        assertEquals(0x01.toByte(), payload[5])
+
+        // Flags U16 LE:
+        val navFlags = (payload[6].toInt() and 0xFF) or ((payload[7].toInt() and 0xFF) shl 8)
+        // Check NavigationHasDestination (1), NavigationHasFix (2), NavigationHasNextManeuver (16)
+        assertTrue((navFlags and 1) != 0)
+        assertTrue((navFlags and 2) != 0)
+        assertTrue((navFlags and 16) != 0)
+    }
 }
