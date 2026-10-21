@@ -262,7 +262,6 @@ bool valid_command_kind(DeviceCommandKind kind) {
     case DeviceCommandKind::MusicTogglePlayback:
     case DeviceCommandKind::MusicNext:
     case DeviceCommandKind::MusicLike:
-    case DeviceCommandKind::StartOta:
       return true;
   }
   return false;
