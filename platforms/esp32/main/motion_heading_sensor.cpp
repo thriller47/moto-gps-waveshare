@@ -145,14 +145,28 @@ void MotionHeadingSensor::run() {
            static_cast<double>(bias_dps), stable_samples);
 
   int consecutive_failures = 0;
+  int no_ready_samples = 0;
+  std::uint64_t last_diagnostic_ms = monotonic_ms();
+  std::uint32_t successful_samples = 0;
+  float last_rate_dps = 0.0F;
   next_sample_tick = xTaskGetTickCount();
   while (true) {
     bool ready = false;
     esp_err_t result = qmi8658_is_data_ready(&device, &ready);
-    if (result == ESP_OK && ready) {
+    // Some QMI8658 board configurations do not expose a reliable data-ready
+    // flag. Once polling stalls for ~250 ms, try a normal register read;
+    // otherwise the compass can remain frozen forever despite a working IMU.
+    if (result == ESP_OK && !ready) {
+      ++no_ready_samples;
+    } else {
+      no_ready_samples = 0;
+    }
+    if (result == ESP_OK && (ready || no_ready_samples >= 32)) {
       result = qmi8658_read_sensor_data(&device, &data);
       if (result == ESP_OK) {
+        no_ready_samples = 0;
         consecutive_failures = 0;
+        ++successful_samples;
         update_gravity(gravity, data, 0.025F);
         const float raw_rate = clockwise_heading_rate(gravity, data);
         const float corrected_rate = raw_rate - bias_dps;
@@ -163,8 +177,17 @@ void MotionHeadingSensor::run() {
             accel > 8.2F && accel < 11.4F) {
           bias_dps += (raw_rate - bias_dps) * 0.0008F;
         }
+        last_rate_dps = corrected_rate;
         callback_(corrected_rate, monotonic_ms(), callback_context_);
       }
+    }
+    const std::uint64_t now_ms = monotonic_ms();
+    if (now_ms - last_diagnostic_ms >= 5'000) {
+      ESP_LOGI(kTag, "IMU samples/5s=%lu yaw=%.2f dps ready_stalls=%d",
+               static_cast<unsigned long>(successful_samples),
+               static_cast<double>(last_rate_dps), no_ready_samples);
+      successful_samples = 0;
+      last_diagnostic_ms = now_ms;
     }
     if (result != ESP_OK && ++consecutive_failures == 25) {
       ESP_LOGW(kTag, "QMI8658 read errors continue: %s",
