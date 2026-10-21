@@ -428,6 +428,64 @@ void test_missing_or_incomplete_geometry_stays_empty() {
   CHECK(presenter.ui_state().route_point_count == 0);
 }
 
+void test_road_context_projects_without_route_view() {
+  NavPresenter presenter;
+  NavSnapshot snapshot;
+  snapshot.state = NavState::Navigating;
+  snapshot.heading_deg = 0.0F;
+  snapshot.has_route_view = false;
+  snapshot.route_view_origin = {36.67, 117.13};
+
+  snapshot.has_road_context = true;
+  snapshot.road_context_point_count = 2;
+  snapshot.road_context_points[0] = snapshot.route_view_origin;
+  snapshot.road_context_points[1] = {36.671, 117.13};
+  snapshot.road_context_polyline_count = 1;
+  snapshot.road_context_polylines[0] = {0, 2, RoadContextClass::Residential};
+
+  presenter.update(snapshot);
+  const moto_ui_state_t& state = presenter.ui_state();
+  CHECK(state.route_point_count == 0);
+  CHECK(state.road_point_count == 2);
+  CHECK(state.road_polyline_count == 1);
+}
+
+void test_heading_up_rotation_at_cardinal_angles() {
+  NavPresenter presenter;
+  NavSnapshot snapshot;
+  snapshot.state = NavState::Navigating;
+  snapshot.has_route_view = true;
+  snapshot.route_view_origin = {41.9028, 12.4964};
+  snapshot.route_view_point_count = 2;
+  snapshot.route_view_points[0] = snapshot.route_view_origin;
+  snapshot.route_view_points[1] = {41.9038, 12.4964};
+
+  constexpr int rider_x = MOTO_UI_CANVAS_WIDTH / 2;
+  constexpr int rider_y = (196 * MOTO_UI_CANVAS_HEIGHT + 180) / 360;
+
+  snapshot.heading_deg = 0.0F;
+  presenter.update(snapshot);
+  CHECK(presenter.ui_state().route_points[0].x == rider_x);
+  CHECK(presenter.ui_state().route_points[0].y == rider_y);
+  CHECK(presenter.ui_state().route_points[1].x == rider_x);
+  CHECK(presenter.ui_state().route_points[1].y < rider_y);
+
+  snapshot.heading_deg = 90.0F;
+  presenter.update(snapshot);
+  CHECK(presenter.ui_state().route_points[1].x < rider_x);
+  CHECK(std::abs(presenter.ui_state().route_points[1].y - rider_y) <= 1);
+
+  snapshot.heading_deg = 180.0F;
+  presenter.update(snapshot);
+  CHECK(presenter.ui_state().route_points[1].x == rider_x);
+  CHECK(presenter.ui_state().route_points[1].y > rider_y);
+
+  snapshot.heading_deg = 270.0F;
+  presenter.update(snapshot);
+  CHECK(presenter.ui_state().route_points[1].x > rider_x);
+  CHECK(std::abs(presenter.ui_state().route_points[1].y - rider_y) <= 1);
+}
+
 void test_presenter_owns_road_name_storage() {
   NavPresenter presenter;
   NavSnapshot snapshot;
@@ -492,6 +550,8 @@ int main() {
   test_map_scene_classes_buildings_and_capacity_share_route_transform();
   test_map_scale_does_not_jump_at_maneuver_distance_thresholds();
   test_missing_or_incomplete_geometry_stays_empty();
+  test_road_context_projects_without_route_view();
+  test_heading_up_rotation_at_cardinal_angles();
   test_presenter_owns_road_name_storage();
 #ifdef MOTO_NAV_UI_TEST_STUB
   test_apply_to_lvgl_uses_last_owned_state();

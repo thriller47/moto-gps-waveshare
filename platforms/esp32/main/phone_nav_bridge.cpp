@@ -372,7 +372,9 @@ void PhoneNavBridge::on_imu_sample(float heading_rate_dps,
     // cadence; requests still coalesce if one physical refresh runs long.
     if (sample_ms - last_motion_present_ms_ >= 25 &&
         (snapshot_.has_route_view ||
-         snapshot_.display_page == moto::nav::DisplayPage::Compass)) {
+         snapshot_.has_road_context ||
+         snapshot_.display_page == moto::nav::DisplayPage::Compass ||
+         snapshot_.display_page == moto::nav::DisplayPage::Navigation)) {
       // Preserve the 25 ms phase. Setting this to sample_ms quantizes every
       // interval to four 8 ms samples (32 ms), silently reducing 40 to 31 Hz.
       last_motion_present_ms_ +=
@@ -662,6 +664,9 @@ void PhoneNavBridge::consume_navigation(
     if (is_ios_demo_route_token(input.route_token) &&
         phone_snapshot.map_scene_revision == 0) {
       add_demo_road_context(phone_snapshot);
+    } else if (!is_ios_demo_route_token(input.route_token) &&
+               phone_snapshot.map_scene_revision == 0) {
+      clear_road_context(phone_snapshot);
     }
 
     phone_snapshot.next_maneuver = {};
@@ -872,6 +877,10 @@ moto::ble::AckStatus PhoneNavBridge::consume_map_scene(
         static_cast<std::uint8_t>(next_building);
     target.has_building_context = next_building > 0;
     target.map_scene_revision = input.scene_revision;
+    target.route_view_origin = {
+        static_cast<double>(input.view_origin.latitude_e6) / 1'000'000.0,
+        static_cast<double>(input.view_origin.longitude_e6) / 1'000'000.0,
+    };
   }
   ESP_LOGI(kTag,
            "map scene committed: revision=%lu roads=%u/%u buildings=%u/%u",
@@ -897,7 +906,9 @@ void PhoneNavBridge::apply_geometry_locked(moto::nav::NavSnapshot& target) {
     target.has_route_view = false;
     return;
   }
-  target.route_view_origin = geometry_.origin;
+  if (target.map_scene_revision == 0) {
+    target.route_view_origin = geometry_.origin;
+  }
   target.route_view_point_count =
       static_cast<std::uint8_t>(geometry_.point_count);
   std::copy_n(geometry_.points.begin(), geometry_.point_count,

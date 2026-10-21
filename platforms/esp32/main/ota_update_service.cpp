@@ -17,6 +17,7 @@
 
 static const char *TAG = "ota_service";
 static httpd_handle_t server_handle = NULL;
+static bool s_ota_service_running = false;
 
 namespace {
 
@@ -102,18 +103,66 @@ esp_err_t ota_post_handler(httpd_req_t *req) {
 } // namespace
 
 esp_err_t ota_update_service_start(void) {
+  if (s_ota_service_running) {
+    ESP_LOGI(TAG, "OTA update service already running");
+    return ESP_OK;
+  }
+
+  esp_err_t ret = nvs_flash_init();
+  if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+    nvs_flash_erase();
+    ret = nvs_flash_init();
+  }
+  if (ret != ESP_OK) {
+    ESP_LOGW(TAG, "nvs_flash_init returned: %s", esp_err_to_name(ret));
+  }
+
+  ret = esp_netif_init();
+  if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
+    ESP_LOGE(TAG, "esp_netif_init failed: %s", esp_err_to_name(ret));
+    return ret;
+  }
+
+  ret = esp_event_loop_create_default();
+  if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
+    ESP_LOGW(TAG, "esp_event_loop_create_default returned: %s", esp_err_to_name(ret));
+  }
+
+  esp_netif_t* ap_netif = esp_netif_create_default_wifi_ap();
+  if (ap_netif == NULL) {
+    ESP_LOGW(TAG, "default wifi AP netif already exists or could not be created");
+  }
+
   wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-  ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+  ret = esp_wifi_init(&cfg);
+  if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
+    ESP_LOGE(TAG, "esp_wifi_init failed: %s", esp_err_to_name(ret));
+    return ret;
+  }
 
   wifi_config_t wifi_config = {};
-  strcpy((char *)wifi_config.ap.ssid, "MOTO-GPS-OTA");
-  wifi_config.ap.ssid_len = strlen("MOTO-GPS-OTA");
+  std::strcpy((char *)wifi_config.ap.ssid, "MOTO-GPS-OTA");
+  wifi_config.ap.ssid_len = std::strlen("MOTO-GPS-OTA");
   wifi_config.ap.max_connection = 4;
   wifi_config.ap.authmode = WIFI_AUTH_OPEN;
 
-  ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
-  ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
-  ESP_ERROR_CHECK(esp_wifi_start());
+  ret = esp_wifi_set_mode(WIFI_MODE_AP);
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "esp_wifi_set_mode failed: %s", esp_err_to_name(ret));
+    return ret;
+  }
+
+  ret = esp_wifi_set_config(WIFI_IF_AP, &wifi_config);
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "esp_wifi_set_config failed: %s", esp_err_to_name(ret));
+    return ret;
+  }
+
+  ret = esp_wifi_start();
+  if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
+    ESP_LOGE(TAG, "esp_wifi_start failed: %s", esp_err_to_name(ret));
+    return ret;
+  }
 
   ESP_LOGI(TAG, "Wi-Fi SoftAP avviato. SSID: MOTO-GPS-OTA, IP: 192.168.4.1");
 
@@ -126,10 +175,15 @@ esp_err_t ota_update_service_start(void) {
         .user_ctx = NULL
     };
     httpd_register_uri_handler(server_handle, &ota_uri);
+    s_ota_service_running = true;
     ESP_LOGI(TAG, "Server HTTP OTA registrato su POST /ota");
     return ESP_OK;
   }
 
   ESP_LOGE(TAG, "Avvio server HTTP OTA fallito");
   return ESP_FAIL;
+}
+
+bool ota_update_service_is_running(void) {
+  return s_ota_service_running;
 }

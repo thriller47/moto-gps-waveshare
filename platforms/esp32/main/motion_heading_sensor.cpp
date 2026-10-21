@@ -96,10 +96,14 @@ void MotionHeadingSensor::task_entry(void* context) {
 
 void MotionHeadingSensor::run() {
   qmi8658_dev_t device{};
-  const esp_err_t init = qmi8658_init(
+  esp_err_t init = qmi8658_init(
       &device, bsp_i2c_get_handle(), QMI8658_ADDRESS_HIGH);
   if (init != ESP_OK) {
-    ESP_LOGW(kTag, "QMI8658 unavailable; using phone course only: %s",
+    init = qmi8658_init(
+        &device, bsp_i2c_get_handle(), QMI8658_ADDRESS_LOW);
+  }
+  if (init != ESP_OK) {
+    ESP_LOGW(kTag, "QMI8658 unavailable (tried HIGH and LOW addresses); using phone course only: %s",
              esp_err_to_name(init));
     return;
   }

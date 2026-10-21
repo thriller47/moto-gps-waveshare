@@ -227,9 +227,6 @@ class NavigationViewModel(
 
         if (!force && (distMoved < 100.0 || mapSceneInFlight || now - lastMapSceneTime < 3000)) return
 
-        lastMapSceneLat = latitude
-        lastMapSceneLon = longitude
-        lastMapSceneTime = now
         mapSceneInFlight = true
 
         viewModelScope.launch(Dispatchers.IO) {
@@ -250,8 +247,13 @@ class NavigationViewModel(
                     }
 
                 if (scene.roads.isNotEmpty() || scene.buildings.isNotEmpty()) {
-                    mapSceneRevision++
-                    bleManager.sendMapScene(scene)
+                    val sentSuccess = bleManager.sendMapScene(scene)
+                    if (sentSuccess || force) {
+                        lastMapSceneLat = latitude
+                        lastMapSceneLon = longitude
+                        lastMapSceneTime = System.currentTimeMillis()
+                        mapSceneRevision++
+                    }
                 }
             } catch (e: Exception) {
                 Log.e("MapDownload", "Errore download/generazione mappa", e)
@@ -516,7 +518,7 @@ class NavigationViewModel(
         var matchedSpeed = 0
 
         for (seg in segments) {
-            if (seg.points.isEmpty()) continue
+            if (seg.points.isEmpty() || seg.maxSpeedKph <= 0) continue
             for (i in 0 until seg.points.size - 1) {
                 val p1 = seg.points[i]
                 val p2 = seg.points[i + 1]
