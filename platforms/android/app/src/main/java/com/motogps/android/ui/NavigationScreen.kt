@@ -7,19 +7,23 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
 import androidx.compose.ui.viewinterop.AndroidView
+import com.motogps.android.map.SavedMapInfo
 import com.motogps.android.viewmodel.PlaceSearchResult
 import com.motogps.android.viewmodel.RouteOption
 import org.json.JSONArray
@@ -249,6 +253,115 @@ fun extractGeoPoints(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
+fun OfflineMapsDialog(
+    savedMaps: List<SavedMapInfo>,
+    onDeleteMap: (String) -> Unit,
+    onDownloadArea: () -> Unit,
+    onDownloadRegion: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val regions = listOf(
+        "Abruzzo", "Basilicata", "Calabria", "Campania", "Emilia-Romagna",
+        "Friuli-Venezia Giulia", "Lazio", "Liguria", "Lombardia", "Marche",
+        "Molise", "Piemonte", "Puglia", "Sardegna", "Sicilia",
+        "Toscana", "Trentino-Alto Adige", "Umbria", "Valle d'Aosta", "Veneto"
+    )
+    var selectedRegion by remember { mutableStateOf(regions.first()) }
+    var expandedDropdown by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Gestione Mappe Offline") },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text("Mappe .motomap salvate:", style = MaterialTheme.typography.titleSmall)
+                Spacer(modifier = Modifier.height(8.dp))
+
+                if (savedMaps.isEmpty()) {
+                    Text("Nessuna mappa offline salvata.", style = MaterialTheme.typography.bodyMedium)
+                } else {
+                    LazyColumn(modifier = Modifier.heightIn(max = 160.dp).fillMaxWidth()) {
+                        items(savedMaps) { mapInfo ->
+                            val mbStr = String.format("%.2f MB", mapInfo.sizeBytes / (1024.0 * 1024.0))
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(mapInfo.fileName, style = MaterialTheme.typography.bodyMedium)
+                                    Text(mbStr, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                IconButton(onClick = { onDeleteMap(mapInfo.fileName) }) {
+                                    Icon(Icons.Default.Delete, contentDescription = "Elimina")
+                                }
+                            }
+                            HorizontalDivider()
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+                HorizontalDivider()
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Button(
+                    onClick = onDownloadArea,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.Place, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Scarica Area Corrente (10 km)")
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    OutlinedButton(
+                        onClick = { expandedDropdown = true },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Regione: $selectedRegion")
+                        Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                    }
+                    DropdownMenu(
+                        expanded = expandedDropdown,
+                        onDismissRequest = { expandedDropdown = false }
+                    ) {
+                        regions.forEach { reg ->
+                            DropdownMenuItem(
+                                text = { Text(reg) },
+                                onClick = {
+                                    selectedRegion = reg
+                                    expandedDropdown = false
+                                }
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Button(
+                    onClick = { onDownloadRegion(selectedRegion) },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.Place, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Scarica Regione $selectedRegion")
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Chiudi")
+            }
+        }
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
 fun NavigationScreen(
     initialGateway: String,
     onGatewaySave: (String) -> Unit,
@@ -262,15 +375,21 @@ fun NavigationScreen(
     selectedRouteIndex: Int,
     isNavigating: Boolean = false,
     currentLocation: Pair<Double, Double>? = null,
+    savedMaps: List<SavedMapInfo> = emptyList(),
     onRouteOptionSelect: (Int) -> Unit,
     onRouteSelected: (PlaceSearchResult) -> Unit,
     onStartNavigation: (PlaceSearchResult) -> Unit,
     onStopNavigation: () -> Unit = {},
-    onBackToSearch: () -> Unit
+    onBackToSearch: () -> Unit,
+    onDownloadArea: () -> Unit = {},
+    onDownloadCorridor: (List<Pair<Double, Double>>) -> Unit = {},
+    onDownloadRegion: (String) -> Unit = {},
+    onDeleteMap: (String) -> Unit = {}
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var currentGateway by remember { mutableStateOf(initialGateway) }
     var showGatewayDialog by remember { mutableStateOf(initialGateway.isBlank()) }
+    var showOfflineDialog by remember { mutableStateOf(false) }
     var tempGateway by remember { mutableStateOf(initialGateway) }
 
     var centerOnLocationTrigger by remember { mutableStateOf(0) }
@@ -309,6 +428,16 @@ fun NavigationScreen(
         )
     }
 
+    if (showOfflineDialog) {
+        OfflineMapsDialog(
+            savedMaps = savedMaps,
+            onDeleteMap = onDeleteMap,
+            onDownloadArea = onDownloadArea,
+            onDownloadRegion = onDownloadRegion,
+            onDismiss = { showOfflineDialog = false }
+        )
+    }
+
     Scaffold(
         topBar = {
             if (routePreview != null) {
@@ -316,7 +445,7 @@ fun NavigationScreen(
                     title = { Text("Percorso") },
                     navigationIcon = {
                         IconButton(onClick = onBackToSearch) {
-                            Icon(Icons.Default.ArrowBack, contentDescription = "Indietro")
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Indietro")
                         }
                     },
                     actions = {
@@ -329,6 +458,9 @@ fun NavigationScreen(
                 TopAppBar(
                     title = { Text("MOTO GPS") },
                     actions = {
+                        IconButton(onClick = { showOfflineDialog = true }) {
+                            Icon(Icons.Default.Place, contentDescription = "Mappe Offline")
+                        }
                         IconButton(onClick = { showGatewayDialog = true }) {
                             Icon(Icons.Default.Settings, contentDescription = "Impostazioni Gateway")
                         }
@@ -344,12 +476,19 @@ fun NavigationScreen(
                     extractGeoPoints(selectedRoute, currentLocation, routePreview)
                 }
 
-                RouteMapView(
-                    geoPoints = geoPoints,
+                Card(
+                    shape = RoundedCornerShape(16.dp),
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
-                )
+                        .padding(8.dp)
+                        .clipToBounds()
+                ) {
+                    RouteMapView(
+                        geoPoints = geoPoints,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
 
                 HorizontalDivider()
 
@@ -393,6 +532,22 @@ fun NavigationScreen(
                         }
                     }
 
+                    // Salva Mappa Corridoio Quick Action Button
+                    OutlinedButton(
+                        onClick = {
+                            val pts = geoPoints.map { Pair(it.latitude, it.longitude) }
+                            onDownloadCorridor(pts)
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp)
+                            .height(48.dp)
+                    ) {
+                        Icon(Icons.Default.Place, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Salva Mappa Corridoio (10 km)")
+                    }
+
                     if (isNavigating) {
                         Button(
                             onClick = onStopNavigation,
@@ -402,7 +557,7 @@ fun NavigationScreen(
                             ),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(16.dp)
+                                .padding(horizontal = 16.dp, vertical = 8.dp)
                                 .height(56.dp)
                         ) {
                             Text("Termina Navigazione", style = MaterialTheme.typography.titleMedium)
@@ -412,7 +567,7 @@ fun NavigationScreen(
                             onClick = { onStartNavigation(routePreview) },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(16.dp)
+                                .padding(horizontal = 16.dp, vertical = 8.dp)
                                 .height(56.dp)
                         ) {
                             Text("Avvia navigazione", style = MaterialTheme.typography.titleMedium)
@@ -477,7 +632,7 @@ fun NavigationScreen(
                     }
 
                     Button(
-                        onClick = { triggerOfflineMapDownload(activeMapView, context) },
+                        onClick = { showOfflineDialog = true },
                         modifier = Modifier.weight(1f)
                     ) {
                         Icon(
@@ -486,7 +641,7 @@ fun NavigationScreen(
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Salva Mappa Offline", style = MaterialTheme.typography.labelSmall)
+                        Text("Gestione Mappe Offline", style = MaterialTheme.typography.labelSmall)
                     }
                 }
 
@@ -519,28 +674,35 @@ fun NavigationScreen(
                     }
                 }
 
-                MainMapView(
-                    currentLocation = currentLocation,
-                    destinationLocation = longPressDestination,
-                    centerTrigger = centerOnLocationTrigger,
-                    onMapLongPress = { lat, lon ->
-                        longPressDestination = Pair(lat, lon)
-                        val place = PlaceSearchResult(
-                            name = "Punto sulla mappa",
-                            address = String.format("Lat: %.4f, Lon: %.4f", lat, lon),
-                            displayArea = "Mappa",
-                            latitude = lat,
-                            longitude = lon
-                        )
-                        onRouteSelected(place)
-                    },
-                    onMapViewReady = { mapView ->
-                        activeMapView = mapView
-                    },
+                Card(
+                    shape = RoundedCornerShape(16.dp),
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
-                )
+                        .padding(8.dp)
+                        .clipToBounds()
+                ) {
+                    MainMapView(
+                        currentLocation = currentLocation,
+                        destinationLocation = longPressDestination,
+                        centerTrigger = centerOnLocationTrigger,
+                        onMapLongPress = { lat, lon ->
+                            longPressDestination = Pair(lat, lon)
+                            val place = PlaceSearchResult(
+                                name = "Punto sulla mappa",
+                                address = String.format("Lat: %.4f, Lon: %.4f", lat, lon),
+                                displayArea = "Mappa",
+                                latitude = lat,
+                                longitude = lon
+                            )
+                            onRouteSelected(place)
+                        },
+                        onMapViewReady = { mapView ->
+                            activeMapView = mapView
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
             }
         }
     }

@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
@@ -19,6 +20,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import com.motogps.android.ble.MotoBLEManager
 import com.motogps.android.location.LocationForegroundService
@@ -29,6 +34,7 @@ import com.motogps.android.viewmodel.NavigationViewModelFactory
 class MainActivity : ComponentActivity(), LocationListener {
     private lateinit var bleManager: MotoBLEManager
     private lateinit var locationManager: LocationManager
+    private var lastBackPressTime = 0L
 
     private val viewModel: NavigationViewModel by viewModels {
         NavigationViewModelFactory(bleManager)
@@ -52,7 +58,7 @@ class MainActivity : ComponentActivity(), LocationListener {
 
         LocationForegroundService.onLocationUpdate = { lat, lon ->
             runOnUiThread {
-                viewModel.updateDeviceLocation(lat, lon)
+                viewModel.updateDeviceLocation(lat, lon, this)
             }
         }
 
@@ -66,6 +72,24 @@ class MainActivity : ComponentActivity(), LocationListener {
                 }
             }
         }
+
+        // Double-tap Back button to exit
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                val routePreview = viewModel.routePreview.value
+                if (routePreview != null) {
+                    viewModel.clearRoutePreview()
+                } else {
+                    val now = System.currentTimeMillis()
+                    if (now - lastBackPressTime < 2000) {
+                        finish()
+                    } else {
+                        lastBackPressTime = now
+                        Toast.makeText(this@MainActivity, "Premi ancora per uscire", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        })
 
         val sharedPrefs = getSharedPreferences("MotoGpsPrefs", Context.MODE_PRIVATE)
         val defaultGateway = "https://moto-gps-waveshare.onrender.com"
@@ -91,6 +115,11 @@ class MainActivity : ComponentActivity(), LocationListener {
             val selectedRouteIndex = viewModel.selectedRouteIndex.collectAsState().value
             val isNavigating = viewModel.isNavigating.collectAsState().value
             val currentLocation = viewModel.currentLocation.collectAsState().value
+
+            var mapsUpdateTrigger by remember { mutableStateOf(0) }
+            val savedMaps = remember(errorMessage, mapsUpdateTrigger) {
+                viewModel.listSavedMaps(this@MainActivity)
+            }
 
             if (errorMessage != null) {
                 LaunchedEffect(errorMessage) {
@@ -119,6 +148,7 @@ class MainActivity : ComponentActivity(), LocationListener {
                     selectedRouteIndex = selectedRouteIndex,
                     isNavigating = isNavigating,
                     currentLocation = currentLocation,
+                    savedMaps = savedMaps,
                     onRouteOptionSelect = { index ->
                         viewModel.selectRouteOption(index)
                     },
@@ -133,6 +163,19 @@ class MainActivity : ComponentActivity(), LocationListener {
                     },
                     onBackToSearch = {
                         viewModel.clearRoutePreview()
+                    },
+                    onDownloadArea = {
+                        viewModel.downloadCurrentArea(this@MainActivity)
+                    },
+                    onDownloadCorridor = { points ->
+                        viewModel.downloadRouteCorridor(this@MainActivity, points)
+                    },
+                    onDownloadRegion = { region ->
+                        viewModel.downloadRegion(this@MainActivity, region)
+                    },
+                    onDeleteMap = { fileName ->
+                        viewModel.deleteSavedMap(this@MainActivity, fileName)
+                        mapsUpdateTrigger++
                     }
                 )
             }
@@ -174,7 +217,7 @@ class MainActivity : ComponentActivity(), LocationListener {
 
             val bestLast = selectBestLocation(lastGps, lastNet)
             if (bestLast != null) {
-                viewModel.updateDeviceLocation(bestLast.latitude, bestLast.longitude)
+                viewModel.updateDeviceLocation(bestLast.latitude, bestLast.longitude, this)
             }
 
             if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
@@ -195,7 +238,6 @@ class MainActivity : ComponentActivity(), LocationListener {
                 )
             }
 
-            // Start LocationForegroundService as well
             val serviceIntent = Intent(this, LocationForegroundService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 startForegroundService(serviceIntent)
@@ -212,7 +254,7 @@ class MainActivity : ComponentActivity(), LocationListener {
     }
 
     override fun onLocationChanged(location: Location) {
-        viewModel.updateDeviceLocation(location.latitude, location.longitude)
+        viewModel.updateDeviceLocation(location.latitude, location.longitude, this)
     }
 
     @Deprecated("Deprecated in Java")
