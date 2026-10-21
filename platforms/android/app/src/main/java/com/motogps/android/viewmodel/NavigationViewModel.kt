@@ -70,6 +70,9 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     private val _currentDevicePage = MutableStateFlow(0)
     val currentDevicePage: StateFlow<Int> = _currentDevicePage
 
+    private val _savedMaps = MutableStateFlow<List<SavedMapInfo>>(emptyList())
+    val savedMaps: StateFlow<List<SavedMapInfo>> = _savedMaps
+
     private var navigationJob: Job? = null
     private var currentSnapshot: MotoBLENavigationSnapshot? = null
     private var currentGeometry: MotoBLERouteGeometry? = null
@@ -330,12 +333,13 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
             _errorMessage.value = null
             try {
                 val (lat, lon) = currentLocation.value
+                val mapRepository = HybridMapRepository(context)
                 val file = withContext(Dispatchers.IO) {
-                    val repo = HybridMapRepository(context)
-                    repo.downloadCurrentArea(lat, lon, 10.0)
+                    mapRepository.downloadCurrentArea(lat, lon, 10.0)
                 }
                 val kb = file.length() / 1024
                 _errorMessage.value = "Mappa area corrente salvata ($kb KB)"
+                _savedMaps.value = mapRepository.listSavedMaps()
             } catch (e: Exception) {
                 _errorMessage.value = "Errore download mappa: ${e.message}"
             } finally {
@@ -350,12 +354,13 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
             _isLoading.value = true
             _errorMessage.value = null
             try {
+                val mapRepository = HybridMapRepository(context)
                 val file = withContext(Dispatchers.IO) {
-                    val repo = HybridMapRepository(context)
-                    repo.downloadRouteCorridor(rawRoutePoints)
+                    mapRepository.downloadRouteCorridor(rawRoutePoints)
                 }
                 val kb = file.length() / 1024
                 _errorMessage.value = "Mappa corridoio salvata ($kb KB)"
+                _savedMaps.value = mapRepository.listSavedMaps()
             } catch (e: Exception) {
                 _errorMessage.value = "Errore download corridoio: ${e.message}"
             } finally {
@@ -369,12 +374,13 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
             _isLoading.value = true
             _errorMessage.value = null
             try {
+                val mapRepository = HybridMapRepository(context)
                 val file = withContext(Dispatchers.IO) {
-                    val repo = HybridMapRepository(context)
-                    repo.downloadRegion(regionName)
+                    mapRepository.downloadRegion(regionName)
                 }
                 val kb = file.length() / 1024
                 _errorMessage.value = "Mappa regione $regionName salvata ($kb KB)"
+                _savedMaps.value = mapRepository.listSavedMaps()
             } catch (e: Exception) {
                 _errorMessage.value = "Errore download regione: ${e.message}"
             } finally {
@@ -384,11 +390,19 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     }
 
     fun listSavedMaps(context: Context): List<SavedMapInfo> {
-        return HybridMapRepository(context).listSavedMaps()
+        val mapRepository = HybridMapRepository(context)
+        val list = mapRepository.listSavedMaps()
+        _savedMaps.value = list
+        return list
     }
 
     fun deleteSavedMap(context: Context, fileName: String): Boolean {
-        return HybridMapRepository(context).deleteSavedMap(fileName)
+        val mapRepository = HybridMapRepository(context)
+        val result = mapRepository.deleteSavedMap(fileName)
+        if (result) {
+            _savedMaps.value = mapRepository.listSavedMaps()
+        }
+        return result
     }
 
     private fun checkOffRouteAndRecalculate(latitude: Double, longitude: Double) {
