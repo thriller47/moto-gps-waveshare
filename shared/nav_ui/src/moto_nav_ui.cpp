@@ -11,6 +11,8 @@
 
 LV_FONT_DECLARE(moto_font_nav_16);
 
+extern "C" __attribute__((weak)) void ota_manager_start_ap_server(void) {}
+
 namespace {
 
 constexpr lv_color_t kBlack = LV_COLOR_MAKE(0x05, 0x06, 0x07);
@@ -180,6 +182,11 @@ struct Ui {
     bool music_page_enabled = true;
     bool demo_active = false;
     bool reduce_motion = false;
+
+    lv_obj_t *ota_overlay = nullptr;
+    lv_obj_t *ota_bar = nullptr;
+    lv_obj_t *ota_percent_label = nullptr;
+    lv_obj_t *ota_btn = nullptr;
 } ui;
 
 void reset_ui_state() {
@@ -305,6 +312,10 @@ void reveal_page_dots() {
         lv_timer_reset(ui.page_dots_timer);
         lv_timer_resume(ui.page_dots_timer);
     }
+}
+
+void ota_button_event(lv_event_t *) {
+    ota_manager_start_ap_server();
 }
 
 void interaction_event(lv_event_t *) {
@@ -1677,6 +1688,15 @@ void create_navigation_page() {
                                             kConnectionSuccessHoldMs,
                                             nullptr);
     lv_timer_pause(ui.nav_success_timer);
+    ui.ota_btn = lv_button_create(ui.nav_lifecycle);
+    lv_obj_set_size(ui.ota_btn, px(220), px(36));
+    lv_obj_align(ui.ota_btn, LV_ALIGN_BOTTOM_MID, 0, px(-40));
+    lv_obj_set_style_bg_color(ui.ota_btn, kGraphite, 0);
+    lv_obj_set_style_radius(ui.ota_btn, px(18), 0);
+    lv_obj_add_event_cb(ui.ota_btn, ota_button_event, LV_EVENT_CLICKED, nullptr);
+    lv_obj_t *ota_btn_label = make_label(ui.ota_btn, &moto_font_nav_16, kWhite, "Modalita OTA Wi-Fi");
+    lv_obj_center(ota_btn_label);
+
     apply_lifecycle_content(LifecycleVisual::PhoneOffline);
     ui.lifecycle_target = LifecycleVisual::PhoneOffline;
 }
@@ -2121,4 +2141,47 @@ extern "C" void moto_nav_ui_set_demo_change_callback(
     moto_demo_change_callback_t callback, void *context) {
     ui.demo_callback = callback;
     ui.demo_callback_context = context;
+}
+
+extern "C" void moto_nav_ui_show_ota_screen(void) {
+    if (ui.screen == nullptr) return;
+    if (ui.ota_overlay == nullptr) {
+        ui.ota_overlay = make_layer(ui.screen);
+        lv_obj_set_style_bg_color(ui.ota_overlay, kBlack, 0);
+        lv_obj_set_style_bg_opa(ui.ota_overlay, LV_OPA_COVER, 0);
+
+        lv_obj_t *title = make_label(ui.ota_overlay, &lv_font_montserrat_20, kWhite, "Modalita OTA Wi-Fi");
+        lv_obj_align(title, LV_ALIGN_TOP_MID, 0, px(50));
+
+        lv_obj_t *status = make_label(ui.ota_overlay, &moto_font_nav_16, kIce, "Wi-Fi: MotoGPS-OTA (Pass: motogps123)");
+        lv_obj_set_width(status, px(320));
+        lv_obj_set_style_text_align(status, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_align(status, LV_ALIGN_TOP_MID, 0, px(100));
+
+        lv_obj_t *ip = make_label(ui.ota_overlay, &lv_font_montserrat_28, kWhite, "192.168.4.1");
+        lv_obj_align(ip, LV_ALIGN_TOP_MID, 0, px(140));
+
+        ui.ota_bar = lv_bar_create(ui.ota_overlay);
+        lv_obj_set_size(ui.ota_bar, px(280), px(20));
+        lv_obj_align(ui.ota_bar, LV_ALIGN_CENTER, 0, px(20));
+        lv_bar_set_range(ui.ota_bar, 0, 100);
+        lv_bar_set_value(ui.ota_bar, 0, LV_ANIM_OFF);
+        lv_obj_set_style_bg_color(ui.ota_bar, kGraphite, LV_PART_MAIN);
+        lv_obj_set_style_bg_color(ui.ota_bar, kGreen, LV_PART_INDICATOR);
+
+        ui.ota_percent_label = make_label(ui.ota_overlay, &lv_font_montserrat_28, kGreen, "0%");
+        lv_obj_align(ui.ota_percent_label, LV_ALIGN_CENTER, 0, px(70));
+    }
+    lv_obj_remove_flag(ui.ota_overlay, LV_OBJ_FLAG_HIDDEN);
+}
+
+extern "C" void moto_nav_ui_update_ota_progress(int percent) {
+    if (ui.ota_bar != nullptr) {
+        lv_bar_set_value(ui.ota_bar, percent, LV_ANIM_OFF);
+    }
+    if (ui.ota_percent_label != nullptr) {
+        char buf[16];
+        std::snprintf(buf, sizeof(buf), "%d%%", percent);
+        lv_label_set_text(ui.ota_percent_label, buf);
+    }
 }

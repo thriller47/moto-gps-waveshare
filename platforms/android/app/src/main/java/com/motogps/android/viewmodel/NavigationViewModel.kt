@@ -73,6 +73,15 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     private val _savedMaps = MutableStateFlow<List<SavedMapInfo>>(emptyList())
     val savedMaps: StateFlow<List<SavedMapInfo>> = _savedMaps
 
+    private val _otaStatus = MutableStateFlow<String?>(null)
+    val otaStatus: StateFlow<String?> = _otaStatus
+
+    private val _otaProgress = MutableStateFlow(0)
+    val otaProgress: StateFlow<Int> = _otaProgress
+
+    private val _isUploadingOta = MutableStateFlow(false)
+    val isUploadingOta: StateFlow<Boolean> = _isUploadingOta
+
     private var currentHeadingCentiDeg: Int = 0
     private var currentSpeedDeciKph: Int = 0
     private var prevLat: Double? = null
@@ -852,6 +861,78 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                 }
             }
         }
+    }
+
+    fun uploadFirmwareOta(context: Context, fileUri: android.net.Uri, espIp: String = "192.168.4.1") {
+        viewModelScope.launch(Dispatchers.IO) {
+            _isUploadingOta.value = true
+            _otaProgress.value = 0
+            _otaStatus.value = "Avvio caricamento OTA..."
+
+            var conn: HttpURLConnection? = null
+            try {
+                val inputStream = context.contentResolver.openInputStream(fileUri)
+                    ?: throw Exception("Impossibile aprire il file selezionato")
+
+                var fileSize = 0L
+                try {
+                    context.contentResolver.openAssetFileDescriptor(fileUri, "r")?.use {
+                        fileSize = it.length
+                    }
+                } catch (_: Exception) {}
+
+                val url = URL("http://$espIp/ota")
+                conn = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    doOutput = true
+                    connectTimeout = 10000
+                    readTimeout = 60000
+                    setRequestProperty("Content-Type", "application/octet-stream")
+                    if (fileSize > 0) {
+                        setFixedLengthStreamingMode(fileSize)
+                    } else {
+                        setChunkedStreamingMode(4096)
+                    }
+                }
+
+                val buffer = ByteArray(4096)
+                var bytesSent = 0L
+                conn.outputStream.use { os ->
+                    inputStream.use { isStream ->
+                        var bytesRead: Int
+                        while (isStream.read(buffer).also { bytesRead = it } != -1) {
+                            os.write(buffer, 0, bytesRead)
+                            bytesSent += bytesRead
+                            if (fileSize > 0) {
+                                val prog = ((bytesSent * 100) / fileSize).toInt().coerceIn(0, 100)
+                                _otaProgress.value = prog
+                                _otaStatus.value = "Caricamento in corso: $prog%"
+                            }
+                        }
+                        os.flush()
+                    }
+                }
+
+                val responseCode = conn.responseCode
+                if (responseCode in 200..299) {
+                    _otaProgress.value = 100
+                    _otaStatus.value = "Aggiornamento OTA completato! Riavvio display in corso..."
+                } else {
+                    throw Exception("HTTP Errore $responseCode")
+                }
+            } catch (t: Throwable) {
+                _otaStatus.value = "Errore: ${t.localizedMessage ?: "Caricamento fallito"}. Assicurati di essere connesso al Wi-Fi MotoGPS-OTA"
+            } finally {
+                _isUploadingOta.value = false
+                conn?.disconnect()
+            }
+        }
+    }
+
+    fun resetOtaStatus() {
+        _otaStatus.value = null
+        _otaProgress.value = 0
+        _isUploadingOta.value = false
     }
 
     fun clearError() {

@@ -12,6 +12,8 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -253,6 +255,85 @@ fun extractGeoPoints(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
+fun OtaUpdateDialog(
+    otaStatus: String?,
+    otaProgress: Int,
+    isUploadingOta: Boolean,
+    onStartOta: (android.net.Uri) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var selectedUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    var selectedFileName by remember { mutableStateOf<String?>(null) }
+
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: android.net.Uri? ->
+        if (uri != null) {
+            selectedUri = uri
+            selectedFileName = uri.lastPathSegment ?: "firmware.bin"
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Aggiornamento Firmware (OTA)") },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = "1. Attiva Modalita OTA sul display ESP32.\n2. Connetti il telefono al Wi-Fi 'MotoGPS-OTA' (pass: motogps123).\n3. Seleziona il file firmware .bin.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+
+                OutlinedButton(
+                    onClick = { filePickerLauncher.launch("*/*") },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !isUploadingOta
+                ) {
+                    Icon(Icons.Default.FileOpen, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(selectedFileName ?: "Seleziona file .bin")
+                }
+
+                if (otaStatus != null || isUploadingOta) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    LinearProgressIndicator(
+                        progress = { otaProgress / 100f },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = otaStatus ?: "$otaProgress%",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    selectedUri?.let { uri ->
+                        onStartOta(uri)
+                    }
+                },
+                enabled = selectedUri != null && !isUploadingOta
+            ) {
+                Text("Avvia Aggiornamento OTA")
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+                enabled = !isUploadingOta
+            ) {
+                Text("Chiudi")
+            }
+        }
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
 fun OfflineMapsDialog(
     savedMaps: List<SavedMapInfo>,
     onDeleteMap: (String) -> Unit,
@@ -384,12 +465,17 @@ fun NavigationScreen(
     onDownloadArea: () -> Unit = {},
     onDownloadCorridor: (List<Pair<Double, Double>>) -> Unit = {},
     onDownloadRegion: (String) -> Unit = {},
-    onDeleteMap: (String) -> Unit = {}
+    onDeleteMap: (String) -> Unit = {},
+    otaStatus: String? = null,
+    otaProgress: Int = 0,
+    isUploadingOta: Boolean = false,
+    onStartOta: (android.net.Uri) -> Unit = {}
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var currentGateway by remember { mutableStateOf(initialGateway) }
     var showGatewayDialog by remember { mutableStateOf(initialGateway.isBlank()) }
     var showOfflineDialog by remember { mutableStateOf(false) }
+    var showOtaDialog by remember { mutableStateOf(false) }
     var tempGateway by remember { mutableStateOf(initialGateway) }
 
     var centerOnLocationTrigger by remember { mutableStateOf(0) }
@@ -438,6 +524,16 @@ fun NavigationScreen(
         )
     }
 
+    if (showOtaDialog) {
+        OtaUpdateDialog(
+            otaStatus = otaStatus,
+            otaProgress = otaProgress,
+            isUploadingOta = isUploadingOta,
+            onStartOta = onStartOta,
+            onDismiss = { showOtaDialog = false }
+        )
+    }
+
     Scaffold(
         topBar = {
             if (routePreview != null) {
@@ -458,6 +554,9 @@ fun NavigationScreen(
                 TopAppBar(
                     title = { Text("MOTO GPS") },
                     actions = {
+                        IconButton(onClick = { showOtaDialog = true }) {
+                            Icon(Icons.Default.SystemUpdate, contentDescription = "Aggiornamento Firmware (OTA)")
+                        }
                         IconButton(onClick = { showOfflineDialog = true }) {
                             Icon(Icons.Default.Place, contentDescription = "Mappe Offline")
                         }
