@@ -51,6 +51,12 @@ class MainActivity : ComponentActivity(), LocationListener {
 
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
 
+        LocationForegroundService.onLocationObjectUpdate = { location ->
+            runOnUiThread {
+                viewModel.updateDeviceLocationObject(location)
+            }
+        }
+
         LocationForegroundService.onLocationUpdate = { lat, lon ->
             runOnUiThread {
                 viewModel.updateDeviceLocation(lat, lon)
@@ -176,7 +182,7 @@ class MainActivity : ComponentActivity(), LocationListener {
 
             val bestLast = selectBestLocation(lastGps, lastNet)
             if (bestLast != null) {
-                viewModel.updateDeviceLocation(bestLast.latitude, bestLast.longitude)
+                viewModel.updateDeviceLocationObject(bestLast)
             }
 
             if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
@@ -214,7 +220,7 @@ class MainActivity : ComponentActivity(), LocationListener {
     }
 
     override fun onLocationChanged(location: Location) {
-        viewModel.updateDeviceLocation(location.latitude, location.longitude)
+        viewModel.updateDeviceLocationObject(location)
     }
 
     @Deprecated("Deprecated in Java")

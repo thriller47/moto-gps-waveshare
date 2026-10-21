@@ -215,6 +215,7 @@ class NavigationViewModel(
     private var lastMapSceneLat = 0.0
     private var lastMapSceneLon = 0.0
     private var lastMapSceneTime = 0L
+    private var mapSceneInFlight = false
     private val rawRoutePoints = mutableListOf<GeoPointE6>()
 
     private fun maybeSendMapScene(latitude: Double, longitude: Double, force: Boolean = false) {
@@ -224,22 +225,23 @@ class NavigationViewModel(
         val distMoved = if (lastMapSceneLat == 0.0 && lastMapSceneLon == 0.0) 999.0
         else calculateDistanceMeters(lastMapSceneLat, lastMapSceneLon, latitude, longitude)
 
-        if (!force && distMoved < 100.0) return
+        if (!force && (distMoved < 100.0 || mapSceneInFlight || now - lastMapSceneTime < 3000)) return
 
         lastMapSceneLat = latitude
         lastMapSceneLon = longitude
         lastMapSceneTime = now
+        mapSceneInFlight = true
 
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 if (mapSceneRevision == 0L) mapSceneRevision = 1L
-                val scene = mapRepository?.fetchMapScene(latitude, longitude, mapSceneRevision++)
+                val scene = mapRepository?.fetchMapScene(latitude, longitude, mapSceneRevision)
                     ?: run {
                         val (gLat, gLon) = mapRepository?.wgs84ToGcj02(latitude, longitude) ?: Pair(latitude, longitude)
                         val originE6 = GeoPointE6((gLat * 1e6).toInt(), (gLon * 1e6).toInt())
                         MotoBLEMapScene(
                             coordinateSystem = 2,
-                            sceneRevision = mapSceneRevision++,
+                            sceneRevision = mapSceneRevision,
                             viewOrigin = originE6,
                             radiusMeters = 500,
                             roads = emptyList(),
@@ -247,10 +249,14 @@ class NavigationViewModel(
                         )
                     }
 
-                bleManager.sendMapScene(scene)
+                if (scene.roads.isNotEmpty() || scene.buildings.isNotEmpty()) {
+                    mapSceneRevision++
+                    bleManager.sendMapScene(scene)
+                }
             } catch (e: Exception) {
                 Log.e("MapDownload", "Errore download/generazione mappa", e)
-                _errorMessage.value = "Errore mappa: ${e.message}"
+            } finally {
+                mapSceneInFlight = false
             }
         }
     }
@@ -351,6 +357,10 @@ class NavigationViewModel(
                     val (cLat, cLon) = currentLocation.value
                     val nearbySegs = mapRepository?.getNearbyRoadSegments(cLat, cLon, 300.0) ?: emptyList()
                     val detectedSpeedLimit = findNearestRoadSpeedLimit(nearbySegs, cLat, cLon, 50.0)
+                    if (detectedSpeedLimit > 0) {
+                        lastSpeedLimitKph = detectedSpeedLimit
+                    }
+                    val speedLimitToUse = if (detectedSpeedLimit > 0) detectedSpeedLimit else lastSpeedLimitKph
 
                     val snapBase = currentSnapshot?.copy() ?: snapshot.copy()
                     val pageName = when (_currentDevicePage.value) {
@@ -359,9 +369,16 @@ class NavigationViewModel(
                         3 -> "music"
                         else -> "navigation"
                     }
+                    val speedDeciKph = kotlin.math.round(currentSpeedMps * 3.6f * 10f).toInt().coerceIn(0, 65535)
+                    val headingCentiDeg = kotlin.math.round(currentHeadingDeg * 100f).toInt().coerceIn(0, 36000)
+
                     val activeSnap = snapBase.copy(
                         displayPageName = pageName,
-                        speedLimitKPH = detectedSpeedLimit
+                        hasFix = true,
+                        gnssStale = false,
+                        speedDeciKPH = speedDeciKph,
+                        headingCentiDegrees = headingCentiDeg,
+                        speedLimitKPH = speedLimitToUse
                     )
 
                     bleManager.sendNavigationSnapshot(activeSnap)
@@ -391,6 +408,7 @@ class NavigationViewModel(
         lastMapSceneLat = 0.0
         lastMapSceneLon = 0.0
         lastMapSceneTime = 0L
+        lastSpeedLimitKph = 0
         rawRoutePoints.clear()
 
         val stopSnapshot = MotoBLENavigationSnapshot(
@@ -431,10 +449,57 @@ class NavigationViewModel(
     private val _currentLocation = MutableStateFlow<Pair<Double, Double>>(Pair(41.9028, 12.4964))
     val currentLocation: StateFlow<Pair<Double, Double>> = _currentLocation
 
+    private var currentSpeedMps: Float = 0.0f
+    private var currentHeadingDeg: Float = 0.0f
+    private var lastLocationLat: Double = 0.0
+    private var lastLocationLon: Double = 0.0
+    private var lastSpeedLimitKph: Int = 0
+
     private var hasFirstFix = false
     private var activeDestination: PlaceSearchResult? = null
     private var activeGatewayUrl: String = ""
     private var lastRecalculationTime: Long = 0
+
+    fun updateDeviceLocationObject(location: android.location.Location) {
+        val latitude = location.latitude
+        val longitude = location.longitude
+
+        val speed = if (location.hasSpeed()) {
+            location.speed
+        } else if (lastLocationLat != 0.0 && lastLocationLon != 0.0) {
+            val dist = calculateDistanceMeters(lastLocationLat, lastLocationLon, latitude, longitude)
+            (dist / 1.0).toFloat().coerceIn(0.0f, 100.0f)
+        } else {
+            currentSpeedMps
+        }
+        currentSpeedMps = speed
+
+        val heading = if (location.hasBearing()) {
+            location.bearing
+        } else if (lastLocationLat != 0.0 && lastLocationLon != 0.0 && calculateDistanceMeters(lastLocationLat, lastLocationLon, latitude, longitude) > 1.5) {
+            calculateBearingDeg(lastLocationLat, lastLocationLon, latitude, longitude)
+        } else {
+            currentHeadingDeg
+        }
+        currentHeadingDeg = heading
+
+        lastLocationLat = latitude
+        lastLocationLon = longitude
+
+        updateDeviceLocation(latitude, longitude)
+    }
+
+    private fun calculateBearingDeg(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Float {
+        val phi1 = Math.toRadians(lat1)
+        val phi2 = Math.toRadians(lat2)
+        val deltaLambda = Math.toRadians(lon2 - lon1)
+
+        val y = Math.sin(deltaLambda) * Math.cos(phi2)
+        val x = Math.cos(phi1) * Math.sin(phi2) - Math.sin(phi1) * Math.cos(phi2) * Math.cos(deltaLambda)
+        var bearing = Math.toDegrees(Math.atan2(y, x)).toFloat()
+        if (bearing < 0.0f) bearing += 360.0f
+        return bearing
+    }
 
     fun updateDeviceLocation(latitude: Double, longitude: Double) {
         hasFirstFix = true

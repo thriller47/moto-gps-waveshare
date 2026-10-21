@@ -112,26 +112,13 @@ void test_stale_timestamp_does_not_rewind_integration_clock() {
   CHECK(std::abs(clean - with_stale_sample) < 0.01F);
 }
 
-void test_stationary_freeze_holds_heading_until_riding_resumes() {
+void test_low_speed_gyro_integration_remains_active() {
   MotionHeadingFusion fusion;
   fusion.anchor(30.0F, 8.0F, true);
-  // Parking: low-speed fixes engage the stationary freeze with hysteresis.
   fusion.anchor(30.0F, 0.4F, true);
-  feed_rate(fusion, 90.0F, 8, 2'008);
-  CHECK(std::abs(fusion.heading_deg() - 30.0F) < 0.01F);
-  // Between 0.6 and 1.5 m/s the freeze stays engaged (hysteresis band).
-  fusion.anchor(30.0F, 1.0F, true);
-  feed_rate(fusion, 90.0F, 2'016, 4'016);
-  CHECK(std::abs(fusion.heading_deg() - 30.0F) < 0.01F);
-  // Pulling away releases the freeze and integration works again.
-  fusion.anchor(30.0F, 6.0F, true);
-  feed_rate(fusion, 90.0F, 4'024, 4'424);
-  CHECK(fusion.heading_deg() > 45.0F);
-  CHECK(fusion.heading_deg() < 80.0F);
-  // reset() must also clear the freeze.
-  fusion.reset();
   feed_rate(fusion, 90.0F, 8, 248);
-  CHECK(fusion.heading_deg() > 5.0F);
+  CHECK(fusion.heading_deg() > 35.0F);
+  CHECK(fusion.heading_deg() < 50.0F);
 }
 
 }  // namespace
@@ -145,7 +132,7 @@ int main() {
   test_forward_facing_mount_yaw_does_not_reverse_at_zero_z();
   test_large_sensor_gap_is_not_integrated();
   test_stale_timestamp_does_not_rewind_integration_clock();
-  test_stationary_freeze_holds_heading_until_riding_resumes();
+  test_low_speed_gyro_integration_remains_active();
 
   if (failures != 0) {
     std::cerr << failures << " motion heading checks failed\n";

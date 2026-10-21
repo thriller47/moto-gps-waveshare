@@ -17,7 +17,6 @@ class MotionHeadingFusion {
     initialized_ = false;
     has_phone_reference_ = false;
     has_moving_course_ = false;
-    stationary_ = false;
     heading_deg_ = 0.0F;
     filtered_rate_dps_ = 0.0F;
     last_sample_ms_ = 0;
@@ -27,17 +26,6 @@ class MotionHeadingFusion {
               bool usable_fix) noexcept {
     if (!usable_fix || !std::isfinite(phone_heading_deg)) {
       return;
-    }
-    // Hysteresis on the phone-reported speed decides whether the bike is
-    // parked.  While parked, gyro integration is frozen: the QMI8658 zero
-    // offset (a few dps before calibration, worsened by engine vibration)
-    // otherwise leaks through the deadband and spins the heading in circles.
-    if (std::isfinite(speed_mps)) {
-      if (speed_mps >= kCourseAnchorSpeedMps) {
-        stationary_ = false;
-      } else if (speed_mps < kStationarySpeedMps) {
-        stationary_ = true;
-      }
     }
     const float phone = normalize(phone_heading_deg);
     const bool moving_course =
@@ -67,11 +55,6 @@ class MotionHeadingFusion {
   // Returns true when a new display heading is available.
   bool integrate(float yaw_rate_dps, std::uint64_t sample_ms) noexcept {
     if (!std::isfinite(yaw_rate_dps)) {
-      return false;
-    }
-    if (stationary_) {
-      // Parked: hold the heading exactly. Keep last_sample_ms_ untouched so
-      // the first sample after pulling away only sees a normal-rate gap.
       return false;
     }
     if (!initialized_) {
@@ -135,7 +118,6 @@ class MotionHeadingFusion {
   bool initialized_ = false;
   bool has_phone_reference_ = false;
   bool has_moving_course_ = false;
-  bool stationary_ = false;
   float heading_deg_ = 0.0F;
   float filtered_rate_dps_ = 0.0F;
   std::uint64_t last_sample_ms_ = 0;

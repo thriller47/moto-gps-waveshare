@@ -662,8 +662,6 @@ void PhoneNavBridge::consume_navigation(
     if (is_ios_demo_route_token(input.route_token) &&
         phone_snapshot.map_scene_revision == 0) {
       add_demo_road_context(phone_snapshot);
-    } else if (phone_snapshot.map_scene_revision == 0) {
-      clear_map_context(phone_snapshot);
     }
 
     phone_snapshot.next_maneuver = {};
