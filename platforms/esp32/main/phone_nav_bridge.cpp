@@ -368,6 +368,17 @@ void PhoneNavBridge::on_imu_sample(float heading_rate_dps,
       return;
     }
     snapshot_.heading_deg = heading_fusion_.heading_deg();
+#ifdef ESP_PLATFORM
+    // Low-rate diagnostic: verify gyro integration independently of BLE/UI.
+    static std::uint64_t last_heading_log_ms = 0;
+    if (sample_ms - last_heading_log_ms >= 5'000) {
+      ESP_LOGI(kTag, "heading IMU fused=%.1f deg page=%u demo=%u",
+               static_cast<double>(snapshot_.heading_deg),
+               static_cast<unsigned>(snapshot_.display_page),
+               static_cast<unsigned>(demo_active_));
+      last_heading_log_ms = sample_ms;
+    }
+#endif
     // The QMI8658 runs at 125 Hz. Reproject at the display's unified 40 Hz
     // cadence; requests still coalesce if one physical refresh runs long.
     if (sample_ms - last_motion_present_ms_ >= 25 &&
