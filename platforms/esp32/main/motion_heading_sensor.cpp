@@ -145,6 +145,9 @@ void MotionHeadingSensor::run() {
            static_cast<double>(bias_dps), stable_samples);
 
   int consecutive_failures = 0;
+  std::uint64_t last_diagnostic_ms = monotonic_ms();
+  std::uint32_t good_samples = 0;
+  std::uint32_t not_ready_samples = 0;
   next_sample_tick = xTaskGetTickCount();
   while (true) {
     bool ready = false;
@@ -152,6 +155,7 @@ void MotionHeadingSensor::run() {
     if (result == ESP_OK && ready) {
       result = qmi8658_read_sensor_data(&device, &data);
       if (result == ESP_OK) {
+        ++good_samples;
         consecutive_failures = 0;
         update_gravity(gravity, data, 0.025F);
         const float raw_rate = clockwise_heading_rate(gravity, data);
@@ -166,9 +170,29 @@ void MotionHeadingSensor::run() {
         callback_(corrected_rate, monotonic_ms(), callback_context_);
       }
     }
+    if (result == ESP_OK && !ready) {
+      ++not_ready_samples;
+    }
     if (result != ESP_OK && ++consecutive_failures == 25) {
       ESP_LOGW(kTag, "QMI8658 read errors continue: %s",
                esp_err_to_name(result));
+    }
+    const std::uint64_t now_ms = monotonic_ms();
+    if (now_ms - last_diagnostic_ms >= 2'000) {
+      ESP_LOGI(kTag,
+               "QMI8658 samples/2s=%lu not_ready=%lu gyro xyz="
+               "%.2f %.2f %.2f dps accel xyz=%.2f %.2f %.2f",
+               static_cast<unsigned long>(good_samples),
+               static_cast<unsigned long>(not_ready_samples),
+               static_cast<double>(data.gyroX),
+               static_cast<double>(data.gyroY),
+               static_cast<double>(data.gyroZ),
+               static_cast<double>(data.accelX),
+               static_cast<double>(data.accelY),
+               static_cast<double>(data.accelZ));
+      good_samples = 0;
+      not_ready_samples = 0;
+      last_diagnostic_ms = now_ms;
     }
     xTaskDelayUntil(&next_sample_tick, kSampleDelay);
   }
