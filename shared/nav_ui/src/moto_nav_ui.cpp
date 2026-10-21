@@ -186,7 +186,7 @@ struct Ui {
     lv_obj_t *ota_ip = nullptr;
     lv_obj_t *ota_status = nullptr;
     lv_obj_t *ota_bar = nullptr;
-    bool music_page_enabled = true;
+    bool music_page_enabled = false;
     bool demo_active = false;
     bool reduce_motion = false;
 } ui;
@@ -206,7 +206,7 @@ void reset_ui_state() {
     ui.phone_connection = MOTO_UI_PHONE_OFFLINE;
     ui.lifecycle_visual = LifecycleVisual::Hidden;
     ui.lifecycle_target = LifecycleVisual::Hidden;
-    ui.music_page_enabled = true;
+    ui.music_page_enabled = false;
     // Force the first geometry payload to bind every mutable LVGL line even
     // when its protocol revision happens to start at zero.
     ui.nav_route_generation = ~std::uint32_t{0};
@@ -290,7 +290,7 @@ void update_page_dots() {
         lv_obj_set_style_radius(ui.page_dots[i], px(3), 0);
         lv_obj_set_style_bg_color(ui.page_dots[i], active ? kWhite : kGraphite, 0);
         lv_obj_set_x(ui.page_dots[i], px(145 + i * 22 - (active ? 5 : 0)));
-        const bool available = i != MOTO_UI_PAGE_MUSIC || ui.music_page_enabled;
+        const bool available = i != MOTO_UI_PAGE_MUSIC;
         if(ui.page_dots_visible && available) {
             lv_obj_remove_flag(ui.page_dots[i], LV_OBJ_FLAG_HIDDEN);
         } else {
@@ -338,7 +338,7 @@ void install_interaction_wake(lv_obj_t *object) {
 
 void show_page(moto_ui_page_t page, bool reveal_on_same_page = false) {
     if(page < MOTO_UI_PAGE_NAVIGATION || page >= MOTO_UI_PAGE_COUNT) return;
-    if(page == MOTO_UI_PAGE_MUSIC && !ui.music_page_enabled) {
+    if(page == MOTO_UI_PAGE_MUSIC) {
         page = MOTO_UI_PAGE_NAVIGATION;
     }
     const bool changed = page != ui.page;
@@ -368,7 +368,7 @@ void gesture_event(lv_event_t *) {
     } else {
         return;
     }
-    if(!ui.music_page_enabled && next == MOTO_UI_PAGE_MUSIC) {
+    if(next == MOTO_UI_PAGE_MUSIC) {
         next = direction == LV_DIR_LEFT ? MOTO_UI_PAGE_NAVIGATION
                                         : MOTO_UI_PAGE_COMPASS;
     }
@@ -1497,6 +1497,7 @@ void update_compass(const moto_ui_state_t *state) {
 }
 
 void update_music_view() {
+    if (ui.music_source == nullptr) return; // Media API retained, page removed.
     lv_label_set_text(ui.music_source, ui.music.connected ? ui.music_source_text : "PHONE NOT CONNECTED");
     lv_label_set_text(ui.music_title, ui.music_title_text);
     lv_label_set_text(ui.music_artist, ui.music_artist_text);
@@ -1997,17 +1998,13 @@ extern "C" void moto_nav_ui_create(void) {
     create_navigation_page();
     create_speed_page();
     create_compass_page();
-    create_music_page();
     create_page_dots();
     // Press events are delivered to the topmost object under the finger, not
     // necessarily to its page. Register once across the finished tree so any
     // touch reliably wakes the dots, including the map and music controls.
     install_interaction_wake(ui.screen);
 
-    moto_music_state_t initial_music = {
-        "APPLE MUSIC", "NIGHT RIDE", "PHONE NOW PLAYING", 1, 1, 0, 0,
-    };
-    moto_nav_ui_set_music_state(&initial_music);
+    // Music page intentionally excluded from the display.
 
     moto_ui_state_t initial{};
     initial.mode = MOTO_UI_ACQUIRING_FIX;
@@ -2118,7 +2115,8 @@ extern "C" void moto_nav_ui_set_music_state(const moto_music_state_t *state) {
 
 extern "C" void moto_nav_ui_set_music_page_enabled(uint8_t enabled) {
     if(ui.screen == nullptr) return;
-    ui.music_page_enabled = enabled != 0;
+    (void)enabled;
+    ui.music_page_enabled = false;
     if(!ui.music_page_enabled && ui.page == MOTO_UI_PAGE_MUSIC) {
         show_page(MOTO_UI_PAGE_NAVIGATION, true);
     }
