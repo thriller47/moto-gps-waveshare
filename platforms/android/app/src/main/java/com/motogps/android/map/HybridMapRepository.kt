@@ -1,10 +1,14 @@
 package com.motogps.android.map
 
 import android.content.Context
+import android.util.JsonReader
 import android.util.Log
 import com.motogps.android.jni.GeoPointE6
+import java.io.BufferedReader
+import java.io.BufferedWriter
 import java.io.File
 import java.io.InputStream
+import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
@@ -201,7 +205,151 @@ class HybridMapRepository(private val context: Context) {
         }
     }
 
-    private fun executeOverpassQuery(query: String): String {
+    fun streamOverpassToMotomap(inputStream: InputStream, writer: BufferedWriter): Int {
+        val reader = JsonReader(BufferedReader(InputStreamReader(inputStream, Charsets.UTF_8), 8192))
+        var writtenCount = 0
+
+        try {
+            reader.beginObject()
+            while (reader.hasNext()) {
+                val name = reader.nextName()
+                if (name == "elements") {
+                    reader.beginArray()
+                    while (reader.hasNext()) {
+                        reader.beginObject()
+                        var type: String? = null
+                        var highway: String? = null
+                        var maxspeed: String? = null
+                        val wayPoints = mutableListOf<Pair<Double, Double>>()
+
+                        while (reader.hasNext()) {
+                            val key = reader.nextName()
+                            when (key) {
+                                "type" -> type = reader.nextString()
+                                "tags" -> {
+                                    reader.beginObject()
+                                    while (reader.hasNext()) {
+                                        val tagKey = reader.nextName()
+                                        when (tagKey) {
+                                            "highway" -> highway = reader.nextString()
+                                            "maxspeed" -> maxspeed = reader.nextString()
+                                            else -> reader.skipValue()
+                                        }
+                                    }
+                                    reader.endObject()
+                                }
+                                "geometry" -> {
+                                    reader.beginArray()
+                                    while (reader.hasNext()) {
+                                        reader.beginObject()
+                                        var lat = Double.NaN
+                                        var lon = Double.NaN
+                                        while (reader.hasNext()) {
+                                            val gKey = reader.nextName()
+                                            when (gKey) {
+                                                "lat" -> lat = reader.nextDouble()
+                                                "lon" -> lon = reader.nextDouble()
+                                                else -> reader.skipValue()
+                                            }
+                                        }
+                                        reader.endObject()
+                                        if (!lat.isNaN() && !lon.isNaN()) {
+                                            wayPoints.add(Pair(lat, lon))
+                                        }
+                                    }
+                                    reader.endArray()
+                                }
+                                else -> reader.skipValue()
+                            }
+                        }
+                        reader.endObject()
+
+                        if (!highway.isNullOrBlank() && wayPoints.size >= 2) {
+                            writtenCount += processAndWriteWay(highway, maxspeed, wayPoints, writer)
+                        }
+                    }
+                    reader.endArray()
+                } else {
+                    reader.skipValue()
+                }
+            }
+            reader.endObject()
+        } catch (e: Exception) {
+            Log.w("HybridMapRepository", "Error during JsonReader streaming: ${e.message}")
+        } finally {
+            try { reader.close() } catch (_: Exception) {}
+        }
+
+        return writtenCount
+    }
+
+    private fun processAndWriteWay(
+        highway: String,
+        maxspeed: String?,
+        rawPoints: List<Pair<Double, Double>>,
+        writer: BufferedWriter
+    ): Int {
+        var points = rawPoints
+        if (points.size > 60) {
+            val simplified = mutableListOf<Pair<Double, Double>>()
+            for (i in points.indices) {
+                if (i == 0 || i == points.size - 1 || i % 2 == 0) {
+                    simplified.add(points[i])
+                }
+            }
+            points = simplified
+        }
+
+        val chunks = mutableListOf<List<Pair<Double, Double>>>()
+        if (points.size > 40) {
+            var start = 0
+            while (start < points.size - 1) {
+                val end = (start + 39).coerceAtMost(points.size - 1)
+                val sub = points.subList(start, end + 1)
+                if (sub.size >= 2) {
+                    chunks.add(sub)
+                }
+                if (end == points.size - 1) break
+                start = end
+            }
+        } else {
+            chunks.add(points)
+        }
+
+        val roadClass = parseHighwayClass(highway)
+        val maxSpeedKph = parseMaxSpeedTag(maxspeed, roadClass)
+
+        var count = 0
+        for (chunk in chunks) {
+            if (chunk.size < 2) continue
+            var minL = Double.MAX_VALUE
+            var maxL = -Double.MAX_VALUE
+            var minO = Double.MAX_VALUE
+            var maxO = -Double.MAX_VALUE
+
+            for (pt in chunk) {
+                if (pt.first < minL) minL = pt.first
+                if (pt.first > maxL) maxL = pt.first
+                if (pt.second < minO) minO = pt.second
+                if (pt.second > maxO) maxO = pt.second
+            }
+
+            val minLatE6 = (minL * 1e6).toInt()
+            val minLonE6 = (minO * 1e6).toInt()
+            val maxLatE6 = (maxL * 1e6).toInt()
+            val maxLonE6 = (maxO * 1e6).toInt()
+
+            val ptsStr = chunk.joinToString(";") { pt ->
+                String.format(Locale.US, "%.6f,%.6f", pt.first, pt.second)
+            }
+
+            writer.write("$roadClass,$maxSpeedKph|$minLatE6,$minLonE6,$maxLatE6,$maxLonE6|$ptsStr\n")
+            count++
+        }
+        return count
+    }
+
+    fun streamOverpassQueryToWriter(query: String, writer: BufferedWriter): Int {
         var lastException: Exception? = null
         val postData = "data=" + URLEncoder.encode(query, "UTF-8")
 
@@ -215,7 +363,7 @@ class HybridMapRepository(private val context: Context) {
                 conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
                 conn.setRequestProperty("Accept-Encoding", "gzip")
                 conn.connectTimeout = 10000
-                conn.readTimeout = 30000 // 30 secondi di timeout generoso
+                conn.readTimeout = 30000
 
                 conn.outputStream.use { os ->
                     os.write(postData.toByteArray(Charsets.UTF_8))
@@ -228,7 +376,7 @@ class HybridMapRepository(private val context: Context) {
                     } else {
                         conn.inputStream
                     }
-                    return inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+                    return streamOverpassToMotomap(inputStream, writer)
                 } else {
                     Log.w("HybridMapRepository", "Mirror $endpointUrl returned HTTP $responseCode")
                 }
@@ -242,20 +390,61 @@ class HybridMapRepository(private val context: Context) {
         throw lastException ?: Exception("All Overpass mirrors failed")
     }
 
-    fun downloadCurrentArea(lat: Double, lon: Double, radiusKm: Double = 10.0): File {
-        val latDelta = radiusKm / 111.0
-        val lonDelta = radiusKm / (111.0 * Math.cos(Math.toRadians(lat)).coerceAtLeast(0.1))
-
-        val minLat = lat - latDelta
-        val maxLat = lat + latDelta
-        val minLon = lon - lonDelta
-        val maxLon = lon + lonDelta
-
-        val fileName = "area_corrente_10km.motomap"
-        return downloadBBoxToFile(fileName, minLat, minLon, maxLat, maxLon)
+    fun buildQuadrantsGrid(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double, stepDeg: Double): List<BoundingBox> {
+        val quads = mutableListOf<BoundingBox>()
+        var curLat = minLat
+        while (curLat < maxLat) {
+            val nextLat = (curLat + stepDeg).coerceAtMost(maxLat)
+            var curLon = minLon
+            while (curLon < maxLon) {
+                val nextLon = (curLon + stepDeg).coerceAtMost(maxLon)
+                quads.add(BoundingBox(curLat, curLon, nextLat, nextLon))
+                curLon = nextLon
+            }
+            curLat = nextLat
+        }
+        return quads
     }
 
-    suspend fun downloadRouteCorridor(rawRoutePoints: List<Pair<Double, Double>>): File {
+    suspend fun downloadCurrentArea(
+        lat: Double,
+        lon: Double,
+        onProgress: ((Int, Int, String) -> Unit)? = null
+    ): File {
+        val delta = 0.45
+        val minLat = lat - delta
+        val maxLat = lat + delta
+        val minLon = lon - delta
+        val maxLon = lon + delta
+
+        val quads = buildQuadrantsGrid(minLat, minLon, maxLat, maxLon, 0.30)
+        val targetFile = File(mapsDir, "area_corrente_50km.motomap")
+        if (targetFile.exists()) targetFile.delete()
+
+        targetFile.bufferedWriter().use { writer ->
+            for ((index, q) in quads.withIndex()) {
+                if (index > 0) delay(800)
+                val query = String.format(
+                    Locale.US,
+                    "[out:json][timeout:25];(way[\"highway\"~\"^(motorway|trunk|primary|secondary|tertiary)$\"](%.6f,%.6f,%.6f,%.6f););out body geom qt;",
+                    q.minLat, q.minLon, q.maxLat, q.maxLon
+                )
+                try {
+                    streamOverpassQueryToWriter(query, writer)
+                    writer.flush()
+                } catch (e: Exception) {
+                    Log.w("HybridMapRepository", "Quadrant $index failed for 50km area: ${e.message}")
+                }
+                onProgress?.invoke(index + 1, quads.size, "Area Attuale 50km")
+            }
+        }
+        return targetFile
+    }
+
+    suspend fun downloadRouteCorridor(
+        rawRoutePoints: List<Pair<Double, Double>>,
+        onProgress: ((Int, Int, String) -> Unit)? = null
+    ): File {
         if (rawRoutePoints.isEmpty()) {
             throw IllegalArgumentException("La lista punti rotta è vuota")
         }
@@ -277,26 +466,31 @@ class HybridMapRepository(private val context: Context) {
             sampledPoints.add(rawRoutePoints.last())
         }
 
-        val lines = mutableSetOf<String>()
-        for ((index, pt) in sampledPoints.withIndex()) {
-            if (index > 0) {
-                delay(800)
-            }
-            val lat = pt.first
-            val lon = pt.second
-            val latDelta = 5.0 / 111.0
-            val lonDelta = 5.0 / (111.0 * Math.cos(Math.toRadians(lat)).coerceAtLeast(0.1))
+        val targetFile = File(mapsDir, "corridoio_rotta.motomap")
+        if (targetFile.exists()) targetFile.delete()
 
-            try {
-                val subLines = fetchOverpassLinesForBBox(lat - latDelta, lon - lonDelta, lat + latDelta, lon + lonDelta)
-                lines.addAll(subLines)
-            } catch (e: Exception) {
-                Log.w("HybridMapRepository", "Corridor point download failed: ${e.message}")
+        targetFile.bufferedWriter().use { writer ->
+            for ((index, pt) in sampledPoints.withIndex()) {
+                if (index > 0) delay(800)
+                val lat = pt.first
+                val lon = pt.second
+                val latDelta = 5.0 / 111.0
+                val lonDelta = 5.0 / (111.0 * Math.cos(Math.toRadians(lat)).coerceAtLeast(0.1))
+
+                val query = String.format(
+                    Locale.US,
+                    "[out:json][timeout:25];(way[\"highway\"](%.6f,%.6f,%.6f,%.6f););out body geom qt;",
+                    lat - latDelta, lon - lonDelta, lat + latDelta, lon + lonDelta
+                )
+                try {
+                    streamOverpassQueryToWriter(query, writer)
+                    writer.flush()
+                } catch (e: Exception) {
+                    Log.w("HybridMapRepository", "Corridor point $index failed: ${e.message}")
+                }
+                onProgress?.invoke(index + 1, sampledPoints.size, "Corridoio Rotta")
             }
         }
-
-        val targetFile = File(mapsDir, "corridoio_rotta.motomap")
-        targetFile.writeText(lines.joinToString("\n"))
         return targetFile
     }
 
@@ -309,83 +503,6 @@ class HybridMapRepository(private val context: Context) {
                 Math.sin(dLon / 2) * Math.sin(dLon / 2)
         val c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
         return r * c
-    }
-
-    fun downloadBBoxToFile(fileName: String, minLat: Double, minLon: Double, maxLat: Double, maxLon: Double): File {
-        val lines = fetchOverpassLinesForBBox(minLat, minLon, maxLat, maxLon)
-        val targetFile = File(mapsDir, fileName)
-        targetFile.writeText(lines.joinToString("\n"))
-        return targetFile
-    }
-
-    private fun fetchOverpassLinesForBBox(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double): List<String> {
-        val query = String.format(
-            Locale.US,
-            "[out:json][timeout:25];(way[\"highway\"](%.6f,%.6f,%.6f,%.6f););out body;>;out skel qt;",
-            minLat, minLon, maxLat, maxLon
-        )
-
-        val jsonResponse = executeOverpassQuery(query)
-        val root = JSONObject(jsonResponse)
-        val elements = root.optJSONArray("elements") ?: return emptyList()
-
-        val nodes = mutableMapOf<Long, Pair<Double, Double>>()
-        val ways = mutableListOf<JSONObject>()
-
-        for (i in 0 until elements.length()) {
-            val elem = elements.getJSONObject(i)
-            val type = elem.optString("type")
-            if (type == "node") {
-                val id = elem.optLong("id")
-                val lat = elem.optDouble("lat")
-                val lon = elem.optDouble("lon")
-                nodes[id] = Pair(lat, lon)
-            } else if (type == "way") {
-                ways.add(elem)
-            }
-        }
-
-        val resultLines = mutableListOf<String>()
-        for (way in ways) {
-            val tags = way.optJSONObject("tags") ?: continue
-            val highway = tags.optString("highway", "")
-            if (highway.isBlank()) continue
-
-            val roadClass = parseHighwayClass(highway)
-            val maxSpeedKph = parseMaxSpeedTag(tags.optString("maxspeed", null), roadClass)
-
-            val nodeIds = way.optJSONArray("nodes") ?: continue
-            val wayPoints = mutableListOf<Pair<Double, Double>>()
-            var minL = Double.MAX_VALUE
-            var maxL = -Double.MAX_VALUE
-            var minO = Double.MAX_VALUE
-            var maxO = -Double.MAX_VALUE
-
-            for (j in 0 until nodeIds.length()) {
-                val nid = nodeIds.optLong(j)
-                val nodeCoord = nodes[nid] ?: continue
-                wayPoints.add(nodeCoord)
-                if (nodeCoord.first < minL) minL = nodeCoord.first
-                if (nodeCoord.first > maxL) maxL = nodeCoord.first
-                if (nodeCoord.second < minO) minO = nodeCoord.second
-                if (nodeCoord.second > maxO) maxO = nodeCoord.second
-            }
-
-            if (wayPoints.size >= 2) {
-                val minLatE6 = (minL * 1e6).toInt()
-                val minLonE6 = (minO * 1e6).toInt()
-                val maxLatE6 = (maxL * 1e6).toInt()
-                val maxLonE6 = (maxO * 1e6).toInt()
-
-                val ptsStr = wayPoints.joinToString(";") { pt ->
-                    String.format(Locale.US, "%.6f,%.6f", pt.first, pt.second)
-                }
-
-                resultLines.add("$roadClass,$maxSpeedKph|$minLatE6,$minLonE6,$maxLatE6,$maxLonE6|$ptsStr")
-            }
-        }
-
-        return resultLines
     }
 
     val italianRegions = mapOf(
@@ -411,36 +528,35 @@ class HybridMapRepository(private val context: Context) {
         "Veneto" to BoundingBox(44.79, 10.62, 46.67, 13.10)
     )
 
-    suspend fun downloadRegion(regionName: String): File {
+    suspend fun downloadRegion(
+        regionName: String,
+        onProgress: ((Int, Int, String) -> Unit)? = null
+    ): File {
         val bbox = italianRegions[regionName]
             ?: throw IllegalArgumentException("Regione non trovata: $regionName")
 
-        val midLat = (bbox.minLat + bbox.maxLat) / 2.0
-        val midLon = (bbox.minLon + bbox.maxLon) / 2.0
-
-        val quads = listOf(
-            BoundingBox(bbox.minLat, bbox.minLon, midLat, midLon),
-            BoundingBox(bbox.minLat, midLon, midLat, bbox.maxLon),
-            BoundingBox(midLat, bbox.minLon, bbox.maxLat, midLon),
-            BoundingBox(midLat, midLon, bbox.maxLat, bbox.maxLon)
-        )
-
-        val allLines = mutableSetOf<String>()
-        for ((index, q) in quads.withIndex()) {
-            if (index > 0) {
-                delay(800)
-            }
-            try {
-                val lines = fetchOverpassLinesForBBox(q.minLat, q.minLon, q.maxLat, q.maxLon)
-                allLines.addAll(lines)
-            } catch (e: Exception) {
-                Log.w("HybridMapRepository", "Error downloading quadrant for $regionName: ${e.message}")
-            }
-        }
-
+        val quads = buildQuadrantsGrid(bbox.minLat, bbox.minLon, bbox.maxLat, bbox.maxLon, 0.40)
         val sanitized = regionName.lowercase(Locale.ROOT).replace("[^a-z0-9]".toRegex(), "_")
         val file = File(mapsDir, "regione_${sanitized}.motomap")
-        file.writeText(allLines.joinToString("\n"))
+        if (file.exists()) file.delete()
+
+        file.bufferedWriter().use { writer ->
+            for ((index, q) in quads.withIndex()) {
+                if (index > 0) delay(800)
+                val query = String.format(
+                    Locale.US,
+                    "[out:json][timeout:25];(way[\"highway\"~\"^(motorway|trunk|primary|secondary|tertiary)$\"](%.6f,%.6f,%.6f,%.6f););out body geom qt;",
+                    q.minLat, q.minLon, q.maxLat, q.maxLon
+                )
+                try {
+                    streamOverpassQueryToWriter(query, writer)
+                    writer.flush()
+                } catch (e: Exception) {
+                    Log.w("HybridMapRepository", "Quadrant $index failed for $regionName: ${e.message}")
+                }
+                onProgress?.invoke(index + 1, quads.size, regionName)
+            }
+        }
         return file
     }
 

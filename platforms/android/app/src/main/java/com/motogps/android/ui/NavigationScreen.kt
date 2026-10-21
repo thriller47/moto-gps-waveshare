@@ -332,6 +332,58 @@ fun OtaUpdateDialog(
     )
 }
 
+@Composable
+fun MapDownloadProgressBox(
+    downloadStatus: String?,
+    downloadProgress: Float,
+    onCancelDownload: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        ),
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(8.dp)
+    ) {
+        Column(modifier = Modifier.padding(12.dp).fillMaxWidth()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = downloadStatus ?: "Download in corso...",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "${(downloadProgress.coerceIn(0f, 1f) * 100).toInt()}%",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            LinearProgressIndicator(
+                progress = { downloadProgress.coerceIn(0f, 1f) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(8.dp)
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = onCancelDownload,
+                modifier = Modifier.align(Alignment.End)
+            ) {
+                Text("Annulla")
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OfflineMapsDialog(
@@ -339,6 +391,10 @@ fun OfflineMapsDialog(
     onDeleteMap: (String) -> Unit,
     onDownloadArea: () -> Unit,
     onDownloadRegion: (String) -> Unit,
+    downloadStatus: String? = null,
+    downloadProgress: Float = 0f,
+    isDownloadingMap: Boolean = false,
+    onCancelDownload: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
     val regions = listOf(
@@ -386,13 +442,23 @@ fun OfflineMapsDialog(
                 HorizontalDivider()
                 Spacer(modifier = Modifier.height(16.dp))
 
+                if (isDownloadingMap) {
+                    MapDownloadProgressBox(
+                        downloadStatus = downloadStatus,
+                        downloadProgress = downloadProgress,
+                        onCancelDownload = onCancelDownload
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+
                 Button(
                     onClick = onDownloadArea,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !isDownloadingMap
                 ) {
                     Icon(Icons.Default.Place, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Scarica Area Corrente (10 km)")
+                    Text("Salva Area Attuale (Raggio 50 km)")
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -425,7 +491,8 @@ fun OfflineMapsDialog(
 
                 Button(
                     onClick = { onDownloadRegion(selectedRegion) },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !isDownloadingMap
                 ) {
                     Icon(Icons.Default.Place, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
@@ -469,7 +536,11 @@ fun NavigationScreen(
     otaStatus: String? = null,
     otaProgress: Int = 0,
     isUploadingOta: Boolean = false,
-    onStartOta: (android.net.Uri) -> Unit = {}
+    onStartOta: (android.net.Uri) -> Unit = {},
+    downloadStatus: String? = null,
+    downloadProgress: Float = 0f,
+    isDownloadingMap: Boolean = false,
+    onCancelDownload: () -> Unit = {}
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var currentGateway by remember { mutableStateOf(initialGateway) }
@@ -520,6 +591,10 @@ fun NavigationScreen(
             onDeleteMap = onDeleteMap,
             onDownloadArea = onDownloadArea,
             onDownloadRegion = onDownloadRegion,
+            downloadStatus = downloadStatus,
+            downloadProgress = downloadProgress,
+            isDownloadingMap = isDownloadingMap,
+            onCancelDownload = onCancelDownload,
             onDismiss = { showOfflineDialog = false }
         )
     }
@@ -592,6 +667,14 @@ fun NavigationScreen(
                 HorizontalDivider()
 
                 Column(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                    if (isDownloadingMap) {
+                        MapDownloadProgressBox(
+                            downloadStatus = downloadStatus,
+                            downloadProgress = downloadProgress,
+                            onCancelDownload = onCancelDownload
+                        )
+                    }
+
                     Text(
                         text = "Seleziona percorso (OSM)",
                         style = MaterialTheme.typography.titleMedium,
@@ -742,6 +825,14 @@ fun NavigationScreen(
                         Spacer(modifier = Modifier.width(4.dp))
                         Text("Gestione Mappe Offline", style = MaterialTheme.typography.labelSmall)
                     }
+                }
+
+                if (isDownloadingMap) {
+                    MapDownloadProgressBox(
+                        downloadStatus = downloadStatus,
+                        downloadProgress = downloadProgress,
+                        onCancelDownload = onCancelDownload
+                    )
                 }
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))

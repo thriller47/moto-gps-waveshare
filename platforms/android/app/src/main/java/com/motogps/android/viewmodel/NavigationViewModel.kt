@@ -82,6 +82,17 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     private val _isUploadingOta = MutableStateFlow(false)
     val isUploadingOta: StateFlow<Boolean> = _isUploadingOta
 
+    private val _downloadProgress = MutableStateFlow(0f)
+    val downloadProgress: StateFlow<Float> = _downloadProgress
+
+    private val _downloadStatus = MutableStateFlow<String?>(null)
+    val downloadStatus: StateFlow<String?> = _downloadStatus
+
+    private val _isDownloadingMap = MutableStateFlow(false)
+    val isDownloadingMap: StateFlow<Boolean> = _isDownloadingMap
+
+    private var mapDownloadJob: Job? = null
+
     private var currentHeadingCentiDeg: Int = 0
     private var currentSpeedDeciKph: Int = 0
     private var prevLat: Double? = null
@@ -387,64 +398,102 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         }
     }
 
+    fun cancelMapDownload() {
+        mapDownloadJob?.cancel()
+        mapDownloadJob = null
+        _isDownloadingMap.value = false
+        _downloadProgress.value = 0f
+        _downloadStatus.value = "Download annullato"
+    }
+
     fun downloadCurrentArea(context: Context) {
-        viewModelScope.launch {
-            _isLoading.value = true
+        mapDownloadJob?.cancel()
+        mapDownloadJob = viewModelScope.launch {
+            _isDownloadingMap.value = true
+            _downloadProgress.value = 0.02f
+            _downloadStatus.value = "Avvio download Area Attuale (50km)..."
             _errorMessage.value = null
+
             try {
                 val (lat, lon) = currentLocation.value
                 val mapRepository = HybridMapRepository(context)
                 val file = withContext(Dispatchers.IO) {
-                    mapRepository.downloadCurrentArea(lat, lon, 10.0)
+                    mapRepository.downloadCurrentArea(lat, lon) { step, total, name ->
+                        val prog = step.toFloat() / total.toFloat()
+                        _downloadProgress.value = prog
+                        _downloadStatus.value = "Download $name: ${(prog * 100).toInt()}% (quadrante $step / $total)"
+                    }
                 }
                 val kb = file.length() / 1024
-                _errorMessage.value = "Mappa area corrente salvata ($kb KB)"
+                _downloadProgress.value = 1.0f
+                _downloadStatus.value = "Mappa Area Attuale (50km) salvata ($kb KB)"
                 _savedMaps.value = mapRepository.listSavedMaps()
             } catch (e: Exception) {
+                _downloadStatus.value = "Errore download mappa: ${e.message}"
                 _errorMessage.value = "Errore download mappa: ${e.message}"
             } finally {
-                _isLoading.value = false
+                _isDownloadingMap.value = false
             }
         }
     }
 
     fun downloadRouteCorridor(context: Context, rawRoutePoints: List<Pair<Double, Double>>) {
         if (rawRoutePoints.isEmpty()) return
-        viewModelScope.launch {
-            _isLoading.value = true
+        mapDownloadJob?.cancel()
+        mapDownloadJob = viewModelScope.launch {
+            _isDownloadingMap.value = true
+            _downloadProgress.value = 0.02f
+            _downloadStatus.value = "Avvio download Corridoio Rotta..."
             _errorMessage.value = null
+
             try {
                 val mapRepository = HybridMapRepository(context)
                 val file = withContext(Dispatchers.IO) {
-                    mapRepository.downloadRouteCorridor(rawRoutePoints)
+                    mapRepository.downloadRouteCorridor(rawRoutePoints) { step, total, name ->
+                        val prog = step.toFloat() / total.toFloat()
+                        _downloadProgress.value = prog
+                        _downloadStatus.value = "Download $name: ${(prog * 100).toInt()}% (tappa $step / $total)"
+                    }
                 }
                 val kb = file.length() / 1024
-                _errorMessage.value = "Mappa corridoio salvata ($kb KB)"
+                _downloadProgress.value = 1.0f
+                _downloadStatus.value = "Mappa Corridoio salvata ($kb KB)"
                 _savedMaps.value = mapRepository.listSavedMaps()
             } catch (e: Exception) {
+                _downloadStatus.value = "Errore download corridoio: ${e.message}"
                 _errorMessage.value = "Errore download corridoio: ${e.message}"
             } finally {
-                _isLoading.value = false
+                _isDownloadingMap.value = false
             }
         }
     }
 
     fun downloadRegion(context: Context, regionName: String) {
-        viewModelScope.launch {
-            _isLoading.value = true
+        mapDownloadJob?.cancel()
+        mapDownloadJob = viewModelScope.launch {
+            _isDownloadingMap.value = true
+            _downloadProgress.value = 0.02f
+            _downloadStatus.value = "Avvio download Regione $regionName..."
             _errorMessage.value = null
+
             try {
                 val mapRepository = HybridMapRepository(context)
                 val file = withContext(Dispatchers.IO) {
-                    mapRepository.downloadRegion(regionName)
+                    mapRepository.downloadRegion(regionName) { step, total, name ->
+                        val prog = step.toFloat() / total.toFloat()
+                        _downloadProgress.value = prog
+                        _downloadStatus.value = "Download $name: ${(prog * 100).toInt()}% (quadrante $step / $total)"
+                    }
                 }
                 val kb = file.length() / 1024
-                _errorMessage.value = "Mappa regione $regionName salvata ($kb KB)"
+                _downloadProgress.value = 1.0f
+                _downloadStatus.value = "Mappa regione $regionName salvata ($kb KB)"
                 _savedMaps.value = mapRepository.listSavedMaps()
             } catch (e: Exception) {
+                _downloadStatus.value = "Errore download regione: ${e.message}"
                 _errorMessage.value = "Errore download regione: ${e.message}"
             } finally {
-                _isLoading.value = false
+                _isDownloadingMap.value = false
             }
         }
     }

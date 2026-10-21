@@ -149,6 +149,9 @@ class MainActivity : ComponentActivity(), LocationListener, SensorEventListener 
             val otaStatus = viewModel.otaStatus.collectAsState().value
             val otaProgress = viewModel.otaProgress.collectAsState().value
             val isUploadingOta = viewModel.isUploadingOta.collectAsState().value
+            val downloadStatus = viewModel.downloadStatus.collectAsState().value
+            val downloadProgress = viewModel.downloadProgress.collectAsState().value
+            val isDownloadingMap = viewModel.isDownloadingMap.collectAsState().value
 
             var mapsUpdateTrigger by remember { mutableStateOf(0) }
             val savedMaps = remember(errorMessage, mapsUpdateTrigger) {
@@ -216,6 +219,12 @@ class MainActivity : ComponentActivity(), LocationListener, SensorEventListener 
                     isUploadingOta = isUploadingOta,
                     onStartOta = { uri ->
                         viewModel.uploadFirmwareOta(this@MainActivity, uri)
+                    },
+                    downloadStatus = downloadStatus,
+                    downloadProgress = downloadProgress,
+                    isDownloadingMap = isDownloadingMap,
+                    onCancelDownload = {
+                        viewModel.cancelMapDownload()
                     }
                 )
             }
