@@ -22,6 +22,25 @@ data class MotoBLERouteGeometry(
     val points: List<GeoPointE6>
 )
 
+data class MotoBLEMapRoadPolyline(
+    val roadClass: Int,
+    val points: List<GeoPointE6>
+)
+
+data class MotoBLEMapBuildingFootprint(
+    val buildingClass: Int = 0,
+    val points: List<GeoPointE6>
+)
+
+data class MotoBLEMapScene(
+    val coordinateSystem: Int = 2, // GCJ-02
+    val sceneRevision: Long = 1L,
+    val viewOrigin: GeoPointE6,
+    val radiusM: Int = 500,
+    val roads: List<MotoBLEMapRoadPolyline>,
+    val buildings: List<MotoBLEMapBuildingFootprint> = emptyList()
+)
+
 class MotoBLEProtocolCodec {
 
     companion object {
@@ -183,12 +202,22 @@ class MotoBLEProtocolCodec {
         return fragmentMessage(storage, MSG_ROUTE_GEOMETRY, payload, ackRequested = false, urgent = false)
     }
 
+    fun nativeEncodeMapScene(ptr: Long, scene: MotoBLEMapScene): Array<ByteArray> {
+        val storage = instances[ptr] ?: return emptyArray()
+        val payload = buildMapScenePayload(scene) ?: return emptyArray()
+        return fragmentMessage(storage, MSG_MAP_SCENE, payload, ackRequested = false, urgent = false)
+    }
+
     fun nativeEncodeNavigationPayloadForGoldenCheck(ptr: Long, snapshot: MotoBLENavigationSnapshot): ByteArray? {
         return buildNavigationSnapshotPayload(snapshot)
     }
 
     fun nativeEncodeGeometryPayloadForGoldenCheck(ptr: Long, geometry: MotoBLERouteGeometry): ByteArray? {
         return buildRouteGeometryPayload(geometry)
+    }
+
+    fun nativeEncodeMapScenePayloadForGoldenCheck(ptr: Long, scene: MotoBLEMapScene): ByteArray? {
+        return buildMapScenePayload(scene)
     }
 
     fun nativeEncodeMediaState(ptr: Long, state: Any): Array<ByteArray> {
@@ -442,6 +471,48 @@ class MotoBLEProtocolCodec {
             writer.writeSignedVarint(dLat)
             writer.writeSignedVarint(dLon)
             prev = pt
+        }
+
+        return writer.toByteArray()
+    }
+
+    private fun buildMapScenePayload(scene: MotoBLEMapScene): ByteArray? {
+        val writer = Writer()
+        writer.writeU8(PAYLOAD_REVISION.toInt())
+        writer.writeU8(scene.coordinateSystem)
+        writer.writeU32(scene.sceneRevision)
+        writer.writeS32(scene.viewOrigin.latitudeE6)
+        writer.writeS32(scene.viewOrigin.longitudeE6)
+        writer.writeU16(scene.radiusM)
+
+        val roadsToEncode = scene.roads.take(24)
+        val buildingsToEncode = scene.buildings.take(16)
+
+        writer.writeU8(roadsToEncode.size)
+        writer.writeU8(buildingsToEncode.size)
+
+        for (road in roadsToEncode) {
+            writer.writeU8(road.roadClass)
+            val pts = road.points.take(192)
+            writer.writeU8(pts.size)
+            for (pt in pts) {
+                val dLat = pt.latitudeE6 - scene.viewOrigin.latitudeE6
+                val dLon = pt.longitudeE6 - scene.viewOrigin.longitudeE6
+                writer.writeSignedVarint(dLat)
+                writer.writeSignedVarint(dLon)
+            }
+        }
+
+        for (bld in buildingsToEncode) {
+            writer.writeU8(bld.buildingClass)
+            val pts = bld.points.take(128)
+            writer.writeU8(pts.size)
+            for (pt in pts) {
+                val dLat = pt.latitudeE6 - scene.viewOrigin.latitudeE6
+                val dLon = pt.longitudeE6 - scene.viewOrigin.longitudeE6
+                writer.writeSignedVarint(dLat)
+                writer.writeSignedVarint(dLon)
+            }
         }
 
         return writer.toByteArray()

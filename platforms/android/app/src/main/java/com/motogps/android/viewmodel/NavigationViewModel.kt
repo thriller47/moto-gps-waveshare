@@ -1,12 +1,18 @@
 package com.motogps.android.viewmodel
 
+import android.content.Context
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.motogps.android.ble.MotoBLEManager
 import com.motogps.android.jni.GeoPointE6
+import com.motogps.android.jni.MotoBLEMapRoadPolyline
+import com.motogps.android.jni.MotoBLEMapScene
 import com.motogps.android.jni.MotoBLENavigationSnapshot
 import com.motogps.android.jni.MotoBLERouteGeometry
+import com.motogps.android.map.HybridMapRepository
+import com.motogps.android.map.SavedMapInfo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -61,9 +67,21 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     private val _isNavigating = MutableStateFlow(false)
     val isNavigating: StateFlow<Boolean> = _isNavigating
 
+    private val _currentDevicePage = MutableStateFlow(0)
+    val currentDevicePage: StateFlow<Int> = _currentDevicePage
+
     private var navigationJob: Job? = null
     private var currentSnapshot: MotoBLENavigationSnapshot? = null
     private var currentGeometry: MotoBLERouteGeometry? = null
+    private var lastSpeedLimitKph = 0
+
+    init {
+        bleManager.onDeviceCommandReceived = { cmd ->
+            if (cmd.kind == 0) { // PageSelected
+                _currentDevicePage.value = cmd.page
+            }
+        }
+    }
 
     fun searchDestination(query: String, gatewayUrl: String) {
         if (query.isBlank() || gatewayUrl.isBlank()) return
@@ -127,6 +145,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         activeDestination = place
         activeGatewayUrl = gatewayUrl
         _isNavigating.value = true
+        _currentDevicePage.value = 0 // Reset to navigation page on start
 
         navigationJob?.cancel()
         navigationJob = viewModelScope.launch {
@@ -154,7 +173,18 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                     if (!_isNavigating.value) break
                     loopCount++
 
-                    val activeSnap = currentSnapshot?.copy() ?: snapshot.copy()
+                    val pageName = when (_currentDevicePage.value) {
+                        1 -> "speedometer"
+                        2 -> "heading"
+                        3 -> "music"
+                        else -> "navigation"
+                    }
+
+                    val baseSnap = currentSnapshot?.copy() ?: snapshot.copy()
+                    val activeSnap = baseSnap.copy(
+                        displayPageName = pageName,
+                        speedLimitKPH = lastSpeedLimitKph
+                    )
                     bleManager.sendNavigationSnapshot(activeSnap)
 
                     if (loopCount % 4 == 0) {
@@ -223,13 +253,142 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     private var activeGatewayUrl: String = ""
     private var lastRecalculationTime: Long = 0
 
-    fun updateDeviceLocation(latitude: Double, longitude: Double) {
+    fun updateDeviceLocation(latitude: Double, longitude: Double, context: Context? = null) {
         hasFirstFix = true
         _currentLocation.value = Pair(latitude, longitude)
+
+        if (context != null) {
+            updateSpeedLimitAndMapScene(latitude, longitude, context)
+        }
 
         if (_isNavigating.value && activeDestination != null && activeGatewayUrl.isNotBlank()) {
             checkOffRouteAndRecalculate(latitude, longitude)
         }
+    }
+
+    private fun updateSpeedLimitAndMapScene(lat: Double, lon: Double, context: Context) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val repository = HybridMapRepository(context)
+                val latE6 = (lat * 1e6).toInt()
+                val lonE6 = (lon * 1e6).toInt()
+                val deltaE6 = 5000
+
+                val segments = repository.loadFromRegionalFiles(
+                    queryMinLatE6 = latE6 - deltaE6,
+                    queryMinLonE6 = lonE6 - deltaE6,
+                    queryMaxLatE6 = latE6 + deltaE6,
+                    queryMaxLonE6 = lonE6 + deltaE6
+                )
+
+                if (segments.isNotEmpty()) {
+                    var minDistance = Double.MAX_VALUE
+                    var bestSpeed = lastSpeedLimitKph
+
+                    for (seg in segments) {
+                        for (pt in seg.points) {
+                            val dist = calculateDistanceMeters(lat, lon, pt.latitudeE6 / 1e6, pt.longitudeE6 / 1e6)
+                            if (dist < minDistance) {
+                                minDistance = dist
+                                bestSpeed = seg.maxSpeedKph
+                            }
+                        }
+                    }
+
+                    if (minDistance <= 50.0) {
+                        lastSpeedLimitKph = bestSpeed
+                    }
+
+                    val roadPolylines = segments.take(24).map { seg ->
+                        MotoBLEMapRoadPolyline(
+                            roadClass = seg.roadClass,
+                            points = seg.points.take(192)
+                        )
+                    }
+
+                    val viewOrigin = GeoPointE6(latE6, lonE6)
+                    val scene = MotoBLEMapScene(
+                        coordinateSystem = 2,
+                        sceneRevision = System.currentTimeMillis() / 1000,
+                        viewOrigin = viewOrigin,
+                        radiusM = 500,
+                        roads = roadPolylines,
+                        buildings = emptyList()
+                    )
+
+                    bleManager.sendMapScene(scene)
+                }
+            } catch (e: Exception) {
+                Log.w("NavigationVM", "Error updating map scene and speed limit: ${e.message}")
+            }
+        }
+    }
+
+    fun downloadCurrentArea(context: Context) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            _errorMessage.value = null
+            try {
+                val (lat, lon) = currentLocation.value
+                val file = withContext(Dispatchers.IO) {
+                    val repo = HybridMapRepository(context)
+                    repo.downloadCurrentArea(lat, lon, 10.0)
+                }
+                val kb = file.length() / 1024
+                _errorMessage.value = "Mappa area corrente salvata ($kb KB)"
+            } catch (e: Exception) {
+                _errorMessage.value = "Errore download mappa: ${e.message}"
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
+    fun downloadRouteCorridor(context: Context, rawRoutePoints: List<Pair<Double, Double>>) {
+        if (rawRoutePoints.isEmpty()) return
+        viewModelScope.launch {
+            _isLoading.value = true
+            _errorMessage.value = null
+            try {
+                val file = withContext(Dispatchers.IO) {
+                    val repo = HybridMapRepository(context)
+                    repo.downloadRouteCorridor(rawRoutePoints)
+                }
+                val kb = file.length() / 1024
+                _errorMessage.value = "Mappa corridoio salvata ($kb KB)"
+            } catch (e: Exception) {
+                _errorMessage.value = "Errore download corridoio: ${e.message}"
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
+    fun downloadRegion(context: Context, regionName: String) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            _errorMessage.value = null
+            try {
+                val file = withContext(Dispatchers.IO) {
+                    val repo = HybridMapRepository(context)
+                    repo.downloadRegion(regionName)
+                }
+                val kb = file.length() / 1024
+                _errorMessage.value = "Mappa regione $regionName salvata ($kb KB)"
+            } catch (e: Exception) {
+                _errorMessage.value = "Errore download regione: ${e.message}"
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
+    fun listSavedMaps(context: Context): List<SavedMapInfo> {
+        return HybridMapRepository(context).listSavedMaps()
+    }
+
+    fun deleteSavedMap(context: Context, fileName: String): Boolean {
+        return HybridMapRepository(context).deleteSavedMap(fileName)
     }
 
     private fun checkOffRouteAndRecalculate(latitude: Double, longitude: Double) {
@@ -501,7 +660,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                     routeProgressM = 0L,
                     totalDistanceM = totalDistanceM,
                     speedDeciKPH = 0,
-                    speedLimitKPH = 0,
+                    speedLimitKPH = lastSpeedLimitKph,
                     headingCentiDegrees = 0,
                     accuracyDecimeters = 50,
                     crossTrackDecimeters = 0,
