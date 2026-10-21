@@ -540,7 +540,8 @@ fun NavigationScreen(
     downloadStatus: String? = null,
     downloadProgress: Float = 0f,
     isDownloadingMap: Boolean = false,
-    onCancelDownload: () -> Unit = {}
+    onCancelDownload: () -> Unit = {},
+    onRefreshMaps: () -> Unit = {}
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var currentGateway by remember { mutableStateOf(initialGateway) }
@@ -583,6 +584,12 @@ fun NavigationScreen(
                 }
             }
         )
+    }
+
+    LaunchedEffect(showOfflineDialog) {
+        if (showOfflineDialog) {
+            onRefreshMaps()
+        }
     }
 
     if (showOfflineDialog) {

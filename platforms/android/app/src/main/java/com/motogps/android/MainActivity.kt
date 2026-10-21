@@ -225,6 +225,9 @@ class MainActivity : ComponentActivity(), LocationListener, SensorEventListener 
                     isDownloadingMap = isDownloadingMap,
                     onCancelDownload = {
                         viewModel.cancelMapDownload()
+                    },
+                    onRefreshMaps = {
+                        viewModel.refreshSavedMaps(this@MainActivity)
                     }
                 )
             }
