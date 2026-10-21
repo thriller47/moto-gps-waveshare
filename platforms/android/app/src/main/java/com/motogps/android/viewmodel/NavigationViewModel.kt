@@ -225,11 +225,10 @@ class NavigationViewModel(
         val distMoved = if (lastMapSceneLat == 0.0 && lastMapSceneLon == 0.0) 999.0
         else calculateDistanceMeters(lastMapSceneLat, lastMapSceneLon, latitude, longitude)
 
-        if (!force && (distMoved < 100.0 || mapSceneInFlight || now - lastMapSceneTime < 3000)) return
+        if (mapSceneInFlight) return
+        if (!force && distMoved < 100.0 && now - lastMapSceneTime < 15000) return
+        if (!force && now - lastMapSceneTime < 3000) return
 
-        lastMapSceneLat = latitude
-        lastMapSceneLon = longitude
-        lastMapSceneTime = now
         mapSceneInFlight = true
 
         viewModelScope.launch(Dispatchers.IO) {
@@ -252,6 +251,10 @@ class NavigationViewModel(
                 if (scene.roads.isNotEmpty() || scene.buildings.isNotEmpty()) {
                     mapSceneRevision++
                     bleManager.sendMapScene(scene)
+                    // Record the last successful enqueue, not a failed download attempt.
+                    lastMapSceneLat = latitude
+                    lastMapSceneLon = longitude
+                    lastMapSceneTime = System.currentTimeMillis()
                 }
             } catch (e: Exception) {
                 Log.e("MapDownload", "Errore download/generazione mappa", e)
