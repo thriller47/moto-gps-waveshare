@@ -160,20 +160,20 @@ void ota_manager_start_ap_server(void) {
     config.stack_size = 8192;
 
     if (httpd_start(&s_server, &config) == ESP_OK) {
-        httpd_uri_t status_uri = {
-            .uri = "/status",
-            .method = HTTPD_GET,
-            .handler = status_get_handler,
-            .user_ctx = NULL
-        };
+        httpd_uri_t status_uri;
+        std::memset(&status_uri, 0, sizeof(status_uri));
+        status_uri.uri = "/status";
+        status_uri.method = HTTP_GET;
+        status_uri.handler = status_get_handler;
+        status_uri.user_ctx = NULL;
         httpd_register_uri_handler(s_server, &status_uri);
 
-        httpd_uri_t ota_uri = {
-            .uri = "/ota",
-            .method = HTTPD_POST,
-            .handler = ota_post_handler,
-            .user_ctx = NULL
-        };
+        httpd_uri_t ota_uri;
+        std::memset(&ota_uri, 0, sizeof(ota_uri));
+        ota_uri.uri = "/ota";
+        ota_uri.method = HTTP_POST;
+        ota_uri.handler = ota_post_handler;
+        ota_uri.user_ctx = NULL;
         httpd_register_uri_handler(s_server, &ota_uri);
     }
 

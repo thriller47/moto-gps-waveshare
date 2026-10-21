@@ -290,7 +290,7 @@ fun OtaUpdateDialog(
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !isUploadingOta
                 ) {
-                    Icon(Icons.Default.FileOpen, contentDescription = null)
+                    Icon(Icons.Default.Add, contentDescription = null)
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(selectedFileName ?: "Seleziona file .bin")
                 }
@@ -630,7 +630,7 @@ fun NavigationScreen(
                     title = { Text("MOTO GPS") },
                     actions = {
                         IconButton(onClick = { showOtaDialog = true }) {
-                            Icon(Icons.Default.SystemUpdate, contentDescription = "Aggiornamento Firmware (OTA)")
+                            Icon(Icons.Default.Refresh, contentDescription = "Aggiornamento Firmware (OTA)")
                         }
                         IconButton(onClick = { showOfflineDialog = true }) {
                             Icon(Icons.Default.Place, contentDescription = "Mappe Offline")
