@@ -73,6 +73,26 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     private val _savedMaps = MutableStateFlow<List<SavedMapInfo>>(emptyList())
     val savedMaps: StateFlow<List<SavedMapInfo>> = _savedMaps
 
+    private val _otaStatus = MutableStateFlow<String?>(null)
+    val otaStatus: StateFlow<String?> = _otaStatus
+
+    private val _otaProgress = MutableStateFlow(0)
+    val otaProgress: StateFlow<Int> = _otaProgress
+
+    private val _isUploadingOta = MutableStateFlow(false)
+    val isUploadingOta: StateFlow<Boolean> = _isUploadingOta
+
+    private val _downloadProgress = MutableStateFlow(0f)
+    val downloadProgress: StateFlow<Float> = _downloadProgress
+
+    private val _downloadStatus = MutableStateFlow<String?>(null)
+    val downloadStatus: StateFlow<String?> = _downloadStatus
+
+    private val _isDownloadingMap = MutableStateFlow(false)
+    val isDownloadingMap: StateFlow<Boolean> = _isDownloadingMap
+
+    private var mapDownloadJob: Job? = null
+
     private var currentHeadingCentiDeg: Int = 0
     private var currentSpeedDeciKph: Int = 0
     private var prevLat: Double? = null
@@ -378,81 +398,127 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         }
     }
 
+    fun cancelMapDownload() {
+        mapDownloadJob?.cancel()
+        mapDownloadJob = null
+        _isDownloadingMap.value = false
+        _downloadProgress.value = 0f
+        _downloadStatus.value = "Download annullato"
+    }
+
+    private fun getOrCreateRepo(context: Context): HybridMapRepository {
+        return HybridMapRepository(context.applicationContext)
+    }
+
+    fun refreshSavedMaps(context: Context) {
+        val list = getOrCreateRepo(context).listSavedMaps()
+        _savedMaps.value = list
+    }
+
     fun downloadCurrentArea(context: Context) {
-        viewModelScope.launch {
-            _isLoading.value = true
+        mapDownloadJob?.cancel()
+        mapDownloadJob = viewModelScope.launch {
+            _isDownloadingMap.value = true
+            _downloadProgress.value = 0.02f
+            _downloadStatus.value = "Avvio download Area Attuale (50km)..."
             _errorMessage.value = null
+
             try {
                 val (lat, lon) = currentLocation.value
-                val mapRepository = HybridMapRepository(context)
-                val file = withContext(Dispatchers.IO) {
-                    mapRepository.downloadCurrentArea(lat, lon, 10.0)
+                val repo = getOrCreateRepo(context)
+                val res = withContext(Dispatchers.IO) {
+                    repo.downloadCurrentArea(lat, lon) { step, total, name ->
+                        val prog = step.toFloat() / total.toFloat()
+                        _downloadProgress.value = prog
+                        _downloadStatus.value = "Download $name: ${(prog * 100).toInt()}% (quadrante $step / $total)"
+                    }
                 }
-                val kb = file.length() / 1024
-                _errorMessage.value = "Mappa area corrente salvata ($kb KB)"
-                _savedMaps.value = mapRepository.listSavedMaps()
+                _downloadProgress.value = 1.0f
+                val file = res.file
+                val kb = maxOf(1L, file.length() / 1024)
+                _downloadStatus.value = "Salvata ${file.name}: ${res.totalSegments} strade ($kb KB)"
+                refreshSavedMaps(context)
             } catch (e: Exception) {
+                _downloadStatus.value = "Errore download mappa: ${e.message}"
                 _errorMessage.value = "Errore download mappa: ${e.message}"
             } finally {
-                _isLoading.value = false
+                _isDownloadingMap.value = false
             }
         }
     }
 
     fun downloadRouteCorridor(context: Context, rawRoutePoints: List<Pair<Double, Double>>) {
         if (rawRoutePoints.isEmpty()) return
-        viewModelScope.launch {
-            _isLoading.value = true
+        mapDownloadJob?.cancel()
+        mapDownloadJob = viewModelScope.launch {
+            _isDownloadingMap.value = true
+            _downloadProgress.value = 0.02f
+            _downloadStatus.value = "Avvio download Corridoio Rotta..."
             _errorMessage.value = null
+
             try {
-                val mapRepository = HybridMapRepository(context)
-                val file = withContext(Dispatchers.IO) {
-                    mapRepository.downloadRouteCorridor(rawRoutePoints)
+                val repo = getOrCreateRepo(context)
+                val res = withContext(Dispatchers.IO) {
+                    repo.downloadRouteCorridor(rawRoutePoints) { step, total, name ->
+                        val prog = step.toFloat() / total.toFloat()
+                        _downloadProgress.value = prog
+                        _downloadStatus.value = "Download $name: ${(prog * 100).toInt()}% (tappa $step / $total)"
+                    }
                 }
-                val kb = file.length() / 1024
-                _errorMessage.value = "Mappa corridoio salvata ($kb KB)"
-                _savedMaps.value = mapRepository.listSavedMaps()
+                _downloadProgress.value = 1.0f
+                val file = res.file
+                val kb = maxOf(1L, file.length() / 1024)
+                _downloadStatus.value = "Salvata ${file.name}: ${res.totalSegments} strade ($kb KB)"
+                refreshSavedMaps(context)
             } catch (e: Exception) {
+                _downloadStatus.value = "Errore download corridoio: ${e.message}"
                 _errorMessage.value = "Errore download corridoio: ${e.message}"
             } finally {
-                _isLoading.value = false
+                _isDownloadingMap.value = false
             }
         }
     }
 
     fun downloadRegion(context: Context, regionName: String) {
-        viewModelScope.launch {
-            _isLoading.value = true
+        mapDownloadJob?.cancel()
+        mapDownloadJob = viewModelScope.launch {
+            _isDownloadingMap.value = true
+            _downloadProgress.value = 0.02f
+            _downloadStatus.value = "Avvio download Regione $regionName..."
             _errorMessage.value = null
+
             try {
-                val mapRepository = HybridMapRepository(context)
-                val file = withContext(Dispatchers.IO) {
-                    mapRepository.downloadRegion(regionName)
+                val repo = getOrCreateRepo(context)
+                val res = withContext(Dispatchers.IO) {
+                    repo.downloadRegion(regionName) { step, total, name ->
+                        val prog = step.toFloat() / total.toFloat()
+                        _downloadProgress.value = prog
+                        _downloadStatus.value = "Download $name: ${(prog * 100).toInt()}% (quadrante $step / $total)"
+                    }
                 }
-                val kb = file.length() / 1024
-                _errorMessage.value = "Mappa regione $regionName salvata ($kb KB)"
-                _savedMaps.value = mapRepository.listSavedMaps()
+                _downloadProgress.value = 1.0f
+                val file = res.file
+                val kb = maxOf(1L, file.length() / 1024)
+                _downloadStatus.value = "Salvata ${file.name}: ${res.totalSegments} strade ($kb KB)"
+                refreshSavedMaps(context)
             } catch (e: Exception) {
+                _downloadStatus.value = "Errore download regione: ${e.message}"
                 _errorMessage.value = "Errore download regione: ${e.message}"
             } finally {
-                _isLoading.value = false
+                _isDownloadingMap.value = false
             }
         }
     }
 
     fun listSavedMaps(context: Context): List<SavedMapInfo> {
-        val mapRepository = HybridMapRepository(context)
-        val list = mapRepository.listSavedMaps()
+        val list = getOrCreateRepo(context).listSavedMaps()
         _savedMaps.value = list
         return list
     }
 
     fun deleteSavedMap(context: Context, fileName: String): Boolean {
-        val mapRepository = HybridMapRepository(context)
-        val result = mapRepository.deleteSavedMap(fileName)
-        if (result) {
-            _savedMaps.value = mapRepository.listSavedMaps()
-        }
+        val result = getOrCreateRepo(context).deleteSavedMap(fileName)
+        refreshSavedMaps(context)
         return result
     }
 
@@ -852,6 +918,78 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                 }
             }
         }
+    }
+
+    fun uploadFirmwareOta(context: Context, fileUri: android.net.Uri, espIp: String = "192.168.4.1") {
+        viewModelScope.launch(Dispatchers.IO) {
+            _isUploadingOta.value = true
+            _otaProgress.value = 0
+            _otaStatus.value = "Avvio caricamento OTA..."
+
+            var conn: HttpURLConnection? = null
+            try {
+                val inputStream = context.contentResolver.openInputStream(fileUri)
+                    ?: throw Exception("Impossibile aprire il file selezionato")
+
+                var fileSize = 0L
+                try {
+                    context.contentResolver.openAssetFileDescriptor(fileUri, "r")?.use {
+                        fileSize = it.length
+                    }
+                } catch (_: Exception) {}
+
+                val url = URL("http://$espIp/ota")
+                conn = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    doOutput = true
+                    connectTimeout = 10000
+                    readTimeout = 60000
+                    setRequestProperty("Content-Type", "application/octet-stream")
+                    if (fileSize > 0) {
+                        setFixedLengthStreamingMode(fileSize)
+                    } else {
+                        setChunkedStreamingMode(4096)
+                    }
+                }
+
+                val buffer = ByteArray(4096)
+                var bytesSent = 0L
+                conn.outputStream.use { os ->
+                    inputStream.use { isStream ->
+                        var bytesRead: Int
+                        while (isStream.read(buffer).also { bytesRead = it } != -1) {
+                            os.write(buffer, 0, bytesRead)
+                            bytesSent += bytesRead
+                            if (fileSize > 0) {
+                                val prog = ((bytesSent * 100) / fileSize).toInt().coerceIn(0, 100)
+                                _otaProgress.value = prog
+                                _otaStatus.value = "Caricamento in corso: $prog%"
+                            }
+                        }
+                        os.flush()
+                    }
+                }
+
+                val responseCode = conn.responseCode
+                if (responseCode in 200..299) {
+                    _otaProgress.value = 100
+                    _otaStatus.value = "Aggiornamento OTA completato! Riavvio display in corso..."
+                } else {
+                    throw Exception("HTTP Errore $responseCode")
+                }
+            } catch (t: Throwable) {
+                _otaStatus.value = "Errore: ${t.localizedMessage ?: "Caricamento fallito"}. Assicurati di essere connesso al Wi-Fi MotoGPS-OTA"
+            } finally {
+                _isUploadingOta.value = false
+                conn?.disconnect()
+            }
+        }
+    }
+
+    fun resetOtaStatus() {
+        _otaStatus.value = null
+        _otaProgress.value = 0
+        _isUploadingOta.value = false
     }
 
     fun clearError() {

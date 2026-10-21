@@ -146,6 +146,12 @@ class MainActivity : ComponentActivity(), LocationListener, SensorEventListener 
             val selectedRouteIndex = viewModel.selectedRouteIndex.collectAsState().value
             val isNavigating = viewModel.isNavigating.collectAsState().value
             val currentLocation = viewModel.currentLocation.collectAsState().value
+            val otaStatus = viewModel.otaStatus.collectAsState().value
+            val otaProgress = viewModel.otaProgress.collectAsState().value
+            val isUploadingOta = viewModel.isUploadingOta.collectAsState().value
+            val downloadStatus = viewModel.downloadStatus.collectAsState().value
+            val downloadProgress = viewModel.downloadProgress.collectAsState().value
+            val isDownloadingMap = viewModel.isDownloadingMap.collectAsState().value
 
             var mapsUpdateTrigger by remember { mutableStateOf(0) }
             val savedMaps = remember(errorMessage, mapsUpdateTrigger) {
@@ -207,6 +213,21 @@ class MainActivity : ComponentActivity(), LocationListener, SensorEventListener 
                     onDeleteMap = { fileName ->
                         viewModel.deleteSavedMap(this@MainActivity, fileName)
                         mapsUpdateTrigger++
+                    },
+                    otaStatus = otaStatus,
+                    otaProgress = otaProgress,
+                    isUploadingOta = isUploadingOta,
+                    onStartOta = { uri ->
+                        viewModel.uploadFirmwareOta(this@MainActivity, uri)
+                    },
+                    downloadStatus = downloadStatus,
+                    downloadProgress = downloadProgress,
+                    isDownloadingMap = isDownloadingMap,
+                    onCancelDownload = {
+                        viewModel.cancelMapDownload()
+                    },
+                    onRefreshMaps = {
+                        viewModel.refreshSavedMaps(this@MainActivity)
                     }
                 )
             }

@@ -12,6 +12,8 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -253,11 +255,146 @@ fun extractGeoPoints(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
+fun OtaUpdateDialog(
+    otaStatus: String?,
+    otaProgress: Int,
+    isUploadingOta: Boolean,
+    onStartOta: (android.net.Uri) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var selectedUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    var selectedFileName by remember { mutableStateOf<String?>(null) }
+
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: android.net.Uri? ->
+        if (uri != null) {
+            selectedUri = uri
+            selectedFileName = uri.lastPathSegment ?: "firmware.bin"
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Aggiornamento Firmware (OTA)") },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = "1. Attiva Modalita OTA sul display ESP32.\n2. Connetti il telefono al Wi-Fi 'MotoGPS-OTA' (pass: motogps123).\n3. Seleziona il file firmware .bin.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+
+                OutlinedButton(
+                    onClick = { filePickerLauncher.launch("*/*") },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !isUploadingOta
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(selectedFileName ?: "Seleziona file .bin")
+                }
+
+                if (otaStatus != null || isUploadingOta) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    LinearProgressIndicator(
+                        progress = { otaProgress / 100f },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = otaStatus ?: "$otaProgress%",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    selectedUri?.let { uri ->
+                        onStartOta(uri)
+                    }
+                },
+                enabled = selectedUri != null && !isUploadingOta
+            ) {
+                Text("Avvia Aggiornamento OTA")
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+                enabled = !isUploadingOta
+            ) {
+                Text("Chiudi")
+            }
+        }
+    )
+}
+
+@Composable
+fun MapDownloadProgressBox(
+    downloadStatus: String?,
+    downloadProgress: Float,
+    onCancelDownload: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        ),
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(8.dp)
+    ) {
+        Column(modifier = Modifier.padding(12.dp).fillMaxWidth()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = downloadStatus ?: "Download in corso...",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "${(downloadProgress.coerceIn(0f, 1f) * 100).toInt()}%",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            LinearProgressIndicator(
+                progress = { downloadProgress.coerceIn(0f, 1f) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(8.dp)
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = onCancelDownload,
+                modifier = Modifier.align(Alignment.End)
+            ) {
+                Text("Annulla")
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
 fun OfflineMapsDialog(
     savedMaps: List<SavedMapInfo>,
     onDeleteMap: (String) -> Unit,
     onDownloadArea: () -> Unit,
     onDownloadRegion: (String) -> Unit,
+    downloadStatus: String? = null,
+    downloadProgress: Float = 0f,
+    isDownloadingMap: Boolean = false,
+    onCancelDownload: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
     val regions = listOf(
@@ -305,13 +442,23 @@ fun OfflineMapsDialog(
                 HorizontalDivider()
                 Spacer(modifier = Modifier.height(16.dp))
 
+                if (isDownloadingMap) {
+                    MapDownloadProgressBox(
+                        downloadStatus = downloadStatus,
+                        downloadProgress = downloadProgress,
+                        onCancelDownload = onCancelDownload
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+
                 Button(
                     onClick = onDownloadArea,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !isDownloadingMap
                 ) {
                     Icon(Icons.Default.Place, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Scarica Area Corrente (10 km)")
+                    Text("Salva Area Attuale (Raggio 50 km)")
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -344,7 +491,8 @@ fun OfflineMapsDialog(
 
                 Button(
                     onClick = { onDownloadRegion(selectedRegion) },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !isDownloadingMap
                 ) {
                     Icon(Icons.Default.Place, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
@@ -384,12 +532,22 @@ fun NavigationScreen(
     onDownloadArea: () -> Unit = {},
     onDownloadCorridor: (List<Pair<Double, Double>>) -> Unit = {},
     onDownloadRegion: (String) -> Unit = {},
-    onDeleteMap: (String) -> Unit = {}
+    onDeleteMap: (String) -> Unit = {},
+    otaStatus: String? = null,
+    otaProgress: Int = 0,
+    isUploadingOta: Boolean = false,
+    onStartOta: (android.net.Uri) -> Unit = {},
+    downloadStatus: String? = null,
+    downloadProgress: Float = 0f,
+    isDownloadingMap: Boolean = false,
+    onCancelDownload: () -> Unit = {},
+    onRefreshMaps: () -> Unit = {}
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var currentGateway by remember { mutableStateOf(initialGateway) }
     var showGatewayDialog by remember { mutableStateOf(initialGateway.isBlank()) }
     var showOfflineDialog by remember { mutableStateOf(false) }
+    var showOtaDialog by remember { mutableStateOf(false) }
     var tempGateway by remember { mutableStateOf(initialGateway) }
 
     var centerOnLocationTrigger by remember { mutableStateOf(0) }
@@ -428,13 +586,33 @@ fun NavigationScreen(
         )
     }
 
+    LaunchedEffect(showOfflineDialog) {
+        if (showOfflineDialog) {
+            onRefreshMaps()
+        }
+    }
+
     if (showOfflineDialog) {
         OfflineMapsDialog(
             savedMaps = savedMaps,
             onDeleteMap = onDeleteMap,
             onDownloadArea = onDownloadArea,
             onDownloadRegion = onDownloadRegion,
+            downloadStatus = downloadStatus,
+            downloadProgress = downloadProgress,
+            isDownloadingMap = isDownloadingMap,
+            onCancelDownload = onCancelDownload,
             onDismiss = { showOfflineDialog = false }
+        )
+    }
+
+    if (showOtaDialog) {
+        OtaUpdateDialog(
+            otaStatus = otaStatus,
+            otaProgress = otaProgress,
+            isUploadingOta = isUploadingOta,
+            onStartOta = onStartOta,
+            onDismiss = { showOtaDialog = false }
         )
     }
 
@@ -458,6 +636,9 @@ fun NavigationScreen(
                 TopAppBar(
                     title = { Text("MOTO GPS") },
                     actions = {
+                        IconButton(onClick = { showOtaDialog = true }) {
+                            Icon(Icons.Default.Refresh, contentDescription = "Aggiornamento Firmware (OTA)")
+                        }
                         IconButton(onClick = { showOfflineDialog = true }) {
                             Icon(Icons.Default.Place, contentDescription = "Mappe Offline")
                         }
@@ -493,6 +674,14 @@ fun NavigationScreen(
                 HorizontalDivider()
 
                 Column(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                    if (isDownloadingMap) {
+                        MapDownloadProgressBox(
+                            downloadStatus = downloadStatus,
+                            downloadProgress = downloadProgress,
+                            onCancelDownload = onCancelDownload
+                        )
+                    }
+
                     Text(
                         text = "Seleziona percorso (OSM)",
                         style = MaterialTheme.typography.titleMedium,
@@ -643,6 +832,14 @@ fun NavigationScreen(
                         Spacer(modifier = Modifier.width(4.dp))
                         Text("Gestione Mappe Offline", style = MaterialTheme.typography.labelSmall)
                     }
+                }
+
+                if (isDownloadingMap) {
+                    MapDownloadProgressBox(
+                        downloadStatus = downloadStatus,
+                        downloadProgress = downloadProgress,
+                        onCancelDownload = onCancelDownload
+                    )
                 }
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))

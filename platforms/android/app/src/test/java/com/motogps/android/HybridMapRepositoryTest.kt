@@ -47,6 +47,40 @@ class HybridMapRepositoryTest {
     }
 
     @Test
+    fun testStreamOverpassToMotomap() {
+        val jsonStr = """
+        {
+          "version": 0.6,
+          "elements": [
+            {
+              "type": "way",
+              "id": 12345,
+              "tags": {
+                "highway": "primary",
+                "maxspeed": "90"
+              },
+              "geometry": [
+                { "lat": 41.9028, "lon": 12.4964 },
+                { "lat": 41.9030, "lon": 12.4966 }
+              ]
+            }
+          ]
+        }
+        """.trimIndent()
+
+        val inputStream = jsonStr.toByteArray(Charsets.UTF_8).inputStream()
+        val stringWriter = java.io.StringWriter()
+        val bufferedWriter = java.io.BufferedWriter(stringWriter)
+
+        val writtenCount = repository.streamOverpassToMotomap(inputStream, bufferedWriter)
+        bufferedWriter.flush()
+
+        assertEquals(1, writtenCount)
+        val outputStr = stringWriter.toString()
+        assertTrue(outputStr.contains("1,90|41902800,12496400,41903000,12496600|41.902800,12.496400;41.903000,12.496600"))
+    }
+
+    @Test
     fun testMapSceneFrameEncoding() {
         val codec = MotoBLEProtocolCodec()
         val handle = codec.nativeInit(247)
