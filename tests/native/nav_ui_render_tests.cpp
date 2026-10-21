@@ -213,31 +213,27 @@ void test_clearing_geometry_leaves_no_residue() {
 }
 
 void test_music_page_state_and_fallback() {
+  // The music page has been intentionally removed. Even an older phone
+  // advertising media capabilities must not reactivate it.
+  moto_nav_ui_set_page(MOTO_UI_PAGE_NAVIGATION);
   moto_nav_ui_set_music_page_enabled(1);
   moto_nav_ui_set_page(MOTO_UI_PAGE_MUSIC);
-  CHECK(moto_nav_ui_get_page() == MOTO_UI_PAGE_MUSIC);
+  CHECK(moto_nav_ui_get_page() == MOTO_UI_PAGE_NAVIGATION);
 
+  const Frame before = capture();
   moto_music_state_t music{};
   music.connected = 1;
   music.playing = 1;
   music.like_available = 1;
   music.source_name = "NetEase";
-  music.track_title = "公路之歌";
-  music.artist_name = "新裤子";
+  music.track_title = "Road Song";
+  music.artist_name = "Artist";
   moto_nav_ui_set_music_state(&music);
-  const Frame titled = capture();
+  const Frame after = capture();
+  // Backward-compatible media packets must not alter the active display.
+  CHECK(before.hash == after.hash);
 
-  // Emptying the strings must visibly clear the labels (no stale text).
-  moto_music_state_t empty_state{};
-  empty_state.connected = 1;
-  moto_nav_ui_set_music_state(&empty_state);
-  const Frame emptied = capture();
-  CHECK(titled.hash != emptied.hash);
-
-  // Disabling the music page while it is on screen must fall back to the
-  // navigation page; re-enabling must not restore it by itself.
   moto_nav_ui_set_music_page_enabled(0);
-  pump();
   CHECK(moto_nav_ui_get_page() != MOTO_UI_PAGE_MUSIC);
 }
 
