@@ -359,7 +359,19 @@ void PhoneNavBridge::on_imu_sample(float heading_rate_dps,
   bool should_present = false;
   {
     const std::lock_guard<std::mutex> lock(state_mutex_);
-    if (!heading_fusion_.integrate(heading_rate_dps, sample_ms)) {
+    const bool heading_changed =
+        heading_fusion_.integrate(heading_rate_dps, sample_ms);
+    // Diagnostic only: distinguish a live gyroscope from a stale UI.
+    static std::uint64_t last_heading_log_ms = 0;
+    if (sample_ms - last_heading_log_ms >= 2'000) {
+      last_heading_log_ms = sample_ms;
+      ESP_LOGI(kTag, "compass gyro=%.2f dps heading=%.1f page=%d changed=%d",
+               static_cast<double>(heading_rate_dps),
+               static_cast<double>(heading_fusion_.heading_deg()),
+               static_cast<int>(snapshot_.display_page),
+               heading_changed ? 1 : 0);
+    }
+    if (!heading_changed) {
       return;
     }
     snapshot_.heading_deg = heading_fusion_.heading_deg();
