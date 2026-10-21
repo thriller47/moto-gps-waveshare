@@ -572,7 +572,11 @@ moto::ble::AckStatus PhoneNavBridge::on_message(
         } else if constexpr (std::is_same_v<T, moto::ble::DeviceCommand>) {
           if (value.kind == moto::ble::DeviceCommandKind::StartOta) {
 #ifdef ESP_PLATFORM
-            ota_update_service_start();
+            const esp_err_t ota_result = ota_update_service_start();
+            if (ota_result != ESP_OK) {
+              ESP_LOGE(kTag, "OTA start failed: %s", esp_err_to_name(ota_result));
+              return moto::ble::AckStatus::Unsupported;
+            }
 #endif
             return moto::ble::AckStatus::Ok;
           }
