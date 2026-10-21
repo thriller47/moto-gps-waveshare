@@ -112,23 +112,33 @@ void test_stale_timestamp_does_not_rewind_integration_clock() {
   CHECK(std::abs(clean - with_stale_sample) < 0.01F);
 }
 
-void test_stationary_freeze_holds_heading_until_riding_resumes() {
+void test_stationary_gyro_turn_continues_through_speed_hysteresis() {
   MotionHeadingFusion fusion;
   fusion.anchor(30.0F, 8.0F, true);
-  // Parking: low-speed fixes engage the stationary freeze with hysteresis.
+  // Parking must not suppress real rotation detected by the gyroscope.
   fusion.anchor(30.0F, 0.4F, true);
-  feed_rate(fusion, 90.0F, 8, 2'008);
-  CHECK(std::abs(fusion.heading_deg() - 30.0F) < 0.01F);
-  // Between 0.6 and 1.5 m/s the freeze stays engaged (hysteresis band).
+  feed_rate(fusion, 90.0F, 8, 408);
+  const float parked_heading = fusion.heading_deg();
+  CHECK(parked_heading > 55.0F);
+  CHECK(parked_heading < 75.0F);
+
+  // In the GPS speed hysteresis band, yaw must still rotate the compass.
+  // A low-speed phone course must not snap the compass back to 30 degrees.
   fusion.anchor(30.0F, 1.0F, true);
-  feed_rate(fusion, 90.0F, 2'016, 4'016);
-  CHECK(std::abs(fusion.heading_deg() - 30.0F) < 0.01F);
-  // Pulling away releases the freeze and integration works again.
+  CHECK(std::abs(fusion.heading_deg() - parked_heading) < 0.01F);
+  feed_rate(fusion, 90.0F, 416, 816);
+  const float slow_heading = fusion.heading_deg();
+  CHECK(slow_heading > parked_heading + 25.0F);
+  CHECK(slow_heading < parked_heading + 45.0F);
+
+  // Once moving, the GPS course may progressively correct gyro drift.
   fusion.anchor(30.0F, 6.0F, true);
-  feed_rate(fusion, 90.0F, 4'024, 4'424);
-  CHECK(fusion.heading_deg() > 45.0F);
-  CHECK(fusion.heading_deg() < 80.0F);
-  // reset() must also clear the freeze.
+  const float corrected_heading = fusion.heading_deg();
+  CHECK(corrected_heading < slow_heading);
+  feed_rate(fusion, 90.0F, 824, 1'224);
+  CHECK(fusion.heading_deg() > corrected_heading + 25.0F);
+
+  // Reset still permits relative motion before a GPS fix.
   fusion.reset();
   feed_rate(fusion, 90.0F, 8, 248);
   CHECK(fusion.heading_deg() > 5.0F);
@@ -145,7 +155,7 @@ int main() {
   test_forward_facing_mount_yaw_does_not_reverse_at_zero_z();
   test_large_sensor_gap_is_not_integrated();
   test_stale_timestamp_does_not_rewind_integration_clock();
-  test_stationary_freeze_holds_heading_until_riding_resumes();
+  test_stationary_gyro_turn_continues_through_speed_hysteresis();
 
   if (failures != 0) {
     std::cerr << failures << " motion heading checks failed\n";
