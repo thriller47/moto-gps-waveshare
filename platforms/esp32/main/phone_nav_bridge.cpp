@@ -359,8 +359,7 @@ void PhoneNavBridge::on_imu_sample(float heading_rate_dps,
   bool should_present = false;
   {
     const std::lock_guard<std::mutex> lock(state_mutex_);
-    if (demo_active_ ||
-        !heading_fusion_.integrate(heading_rate_dps, sample_ms)) {
+    if (!heading_fusion_.integrate(heading_rate_dps, sample_ms)) {
       return;
     }
     snapshot_.heading_deg = heading_fusion_.heading_deg();
