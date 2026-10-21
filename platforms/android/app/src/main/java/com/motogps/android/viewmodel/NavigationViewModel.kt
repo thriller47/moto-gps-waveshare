@@ -70,6 +70,16 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     private val _currentDevicePage = MutableStateFlow(0)
     val currentDevicePage: StateFlow<Int> = _currentDevicePage
 
+    private val _savedMaps = MutableStateFlow<List<SavedMapInfo>>(emptyList())
+    val savedMaps: StateFlow<List<SavedMapInfo>> = _savedMaps
+
+    private var currentHeadingCentiDeg: Int = 0
+    private var currentSpeedDeciKph: Int = 0
+    private var prevLat: Double? = null
+    private var prevLon: Double? = null
+    private var isCompassSensorActive: Boolean = false
+    private var telemetryJob: Job? = null
+
     private var navigationJob: Job? = null
     private var currentSnapshot: MotoBLENavigationSnapshot? = null
     private var currentGeometry: MotoBLERouteGeometry? = null
@@ -183,7 +193,10 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                     val baseSnap = currentSnapshot?.copy() ?: snapshot.copy()
                     val activeSnap = baseSnap.copy(
                         displayPageName = pageName,
-                        speedLimitKPH = lastSpeedLimitKph
+                        speedLimitKPH = lastSpeedLimitKph,
+                        speedDeciKPH = currentSpeedDeciKph,
+                        headingCentiDegrees = currentHeadingCentiDeg,
+                        hasFix = hasFirstFix
                     )
                     bleManager.sendNavigationSnapshot(activeSnap)
 
@@ -217,7 +230,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
             maneuverName = "none",
             trafficName = "none",
             hasDestination = false,
-            hasFix = false,
+            hasFix = hasFirstFix,
             gnssStale = false,
             offRoute = false,
             routeRequestInFlight = false,
@@ -230,9 +243,9 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
             remainingDurationS = 0L,
             routeProgressM = 0L,
             totalDistanceM = 0L,
-            speedDeciKPH = 0,
+            speedDeciKPH = currentSpeedDeciKph,
             speedLimitKPH = 0,
-            headingCentiDegrees = 0,
+            headingCentiDegrees = currentHeadingCentiDeg,
             accuracyDecimeters = 0,
             crossTrackDecimeters = 0,
             roundaboutExit = 0,
@@ -253,9 +266,38 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     private var activeGatewayUrl: String = ""
     private var lastRecalculationTime: Long = 0
 
-    fun updateDeviceLocation(latitude: Double, longitude: Double, context: Context? = null) {
+    fun updateDeviceHeading(headingDeg: Float) {
+        isCompassSensorActive = true
+        val normalized = (headingDeg % 360f + 360f) % 360f
+        currentHeadingCentiDeg = (normalized * 100f).toInt().coerceIn(0, 35999)
+    }
+
+    fun updateDeviceLocation(
+        latitude: Double,
+        longitude: Double,
+        speedMs: Float = 0f,
+        gpsBearingDeg: Float? = null,
+        context: Context? = null
+    ) {
         hasFirstFix = true
         _currentLocation.value = Pair(latitude, longitude)
+
+        currentSpeedDeciKph = (speedMs * 36f).toInt().coerceAtLeast(0)
+
+        if (gpsBearingDeg != null && speedMs > 1.5f) {
+            val normalized = (gpsBearingDeg % 360f + 360f) % 360f
+            currentHeadingCentiDeg = (normalized * 100f).toInt().coerceIn(0, 35999)
+        } else if (!isCompassSensorActive && prevLat != null && prevLon != null) {
+            val distMeters = calculateDistanceMeters(prevLat!!, prevLon!!, latitude, longitude)
+            if (distMeters >= 3.0) {
+                val calcBearing = calculateBearingDeg(prevLat!!, prevLon!!, latitude, longitude)
+                val normalized = (calcBearing % 360f + 360f) % 360f
+                currentHeadingCentiDeg = (normalized * 100f).toInt().coerceIn(0, 35999)
+            }
+        }
+
+        prevLat = latitude
+        prevLon = longitude
 
         if (context != null) {
             updateSpeedLimitAndMapScene(latitude, longitude, context)
@@ -264,6 +306,18 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         if (_isNavigating.value && activeDestination != null && activeGatewayUrl.isNotBlank()) {
             checkOffRouteAndRecalculate(latitude, longitude)
         }
+    }
+
+    private fun calculateBearingDeg(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Float {
+        val phi1 = Math.toRadians(lat1)
+        val phi2 = Math.toRadians(lat2)
+        val deltaLambda = Math.toRadians(lon2 - lon1)
+
+        val y = Math.sin(deltaLambda) * Math.cos(phi2)
+        val x = Math.cos(phi1) * Math.sin(phi2) - Math.sin(phi1) * Math.cos(phi2) * Math.cos(deltaLambda)
+        val theta = Math.atan2(y, x)
+        val bearingDeg = Math.toDegrees(theta).toFloat()
+        return (bearingDeg % 360f + 360f) % 360f
     }
 
     private fun updateSpeedLimitAndMapScene(lat: Double, lon: Double, context: Context) {
@@ -330,12 +384,13 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
             _errorMessage.value = null
             try {
                 val (lat, lon) = currentLocation.value
+                val mapRepository = HybridMapRepository(context)
                 val file = withContext(Dispatchers.IO) {
-                    val repo = HybridMapRepository(context)
-                    repo.downloadCurrentArea(lat, lon, 10.0)
+                    mapRepository.downloadCurrentArea(lat, lon, 10.0)
                 }
                 val kb = file.length() / 1024
                 _errorMessage.value = "Mappa area corrente salvata ($kb KB)"
+                _savedMaps.value = mapRepository.listSavedMaps()
             } catch (e: Exception) {
                 _errorMessage.value = "Errore download mappa: ${e.message}"
             } finally {
@@ -350,12 +405,13 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
             _isLoading.value = true
             _errorMessage.value = null
             try {
+                val mapRepository = HybridMapRepository(context)
                 val file = withContext(Dispatchers.IO) {
-                    val repo = HybridMapRepository(context)
-                    repo.downloadRouteCorridor(rawRoutePoints)
+                    mapRepository.downloadRouteCorridor(rawRoutePoints)
                 }
                 val kb = file.length() / 1024
                 _errorMessage.value = "Mappa corridoio salvata ($kb KB)"
+                _savedMaps.value = mapRepository.listSavedMaps()
             } catch (e: Exception) {
                 _errorMessage.value = "Errore download corridoio: ${e.message}"
             } finally {
@@ -369,12 +425,13 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
             _isLoading.value = true
             _errorMessage.value = null
             try {
+                val mapRepository = HybridMapRepository(context)
                 val file = withContext(Dispatchers.IO) {
-                    val repo = HybridMapRepository(context)
-                    repo.downloadRegion(regionName)
+                    mapRepository.downloadRegion(regionName)
                 }
                 val kb = file.length() / 1024
                 _errorMessage.value = "Mappa regione $regionName salvata ($kb KB)"
+                _savedMaps.value = mapRepository.listSavedMaps()
             } catch (e: Exception) {
                 _errorMessage.value = "Errore download regione: ${e.message}"
             } finally {
@@ -384,11 +441,19 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     }
 
     fun listSavedMaps(context: Context): List<SavedMapInfo> {
-        return HybridMapRepository(context).listSavedMaps()
+        val mapRepository = HybridMapRepository(context)
+        val list = mapRepository.listSavedMaps()
+        _savedMaps.value = list
+        return list
     }
 
     fun deleteSavedMap(context: Context, fileName: String): Boolean {
-        return HybridMapRepository(context).deleteSavedMap(fileName)
+        val mapRepository = HybridMapRepository(context)
+        val result = mapRepository.deleteSavedMap(fileName)
+        if (result) {
+            _savedMaps.value = mapRepository.listSavedMaps()
+        }
+        return result
     }
 
     private fun checkOffRouteAndRecalculate(latitude: Double, longitude: Double) {
@@ -646,7 +711,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                     maneuverName = maneuverName,
                     trafficName = "free_flow",
                     hasDestination = true,
-                    hasFix = true,
+                    hasFix = hasFirstFix,
                     gnssStale = false,
                     offRoute = false,
                     routeRequestInFlight = false,
@@ -659,9 +724,9 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                     remainingDurationS = totalDurationS,
                     routeProgressM = 0L,
                     totalDistanceM = totalDistanceM,
-                    speedDeciKPH = 0,
+                    speedDeciKPH = currentSpeedDeciKph,
                     speedLimitKPH = lastSpeedLimitKph,
-                    headingCentiDegrees = 0,
+                    headingCentiDegrees = currentHeadingCentiDeg,
                     accuracyDecimeters = 50,
                     crossTrackDecimeters = 0,
                     roundaboutExit = 0,
@@ -726,6 +791,67 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
 
     fun setConnectionState(state: String) {
         _connectionState.value = state
+        val isConnected = state.contains("Connesso", ignoreCase = true) ||
+                state.contains("Connected", ignoreCase = true) ||
+                state.contains("Ready", ignoreCase = true) ||
+                state.contains("Online", ignoreCase = true)
+        if (isConnected) {
+            startTelemetryLoop()
+        } else {
+            telemetryJob?.cancel()
+            telemetryJob = null
+        }
+    }
+
+    private fun startTelemetryLoop() {
+        if (telemetryJob?.isActive == true) return
+        telemetryJob = viewModelScope.launch {
+            while (true) {
+                delay(600)
+                if (!_isNavigating.value && _connectionState.value.let {
+                    it.contains("Connesso", ignoreCase = true) ||
+                    it.contains("Connected", ignoreCase = true) ||
+                    it.contains("Ready", ignoreCase = true) ||
+                    it.contains("Online", ignoreCase = true)
+                }) {
+                    val pageName = when (_currentDevicePage.value) {
+                        1 -> "speedometer"
+                        2 -> "heading"
+                        3 -> "music"
+                        else -> "idle"
+                    }
+                    val idleSnapshot = MotoBLENavigationSnapshot(
+                        stateName = "idle",
+                        networkName = "online",
+                        displayPageName = pageName,
+                        maneuverName = "none",
+                        trafficName = "none",
+                        hasDestination = false,
+                        hasFix = hasFirstFix,
+                        gnssStale = false,
+                        offRoute = false,
+                        routeRequestInFlight = false,
+                        trafficRequestInFlight = false,
+                        routeToken = 0L,
+                        routeGeneration = 0L,
+                        maneuverID = 0L,
+                        distanceToManeuverM = 0L,
+                        remainingDistanceM = 0L,
+                        remainingDurationS = 0L,
+                        routeProgressM = 0L,
+                        totalDistanceM = 0L,
+                        speedDeciKPH = currentSpeedDeciKph,
+                        speedLimitKPH = lastSpeedLimitKph,
+                        headingCentiDegrees = currentHeadingCentiDeg,
+                        accuracyDecimeters = 50,
+                        crossTrackDecimeters = 0,
+                        roundaboutExit = 0,
+                        instructionText = ""
+                    )
+                    bleManager.sendNavigationSnapshot(idleSnapshot)
+                }
+            }
+        }
     }
 
     fun clearError() {

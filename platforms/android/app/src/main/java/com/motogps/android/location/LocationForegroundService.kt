@@ -18,7 +18,7 @@ class LocationForegroundService : Service(), LocationListener {
     companion object {
         const val CHANNEL_ID = "MotoGPS_Location_Channel"
         const val NOTIFICATION_ID = 1001
-        var onLocationUpdate: ((Double, Double) -> Unit)? = null
+        var onLocationUpdate: ((Location) -> Unit)? = null
     }
 
     private lateinit var locationManager: LocationManager
@@ -52,7 +52,7 @@ class LocationForegroundService : Service(), LocationListener {
 
             val bestLast = selectBestLocation(lastGps, lastNet)
             if (bestLast != null) {
-                onLocationUpdate?.invoke(bestLast.latitude, bestLast.longitude)
+                onLocationUpdate?.invoke(bestLast)
             }
 
             if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
@@ -82,7 +82,7 @@ class LocationForegroundService : Service(), LocationListener {
     }
 
     override fun onLocationChanged(location: Location) {
-        onLocationUpdate?.invoke(location.latitude, location.longitude)
+        onLocationUpdate?.invoke(location)
     }
 
     @Deprecated("Deprecated in Java")

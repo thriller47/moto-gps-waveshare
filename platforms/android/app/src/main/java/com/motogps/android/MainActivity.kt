@@ -5,6 +5,10 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
@@ -31,9 +35,21 @@ import com.motogps.android.ui.NavigationScreen
 import com.motogps.android.viewmodel.NavigationViewModel
 import com.motogps.android.viewmodel.NavigationViewModelFactory
 
-class MainActivity : ComponentActivity(), LocationListener {
+class MainActivity : ComponentActivity(), LocationListener, SensorEventListener {
     private lateinit var bleManager: MotoBLEManager
     private lateinit var locationManager: LocationManager
+    private lateinit var sensorManager: SensorManager
+    private var rotationVectorSensor: Sensor? = null
+    private var accelerometerSensor: Sensor? = null
+    private var magnetometerSensor: Sensor? = null
+
+    private val gravity = FloatArray(3)
+    private val geomagnetic = FloatArray(3)
+    private var hasGravity = false
+    private var hasGeomagnetic = false
+
+    private var lastSentHeading = -1f
+    private var lastSentHeadingTime = 0L
     private var lastBackPressTime = 0L
 
     private val viewModel: NavigationViewModel by viewModels {
@@ -55,10 +71,25 @@ class MainActivity : ComponentActivity(), LocationListener {
         super.onCreate(savedInstanceState)
 
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
 
-        LocationForegroundService.onLocationUpdate = { lat, lon ->
+        rotationVectorSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
+        if (rotationVectorSensor == null) {
+            accelerometerSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+            magnetometerSensor = sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)
+        }
+
+        LocationForegroundService.onLocationUpdate = { location ->
             runOnUiThread {
-                viewModel.updateDeviceLocation(lat, lon, this)
+                val speedMs = location.speed
+                val bearing = if (location.hasBearing()) location.bearing else null
+                viewModel.updateDeviceLocation(
+                    latitude = location.latitude,
+                    longitude = location.longitude,
+                    speedMs = speedMs,
+                    gpsBearingDeg = bearing,
+                    context = this
+                )
             }
         }
 
@@ -217,7 +248,15 @@ class MainActivity : ComponentActivity(), LocationListener {
 
             val bestLast = selectBestLocation(lastGps, lastNet)
             if (bestLast != null) {
-                viewModel.updateDeviceLocation(bestLast.latitude, bestLast.longitude, this)
+                val speedMs = bestLast.speed
+                val bearing = if (bestLast.hasBearing()) bestLast.bearing else null
+                viewModel.updateDeviceLocation(
+                    latitude = bestLast.latitude,
+                    longitude = bestLast.longitude,
+                    speedMs = speedMs,
+                    gpsBearingDeg = bearing,
+                    context = this
+                )
             }
 
             if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
@@ -253,8 +292,81 @@ class MainActivity : ComponentActivity(), LocationListener {
         return if (loc1.time >= loc2.time) loc1 else loc2
     }
 
+    override fun onResume() {
+        super.onResume()
+        registerSensors()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        unregisterSensors()
+    }
+
+    private fun registerSensors() {
+        rotationVectorSensor?.let {
+            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI)
+        } ?: run {
+            accelerometerSensor?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) }
+            magnetometerSensor?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) }
+        }
+    }
+
+    private fun unregisterSensors() {
+        sensorManager.unregisterListener(this)
+    }
+
+    override fun onSensorChanged(event: SensorEvent?) {
+        if (event == null) return
+        var azimuthDeg: Float? = null
+
+        if (event.sensor.type == Sensor.TYPE_ROTATION_VECTOR) {
+            val rotationMatrix = FloatArray(9)
+            SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
+            val orientation = FloatArray(3)
+            SensorManager.getOrientation(rotationMatrix, orientation)
+            val azimuthRad = orientation[0]
+            azimuthDeg = ((Math.toDegrees(azimuthRad.toDouble()).toFloat() % 360f) + 360f) % 360f
+        } else if (event.sensor.type == Sensor.TYPE_ACCELEROMETER) {
+            System.arraycopy(event.values, 0, gravity, 0, 3)
+            hasGravity = true
+        } else if (event.sensor.type == Sensor.TYPE_MAGNETIC_FIELD) {
+            System.arraycopy(event.values, 0, geomagnetic, 0, 3)
+            hasGeomagnetic = true
+        }
+
+        if (azimuthDeg == null && hasGravity && hasGeomagnetic) {
+            val R = FloatArray(9)
+            val I = FloatArray(9)
+            if (SensorManager.getRotationMatrix(R, I, gravity, geomagnetic)) {
+                val orientation = FloatArray(3)
+                SensorManager.getOrientation(R, orientation)
+                val azimuthRad = orientation[0]
+                azimuthDeg = ((Math.toDegrees(azimuthRad.toDouble()).toFloat() % 360f) + 360f) % 360f
+            }
+        }
+
+        if (azimuthDeg != null) {
+            val now = System.currentTimeMillis()
+            if (Math.abs(azimuthDeg - lastSentHeading) >= 1.5f || now - lastSentHeadingTime >= 150L) {
+                lastSentHeading = azimuthDeg
+                lastSentHeadingTime = now
+                viewModel.updateDeviceHeading(azimuthDeg)
+            }
+        }
+    }
+
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+
     override fun onLocationChanged(location: Location) {
-        viewModel.updateDeviceLocation(location.latitude, location.longitude, this)
+        val speedMs = location.speed
+        val bearing = if (location.hasBearing()) location.bearing else null
+        viewModel.updateDeviceLocation(
+            latitude = location.latitude,
+            longitude = location.longitude,
+            speedMs = speedMs,
+            gpsBearingDeg = bearing,
+            context = this
+        )
     }
 
     @Deprecated("Deprecated in Java")

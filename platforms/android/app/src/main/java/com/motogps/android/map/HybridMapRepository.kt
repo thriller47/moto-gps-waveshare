@@ -10,6 +10,7 @@ import java.net.URL
 import java.net.URLEncoder
 import java.util.Locale
 import java.util.zip.GZIPInputStream
+import kotlinx.coroutines.delay
 import org.json.JSONObject
 
 data class SavedMapInfo(
@@ -202,38 +203,37 @@ class HybridMapRepository(private val context: Context) {
 
     private fun executeOverpassQuery(query: String): String {
         var lastException: Exception? = null
-        val encodedData = "data=" + URLEncoder.encode(query, "UTF-8")
+        val postData = "data=" + URLEncoder.encode(query, "UTF-8")
 
-        for (mirror in mirrors) {
+        for (endpointUrl in mirrors) {
             var conn: HttpURLConnection? = null
             try {
-                val url = URL(mirror)
+                val url = URL(endpointUrl)
                 conn = url.openConnection() as HttpURLConnection
                 conn.requestMethod = "POST"
-                conn.connectTimeout = 25000
-                conn.readTimeout = 25000
-                conn.setRequestProperty("Accept-Encoding", "gzip")
-                conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
                 conn.doOutput = true
+                conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+                conn.setRequestProperty("Accept-Encoding", "gzip")
+                conn.connectTimeout = 10000
+                conn.readTimeout = 30000 // 30 secondi di timeout generoso
 
                 conn.outputStream.use { os ->
-                    val bytes = encodedData.toByteArray(Charsets.UTF_8)
-                    os.write(bytes, 0, bytes.size)
+                    os.write(postData.toByteArray(Charsets.UTF_8))
                 }
 
                 val responseCode = conn.responseCode
                 if (responseCode in 200..299) {
-                    val rawStream: InputStream = conn.inputStream
-                    val contentEncoding = conn.getHeaderField("Content-Encoding")
-                    val isGzip = contentEncoding?.contains("gzip", ignoreCase = true) == true
-                    val finalStream = if (isGzip) GZIPInputStream(rawStream) else rawStream
-
-                    return finalStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+                    val inputStream = if ("gzip".equals(conn.contentEncoding, ignoreCase = true)) {
+                        GZIPInputStream(conn.inputStream)
+                    } else {
+                        conn.inputStream
+                    }
+                    return inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
                 } else {
-                    Log.w("HybridMapRepository", "Mirror $mirror returned HTTP $responseCode")
+                    Log.w("HybridMapRepository", "Mirror $endpointUrl returned HTTP $responseCode")
                 }
             } catch (e: Exception) {
-                Log.w("HybridMapRepository", "Mirror $mirror failed: ${e.message}")
+                Log.w("HybridMapRepository", "Mirror $endpointUrl failed: ${e.message}")
                 lastException = e
             } finally {
                 conn?.disconnect()
@@ -255,7 +255,7 @@ class HybridMapRepository(private val context: Context) {
         return downloadBBoxToFile(fileName, minLat, minLon, maxLat, maxLon)
     }
 
-    fun downloadRouteCorridor(rawRoutePoints: List<Pair<Double, Double>>): File {
+    suspend fun downloadRouteCorridor(rawRoutePoints: List<Pair<Double, Double>>): File {
         if (rawRoutePoints.isEmpty()) {
             throw IllegalArgumentException("La lista punti rotta è vuota")
         }
@@ -278,7 +278,10 @@ class HybridMapRepository(private val context: Context) {
         }
 
         val lines = mutableSetOf<String>()
-        for (pt in sampledPoints) {
+        for ((index, pt) in sampledPoints.withIndex()) {
+            if (index > 0) {
+                delay(800)
+            }
             val lat = pt.first
             val lon = pt.second
             val latDelta = 5.0 / 111.0
@@ -408,7 +411,7 @@ class HybridMapRepository(private val context: Context) {
         "Veneto" to BoundingBox(44.79, 10.62, 46.67, 13.10)
     )
 
-    fun downloadRegion(regionName: String): File {
+    suspend fun downloadRegion(regionName: String): File {
         val bbox = italianRegions[regionName]
             ?: throw IllegalArgumentException("Regione non trovata: $regionName")
 
@@ -423,7 +426,10 @@ class HybridMapRepository(private val context: Context) {
         )
 
         val allLines = mutableSetOf<String>()
-        for (q in quads) {
+        for ((index, q) in quads.withIndex()) {
+            if (index > 0) {
+                delay(800)
+            }
             try {
                 val lines = fetchOverpassLinesForBBox(q.minLat, q.minLon, q.maxLat, q.maxLon)
                 allLines.addAll(lines)
