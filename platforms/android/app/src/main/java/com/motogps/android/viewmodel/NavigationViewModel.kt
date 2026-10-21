@@ -251,7 +251,7 @@ class NavigationViewModel(
                 if (scene.roads.isNotEmpty() || scene.buildings.isNotEmpty()) {
                     mapSceneRevision++
                     bleManager.sendMapScene(scene)
-                    // Record the last successful enqueue, not a failed download attempt.
+                    // Record a successful send call, not a failed download attempt.
                     lastMapSceneLat = latitude
                     lastMapSceneLon = longitude
                     lastMapSceneTime = System.currentTimeMillis()
@@ -519,7 +519,7 @@ class NavigationViewModel(
         var matchedSpeed = 0
 
         for (seg in segments) {
-            if (seg.points.isEmpty()) continue
+            if (seg.points.size < 2 || seg.maxSpeedKph <= 0) continue
             for (i in 0 until seg.points.size - 1) {
                 val p1 = seg.points[i]
                 val p2 = seg.points[i + 1]
