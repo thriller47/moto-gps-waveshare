@@ -69,11 +69,8 @@ class MotionHeadingFusion {
     if (!std::isfinite(yaw_rate_dps)) {
       return false;
     }
-    if (stationary_) {
-      // Parked: hold the heading exactly. Keep last_sample_ms_ untouched so
-      // the first sample after pulling away only sees a normal-rate gap.
-      return false;
-    }
+    // Continue integrating real yaw while parked; the gyro bias calibration
+    // and deadband below still suppress small sensor offsets.
     if (!initialized_) {
       // Relative motion remains useful before the first trustworthy course;
       // zero degrees is explicitly just a temporary local reference.
