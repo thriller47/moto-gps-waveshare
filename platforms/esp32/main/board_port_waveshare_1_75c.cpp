@@ -35,6 +35,7 @@ constexpr std::size_t kLvglExtraPoolBytes = 2U * 1024U * 1024U;
 static_assert(kLvglExtraPoolBytes <= LV_MEM_POOL_EXPAND_SIZE,
               "LVGL TLSF must support the board's extra PSRAM pool");
 constexpr gpio_num_t kPowerButtonGpio = GPIO_NUM_3;
+constexpr gpio_num_t kBootButtonGpio = GPIO_NUM_0;
 // J3 pin 11 in Waveshare's public schematic connects the CO5300 TE output
 // directly to ESP32-S3 GPIO13.  DCS 0x35 (sent below) enables a short vertical
 // blanking pulse on this line.
@@ -746,6 +747,15 @@ esp_err_t initialize_power_control() {
   ESP_RETURN_ON_ERROR(gpio_config(&button_config), kTag,
                       "PWR SYS_OUT input configuration failed");
 
+  gpio_config_t boot_button_config{};
+  boot_button_config.pin_bit_mask = 1ULL << kBootButtonGpio;
+  boot_button_config.mode = GPIO_MODE_INPUT;
+  boot_button_config.pull_up_en = GPIO_PULLUP_ENABLE;
+  boot_button_config.pull_down_en = GPIO_PULLDOWN_DISABLE;
+  boot_button_config.intr_type = GPIO_INTR_DISABLE;
+  ESP_RETURN_ON_ERROR(gpio_config(&boot_button_config), kTag,
+                      "BOOT button input configuration failed");
+
   i2c_device_config_t pmic_config{};
   pmic_config.dev_addr_length = I2C_ADDR_BIT_LEN_7;
   pmic_config.device_address = kAxp2101Address;
@@ -972,6 +982,11 @@ extern "C" bool board_port_power_button_pressed(void) {
   // Official schematic: PWRON -> R12/BSS138/R9 -> SYS_OUT -> GPIO3. The
   // inverter stage makes SYS_OUT high for the duration of a physical press.
   return gpio_get_level(kPowerButtonGpio) != 0;
+}
+
+extern "C" bool board_port_boot_button_pressed(void) {
+  // Waveshare schematic: BOOT button pulls GPIO0 to GND when pressed.
+  return gpio_get_level(kBootButtonGpio) == 0;
 }
 
 extern "C" esp_err_t board_port_power_off(void) {

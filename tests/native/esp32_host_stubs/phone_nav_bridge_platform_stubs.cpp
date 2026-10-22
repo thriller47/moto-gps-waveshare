@@ -61,9 +61,13 @@ extern "C" bool board_port_lock(uint32_t) {
 }
 
 extern "C" void board_port_unlock(void) { board_mutex.unlock(); }
+extern "C" bool board_port_boot_button_pressed(void) { return false; }
 
 extern "C" void ota_manager_start_ap_server(void) {}
+extern "C" void ota_manager_stop_ap_server(void) {}
+extern "C" void ota_manager_start(void) {}
 extern "C" void moto_nav_ui_create(void) {}
+extern "C" void moto_nav_ui_hide_ota_screen(void) {}
 extern "C" void moto_nav_ui_show_boot_screen(void) {}
 extern "C" void moto_nav_ui_show_power_off_screen(void) {}
 
