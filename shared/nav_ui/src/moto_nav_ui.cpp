@@ -179,6 +179,7 @@ struct Ui {
     uint16_t jarvis_pulse_phase = 0;
     moto_jarvis_trigger_callback_t jarvis_trigger_cb = nullptr;
     void *jarvis_trigger_cb_ctx = nullptr;
+    bool jarvis_created = false;
     moto_music_state_t music{};
     char music_source_text[32]{};
     char music_title_text[64]{};
@@ -350,6 +351,11 @@ void show_page(moto_ui_page_t page, bool reveal_on_same_page = false) {
     }
     const bool changed = page != ui.page;
     ui.page = page;
+
+    if (page == MOTO_UI_PAGE_JARVIS) {
+        ensure_jarvis_created();
+    }
+
     for(int i = 0; i < MOTO_UI_PAGE_COUNT; ++i) {
         if(i == static_cast<int>(page)) {
             lv_obj_remove_flag(ui.pages[i], LV_OBJ_FLAG_HIDDEN);
@@ -369,6 +375,68 @@ void show_page(moto_ui_page_t page, bool reveal_on_same_page = false) {
     // user action may restart the five-second affordance timer.
     if(changed || reveal_on_same_page) reveal_page_dots();
 }
+
+namespace {
+int32_t touch_start_x = 0;
+int32_t touch_start_y = 0;
+bool touch_active = false;
+}
+
+void pointer_swipe_event(lv_event_t *e) {
+    lv_event_code_t code = lv_event_get_code(e);
+    lv_indev_t *indev = lv_indev_active();
+    if (indev == nullptr) return;
+
+    if (code == LV_EVENT_PRESSED) {
+        lv_point_t p;
+        lv_indev_get_point(indev, &p);
+        touch_start_x = p.x;
+        touch_start_y = p.y;
+        touch_active = true;
+    } else if (code == LV_EVENT_RELEASED && touch_active) {
+        touch_active = false;
+        lv_point_t p;
+        lv_indev_get_point(indev, &p);
+        int32_t dx = p.x - touch_start_x;
+        int32_t dy = p.y - touch_start_y;
+
+        if (std::abs(dx) > 40 && std::abs(dy) < 60) {
+            int next = static_cast<int>(ui.page);
+            if (dx < 0) {
+                next = (next + 1) % MOTO_UI_PAGE_COUNT;
+            } else {
+                next = (next + MOTO_UI_PAGE_COUNT - 1) % MOTO_UI_PAGE_COUNT;
+            }
+            if (!ui.music_page_enabled && next == MOTO_UI_PAGE_MUSIC) {
+                next = (dx < 0) ? (next + 1) % MOTO_UI_PAGE_COUNT
+                                : (next + MOTO_UI_PAGE_COUNT - 1) % MOTO_UI_PAGE_COUNT;
+            }
+            const auto requested = static_cast<moto_ui_page_t>(next);
+            if (ui.page_callback != nullptr) {
+                ui.page_callback(requested, ui.page_callback_context);
+            } else {
+                show_page(requested, true);
+            }
+            reveal_page_dots();
+        }
+    }
+}
+
+void page_dot_click_event(lv_event_t *e) {
+    auto target_page = static_cast<moto_ui_page_t>(
+        reinterpret_cast<std::intptr_t>(lv_event_get_user_data(e)));
+    if (target_page == MOTO_UI_PAGE_MUSIC && !ui.music_page_enabled) {
+        target_page = MOTO_UI_PAGE_NAVIGATION;
+    }
+    if (ui.page_callback != nullptr) {
+        ui.page_callback(target_page, ui.page_callback_context);
+    } else {
+        show_page(target_page, true);
+    }
+    reveal_page_dots();
+}
+
+void ensure_jarvis_created();
 
 void gesture_event(lv_event_t *) {
     lv_indev_t *indev = lv_indev_active();
@@ -1539,11 +1607,13 @@ void create_page_dots() {
     for(int i = 0; i < MOTO_UI_PAGE_COUNT; ++i) {
         ui.page_dots[i] = lv_obj_create(ui.screen);
         lv_obj_remove_style_all(ui.page_dots[i]);
-        lv_obj_set_size(ui.page_dots[i], px(5), px(5));
-        lv_obj_set_y(ui.page_dots[i], px(337));
+        lv_obj_set_size(ui.page_dots[i], px(18), px(18));
+        lv_obj_set_y(ui.page_dots[i], px(330));
         lv_obj_set_style_bg_opa(ui.page_dots[i], LV_OPA_COVER, 0);
         lv_obj_set_style_radius(ui.page_dots[i], px(3), 0);
-        lv_obj_clear_flag(ui.page_dots[i], LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_flag(ui.page_dots[i], LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(ui.page_dots[i], page_dot_click_event, LV_EVENT_CLICKED,
+                            reinterpret_cast<void*>(static_cast<std::intptr_t>(i)));
     }
     ui.page_dots_timer = lv_timer_create(hide_page_dots,
                                          kPageDotsVisibleMs, nullptr);
@@ -1887,15 +1957,12 @@ void jarvis_anim_tick(lv_timer_t *) {
 
     uint16_t speed0 = ui.jarvis_listening ? 8 : 2;
     uint16_t speed1 = ui.jarvis_listening ? 10 : 3;
-    uint16_t speed2 = ui.jarvis_listening ? 12 : 4;
 
     ui.jarvis_arc_rotations[0] = (ui.jarvis_arc_rotations[0] + speed0) % 360;
     ui.jarvis_arc_rotations[1] = (ui.jarvis_arc_rotations[1] + 360 - speed1) % 360;
-    ui.jarvis_arc_rotations[2] = (ui.jarvis_arc_rotations[2] + speed2) % 360;
 
     if (ui.jarvis_arcs[0]) lv_arc_set_rotation(ui.jarvis_arcs[0], ui.jarvis_arc_rotations[0]);
     if (ui.jarvis_arcs[1]) lv_arc_set_rotation(ui.jarvis_arcs[1], ui.jarvis_arc_rotations[1]);
-    if (ui.jarvis_arcs[2]) lv_arc_set_rotation(ui.jarvis_arcs[2], ui.jarvis_arc_rotations[2]);
 
     if (ui.jarvis_listening) {
         ui.jarvis_pulse_phase = (ui.jarvis_pulse_phase + 12) % 360;
@@ -1928,14 +1995,17 @@ void jarvis_core_event(lv_event_t *) {
     }
 }
 
-void create_jarvis_page() {
+void ensure_jarvis_created() {
+    if (ui.jarvis_created) return;
+
     lv_obj_t *page = ui.pages[MOTO_UI_PAGE_JARVIS];
+    if (page == nullptr) return;
 
     lv_color_t cyan = lv_color_hex(0x00F0FF);
     lv_color_t blue = lv_color_hex(0x0066FF);
 
     ui.jarvis_arcs[0] = lv_arc_create(page);
-    lv_obj_set_size(ui.jarvis_arcs[0], px(320), px(320));
+    lv_obj_set_size(ui.jarvis_arcs[0], px(280), px(280));
     lv_obj_center(ui.jarvis_arcs[0]);
     lv_arc_set_bg_angles(ui.jarvis_arcs[0], 0, 240);
     lv_arc_set_rotation(ui.jarvis_arcs[0], 0);
@@ -1947,7 +2017,7 @@ void create_jarvis_page() {
     lv_obj_set_style_arc_color(ui.jarvis_arcs[0], cyan, LV_PART_INDICATOR);
 
     ui.jarvis_arcs[1] = lv_arc_create(page);
-    lv_obj_set_size(ui.jarvis_arcs[1], px(240), px(240));
+    lv_obj_set_size(ui.jarvis_arcs[1], px(200), px(200));
     lv_obj_center(ui.jarvis_arcs[1]);
     lv_arc_set_bg_angles(ui.jarvis_arcs[1], 0, 200);
     lv_arc_set_rotation(ui.jarvis_arcs[1], 120);
@@ -1958,18 +2028,6 @@ void create_jarvis_page() {
     lv_obj_set_style_arc_width(ui.jarvis_arcs[1], px(5), LV_PART_INDICATOR);
     lv_obj_set_style_arc_color(ui.jarvis_arcs[1], blue, LV_PART_INDICATOR);
 
-    ui.jarvis_arcs[2] = lv_arc_create(page);
-    lv_obj_set_size(ui.jarvis_arcs[2], px(160), px(160));
-    lv_obj_center(ui.jarvis_arcs[2]);
-    lv_arc_set_bg_angles(ui.jarvis_arcs[2], 0, 220);
-    lv_arc_set_rotation(ui.jarvis_arcs[2], 240);
-    lv_obj_remove_style(ui.jarvis_arcs[2], nullptr, LV_PART_KNOB);
-    lv_obj_clear_flag(ui.jarvis_arcs[2], LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_arc_width(ui.jarvis_arcs[2], px(4), LV_PART_MAIN);
-    lv_obj_set_style_arc_color(ui.jarvis_arcs[2], cyan, LV_PART_MAIN);
-    lv_obj_set_style_arc_width(ui.jarvis_arcs[2], px(5), LV_PART_INDICATOR);
-    lv_obj_set_style_arc_color(ui.jarvis_arcs[2], cyan, LV_PART_INDICATOR);
-
     ui.jarvis_core = lv_button_create(page);
     lv_obj_set_size(ui.jarvis_core, px(90), px(90));
     lv_obj_center(ui.jarvis_core);
@@ -1979,7 +2037,6 @@ void create_jarvis_page() {
     lv_obj_set_style_border_width(ui.jarvis_core, px(4), 0);
     lv_obj_set_style_border_color(ui.jarvis_core, blue, 0);
     lv_obj_add_event_cb(ui.jarvis_core, jarvis_core_event, LV_EVENT_CLICKED, nullptr);
-    lv_obj_add_flag(ui.jarvis_core, LV_OBJ_FLAG_GESTURE_BUBBLE);
 
     ui.jarvis_status_label = make_label(page, &lv_font_montserrat_16, cyan, "TOCCA PER PARLARE");
     lv_obj_set_style_text_letter_space(ui.jarvis_status_label, px(2), 0);
@@ -1993,6 +2050,15 @@ void create_jarvis_page() {
 
     ui.jarvis_anim_timer = lv_timer_create(jarvis_anim_tick, 30, nullptr);
     lv_timer_pause(ui.jarvis_anim_timer);
+
+    ui.jarvis_created = true;
+}
+
+void create_jarvis_page() {
+    lv_obj_t *page = ui.pages[MOTO_UI_PAGE_JARVIS];
+    if (page != nullptr) {
+        lv_obj_add_flag(page, LV_OBJ_FLAG_HIDDEN);
+    }
 }
 
 extern "C" void moto_nav_ui_show_boot_screen(void) {
@@ -2122,6 +2188,8 @@ extern "C" void moto_nav_ui_create(void) {
     lv_obj_set_style_bg_color(ui.screen, kBlack, 0);
     lv_obj_set_style_bg_opa(ui.screen, LV_OPA_COVER, 0);
     lv_obj_add_event_cb(ui.screen, gesture_event, LV_EVENT_GESTURE, nullptr);
+    lv_obj_add_event_cb(ui.screen, pointer_swipe_event, LV_EVENT_PRESSED, nullptr);
+    lv_obj_add_event_cb(ui.screen, pointer_swipe_event, LV_EVENT_RELEASED, nullptr);
     for(int i = 0; i < MOTO_UI_PAGE_COUNT; ++i) {
         ui.pages[i] = make_layer(ui.screen);
         lv_obj_add_flag(ui.pages[i], LV_OBJ_FLAG_GESTURE_BUBBLE);
