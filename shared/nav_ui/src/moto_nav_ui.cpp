@@ -517,8 +517,8 @@ void pointer_swipe_event(lv_event_t *e) {
                 next = (next + MOTO_UI_PAGE_COUNT - 1) % MOTO_UI_PAGE_COUNT;
             }
             if (!ui.music_page_enabled && next == MOTO_UI_PAGE_MUSIC) {
-                next = (dx < 0) ? (next + 1) % MOTO_UI_PAGE_COUNT
-                                : (next + MOTO_UI_PAGE_COUNT - 1) % MOTO_UI_PAGE_COUNT;
+                next = (dx < 0) ? MOTO_UI_PAGE_JARVIS
+                                : MOTO_UI_PAGE_COMPASS;
             }
             const auto requested = static_cast<moto_ui_page_t>(next);
             if (ui.page_callback != nullptr) {
@@ -559,7 +559,7 @@ void gesture_event(lv_event_t *) {
         return;
     }
     if(!ui.music_page_enabled && next == MOTO_UI_PAGE_MUSIC) {
-        next = direction == LV_DIR_LEFT ? MOTO_UI_PAGE_NAVIGATION
+        next = direction == LV_DIR_LEFT ? MOTO_UI_PAGE_JARVIS
                                         : MOTO_UI_PAGE_COMPASS;
     }
     const auto requested = static_cast<moto_ui_page_t>(next);
@@ -1873,7 +1873,7 @@ void create_navigation_page() {
     lv_obj_align(ui.nav_lifecycle_title, LV_ALIGN_TOP_MID, 0, px(231));
 
     ui.nav_lifecycle_subtitle = make_label(
-        ui.nav_lifecycle, &moto_font_nav_16, kSoft, "Apri app su telefono");
+        ui.nav_lifecycle, &lv_font_montserrat_16, kSoft, "Apri app sul telefono");
     lv_obj_set_width(ui.nav_lifecycle_subtitle, px(280));
     lv_obj_set_style_text_align(ui.nav_lifecycle_subtitle,
                                 LV_TEXT_ALIGN_CENTER, 0);
@@ -1890,7 +1890,7 @@ void create_navigation_page() {
     lv_obj_set_style_bg_color(ui.ota_btn, kGraphite, 0);
     lv_obj_set_style_radius(ui.ota_btn, px(18), 0);
     lv_obj_add_event_cb(ui.ota_btn, ota_button_event, LV_EVENT_CLICKED, nullptr);
-    lv_obj_t *ota_btn_label = make_label(ui.ota_btn, &moto_font_nav_16, kWhite, "Modalita OTA Wi-Fi");
+    lv_obj_t *ota_btn_label = make_label(ui.ota_btn, &lv_font_montserrat_16, kWhite, "Modalita OTA Wi-Fi");
     lv_obj_center(ota_btn_label);
 
     apply_lifecycle_content(LifecycleVisual::PhoneOffline);
@@ -2358,7 +2358,7 @@ extern "C" void moto_nav_ui_show_ota_screen(void) {
         lv_obj_t *title = make_label(ui.ota_overlay, &lv_font_montserrat_20, kWhite, "Modalita OTA Wi-Fi");
         lv_obj_align(title, LV_ALIGN_TOP_MID, 0, px(50));
 
-        lv_obj_t *status = make_label(ui.ota_overlay, &moto_font_nav_16, kIce, "Wi-Fi: MotoGPS-OTA (Pass: motogps123)");
+        lv_obj_t *status = make_label(ui.ota_overlay, &lv_font_montserrat_14, kIce, "Wi-Fi: MotoGPS-OTA (Pass: motogps123)");
         lv_obj_set_width(status, px(320));
         lv_obj_set_style_text_align(status, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_align(status, LV_ALIGN_TOP_MID, 0, px(100));
