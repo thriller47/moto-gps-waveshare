@@ -12,6 +12,7 @@
 LV_FONT_DECLARE(moto_font_nav_16);
 
 extern "C" __attribute__((weak)) void ota_manager_start_ap_server(void) {}
+extern "C" __attribute__((weak)) bool ota_manager_is_active(void) { return false; }
 
 namespace {
 
@@ -187,7 +188,17 @@ struct Ui {
     lv_obj_t *ota_bar = nullptr;
     lv_obj_t *ota_percent_label = nullptr;
     lv_obj_t *ota_btn = nullptr;
+    lv_obj_t *ota_btn_label = nullptr;
 } ui;
+
+void update_ota_button_style() {
+    if (ui.ota_btn == nullptr) return;
+    const bool active = ota_manager_is_active();
+    lv_obj_set_style_bg_color(ui.ota_btn, active ? lv_color_hex(0x39FF14) : lv_color_hex(0x2A2A2A), 0);
+    if (ui.ota_btn_label != nullptr) {
+        lv_obj_set_style_text_color(ui.ota_btn_label, active ? kBlack : kWhite, 0);
+    }
+}
 
 void reset_ui_state() {
     static_assert(std::is_trivially_copyable_v<Ui>,
@@ -316,6 +327,7 @@ void reveal_page_dots() {
 
 void ota_button_event(lv_event_t *) {
     ota_manager_start_ap_server();
+    update_ota_button_style();
 }
 
 void interaction_event(lv_event_t *) {
@@ -1688,13 +1700,14 @@ void create_navigation_page() {
                                             nullptr);
     lv_timer_pause(ui.nav_success_timer);
     ui.ota_btn = lv_button_create(ui.nav_lifecycle);
-    lv_obj_set_size(ui.ota_btn, px(220), px(36));
-    lv_obj_align(ui.ota_btn, LV_ALIGN_BOTTOM_MID, 0, px(-40));
-    lv_obj_set_style_bg_color(ui.ota_btn, kGraphite, 0);
-    lv_obj_set_style_radius(ui.ota_btn, px(18), 0);
+    lv_obj_set_size(ui.ota_btn, px(52), px(52));
+    lv_obj_set_pos(ui.ota_btn, px(35), px(154));
+    lv_obj_set_style_radius(ui.ota_btn, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(ui.ota_btn, lv_color_hex(0x2A2A2A), 0);
     lv_obj_add_event_cb(ui.ota_btn, ota_button_event, LV_EVENT_CLICKED, nullptr);
-    lv_obj_t *ota_btn_label = make_label(ui.ota_btn, &lv_font_montserrat_16, kWhite, "WIFI OTA MODE");
-    lv_obj_center(ota_btn_label);
+    ui.ota_btn_label = make_label(ui.ota_btn, &lv_font_montserrat_16, kWhite, "OTA");
+    lv_obj_center(ui.ota_btn_label);
+    update_ota_button_style();
 
     apply_lifecycle_content(LifecycleVisual::PhoneOffline);
     ui.lifecycle_target = LifecycleVisual::PhoneOffline;
@@ -2144,6 +2157,7 @@ extern "C" void moto_nav_ui_set_demo_change_callback(
 
 extern "C" void moto_nav_ui_show_ota_screen(void) {
     if (ui.screen == nullptr) return;
+    update_ota_button_style();
     if (ui.ota_overlay == nullptr) {
         ui.ota_overlay = make_layer(ui.screen);
         lv_obj_set_style_bg_color(ui.ota_overlay, kBlack, 0);
