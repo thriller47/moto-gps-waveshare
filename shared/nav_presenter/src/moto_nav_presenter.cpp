@@ -219,7 +219,7 @@ void project_road_context(const NavSnapshot& snapshot,
                           moto_ui_state_t& output) {
   output.road_point_count = 0;
   output.road_polyline_count = 0;
-  if (!snapshot.has_route_view || !snapshot.has_road_context ||
+  if (!snapshot.has_road_context ||
       snapshot.road_context_point_count < 2 ||
       snapshot.road_context_polyline_count == 0) {
     return;
@@ -261,7 +261,7 @@ void project_building_context(const NavSnapshot& snapshot,
                               moto_ui_state_t& output) {
   output.building_point_count = 0;
   output.building_footprint_count = 0;
-  if (!snapshot.has_route_view || !snapshot.has_building_context ||
+  if (!snapshot.has_building_context ||
       snapshot.building_context_point_count < 3 ||
       snapshot.building_context_footprint_count == 0) {
     return;

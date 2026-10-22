@@ -89,7 +89,26 @@ class MotoBLEManager(private val context: Context) {
     fun sendNavigationSnapshot(snapshot: MotoBLENavigationSnapshot) {
         if (codecPtr != 0L) {
             val frames = bleCodec.nativeEncodeNavigationSnapshot(codecPtr, snapshot)
-            enqueueSendFramesTask(frames)
+            enqueueSendSnapshotFramesTask(frames)
+        }
+    }
+
+    private fun enqueueSendSnapshotFramesTask(frames: Array<ByteArray>) {
+        synchronized(writeQueue) {
+            val iterator = writeQueue.iterator()
+            while (iterator.hasNext()) {
+                val frame = iterator.next()
+                if (frame.size >= 3 && frame[2] == MotoBLEProtocolCodec.MSG_NAVIGATION_SNAPSHOT) {
+                    iterator.remove()
+                }
+            }
+            for (frame in frames) {
+                writeQueue.addLast(frame)
+            }
+            if (!writeInProgress) {
+                writeInProgress = true
+                mainHandler.post { processNextWrite() }
+            }
         }
     }
 

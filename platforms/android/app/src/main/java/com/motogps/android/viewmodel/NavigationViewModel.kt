@@ -1,6 +1,9 @@
 package com.motogps.android.viewmodel
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -24,6 +27,7 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
+import java.util.Locale
 
 data class PlaceSearchResult(
     val name: String,
@@ -40,6 +44,14 @@ data class RouteOption(
     val durationSeconds: Long,
     val steps: List<String>,
     val rawRouteJson: JSONObject
+)
+
+data class RouteManeuverStep(
+    val latitude: Double,
+    val longitude: Double,
+    val maneuverName: String,
+    val instruction: String,
+    val roadName: String
 )
 
 class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() {
@@ -103,7 +115,14 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     private var navigationJob: Job? = null
     private var currentSnapshot: MotoBLENavigationSnapshot? = null
     private var currentGeometry: MotoBLERouteGeometry? = null
+    private var routeManeuverSteps: List<RouteManeuverStep> = emptyList()
+    private var activeStepIndex: Int = 0
     private var lastSpeedLimitKph = 0
+
+    private var lastLocationTimeMs: Long = 0L
+    private var lastMapSceneSendTimeMs: Long = 0L
+    private var lastMapSceneLat: Double = 0.0
+    private var lastMapSceneLon: Double = 0.0
 
     init {
         bleManager.onDeviceCommandReceived = { cmd ->
@@ -199,9 +218,13 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
 
                 var loopCount = 0
                 while (_isNavigating.value) {
-                    delay(800)
+                    delay(350)
                     if (!_isNavigating.value) break
                     loopCount++
+
+                    if (System.currentTimeMillis() - lastLocationTimeMs > 3000L) {
+                        currentSpeedDeciKph = 0
+                    }
 
                     val pageName = when (_currentDevicePage.value) {
                         1 -> "speedometer"
@@ -210,17 +233,20 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                         else -> "navigation"
                     }
 
-                    val baseSnap = currentSnapshot?.copy() ?: snapshot.copy()
-                    val activeSnap = baseSnap.copy(
+                    val (lat, lon) = currentLocation.value
+                    val updatedSnap = updateManeuverAndDistance(lat, lon) ?: currentSnapshot?.copy() ?: snapshot.copy()
+
+                    val activeSnap = updatedSnap.copy(
                         displayPageName = pageName,
                         speedLimitKPH = lastSpeedLimitKph,
                         speedDeciKPH = currentSpeedDeciKph,
                         headingCentiDegrees = currentHeadingCentiDeg,
                         hasFix = hasFirstFix
                     )
+                    currentSnapshot = activeSnap
                     bleManager.sendNavigationSnapshot(activeSnap)
 
-                    if (loopCount % 4 == 0) {
+                    if (loopCount % 9 == 0) { // ~3.15s interval
                         val activeGeom = currentGeometry ?: geometry
                         if (activeGeom != null) {
                             bleManager.sendRouteGeometry(activeGeom)
@@ -301,8 +327,15 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     ) {
         hasFirstFix = true
         _currentLocation.value = Pair(latitude, longitude)
+        val now = System.currentTimeMillis()
+        lastLocationTimeMs = now
 
-        currentSpeedDeciKph = (speedMs * 36f).toInt().coerceAtLeast(0)
+        val speedZero = speedMs < 0.8f
+        if (speedZero) {
+            currentSpeedDeciKph = 0
+        } else {
+            currentSpeedDeciKph = (speedMs * 36f).toInt().coerceAtLeast(0)
+        }
 
         if (gpsBearingDeg != null && speedMs > 1.5f) {
             val normalized = (gpsBearingDeg % 360f + 360f) % 360f
@@ -320,7 +353,13 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         prevLon = longitude
 
         if (context != null) {
-            updateSpeedLimitAndMapScene(latitude, longitude, context)
+            val distFromLastScene = calculateDistanceMeters(lastMapSceneLat, lastMapSceneLon, latitude, longitude)
+            if (now - lastMapSceneSendTimeMs >= 2500L || distFromLastScene >= 25.0) {
+                lastMapSceneSendTimeMs = now
+                lastMapSceneLat = latitude
+                lastMapSceneLon = longitude
+                updateSpeedLimitAndMapScene(latitude, longitude, context)
+            }
         }
 
         if (_isNavigating.value && activeDestination != null && activeGatewayUrl.isNotBlank()) {
@@ -355,6 +394,8 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                     queryMaxLonE6 = lonE6 + deltaE6
                 )
 
+                val roadPolylines = mutableListOf<MotoBLEMapRoadPolyline>()
+
                 if (segments.isNotEmpty()) {
                     var minDistance = Double.MAX_VALUE
                     var bestSpeed = lastSpeedLimitKph
@@ -373,29 +414,144 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                         lastSpeedLimitKph = bestSpeed
                     }
 
-                    val roadPolylines = segments.take(24).map { seg ->
+                    roadPolylines.addAll(segments.take(24).map { seg ->
                         MotoBLEMapRoadPolyline(
                             roadClass = seg.roadClass,
                             points = seg.points.take(192)
                         )
+                    })
+                } else {
+                    // Fallback scene using current route points or nearby grid
+                    val geomPoints = currentGeometry?.points ?: emptyList()
+                    if (geomPoints.size >= 2) {
+                        roadPolylines.add(
+                            MotoBLEMapRoadPolyline(
+                                roadClass = 1,
+                                points = geomPoints.take(192)
+                            )
+                        )
+                    } else {
+                        // Offset grid lines around lat, lon
+                        val p1 = GeoPointE6(latE6 - 1500, lonE6 - 1500)
+                        val p2 = GeoPointE6(latE6 + 1500, lonE6 + 1500)
+                        roadPolylines.add(
+                            MotoBLEMapRoadPolyline(
+                                roadClass = 3,
+                                points = listOf(p1, p2)
+                            )
+                        )
                     }
-
-                    val viewOrigin = GeoPointE6(latE6, lonE6)
-                    val scene = MotoBLEMapScene(
-                        coordinateSystem = 2,
-                        sceneRevision = System.currentTimeMillis() / 1000,
-                        viewOrigin = viewOrigin,
-                        radiusM = 500,
-                        roads = roadPolylines,
-                        buildings = emptyList()
-                    )
-
-                    bleManager.sendMapScene(scene)
                 }
+
+                val viewOrigin = GeoPointE6(latE6, lonE6)
+                val scene = MotoBLEMapScene(
+                    coordinateSystem = 2,
+                    sceneRevision = System.currentTimeMillis() / 1000,
+                    viewOrigin = viewOrigin,
+                    radiusM = 500,
+                    roads = roadPolylines,
+                    buildings = emptyList()
+                )
+
+                bleManager.sendMapScene(scene)
             } catch (e: Exception) {
                 Log.w("NavigationVM", "Error updating map scene and speed limit: ${e.message}")
             }
         }
+    }
+
+    private fun parseManeuverType(typeStr: String, modifierStr: String): String {
+        val combined = "$typeStr $modifierStr".lowercase(Locale.ROOT)
+        return when {
+            combined.contains("uturn") || combined.contains("u_turn") || combined.contains("u-turn") -> "u_turn"
+            combined.contains("roundabout") || combined.contains("rotary") -> "roundabout"
+            combined.contains("arrive") || combined.contains("finish") || combined.contains("destination") -> "arrive"
+            combined.contains("left") -> {
+                if (combined.contains("slight") || combined.contains("keep")) "keep_left" else "turn_left"
+            }
+            combined.contains("right") -> {
+                if (combined.contains("slight") || combined.contains("keep")) "keep_right" else "turn_right"
+            }
+            else -> "continue"
+        }
+    }
+
+    private fun updateManeuverAndDistance(lat: Double, lon: Double): MotoBLENavigationSnapshot? {
+        val snapshot = currentSnapshot ?: return null
+
+        if (routeManeuverSteps.isNotEmpty() && activeStepIndex in routeManeuverSteps.indices) {
+            val step = routeManeuverSteps[activeStepIndex]
+            val distToStep = calculateDistanceMeters(lat, lon, step.latitude, step.longitude)
+
+            if (distToStep < 15.0 && activeStepIndex < routeManeuverSteps.size - 1) {
+                activeStepIndex++
+                val nextStep = routeManeuverSteps[activeStepIndex]
+                val newDist = calculateDistanceMeters(lat, lon, nextStep.latitude, nextStep.longitude)
+                val instrText = if (nextStep.roadName.isNotBlank()) "${nextStep.roadName}\n${nextStep.instruction}" else nextStep.instruction
+                return snapshot.copy(
+                    maneuverName = nextStep.maneuverName,
+                    distanceToManeuverM = newDist.toLong(),
+                    instructionText = instrText
+                )
+            } else {
+                val instrText = if (step.roadName.isNotBlank()) "${step.roadName}\n${step.instruction}" else step.instruction
+                return snapshot.copy(
+                    maneuverName = step.maneuverName,
+                    distanceToManeuverM = distToStep.toLong(),
+                    instructionText = instrText
+                )
+            }
+        }
+
+        // Geometry-based maneuver fallback
+        val geom = currentGeometry ?: return null
+        if (geom.points.size < 3) return null
+
+        var closestIdx = 0
+        var minDist = Double.MAX_VALUE
+        for (i in geom.points.indices) {
+            val pt = geom.points[i]
+            val d = calculateDistanceMeters(lat, lon, pt.latitudeE6 / 1e6, pt.longitudeE6 / 1e6)
+            if (d < minDist) {
+                minDist = d
+                closestIdx = i
+            }
+        }
+
+        if (closestIdx >= geom.points.size - 1) {
+            return snapshot.copy(
+                maneuverName = "arrive",
+                distanceToManeuverM = minDist.toLong(),
+                instructionText = "Arrivo a destinazione"
+            )
+        }
+
+        val targetIdx = (closestIdx + 2).coerceAtMost(geom.points.size - 1)
+        val p1 = geom.points[closestIdx]
+        val p2 = geom.points[(closestIdx + 1).coerceAtMost(geom.points.size - 1)]
+        val p3 = geom.points[targetIdx]
+
+        val b1 = calculateBearingDeg(p1.latitudeE6 / 1e6, p1.longitudeE6 / 1e6, p2.latitudeE6 / 1e6, p2.longitudeE6 / 1e6)
+        val b2 = calculateBearingDeg(p2.latitudeE6 / 1e6, p2.longitudeE6 / 1e6, p3.latitudeE6 / 1e6, p3.longitudeE6 / 1e6)
+
+        var deltaAngle = b2 - b1
+        while (deltaAngle > 180f) deltaAngle -= 360f
+        while (deltaAngle < -180f) deltaAngle += 360f
+
+        val calculatedManeuver = when {
+            deltaAngle < -45f -> "turn_left"
+            deltaAngle in -45f..-20f -> "keep_left"
+            deltaAngle in 20f..45f -> "keep_right"
+            deltaAngle > 45f -> "turn_right"
+            Math.abs(deltaAngle) > 135f -> "u_turn"
+            else -> "continue"
+        }
+
+        val distToTurn = calculateDistanceMeters(lat, lon, p2.latitudeE6 / 1e6, p2.longitudeE6 / 1e6)
+        return snapshot.copy(
+            maneuverName = calculatedManeuver,
+            distanceToManeuverM = distToTurn.toLong()
+        )
     }
 
     fun cancelMapDownload() {
@@ -931,54 +1087,65 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                 val inputStream = context.contentResolver.openInputStream(fileUri)
                     ?: throw Exception("Impossibile aprire il file selezionato")
 
-                var fileSize = 0L
-                try {
-                    context.contentResolver.openAssetFileDescriptor(fileUri, "r")?.use {
-                        fileSize = it.length
+                val firmwareBytes = inputStream.use { it.readBytes() }
+                if (firmwareBytes.isEmpty()) {
+                    throw Exception("File firmware vuoto")
+                }
+
+                val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+                var wifiNetwork: Network? = null
+                if (connectivityManager != null) {
+                    for (network in connectivityManager.allNetworks) {
+                        val caps = connectivityManager.getNetworkCapabilities(network)
+                        if (caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
+                            wifiNetwork = network
+                            break
+                        }
                     }
-                } catch (_: Exception) {}
+                }
 
                 val url = URL("http://$espIp/ota")
-                conn = (url.openConnection() as HttpURLConnection).apply {
+                conn = if (wifiNetwork != null) {
+                    wifiNetwork.openConnection(url) as HttpURLConnection
+                } else {
+                    url.openConnection() as HttpURLConnection
+                }.apply {
                     requestMethod = "POST"
                     doOutput = true
                     connectTimeout = 10000
                     readTimeout = 60000
                     setRequestProperty("Content-Type", "application/octet-stream")
-                    if (fileSize > 0) {
-                        setFixedLengthStreamingMode(fileSize)
-                    } else {
-                        setChunkedStreamingMode(4096)
-                    }
+                    setFixedLengthStreamingMode(firmwareBytes.size)
                 }
 
-                val buffer = ByteArray(4096)
-                var bytesSent = 0L
+                val totalSize = firmwareBytes.size
+                var bytesSent = 0
+                val chunkSize = 4096
+
                 conn.outputStream.use { os ->
-                    inputStream.use { isStream ->
-                        var bytesRead: Int
-                        while (isStream.read(buffer).also { bytesRead = it } != -1) {
-                            os.write(buffer, 0, bytesRead)
-                            bytesSent += bytesRead
-                            if (fileSize > 0) {
-                                val prog = ((bytesSent * 100) / fileSize).toInt().coerceIn(0, 100)
-                                _otaProgress.value = prog
-                                _otaStatus.value = "Caricamento in corso: $prog%"
-                            }
-                        }
-                        os.flush()
+                    while (bytesSent < totalSize) {
+                        val length = minOf(chunkSize, totalSize - bytesSent)
+                        os.write(firmwareBytes, bytesSent, length)
+                        bytesSent += length
+                        val prog = ((bytesSent.toLong() * 100) / totalSize).toInt().coerceIn(0, 100)
+                        _otaProgress.value = prog
+                        _otaStatus.value = "Caricamento in corso: $prog%"
                     }
+                    os.flush()
                 }
 
                 val responseCode = conn.responseCode
                 if (responseCode in 200..299) {
                     _otaProgress.value = 100
-                    _otaStatus.value = "Aggiornamento OTA completato! Riavvio display in corso..."
+                    _otaStatus.value = "Aggiornamento OTA completato (HTTP $responseCode)! Riavvio display in corso..."
                 } else {
-                    throw Exception("HTTP Errore $responseCode")
+                    val errorText = try {
+                        conn.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
+                    } catch (_: Exception) { "" }
+                    throw Exception("HTTP Errore $responseCode: $errorText")
                 }
             } catch (t: Throwable) {
-                _otaStatus.value = "Errore: ${t.localizedMessage ?: "Caricamento fallito"}. Assicurati di essere connesso al Wi-Fi MotoGPS-OTA"
+                _otaStatus.value = "Errore: ${t.localizedMessage ?: t.message ?: "Caricamento fallito"}. Assicurati di essere connesso al Wi-Fi MotoGPS-OTA"
             } finally {
                 _isUploadingOta.value = false
                 conn?.disconnect()

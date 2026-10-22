@@ -12,6 +12,7 @@
 LV_FONT_DECLARE(moto_font_nav_16);
 
 extern "C" __attribute__((weak)) void ota_manager_start_ap_server(void) {}
+extern "C" __attribute__((weak)) bool ota_manager_is_active(void) { return false; }
 
 namespace {
 
@@ -187,7 +188,17 @@ struct Ui {
     lv_obj_t *ota_bar = nullptr;
     lv_obj_t *ota_percent_label = nullptr;
     lv_obj_t *ota_btn = nullptr;
+    lv_obj_t *ota_btn_label = nullptr;
 } ui;
+
+void update_ota_button_style() {
+    if (ui.ota_btn == nullptr) return;
+    const bool active = ota_manager_is_active();
+    lv_obj_set_style_bg_color(ui.ota_btn, active ? lv_color_hex(0x39FF14) : lv_color_hex(0x2A2A2A), 0);
+    if (ui.ota_btn_label != nullptr) {
+        lv_obj_set_style_text_color(ui.ota_btn_label, active ? kBlack : kWhite, 0);
+    }
+}
 
 void reset_ui_state() {
     static_assert(std::is_trivially_copyable_v<Ui>,
@@ -316,6 +327,7 @@ void reveal_page_dots() {
 
 void ota_button_event(lv_event_t *) {
     ota_manager_start_ap_server();
+    update_ota_button_style();
 }
 
 void interaction_event(lv_event_t *) {
@@ -684,8 +696,7 @@ void update_road_geometry(const moto_ui_state_t *state) {
                 lv_obj_set_style_line_width(
                     ui.nav_roads[i], px(major ? 4 : (service ? 2 : 3)), 0);
                 lv_obj_set_style_line_color(
-                    ui.nav_roads[i],
-                    major ? kRoadMajor : (service ? kRoadMinor : kRoadGray), 0);
+                    ui.nav_roads[i], lv_color_hex(0xFFFFFF), 0);
                 lv_obj_remove_flag(ui.nav_roads[i], LV_OBJ_FLAG_HIDDEN);
             } else {
                 lv_obj_add_flag(ui.nav_roads[i], LV_OBJ_FLAG_HIDDEN);
@@ -1192,26 +1203,26 @@ void apply_lifecycle_content(LifecycleVisual visual) {
     switch(visual) {
         case LifecycleVisual::PhoneOffline:
             title = "CONNECT PHONE";
-            subtitle = "Apri app su telefono";
+            subtitle = "WAITING FOR APP";
             break;
         case LifecycleVisual::PhoneConnecting:
             title = "CONNECTING";
-            subtitle = "Connessione in corso";
+            subtitle = "BLE READY";
             break;
         case LifecycleVisual::Connected:
             title = "CONNECTED";
-            subtitle = "Connesso";
+            subtitle = "CONNECTED";
             title_color = kGreen;
             break;
         case LifecycleVisual::Ready:
             kicker = "MOTO GPS / READY";
             title = "READY TO RIDE";
-            subtitle = "Seleziona destinazione";
+            subtitle = "SELECT DESTINATION";
             break;
         case LifecycleVisual::Planning:
             kicker = "MOTO GPS / ROUTE";
             title = "BUILDING ROUTE";
-            subtitle = "Calcolo percorso";
+            subtitle = "CALCULATING ROUTE";
             break;
         case LifecycleVisual::Hidden:
             break;
@@ -1452,7 +1463,7 @@ void update_speedometer(const moto_ui_state_t *state) {
 
 void update_compass(const moto_ui_state_t *state) {
     char heading[12];
-    std::snprintf(heading, sizeof(heading), "%03u°",
+    std::snprintf(heading, sizeof(heading), "%03u",
                   static_cast<unsigned>(state->heading_deg));
     lv_label_set_text(ui.compass_heading, heading);
     lv_label_set_text(ui.compass_cardinal, cardinal_name(state->heading_deg));
@@ -1567,7 +1578,7 @@ void create_navigation_page() {
         ui.nav_roads[i] = create_map_polyline(ui.nav_map, ui.nav_road_lines[i]);
         lv_obj_set_size(ui.nav_roads[i], MOTO_UI_CANVAS_WIDTH, px(232));
         lv_obj_set_style_line_width(ui.nav_roads[i], px(3), 0);
-        lv_obj_set_style_line_color(ui.nav_roads[i], kRoadGray, 0);
+        lv_obj_set_style_line_color(ui.nav_roads[i], lv_color_hex(0xFFFFFF), 0);
         lv_obj_set_style_line_opa(ui.nav_roads[i], LV_OPA_COVER, 0);
         lv_obj_set_style_line_rounded(ui.nav_roads[i], true, 0);
         lv_obj_add_flag(ui.nav_roads[i], LV_OBJ_FLAG_HIDDEN);
@@ -1580,8 +1591,8 @@ void create_navigation_page() {
     lv_obj_set_style_line_rounded(ui.nav_route_shadow, true, 0);
     ui.nav_route = create_map_polyline(ui.nav_map, ui.nav_route_line);
     lv_obj_set_size(ui.nav_route, MOTO_UI_CANVAS_WIDTH, px(232));
-    lv_obj_set_style_line_width(ui.nav_route, px(6), 0);
-    lv_obj_set_style_line_color(ui.nav_route, kWhite, 0);
+    lv_obj_set_style_line_width(ui.nav_route, px(7), 0);
+    lv_obj_set_style_line_color(ui.nav_route, lv_color_hex(0x39FF14), 0);
     lv_obj_set_style_line_rounded(ui.nav_route, true, 0);
     ui.nav_route_motion_timer = lv_timer_create(route_motion_tick,
                                                  kRouteMotionFrameMs,
@@ -1677,7 +1688,7 @@ void create_navigation_page() {
     lv_obj_align(ui.nav_lifecycle_title, LV_ALIGN_TOP_MID, 0, px(231));
 
     ui.nav_lifecycle_subtitle = make_label(
-        ui.nav_lifecycle, &moto_font_nav_16, kSoft, "Apri app su telefono");
+        ui.nav_lifecycle, &lv_font_montserrat_16, kSoft, "WAITING FOR APP");
     lv_obj_set_width(ui.nav_lifecycle_subtitle, px(280));
     lv_obj_set_style_text_align(ui.nav_lifecycle_subtitle,
                                 LV_TEXT_ALIGN_CENTER, 0);
@@ -1689,13 +1700,14 @@ void create_navigation_page() {
                                             nullptr);
     lv_timer_pause(ui.nav_success_timer);
     ui.ota_btn = lv_button_create(ui.nav_lifecycle);
-    lv_obj_set_size(ui.ota_btn, px(220), px(36));
-    lv_obj_align(ui.ota_btn, LV_ALIGN_BOTTOM_MID, 0, px(-40));
-    lv_obj_set_style_bg_color(ui.ota_btn, kGraphite, 0);
-    lv_obj_set_style_radius(ui.ota_btn, px(18), 0);
+    lv_obj_set_size(ui.ota_btn, px(52), px(52));
+    lv_obj_set_pos(ui.ota_btn, px(35), px(154));
+    lv_obj_set_style_radius(ui.ota_btn, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(ui.ota_btn, lv_color_hex(0x2A2A2A), 0);
     lv_obj_add_event_cb(ui.ota_btn, ota_button_event, LV_EVENT_CLICKED, nullptr);
-    lv_obj_t *ota_btn_label = make_label(ui.ota_btn, &moto_font_nav_16, kWhite, "Modalita OTA Wi-Fi");
-    lv_obj_center(ota_btn_label);
+    ui.ota_btn_label = make_label(ui.ota_btn, &lv_font_montserrat_16, kWhite, "OTA");
+    lv_obj_center(ui.ota_btn_label);
+    update_ota_button_style();
 
     apply_lifecycle_content(LifecycleVisual::PhoneOffline);
     ui.lifecycle_target = LifecycleVisual::PhoneOffline;
@@ -1770,7 +1782,7 @@ void create_compass_page() {
     lv_obj_set_style_bg_opa(index, LV_OPA_COVER, 0);
     lv_obj_set_style_transform_rotation(index, 450, 0);
 
-    ui.compass_heading = make_label(page, &lv_font_montserrat_48, kAmber, "359°");
+    ui.compass_heading = make_label(page, &lv_font_montserrat_48, kAmber, "359");
     lv_obj_align(ui.compass_heading, LV_ALIGN_CENTER, 0, px(-37));
     ui.compass_cardinal = make_label(page, &lv_font_montserrat_20, kAmber, "N");
     lv_obj_align(ui.compass_cardinal, LV_ALIGN_CENTER, 0, px(10));
@@ -2145,21 +2157,19 @@ extern "C" void moto_nav_ui_set_demo_change_callback(
 
 extern "C" void moto_nav_ui_show_ota_screen(void) {
     if (ui.screen == nullptr) return;
+    update_ota_button_style();
     if (ui.ota_overlay == nullptr) {
         ui.ota_overlay = make_layer(ui.screen);
         lv_obj_set_style_bg_color(ui.ota_overlay, kBlack, 0);
         lv_obj_set_style_bg_opa(ui.ota_overlay, LV_OPA_COVER, 0);
 
-        lv_obj_t *title = make_label(ui.ota_overlay, &lv_font_montserrat_20, kWhite, "Modalita OTA Wi-Fi");
-        lv_obj_align(title, LV_ALIGN_TOP_MID, 0, px(50));
+        lv_obj_t *title = make_label(ui.ota_overlay, &lv_font_montserrat_20, kWhite, "WIFI OTA ATTIVO");
+        lv_obj_align(title, LV_ALIGN_TOP_MID, 0, px(45));
 
-        lv_obj_t *status = make_label(ui.ota_overlay, &moto_font_nav_16, kIce, "Wi-Fi: MotoGPS-OTA (Pass: motogps123)");
+        lv_obj_t *status = make_label(ui.ota_overlay, &lv_font_montserrat_16, kIce, "Rete: MotoGPS-OTA - Pass: motogps123 - IP: 192.168.4.1");
         lv_obj_set_width(status, px(320));
         lv_obj_set_style_text_align(status, LV_TEXT_ALIGN_CENTER, 0);
-        lv_obj_align(status, LV_ALIGN_TOP_MID, 0, px(100));
-
-        lv_obj_t *ip = make_label(ui.ota_overlay, &lv_font_montserrat_28, kWhite, "192.168.4.1");
-        lv_obj_align(ip, LV_ALIGN_TOP_MID, 0, px(140));
+        lv_obj_align(status, LV_ALIGN_TOP_MID, 0, px(85));
 
         ui.ota_bar = lv_bar_create(ui.ota_overlay);
         lv_obj_set_size(ui.ota_bar, px(280), px(20));
