@@ -16,6 +16,8 @@ moto_music_command_callback_t music_callback = nullptr;
 void* music_callback_context = nullptr;
 moto_demo_change_callback_t demo_callback = nullptr;
 void* demo_callback_context = nullptr;
+moto_jarvis_trigger_callback_t jarvis_callback = nullptr;
+void* jarvis_callback_context = nullptr;
 int apply_count = 0;
 int board_lock_count = 0;
 bool board_lock_available = true;
@@ -150,6 +152,16 @@ extern "C" void moto_nav_ui_set_demo_change_callback(
   demo_callback = callback;
   demo_callback_context = context;
 }
+
+extern "C" void moto_nav_ui_set_jarvis_trigger_callback(
+    moto_jarvis_trigger_callback_t callback,
+    void* context) {
+  const std::lock_guard<std::mutex> lock(probe_mutex);
+  jarvis_callback = callback;
+  jarvis_callback_context = context;
+}
+
+extern "C" void moto_nav_ui_set_jarvis_text(const char*, const char*) {}
 
 namespace moto::test {
 

@@ -3,3 +3,5 @@ platforms/android/app/.cxx/
 platforms/android/app/build/
 platforms/android/.gradle/
 platforms/android/local.properties
+build_native/
+build_test/

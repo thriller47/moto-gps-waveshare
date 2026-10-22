@@ -51,6 +51,10 @@ extern "C" void moto_nav_ui_set_demo_active(uint8_t) {}
 extern "C" void moto_nav_ui_set_demo_change_callback(
     moto_demo_change_callback_t,
     void*) {}
+extern "C" void moto_nav_ui_set_jarvis_trigger_callback(
+    moto_jarvis_trigger_callback_t,
+    void*) {}
+extern "C" void moto_nav_ui_set_jarvis_text(const char*, const char*) {}
 
 namespace moto::test {
 
