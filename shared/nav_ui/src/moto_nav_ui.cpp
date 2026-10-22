@@ -294,13 +294,26 @@ void draw_vehicle_marker(lv_event_t *event) {
 }
 
 void update_page_dots() {
+    int visible_count = 0;
+    for (int i = 0; i < MOTO_UI_PAGE_COUNT; ++i) {
+        if (i != MOTO_UI_PAGE_MUSIC || ui.music_page_enabled) {
+            visible_count++;
+        }
+    }
+    const int start_x = visible_count > 1
+                            ? (MOTO_UI_CANVAS_WIDTH - (visible_count - 1) * 22) / 2
+                            : MOTO_UI_CANVAS_WIDTH / 2;
+    int current_visible = 0;
     for(int i = 0; i < MOTO_UI_PAGE_COUNT; ++i) {
         const bool active = i == static_cast<int>(ui.page);
+        const bool available = i != MOTO_UI_PAGE_MUSIC || ui.music_page_enabled;
         lv_obj_set_size(ui.page_dots[i], px(active ? 16 : 5), px(5));
         lv_obj_set_style_radius(ui.page_dots[i], px(3), 0);
         lv_obj_set_style_bg_color(ui.page_dots[i], active ? kWhite : kGraphite, 0);
-        lv_obj_set_x(ui.page_dots[i], px(145 + i * 22 - (active ? 5 : 0)));
-        const bool available = i != MOTO_UI_PAGE_MUSIC || ui.music_page_enabled;
+        if (available) {
+            lv_obj_set_x(ui.page_dots[i], px(start_x + current_visible * 22 - (active ? 5 : 0)));
+            current_visible++;
+        }
         if(ui.page_dots_visible && available) {
             lv_obj_remove_flag(ui.page_dots[i], LV_OBJ_FLAG_HIDDEN);
         } else {
@@ -510,15 +523,10 @@ void pointer_swipe_event(lv_event_t *e) {
         int32_t dy = p.y - touch_start_y;
 
         if (std::abs(dx) > 40 && std::abs(dy) < 60) {
-            int next = static_cast<int>(ui.page);
-            if (dx < 0) {
-                next = (next + 1) % MOTO_UI_PAGE_COUNT;
-            } else {
-                next = (next + MOTO_UI_PAGE_COUNT - 1) % MOTO_UI_PAGE_COUNT;
-            }
-            if (!ui.music_page_enabled && next == MOTO_UI_PAGE_MUSIC) {
-                next = (dx < 0) ? MOTO_UI_PAGE_JARVIS
-                                : MOTO_UI_PAGE_COMPASS;
+            const int step = (dx < 0) ? 1 : -1;
+            int next = (static_cast<int>(ui.page) + step + MOTO_UI_PAGE_COUNT) % MOTO_UI_PAGE_COUNT;
+            while (!ui.music_page_enabled && next == MOTO_UI_PAGE_MUSIC) {
+                next = (next + step + MOTO_UI_PAGE_COUNT) % MOTO_UI_PAGE_COUNT;
             }
             const auto requested = static_cast<moto_ui_page_t>(next);
             if (ui.page_callback != nullptr) {
@@ -550,17 +558,17 @@ void gesture_event(lv_event_t *) {
     lv_indev_t *indev = lv_indev_active();
     if(indev == nullptr) return;
     const lv_dir_t direction = lv_indev_get_gesture_dir(indev);
-    int next = static_cast<int>(ui.page);
+    int step = 0;
     if(direction == LV_DIR_LEFT) {
-        next = (next + 1) % MOTO_UI_PAGE_COUNT;
+        step = 1;
     } else if(direction == LV_DIR_RIGHT) {
-        next = (next + MOTO_UI_PAGE_COUNT - 1) % MOTO_UI_PAGE_COUNT;
+        step = -1;
     } else {
         return;
     }
-    if(!ui.music_page_enabled && next == MOTO_UI_PAGE_MUSIC) {
-        next = direction == LV_DIR_LEFT ? MOTO_UI_PAGE_JARVIS
-                                        : MOTO_UI_PAGE_COMPASS;
+    int next = (static_cast<int>(ui.page) + step + MOTO_UI_PAGE_COUNT) % MOTO_UI_PAGE_COUNT;
+    while(!ui.music_page_enabled && next == MOTO_UI_PAGE_MUSIC) {
+        next = (next + step + MOTO_UI_PAGE_COUNT) % MOTO_UI_PAGE_COUNT;
     }
     const auto requested = static_cast<moto_ui_page_t>(next);
     if(ui.page_callback != nullptr) {
@@ -1386,26 +1394,26 @@ void apply_lifecycle_content(LifecycleVisual visual) {
     switch(visual) {
         case LifecycleVisual::PhoneOffline:
             title = "CONNECT PHONE";
-            subtitle = "Apri app su telefono";
+            subtitle = "Open app on phone";
             break;
         case LifecycleVisual::PhoneConnecting:
             title = "CONNECTING";
-            subtitle = "Connessione in corso";
+            subtitle = "Connecting...";
             break;
         case LifecycleVisual::Connected:
             title = "CONNECTED";
-            subtitle = "Connesso";
+            subtitle = "Connected";
             title_color = kGreen;
             break;
         case LifecycleVisual::Ready:
             kicker = "MOTO GPS / READY";
             title = "READY TO RIDE";
-            subtitle = "Seleziona destinazione";
+            subtitle = "Select destination";
             break;
         case LifecycleVisual::Planning:
             kicker = "MOTO GPS / ROUTE";
             title = "BUILDING ROUTE";
-            subtitle = "Calcolo percorso";
+            subtitle = "Calculating route";
             break;
         case LifecycleVisual::Hidden:
             break;
@@ -1873,7 +1881,7 @@ void create_navigation_page() {
     lv_obj_align(ui.nav_lifecycle_title, LV_ALIGN_TOP_MID, 0, px(231));
 
     ui.nav_lifecycle_subtitle = make_label(
-        ui.nav_lifecycle, &lv_font_montserrat_16, kSoft, "Apri app sul telefono");
+        ui.nav_lifecycle, &lv_font_montserrat_16, kSoft, "Open app on phone");
     lv_obj_set_width(ui.nav_lifecycle_subtitle, px(280));
     lv_obj_set_style_text_align(ui.nav_lifecycle_subtitle,
                                 LV_TEXT_ALIGN_CENTER, 0);
@@ -1890,7 +1898,7 @@ void create_navigation_page() {
     lv_obj_set_style_bg_color(ui.ota_btn, kGraphite, 0);
     lv_obj_set_style_radius(ui.ota_btn, px(18), 0);
     lv_obj_add_event_cb(ui.ota_btn, ota_button_event, LV_EVENT_CLICKED, nullptr);
-    lv_obj_t *ota_btn_label = make_label(ui.ota_btn, &lv_font_montserrat_16, kWhite, "Modalita OTA Wi-Fi");
+    lv_obj_t *ota_btn_label = make_label(ui.ota_btn, &lv_font_montserrat_16, kWhite, "Wi-Fi OTA Mode");
     lv_obj_center(ota_btn_label);
 
     apply_lifecycle_content(LifecycleVisual::PhoneOffline);
@@ -2355,7 +2363,7 @@ extern "C" void moto_nav_ui_show_ota_screen(void) {
         lv_obj_set_style_bg_color(ui.ota_overlay, kBlack, 0);
         lv_obj_set_style_bg_opa(ui.ota_overlay, LV_OPA_COVER, 0);
 
-        lv_obj_t *title = make_label(ui.ota_overlay, &lv_font_montserrat_20, kWhite, "Modalita OTA Wi-Fi");
+        lv_obj_t *title = make_label(ui.ota_overlay, &lv_font_montserrat_20, kWhite, "Wi-Fi OTA Mode");
         lv_obj_align(title, LV_ALIGN_TOP_MID, 0, px(50));
 
         lv_obj_t *status = make_label(ui.ota_overlay, &lv_font_montserrat_14, kIce, "Wi-Fi: MotoGPS-OTA (Pass: motogps123)");
