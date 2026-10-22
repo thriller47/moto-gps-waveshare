@@ -195,6 +195,15 @@ void ota_manager_stop_ap_server(void) {
     }
     esp_wifi_stop();
     s_active = false;
+    moto_nav_ui_hide_ota_screen();
+}
+
+void ota_manager_start(void) {
+    if (!s_active) {
+        ota_manager_start_ap_server();
+    } else {
+        ota_manager_stop_ap_server();
+    }
 }
 
 int ota_manager_get_progress(void) {

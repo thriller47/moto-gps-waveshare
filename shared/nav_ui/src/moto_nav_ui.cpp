@@ -12,6 +12,8 @@
 LV_FONT_DECLARE(moto_font_nav_16);
 
 extern "C" __attribute__((weak)) void ota_manager_start_ap_server(void) {}
+extern "C" __attribute__((weak)) void ota_manager_stop_ap_server(void) {}
+extern "C" __attribute__((weak)) void ota_manager_start(void) {}
 extern "C" __attribute__((weak)) bool ota_manager_is_active(void) { return false; }
 
 namespace {
@@ -323,11 +325,6 @@ void reveal_page_dots() {
         lv_timer_reset(ui.page_dots_timer);
         lv_timer_resume(ui.page_dots_timer);
     }
-}
-
-void ota_button_event(lv_event_t *) {
-    ota_manager_start_ap_server();
-    update_ota_button_style();
 }
 
 void interaction_event(lv_event_t *) {
@@ -1329,6 +1326,7 @@ LifecycleVisual desired_lifecycle_visual() {
 }
 
 void refresh_lifecycle() {
+    update_ota_button_style();
     transition_lifecycle(desired_lifecycle_visual());
 }
 
@@ -1699,12 +1697,16 @@ void create_navigation_page() {
                                             kConnectionSuccessHoldMs,
                                             nullptr);
     lv_timer_pause(ui.nav_success_timer);
-    ui.ota_btn = lv_button_create(ui.nav_lifecycle);
+    ui.ota_btn = lv_obj_create(ui.nav_lifecycle);
+    lv_obj_remove_style_all(ui.ota_btn);
     lv_obj_set_size(ui.ota_btn, px(52), px(52));
     lv_obj_set_pos(ui.ota_btn, px(35), px(154));
     lv_obj_set_style_radius(ui.ota_btn, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_color(ui.ota_btn, lv_color_hex(0x2A2A2A), 0);
-    lv_obj_add_event_cb(ui.ota_btn, ota_button_event, LV_EVENT_CLICKED, nullptr);
+    lv_obj_set_style_bg_opa(ui.ota_btn, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(ui.ota_btn, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(ui.ota_btn, LV_OBJ_FLAG_EVENT_BUBBLE);
+    lv_obj_add_flag(ui.ota_btn, LV_OBJ_FLAG_GESTURE_BUBBLE);
     ui.ota_btn_label = make_label(ui.ota_btn, &lv_font_montserrat_16, kWhite, "OTA");
     lv_obj_center(ui.ota_btn_label);
     update_ota_button_style();
@@ -2153,6 +2155,14 @@ extern "C" void moto_nav_ui_set_demo_change_callback(
     moto_demo_change_callback_t callback, void *context) {
     ui.demo_callback = callback;
     ui.demo_callback_context = context;
+}
+
+extern "C" void moto_nav_ui_hide_ota_screen(void) {
+    if (ui.screen == nullptr) return;
+    if (ui.ota_overlay != nullptr) {
+        lv_obj_add_flag(ui.ota_overlay, LV_OBJ_FLAG_HIDDEN);
+    }
+    update_ota_button_style();
 }
 
 extern "C" void moto_nav_ui_show_ota_screen(void) {

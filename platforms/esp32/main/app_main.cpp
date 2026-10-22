@@ -11,11 +11,13 @@
 #include "moto_nav_presenter.hpp"
 #include "moto_nav_ui.h"
 #include "motion_heading_sensor.h"
+#include "ota_manager.h"
 #include "phone_nav_bridge.h"
 
 namespace {
 constexpr char kTag[] = "moto_gps";
 constexpr std::uint64_t kPowerHoldMs = 3'000;
+constexpr std::uint64_t kBootHoldMs = 1'500;
 
 moto::ble::AckStatus receive_phone_message(
     const moto::ble::ReassembledMessage& message, void* context) {
@@ -95,6 +97,39 @@ void power_button_task(void*) {
       ESP_ERROR_CHECK(esp_sleep_enable_ext1_wakeup_io(
           1ULL << 3, ESP_EXT1_WAKEUP_ANY_HIGH));
       esp_deep_sleep_start();
+    }
+    vTaskDelay(pdMS_TO_TICKS(20));
+  }
+}
+
+void boot_button_task(void*) {
+  std::uint64_t pressed_since_ms = 0;
+  bool released_once = false;
+  bool triggered = false;
+  while (true) {
+    const std::uint64_t now_ms =
+        static_cast<std::uint64_t>(esp_timer_get_time()) / 1'000U;
+    if (!board_port_boot_button_pressed()) {
+      if (!released_once) {
+        released_once = true;
+        ESP_LOGI(kTag, "BOOT ready: button released, hold detection armed");
+      }
+      pressed_since_ms = 0;
+      triggered = false;
+      vTaskDelay(pdMS_TO_TICKS(20));
+      continue;
+    }
+    if (!released_once) {
+      vTaskDelay(pdMS_TO_TICKS(20));
+      continue;
+    }
+    if (pressed_since_ms == 0) {
+      pressed_since_ms = now_ms;
+      ESP_LOGI(kTag, "BOOT press started");
+    } else if (!triggered && (now_ms - pressed_since_ms >= kBootHoldMs)) {
+      ESP_LOGI(kTag, "BOOT held for 1.5 seconds; triggering OTA manager");
+      ota_manager_start();
+      triggered = true;
     }
     vTaskDelay(pdMS_TO_TICKS(20));
   }
@@ -211,6 +246,10 @@ extern "C" void app_main(void) {
   if (xTaskCreate(power_button_task, "moto_power", 3'072, nullptr, 3,
                   nullptr) != pdPASS) {
     ESP_LOGW(kTag, "PWR long-hold task could not start");
+  }
+  if (xTaskCreate(boot_button_task, "moto_boot", 3'072, nullptr, 3,
+                  nullptr) != pdPASS) {
+    ESP_LOGW(kTag, "BOOT long-hold task could not start");
   }
 
   ESP_LOGI(kTag,
