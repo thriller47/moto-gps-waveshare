@@ -19,8 +19,13 @@
 static const char *TAG = "OTA";
 static httpd_handle_t s_server = NULL;
 static bool s_active = false;
+static bool s_failed = false;
 static int s_progress = 0;
 static esp_netif_t *s_ap_netif = NULL;
+
+bool ota_manager_has_failed(void) {
+    return s_failed;
+}
 
 static esp_err_t status_get_handler(httpd_req_t *req) {
     httpd_resp_set_type(req, "application/json");
@@ -119,10 +124,11 @@ static esp_err_t ota_post_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
-void ota_manager_start_ap_server(void) {
-    if (s_active) return;
+bool ota_manager_start_ap_server(void) {
+    if (s_active) return true;
+    s_failed = false;
 
-    ESP_LOGI(TAG, "Stopping BLE advertising to release radio/SRAM resources for Wi-Fi...");
+    ESP_LOGI(TAG, "Stopping BLE advertising and radio to release SRAM resources for Wi-Fi...");
     ble_gap_adv_stop();
 
     ESP_LOGI(TAG, "Starting Wi-Fi SoftAP and OTA HTTP server...");
@@ -145,6 +151,9 @@ void ota_manager_start_ap_server(void) {
     ret = esp_wifi_init(&cfg);
     if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
         ESP_LOGE(TAG, "esp_wifi_init failed: %s", esp_err_to_name(ret));
+        s_failed = true;
+        moto_nav_ui_show_ota_screen();
+        return false;
     }
 
     wifi_config_t wifi_config = {};
@@ -156,9 +165,29 @@ void ota_manager_start_ap_server(void) {
     wifi_config.ap.authmode = WIFI_AUTH_WPA2_PSK;
     wifi_config.ap.channel = 1;
 
-    ESP_ERROR_CHECK_WITHOUT_ABORT(esp_wifi_set_mode(WIFI_MODE_AP));
-    ESP_ERROR_CHECK_WITHOUT_ABORT(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
-    ESP_ERROR_CHECK_WITHOUT_ABORT(esp_wifi_start());
+    ret = esp_wifi_set_mode(WIFI_MODE_AP);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "esp_wifi_set_mode failed: %s", esp_err_to_name(ret));
+        s_failed = true;
+        moto_nav_ui_show_ota_screen();
+        return false;
+    }
+
+    ret = esp_wifi_set_config(WIFI_IF_AP, &wifi_config);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "esp_wifi_set_config failed: %s", esp_err_to_name(ret));
+        s_failed = true;
+        moto_nav_ui_show_ota_screen();
+        return false;
+    }
+
+    ret = esp_wifi_start();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "esp_wifi_start failed: %s", esp_err_to_name(ret));
+        s_failed = true;
+        moto_nav_ui_show_ota_screen();
+        return false;
+    }
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = 80;
@@ -180,11 +209,18 @@ void ota_manager_start_ap_server(void) {
         ota_uri.handler = ota_post_handler;
         ota_uri.user_ctx = NULL;
         httpd_register_uri_handler(s_server, &ota_uri);
+    } else {
+        ESP_LOGE(TAG, "httpd_start failed");
+        s_failed = true;
+        moto_nav_ui_show_ota_screen();
+        return false;
     }
 
     s_active = true;
+    s_failed = false;
     s_progress = 0;
     moto_nav_ui_show_ota_screen();
+    return true;
 }
 
 void ota_manager_stop_ap_server(void) {
@@ -198,11 +234,12 @@ void ota_manager_stop_ap_server(void) {
     moto_nav_ui_hide_ota_screen();
 }
 
-void ota_manager_start(void) {
+bool ota_manager_start(void) {
     if (!s_active) {
-        ota_manager_start_ap_server();
+        return ota_manager_start_ap_server();
     } else {
         ota_manager_stop_ap_server();
+        return false;
     }
 }
 

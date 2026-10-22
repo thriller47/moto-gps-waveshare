@@ -14,10 +14,17 @@
 #include "ota_manager.h"
 #include "phone_nav_bridge.h"
 
+#ifdef ESP_PLATFORM
+#include "esp_attr.h"
+#define MOTO_PSRAM_BSS EXT_RAM_BSS_ATTR
+#else
+#define MOTO_PSRAM_BSS
+#endif
+
 namespace {
 constexpr char kTag[] = "moto_gps";
 constexpr std::uint64_t kPowerHoldMs = 3'000;
-constexpr std::uint64_t kBootHoldMs = 1'500;
+constexpr std::uint64_t kBootHoldMs = 500;
 
 moto::ble::AckStatus receive_phone_message(
     const moto::ble::ReassembledMessage& message, void* context) {
@@ -199,9 +206,9 @@ extern "C" void app_main(void) {
   }
 
   moto_nav_ui_create();
-  static moto::nav::NavPresenter presenter;
-  static PhoneNavBridge phone_bridge(presenter);
-  static BleNavTransport transport;
+  MOTO_PSRAM_BSS static moto::nav::NavPresenter presenter;
+  MOTO_PSRAM_BSS static PhoneNavBridge phone_bridge(presenter);
+  MOTO_PSRAM_BSS static BleNavTransport transport;
   // NavSnapshot contains the complete bounded roads/buildings window and is
   // several kilobytes.  A temporary here inflates app_main's stack frame for
   // the entire display/BSP startup call chain, which can trip the FreeRTOS
