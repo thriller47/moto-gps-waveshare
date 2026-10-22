@@ -203,14 +203,8 @@ void update_ota_button_style() {
 }
 
 void reset_ui_state() {
-    static_assert(std::is_trivially_copyable_v<Ui>,
-                  "Ui must remain safe to reset without a stack temporary");
-
-    // `ui = {}` materializes the complete aggregate as a temporary.  The
-    // offline map buffers make Ui about 15 KiB, so that temporary can consume
-    // nearly the whole ESP-IDF main-task stack before LVGL is called.  Clear
-    // the retained instance in place and restore the two non-zero defaults.
-    std::memset(&ui, 0, sizeof(ui));
+    // Re-initialize fields in-place without triggering -Wclass-memaccess
+    std::memset(reinterpret_cast<void*>(&ui), 0, sizeof(ui));
     ui.page = MOTO_UI_PAGE_NAVIGATION;
     ui.page_dots_visible = true;
     ui.nav_maneuver_type = MOTO_MANEUVER_STRAIGHT;

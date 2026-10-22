@@ -1,3 +1,4 @@
+#include <atomic>
 #include <cstdint>
 
 #include "ble_nav_transport_nimble.h"
@@ -18,6 +19,15 @@ namespace {
 constexpr char kTag[] = "moto_gps";
 constexpr std::uint64_t kPowerHoldMs = 3'000;
 constexpr std::uint64_t kBootHoldMs = 1'500;
+
+std::atomic<bool> g_ota_requested{false};
+
+void ota_check_timer_cb(lv_timer_t*) {
+  if (g_ota_requested.exchange(false)) {
+    ESP_LOGI(kTag, "Handling pending OTA request inside LVGL thread context");
+    ota_manager_start();
+  }
+}
 
 moto::ble::AckStatus receive_phone_message(
     const moto::ble::ReassembledMessage& message, void* context) {
@@ -127,8 +137,8 @@ void boot_button_task(void*) {
       pressed_since_ms = now_ms;
       ESP_LOGI(kTag, "BOOT press started");
     } else if (!triggered && (now_ms - pressed_since_ms >= kBootHoldMs)) {
-      ESP_LOGI(kTag, "BOOT held for 1.5 seconds; triggering OTA manager");
-      ota_manager_start();
+      ESP_LOGI(kTag, "BOOT held for 1.5 seconds; requesting OTA manager trigger");
+      g_ota_requested.store(true);
       triggered = true;
     }
     vTaskDelay(pdMS_TO_TICKS(20));
@@ -212,6 +222,8 @@ extern "C" void app_main(void) {
   presenter.apply_to_lvgl();
   moto_nav_ui_set_music_page_enabled(0);
   phone_bridge.install_ui_callbacks();
+
+  lv_timer_create(ota_check_timer_cb, 50, nullptr);
   board_port_unlock();
 
   if (!phone_bridge.start_renderer()) {
@@ -247,7 +259,7 @@ extern "C" void app_main(void) {
                   nullptr) != pdPASS) {
     ESP_LOGW(kTag, "PWR long-hold task could not start");
   }
-  if (xTaskCreate(boot_button_task, "moto_boot", 3'072, nullptr, 3,
+  if (xTaskCreate(boot_button_task, "moto_boot", 8'192, nullptr, 3,
                   nullptr) != pdPASS) {
     ESP_LOGW(kTag, "BOOT long-hold task could not start");
   }

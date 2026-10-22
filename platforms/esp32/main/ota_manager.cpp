@@ -13,8 +13,10 @@
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "board_port.h"
 #include "host/ble_gap.h"
 #include "moto_nav_ui.h"
+#include "nimble/nimble_port.h"
 
 static const char *TAG = "OTA";
 static httpd_handle_t s_server = NULL;
@@ -86,7 +88,10 @@ static esp_err_t ota_post_handler(httpd_req_t *req) {
 
         if (total_bytes > 0) {
             s_progress = (received * 100) / total_bytes;
-            moto_nav_ui_update_ota_progress(s_progress);
+            if (board_port_lock(UINT32_MAX)) {
+                moto_nav_ui_update_ota_progress(s_progress);
+                board_port_unlock();
+            }
             ESP_LOGI(TAG, "OTA progress: %d%% (%d/%d bytes)", s_progress, received, total_bytes);
         } else {
             ESP_LOGI(TAG, "OTA received: %d bytes", received);
@@ -108,7 +113,10 @@ static esp_err_t ota_post_handler(httpd_req_t *req) {
     }
 
     s_progress = 100;
-    moto_nav_ui_update_ota_progress(100);
+    if (board_port_lock(UINT32_MAX)) {
+        moto_nav_ui_update_ota_progress(100);
+        board_port_unlock();
+    }
 
     ESP_LOGI(TAG, "OTA update successfully written and boot partition set!");
     httpd_resp_sendstr(req, "OTA OK");
@@ -122,29 +130,46 @@ static esp_err_t ota_post_handler(httpd_req_t *req) {
 void ota_manager_start_ap_server(void) {
     if (s_active) return;
 
-    ESP_LOGI(TAG, "Stopping BLE advertising to release radio/SRAM resources for Wi-Fi...");
+    ESP_LOGI(TAG, "Deactivating NimBLE stack to free SRAM resources for Wi-Fi...");
     ble_gap_adv_stop();
+    nimble_port_stop();
+    esp_err_t err_nimble = nimble_port_deinit();
+    if (err_nimble != ESP_OK) {
+        ESP_LOGE(TAG, "nimble_port_deinit failed: %s", esp_err_to_name(err_nimble));
+    }
 
     ESP_LOGI(TAG, "Starting Wi-Fi SoftAP and OTA HTTP server...");
 
     esp_err_t ret = esp_netif_init();
     if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
         ESP_LOGE(TAG, "esp_netif_init failed: %s", esp_err_to_name(ret));
+        return;
     }
 
     ret = esp_event_loop_create_default();
     if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
         ESP_LOGE(TAG, "esp_event_loop_create_default failed: %s", esp_err_to_name(ret));
+        return;
     }
 
     if (s_ap_netif == NULL) {
         s_ap_netif = esp_netif_create_default_wifi_ap();
+        if (s_ap_netif == NULL) {
+            ESP_LOGE(TAG, "esp_netif_create_default_wifi_ap failed");
+            return;
+        }
     }
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    cfg.static_rx_buf_num = 4;
+    cfg.dynamic_rx_buf_num = 8;
+    cfg.tx_buf_type = 1;
+    cfg.dynamic_tx_buf_num = 8;
+
     ret = esp_wifi_init(&cfg);
     if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
         ESP_LOGE(TAG, "esp_wifi_init failed: %s", esp_err_to_name(ret));
+        return;
     }
 
     wifi_config_t wifi_config = {};
@@ -156,9 +181,23 @@ void ota_manager_start_ap_server(void) {
     wifi_config.ap.authmode = WIFI_AUTH_WPA2_PSK;
     wifi_config.ap.channel = 1;
 
-    ESP_ERROR_CHECK_WITHOUT_ABORT(esp_wifi_set_mode(WIFI_MODE_AP));
-    ESP_ERROR_CHECK_WITHOUT_ABORT(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
-    ESP_ERROR_CHECK_WITHOUT_ABORT(esp_wifi_start());
+    ret = esp_wifi_set_mode(WIFI_MODE_AP);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "esp_wifi_set_mode failed: %s", esp_err_to_name(ret));
+        return;
+    }
+
+    ret = esp_wifi_set_config(WIFI_IF_AP, &wifi_config);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "esp_wifi_set_config failed: %s", esp_err_to_name(ret));
+        return;
+    }
+
+    ret = esp_wifi_start();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "esp_wifi_start failed: %s", esp_err_to_name(ret));
+        return;
+    }
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = 80;
@@ -180,11 +219,17 @@ void ota_manager_start_ap_server(void) {
         ota_uri.handler = ota_post_handler;
         ota_uri.user_ctx = NULL;
         httpd_register_uri_handler(s_server, &ota_uri);
+    } else {
+        ESP_LOGE(TAG, "httpd_start failed");
+        return;
     }
 
     s_active = true;
     s_progress = 0;
-    moto_nav_ui_show_ota_screen();
+    if (board_port_lock(UINT32_MAX)) {
+        moto_nav_ui_show_ota_screen();
+        board_port_unlock();
+    }
 }
 
 void ota_manager_stop_ap_server(void) {
@@ -195,7 +240,10 @@ void ota_manager_stop_ap_server(void) {
     }
     esp_wifi_stop();
     s_active = false;
-    moto_nav_ui_hide_ota_screen();
+    if (board_port_lock(UINT32_MAX)) {
+        moto_nav_ui_hide_ota_screen();
+        board_port_unlock();
+    }
 }
 
 void ota_manager_start(void) {
