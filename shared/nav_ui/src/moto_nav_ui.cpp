@@ -684,8 +684,7 @@ void update_road_geometry(const moto_ui_state_t *state) {
                 lv_obj_set_style_line_width(
                     ui.nav_roads[i], px(major ? 4 : (service ? 2 : 3)), 0);
                 lv_obj_set_style_line_color(
-                    ui.nav_roads[i],
-                    major ? kRoadMajor : (service ? kRoadMinor : kRoadGray), 0);
+                    ui.nav_roads[i], lv_color_hex(0xFFFFFF), 0);
                 lv_obj_remove_flag(ui.nav_roads[i], LV_OBJ_FLAG_HIDDEN);
             } else {
                 lv_obj_add_flag(ui.nav_roads[i], LV_OBJ_FLAG_HIDDEN);
@@ -1567,7 +1566,7 @@ void create_navigation_page() {
         ui.nav_roads[i] = create_map_polyline(ui.nav_map, ui.nav_road_lines[i]);
         lv_obj_set_size(ui.nav_roads[i], MOTO_UI_CANVAS_WIDTH, px(232));
         lv_obj_set_style_line_width(ui.nav_roads[i], px(3), 0);
-        lv_obj_set_style_line_color(ui.nav_roads[i], kRoadGray, 0);
+        lv_obj_set_style_line_color(ui.nav_roads[i], lv_color_hex(0xFFFFFF), 0);
         lv_obj_set_style_line_opa(ui.nav_roads[i], LV_OPA_COVER, 0);
         lv_obj_set_style_line_rounded(ui.nav_roads[i], true, 0);
         lv_obj_add_flag(ui.nav_roads[i], LV_OBJ_FLAG_HIDDEN);
@@ -1580,8 +1579,8 @@ void create_navigation_page() {
     lv_obj_set_style_line_rounded(ui.nav_route_shadow, true, 0);
     ui.nav_route = create_map_polyline(ui.nav_map, ui.nav_route_line);
     lv_obj_set_size(ui.nav_route, MOTO_UI_CANVAS_WIDTH, px(232));
-    lv_obj_set_style_line_width(ui.nav_route, px(6), 0);
-    lv_obj_set_style_line_color(ui.nav_route, kWhite, 0);
+    lv_obj_set_style_line_width(ui.nav_route, px(7), 0);
+    lv_obj_set_style_line_color(ui.nav_route, lv_color_hex(0x39FF14), 0);
     lv_obj_set_style_line_rounded(ui.nav_route, true, 0);
     ui.nav_route_motion_timer = lv_timer_create(route_motion_tick,
                                                  kRouteMotionFrameMs,
