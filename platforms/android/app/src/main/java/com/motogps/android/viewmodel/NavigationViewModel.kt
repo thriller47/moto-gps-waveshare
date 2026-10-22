@@ -91,6 +91,14 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     private val _isDownloadingMap = MutableStateFlow(false)
     val isDownloadingMap: StateFlow<Boolean> = _isDownloadingMap
 
+    private val _jarvisStatus = MutableStateFlow("TOCCA PER PARLARE")
+    val jarvisStatus: StateFlow<String> = _jarvisStatus
+
+    private val _jarvisText = MutableStateFlow("Jarvis Voice HUD")
+    val jarvisText: StateFlow<String> = _jarvisText
+
+    var jarvisVoiceAssistant: com.motogps.android.voice.JarvisVoiceAssistant? = null
+
     private var mapDownloadJob: Job? = null
 
     private var currentHeadingCentiDeg: Int = 0
@@ -109,6 +117,11 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         bleManager.onDeviceCommandReceived = { cmd ->
             if (cmd.kind == 0) { // PageSelected
                 _currentDevicePage.value = cmd.page
+            } else if (cmd.kind == 32) { // VoiceTriggerStart (0x20)
+                _currentDevicePage.value = 4 // Jarvis Page
+                jarvisVoiceAssistant?.startListening()
+            } else if (cmd.kind == 33) { // VoiceTriggerStop (0x21)
+                jarvisVoiceAssistant?.stopListening()
             }
         }
     }
@@ -884,7 +897,13 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                         1 -> "speedometer"
                         2 -> "heading"
                         3 -> "music"
+                        4 -> "jarvis"
                         else -> "idle"
+                    }
+                    val instr = if (_currentDevicePage.value == 4 || _jarvisStatus.value != "TOCCA PER PARLARE") {
+                        "${_jarvisStatus.value}\n${_jarvisText.value}"
+                    } else {
+                        ""
                     }
                     val idleSnapshot = MotoBLENavigationSnapshot(
                         stateName = "idle",
@@ -912,7 +931,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                         accuracyDecimeters = 50,
                         crossTrackDecimeters = 0,
                         roundaboutExit = 0,
-                        instructionText = ""
+                        instructionText = instr
                     )
                     bleManager.sendNavigationSnapshot(idleSnapshot)
                 }
@@ -995,6 +1014,87 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     fun clearError() {
         _errorMessage.value = null
     }
+
+    fun updateJarvisState(status: String, text: String) {
+        _jarvisStatus.value = status
+        _jarvisText.value = text
+        if (_connectionState.value.contains("Connesso", ignoreCase = true) ||
+            _connectionState.value.contains("Ready", ignoreCase = true) ||
+            _connectionState.value.contains("Online", ignoreCase = true)) {
+            val pageName = when (_currentDevicePage.value) {
+                1 -> "speedometer"
+                2 -> "heading"
+                3 -> "music"
+                4 -> "jarvis"
+                else -> "jarvis"
+            }
+            val snap = MotoBLENavigationSnapshot(
+                stateName = if (_isNavigating.value) "navigating" else "idle",
+                networkName = "online",
+                displayPageName = pageName,
+                maneuverName = "none",
+                trafficName = "none",
+                hasDestination = _isNavigating.value,
+                hasFix = true,
+                gnssStale = false,
+                offRoute = false,
+                routeRequestInFlight = false,
+                trafficRequestInFlight = false,
+                routeToken = currentSnapshot?.routeToken ?: 0L,
+                routeGeneration = currentSnapshot?.routeGeneration ?: 0L,
+                maneuverID = 0L,
+                distanceToManeuverM = currentSnapshot?.distanceToManeuverM ?: 0L,
+                remainingDistanceM = currentSnapshot?.remainingDistanceM ?: 0L,
+                remainingDurationS = currentSnapshot?.remainingDurationS ?: 0L,
+                routeProgressM = 0L,
+                totalDistanceM = currentSnapshot?.totalDistanceM ?: 0L,
+                speedDeciKPH = currentSpeedDeciKph,
+                speedLimitKPH = lastSpeedLimitKph,
+                headingCentiDegrees = currentHeadingCentiDeg,
+                accuracyDecimeters = 50,
+                crossTrackDecimeters = 0,
+                roundaboutExit = 0,
+                instructionText = "$status\n$text"
+            )
+            bleManager.sendNavigationSnapshot(snap)
+        }
+    }
+
+    fun getNavStatusSummary(): String {
+        if (!_isNavigating.value || currentSnapshot == null) {
+            return "Nessuna navigazione attiva."
+        }
+        val snap = currentSnapshot!!
+        val km = String.format(java.util.Locale.US, "%.1f", snap.remainingDistanceM / 1000.0)
+        val min = snap.remainingDurationS / 60
+        val instr = snap.instructionText.replace("\n", " - ")
+        return "Mancano $km km, $min minuti. $instr"
+    }
+
+    fun searchAndNavigate(query: String, gatewayUrl: String, onComplete: ((Boolean, String) -> Unit)? = null) {
+        if (query.isBlank() || gatewayUrl.isBlank()) {
+            onComplete?.invoke(false, "Destinazione non valida")
+            return
+        }
+        viewModelScope.launch {
+            _isLoading.value = true
+            try {
+                val results = withContext(Dispatchers.IO) { performSearch(query, gatewayUrl) }
+                if (results.isNotEmpty()) {
+                    val target = results.first()
+                    startNavigation(target, gatewayUrl)
+                    onComplete?.invoke(true, target.name)
+                } else {
+                    onComplete?.invoke(false, "Nessun risultato trovato per $query")
+                }
+            } catch (e: Exception) {
+                onComplete?.invoke(false, "Errore di ricerca: ${e.message}")
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
 }
 
 class NavigationViewModelFactory(private val bleManager: MotoBLEManager) : ViewModelProvider.Factory {

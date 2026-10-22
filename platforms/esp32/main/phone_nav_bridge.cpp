@@ -215,6 +215,7 @@ moto::nav::DisplayPage map_page(moto::ble::DisplayPage page) {
     case In::Speed: return Out::Speed;
     case In::Compass: return Out::Compass;
     case In::Music: return Out::Music;
+    case In::Jarvis: return Out::Jarvis;
   }
   return Out::Navigation;
 }
@@ -224,6 +225,7 @@ moto::ble::DisplayPage map_page(moto_ui_page_t page) {
     case MOTO_UI_PAGE_SPEED: return moto::ble::DisplayPage::Speed;
     case MOTO_UI_PAGE_COMPASS: return moto::ble::DisplayPage::Compass;
     case MOTO_UI_PAGE_MUSIC: return moto::ble::DisplayPage::Music;
+    case MOTO_UI_PAGE_JARVIS: return moto::ble::DisplayPage::Jarvis;
     case MOTO_UI_PAGE_NAVIGATION:
     case MOTO_UI_PAGE_COUNT:
     default: return moto::ble::DisplayPage::Navigation;
@@ -291,6 +293,7 @@ void PhoneNavBridge::install_ui_callbacks() {
   moto_nav_ui_set_page_change_callback(page_changed, this);
   moto_nav_ui_set_music_command_callback(music_command, this);
   moto_nav_ui_set_demo_change_callback(demo_changed, this);
+  moto_nav_ui_set_jarvis_trigger_callback(jarvis_trigger, this);
 }
 
 bool PhoneNavBridge::start_renderer() {
@@ -1021,6 +1024,18 @@ void PhoneNavBridge::music_command(moto_music_command_t command,
 
 void PhoneNavBridge::demo_changed(uint8_t enabled, void* context) {
   static_cast<PhoneNavBridge*>(context)->set_demo_active(enabled != 0U);
+}
+
+void PhoneNavBridge::jarvis_trigger(uint8_t listening, void* context) {
+  static_cast<PhoneNavBridge*>(context)->send_jarvis_trigger(listening != 0U);
+}
+
+void PhoneNavBridge::send_jarvis_trigger(bool listening) {
+  moto::ble::DeviceCommand output;
+  output.kind = listening ? moto::ble::DeviceCommandKind::VoiceTriggerStart
+                           : moto::ble::DeviceCommandKind::VoiceTriggerStop;
+  output.page = map_page(MOTO_UI_PAGE_JARVIS);
+  send_device_command(output);
 }
 
 void PhoneNavBridge::send_page_command(moto_ui_page_t page) {

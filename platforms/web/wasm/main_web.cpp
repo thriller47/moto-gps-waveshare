@@ -100,6 +100,7 @@ DisplayPage display_page_from_ui(moto_ui_page_t page) {
     case MOTO_UI_PAGE_SPEED: return DisplayPage::Speed;
     case MOTO_UI_PAGE_COMPASS: return DisplayPage::Compass;
     case MOTO_UI_PAGE_MUSIC: return DisplayPage::Music;
+    case MOTO_UI_PAGE_JARVIS: return DisplayPage::Jarvis;
     case MOTO_UI_PAGE_NAVIGATION:
     case MOTO_UI_PAGE_COUNT:
       return DisplayPage::Navigation;
@@ -683,6 +684,7 @@ extern "C" EMSCRIPTEN_KEEPALIVE int moto_web_get_page(void) {
     case DisplayPage::Speed: return MOTO_UI_PAGE_SPEED;
     case DisplayPage::Compass: return MOTO_UI_PAGE_COMPASS;
     case DisplayPage::Music: return MOTO_UI_PAGE_MUSIC;
+    case DisplayPage::Jarvis: return MOTO_UI_PAGE_JARVIS;
     case DisplayPage::Navigation: return MOTO_UI_PAGE_NAVIGATION;
   }
   return MOTO_UI_PAGE_NAVIGATION;

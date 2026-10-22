@@ -238,7 +238,7 @@ bool valid_coordinate_system(CoordinateSystem system) {
 }
 
 bool valid_display_page(DisplayPage page) {
-  return enum_at_most(page, DisplayPage::Music);
+  return enum_at_most(page, DisplayPage::Jarvis);
 }
 
 bool valid_map_road_class(MapRoadClass road_class) {
@@ -262,6 +262,8 @@ bool valid_command_kind(DeviceCommandKind kind) {
     case DeviceCommandKind::MusicTogglePlayback:
     case DeviceCommandKind::MusicNext:
     case DeviceCommandKind::MusicLike:
+    case DeviceCommandKind::VoiceTriggerStart:
+    case DeviceCommandKind::VoiceTriggerStop:
       return true;
   }
   return false;

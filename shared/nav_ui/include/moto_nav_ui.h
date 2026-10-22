@@ -58,6 +58,7 @@ typedef enum {
     MOTO_UI_PAGE_SPEED,
     MOTO_UI_PAGE_COMPASS,
     MOTO_UI_PAGE_MUSIC,
+    MOTO_UI_PAGE_JARVIS,
     MOTO_UI_PAGE_COUNT,
 } moto_ui_page_t;
 
@@ -172,6 +173,13 @@ void moto_nav_ui_set_demo_active(uint8_t enabled);
 void moto_nav_ui_set_demo_change_callback(
     moto_demo_change_callback_t callback,
     void *context);
+
+typedef void (*moto_jarvis_trigger_callback_t)(uint8_t listening,
+                                               void *context);
+void moto_nav_ui_set_jarvis_trigger_callback(
+    moto_jarvis_trigger_callback_t callback,
+    void *context);
+void moto_nav_ui_set_jarvis_text(const char *status, const char *text);
 
 void moto_nav_ui_show_ota_screen(void);
 void moto_nav_ui_update_ota_progress(int percent);

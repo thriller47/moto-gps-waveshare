@@ -76,6 +76,7 @@ DisplayPage DisplayPageFromName(const std::string& name) {
     if (name == "speedometer") return DisplayPage::Speed;
     if (name == "heading") return DisplayPage::Compass;
     if (name == "music") return DisplayPage::Music;
+    if (name == "jarvis") return DisplayPage::Jarvis;
     return DisplayPage::Navigation;
 }
 

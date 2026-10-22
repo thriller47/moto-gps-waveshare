@@ -541,7 +541,8 @@ fun NavigationScreen(
     downloadProgress: Float = 0f,
     isDownloadingMap: Boolean = false,
     onCancelDownload: () -> Unit = {},
-    onRefreshMaps: () -> Unit = {}
+    onRefreshMaps: () -> Unit = {},
+    onJarvisClick: () -> Unit = {}
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var currentGateway by remember { mutableStateOf(initialGateway) }
@@ -636,6 +637,9 @@ fun NavigationScreen(
                 TopAppBar(
                     title = { Text("MOTO GPS") },
                     actions = {
+                        IconButton(onClick = onJarvisClick) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = "Jarvis Voice")
+                        }
                         IconButton(onClick = { showOtaDialog = true }) {
                             Icon(Icons.Default.Refresh, contentDescription = "Aggiornamento Firmware (OTA)")
                         }
@@ -773,13 +777,18 @@ fun NavigationScreen(
                     placeholder = { Text("Cerca destinazione") },
                     leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                     trailingIcon = {
-                        IconButton(onClick = {
-                            focusManager.clearFocus()
-                            if (searchQuery.isNotBlank()) {
-                                onSearch(searchQuery)
+                        Row {
+                            IconButton(onClick = onJarvisClick) {
+                                Icon(Icons.Default.PlayArrow, contentDescription = "Jarvis Voice")
                             }
-                        }) {
-                            Icon(Icons.Default.Search, contentDescription = "Cerca")
+                            IconButton(onClick = {
+                                focusManager.clearFocus()
+                                if (searchQuery.isNotBlank()) {
+                                    onSearch(searchQuery)
+                                }
+                            }) {
+                                Icon(Icons.Default.Search, contentDescription = "Cerca")
+                            }
                         }
                     },
                     singleLine = true,

@@ -58,6 +58,7 @@ class PhoneNavBridge {
   static void page_changed(moto_ui_page_t page, void* context);
   static void music_command(moto_music_command_t command, void* context);
   static void demo_changed(uint8_t enabled, void* context);
+  static void jarvis_trigger(uint8_t listening, void* context);
 
   void consume_navigation(const moto::ble::NavigationSnapshot& input);
   moto::ble::AckStatus consume_geometry(
@@ -78,6 +79,7 @@ class PhoneNavBridge {
 #endif
   void send_page_command(moto_ui_page_t page);
   void send_music_command(moto_music_command_t command);
+  void send_jarvis_trigger(bool listening);
   void send_device_command(moto::ble::DeviceCommand command);
   void set_demo_active(bool active);
   // Fill an existing member in place. NavSnapshot contains the bounded map

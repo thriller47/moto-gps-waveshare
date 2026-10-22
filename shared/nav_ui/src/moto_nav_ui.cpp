@@ -168,6 +168,17 @@ struct Ui {
     lv_obj_t *music_disc = nullptr;
     lv_obj_t *music_buttons[4]{};
     lv_obj_t *music_button_labels[4]{};
+
+    lv_obj_t *jarvis_arcs[3]{};
+    lv_obj_t *jarvis_core = nullptr;
+    lv_obj_t *jarvis_status_label = nullptr;
+    lv_obj_t *jarvis_text_label = nullptr;
+    lv_timer_t *jarvis_anim_timer = nullptr;
+    uint16_t jarvis_arc_rotations[3]{0, 120, 240};
+    uint8_t jarvis_listening = 0;
+    uint16_t jarvis_pulse_phase = 0;
+    moto_jarvis_trigger_callback_t jarvis_trigger_cb = nullptr;
+    void *jarvis_trigger_cb_ctx = nullptr;
     moto_music_state_t music{};
     char music_source_text[32]{};
     char music_title_text[64]{};
@@ -344,6 +355,13 @@ void show_page(moto_ui_page_t page, bool reveal_on_same_page = false) {
             lv_obj_remove_flag(ui.pages[i], LV_OBJ_FLAG_HIDDEN);
         } else {
             lv_obj_add_flag(ui.pages[i], LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+    if (ui.jarvis_anim_timer != nullptr) {
+        if (page == MOTO_UI_PAGE_JARVIS) {
+            lv_timer_resume(ui.jarvis_anim_timer);
+        } else {
+            lv_timer_pause(ui.jarvis_anim_timer);
         }
     }
     update_page_dots();
@@ -1864,6 +1882,119 @@ void set_boot_content_opacity(void *object, int32_t opacity) {
 
 }  // namespace
 
+void jarvis_anim_tick(lv_timer_t *) {
+    if (ui.page != MOTO_UI_PAGE_JARVIS) return;
+
+    uint16_t speed0 = ui.jarvis_listening ? 8 : 2;
+    uint16_t speed1 = ui.jarvis_listening ? 10 : 3;
+    uint16_t speed2 = ui.jarvis_listening ? 12 : 4;
+
+    ui.jarvis_arc_rotations[0] = (ui.jarvis_arc_rotations[0] + speed0) % 360;
+    ui.jarvis_arc_rotations[1] = (ui.jarvis_arc_rotations[1] + 360 - speed1) % 360;
+    ui.jarvis_arc_rotations[2] = (ui.jarvis_arc_rotations[2] + speed2) % 360;
+
+    if (ui.jarvis_arcs[0]) lv_arc_set_rotation(ui.jarvis_arcs[0], ui.jarvis_arc_rotations[0]);
+    if (ui.jarvis_arcs[1]) lv_arc_set_rotation(ui.jarvis_arcs[1], ui.jarvis_arc_rotations[1]);
+    if (ui.jarvis_arcs[2]) lv_arc_set_rotation(ui.jarvis_arcs[2], ui.jarvis_arc_rotations[2]);
+
+    if (ui.jarvis_listening) {
+        ui.jarvis_pulse_phase = (ui.jarvis_pulse_phase + 12) % 360;
+        double rad = ui.jarvis_pulse_phase * 3.14159 / 180.0;
+        int delta = static_cast<int>(std::sin(rad) * 12.0);
+        int size = px(90 + delta);
+        if (ui.jarvis_core) {
+            lv_obj_set_size(ui.jarvis_core, size, size);
+        }
+    } else {
+        if (ui.jarvis_core) {
+            lv_obj_set_size(ui.jarvis_core, px(90), px(90));
+        }
+    }
+}
+
+void jarvis_core_event(lv_event_t *) {
+    ui.jarvis_listening = ui.jarvis_listening ? 0 : 1;
+    if (ui.jarvis_listening) {
+        if (ui.jarvis_status_label) {
+            lv_label_set_text(ui.jarvis_status_label, "ASCOLTO...");
+        }
+    } else {
+        if (ui.jarvis_status_label) {
+            lv_label_set_text(ui.jarvis_status_label, "TOCCA PER PARLARE");
+        }
+    }
+    if (ui.jarvis_trigger_cb != nullptr) {
+        ui.jarvis_trigger_cb(ui.jarvis_listening, ui.jarvis_trigger_cb_ctx);
+    }
+}
+
+void create_jarvis_page() {
+    lv_obj_t *page = ui.pages[MOTO_UI_PAGE_JARVIS];
+
+    lv_color_t cyan = lv_color_hex(0x00F0FF);
+    lv_color_t blue = lv_color_hex(0x0066FF);
+
+    ui.jarvis_arcs[0] = lv_arc_create(page);
+    lv_obj_set_size(ui.jarvis_arcs[0], px(320), px(320));
+    lv_obj_center(ui.jarvis_arcs[0]);
+    lv_arc_set_bg_angles(ui.jarvis_arcs[0], 0, 240);
+    lv_arc_set_rotation(ui.jarvis_arcs[0], 0);
+    lv_obj_remove_style(ui.jarvis_arcs[0], nullptr, LV_PART_KNOB);
+    lv_obj_clear_flag(ui.jarvis_arcs[0], LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_arc_width(ui.jarvis_arcs[0], px(4), LV_PART_MAIN);
+    lv_obj_set_style_arc_color(ui.jarvis_arcs[0], cyan, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(ui.jarvis_arcs[0], px(5), LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(ui.jarvis_arcs[0], cyan, LV_PART_INDICATOR);
+
+    ui.jarvis_arcs[1] = lv_arc_create(page);
+    lv_obj_set_size(ui.jarvis_arcs[1], px(240), px(240));
+    lv_obj_center(ui.jarvis_arcs[1]);
+    lv_arc_set_bg_angles(ui.jarvis_arcs[1], 0, 200);
+    lv_arc_set_rotation(ui.jarvis_arcs[1], 120);
+    lv_obj_remove_style(ui.jarvis_arcs[1], nullptr, LV_PART_KNOB);
+    lv_obj_clear_flag(ui.jarvis_arcs[1], LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_arc_width(ui.jarvis_arcs[1], px(4), LV_PART_MAIN);
+    lv_obj_set_style_arc_color(ui.jarvis_arcs[1], blue, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(ui.jarvis_arcs[1], px(5), LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(ui.jarvis_arcs[1], blue, LV_PART_INDICATOR);
+
+    ui.jarvis_arcs[2] = lv_arc_create(page);
+    lv_obj_set_size(ui.jarvis_arcs[2], px(160), px(160));
+    lv_obj_center(ui.jarvis_arcs[2]);
+    lv_arc_set_bg_angles(ui.jarvis_arcs[2], 0, 220);
+    lv_arc_set_rotation(ui.jarvis_arcs[2], 240);
+    lv_obj_remove_style(ui.jarvis_arcs[2], nullptr, LV_PART_KNOB);
+    lv_obj_clear_flag(ui.jarvis_arcs[2], LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_arc_width(ui.jarvis_arcs[2], px(4), LV_PART_MAIN);
+    lv_obj_set_style_arc_color(ui.jarvis_arcs[2], cyan, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(ui.jarvis_arcs[2], px(5), LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(ui.jarvis_arcs[2], cyan, LV_PART_INDICATOR);
+
+    ui.jarvis_core = lv_button_create(page);
+    lv_obj_set_size(ui.jarvis_core, px(90), px(90));
+    lv_obj_center(ui.jarvis_core);
+    lv_obj_set_style_radius(ui.jarvis_core, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(ui.jarvis_core, cyan, 0);
+    lv_obj_set_style_bg_opa(ui.jarvis_core, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(ui.jarvis_core, px(4), 0);
+    lv_obj_set_style_border_color(ui.jarvis_core, blue, 0);
+    lv_obj_add_event_cb(ui.jarvis_core, jarvis_core_event, LV_EVENT_CLICKED, nullptr);
+    lv_obj_add_flag(ui.jarvis_core, LV_OBJ_FLAG_GESTURE_BUBBLE);
+
+    ui.jarvis_status_label = make_label(page, &lv_font_montserrat_16, cyan, "TOCCA PER PARLARE");
+    lv_obj_set_style_text_letter_space(ui.jarvis_status_label, px(2), 0);
+    lv_obj_align(ui.jarvis_status_label, LV_ALIGN_TOP_MID, 0, px(55));
+
+    ui.jarvis_text_label = make_label(page, &lv_font_montserrat_16, kWhite, "Jarvis Voice HUD");
+    lv_obj_set_width(ui.jarvis_text_label, px(360));
+    lv_obj_set_style_text_align(ui.jarvis_text_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_long_mode(ui.jarvis_text_label, LV_LABEL_LONG_SCROLL_CIRCULAR);
+    lv_obj_align(ui.jarvis_text_label, LV_ALIGN_BOTTOM_MID, 0, px(-55));
+
+    ui.jarvis_anim_timer = lv_timer_create(jarvis_anim_tick, 30, nullptr);
+    lv_timer_pause(ui.jarvis_anim_timer);
+}
+
 extern "C" void moto_nav_ui_show_boot_screen(void) {
     /* This entry point is also used while the full UI is live. Delete every
        timer that retains widget pointers before reset_ui_state() and
@@ -1999,6 +2130,7 @@ extern "C" void moto_nav_ui_create(void) {
     create_speed_page();
     create_compass_page();
     create_music_page();
+    create_jarvis_page();
     create_page_dots();
     // Press events are delivered to the topmost object under the finger, not
     // necessarily to its page. Register once across the finished tree so any
@@ -2029,6 +2161,11 @@ extern "C" void moto_nav_ui_set_state(const moto_ui_state_t *state) {
         case MOTO_UI_PAGE_NAVIGATION: update_navigation(state); break;
         case MOTO_UI_PAGE_SPEED: update_speedometer(state); break;
         case MOTO_UI_PAGE_COMPASS: update_compass(state); break;
+        case MOTO_UI_PAGE_JARVIS:
+            if (state->road_name != nullptr || state->next_road_name != nullptr) {
+                moto_nav_ui_set_jarvis_text(state->road_name, state->next_road_name);
+            }
+            break;
         case MOTO_UI_PAGE_MUSIC:
         case MOTO_UI_PAGE_COUNT: break;
     }
@@ -2183,5 +2320,27 @@ extern "C" void moto_nav_ui_update_ota_progress(int percent) {
         char buf[16];
         std::snprintf(buf, sizeof(buf), "%d%%", percent);
         lv_label_set_text(ui.ota_percent_label, buf);
+    }
+}
+
+extern "C" void moto_nav_ui_set_jarvis_trigger_callback(
+    moto_jarvis_trigger_callback_t callback,
+    void *context) {
+    ui.jarvis_trigger_cb = callback;
+    ui.jarvis_trigger_cb_ctx = context;
+}
+
+extern "C" void moto_nav_ui_set_jarvis_text(const char *status, const char *text) {
+    if (ui.screen == nullptr) return;
+    if (status != nullptr && ui.jarvis_status_label != nullptr) {
+        lv_label_set_text(ui.jarvis_status_label, status);
+        if (std::strcmp(status, "ASCOLTO...") == 0) {
+            ui.jarvis_listening = 1;
+        } else {
+            ui.jarvis_listening = 0;
+        }
+    }
+    if (text != nullptr && ui.jarvis_text_label != nullptr) {
+        lv_label_set_text(ui.jarvis_text_label, text);
     }
 }

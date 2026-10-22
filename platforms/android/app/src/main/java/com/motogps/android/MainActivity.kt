@@ -34,8 +34,11 @@ import com.motogps.android.location.LocationForegroundService
 import com.motogps.android.ui.NavigationScreen
 import com.motogps.android.viewmodel.NavigationViewModel
 import com.motogps.android.viewmodel.NavigationViewModelFactory
+import com.motogps.android.voice.JarvisVoiceAssistant
+import androidx.core.app.ActivityCompat
 
 class MainActivity : ComponentActivity(), LocationListener, SensorEventListener {
+    private var jarvisVoiceAssistant: JarvisVoiceAssistant? = null
     private lateinit var bleManager: MotoBLEManager
     private lateinit var locationManager: LocationManager
     private lateinit var sensorManager: SensorManager
@@ -134,6 +137,9 @@ class MainActivity : ComponentActivity(), LocationListener, SensorEventListener 
             return if (!saved.isNullOrBlank() && saved.startsWith(defaultGateway)) saved else defaultGateway
         }
 
+        jarvisVoiceAssistant = JarvisVoiceAssistant(this, viewModel) { getGatewayToUse() }
+        viewModel.jarvisVoiceAssistant = jarvisVoiceAssistant
+
         val initialGateway = getGatewayToUse()
 
         setContent {
@@ -228,6 +234,13 @@ class MainActivity : ComponentActivity(), LocationListener, SensorEventListener 
                     },
                     onRefreshMaps = {
                         viewModel.refreshSavedMaps(this@MainActivity)
+                    },
+                    onJarvisClick = {
+                        if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                            ActivityCompat.requestPermissions(this@MainActivity, arrayOf(Manifest.permission.RECORD_AUDIO), 101)
+                        } else {
+                            jarvisVoiceAssistant?.startListening()
+                        }
                     }
                 )
             }
@@ -239,7 +252,8 @@ class MainActivity : ComponentActivity(), LocationListener, SensorEventListener 
     private fun checkPermissionsAndScan() {
         val permissions = mutableListOf(
             Manifest.permission.ACCESS_FINE_LOCATION,
-            Manifest.permission.ACCESS_COARSE_LOCATION
+            Manifest.permission.ACCESS_COARSE_LOCATION,
+            Manifest.permission.RECORD_AUDIO
         )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             permissions.add(Manifest.permission.BLUETOOTH_SCAN)
@@ -316,6 +330,12 @@ class MainActivity : ComponentActivity(), LocationListener, SensorEventListener 
     override fun onResume() {
         super.onResume()
         registerSensors()
+    }
+
+    override fun onDestroy() {
+        jarvisVoiceAssistant?.destroy()
+        jarvisVoiceAssistant = null
+        super.onDestroy()
     }
 
     override fun onPause() {

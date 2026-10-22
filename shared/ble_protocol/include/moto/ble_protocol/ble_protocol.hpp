@@ -356,6 +356,7 @@ enum class DisplayPage : std::uint8_t {
   Speed = 1,
   Compass = 2,
   Music = 3,
+  Jarvis = 4,
 };
 
 enum NavigationFlag : std::uint16_t {
@@ -537,6 +538,8 @@ enum class DeviceCommandKind : std::uint8_t {
   MusicTogglePlayback = 17,
   MusicNext = 18,
   MusicLike = 19,
+  VoiceTriggerStart = 0x20,
+  VoiceTriggerStop = 0x21,
 };
 
 constexpr std::uint16_t kUnknownTouchCoordinate = 0xFFFFU;
