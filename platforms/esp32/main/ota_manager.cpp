@@ -128,10 +128,7 @@ bool ota_manager_start_ap_server(void) {
     if (s_active) return true;
     s_failed = false;
 
-    ESP_LOGI(TAG, "Stopping BLE advertising and radio to release SRAM resources for Wi-Fi...");
-    ble_gap_adv_stop();
-
-    ESP_LOGI(TAG, "Starting Wi-Fi SoftAP and OTA HTTP server...");
+    ESP_LOGI(TAG, "Starting Wi-Fi SoftAP and OTA HTTP server in software coexistence mode with BLE...");
 
     esp_err_t ret = esp_netif_init();
     if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
