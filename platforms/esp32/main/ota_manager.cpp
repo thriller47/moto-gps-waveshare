@@ -13,19 +13,14 @@
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "host/ble_gap.h"
 #include "moto_nav_ui.h"
 
-static const char *TAG = "ota_manager";
+static const char *TAG = "OTA";
 static httpd_handle_t s_server = NULL;
 static bool s_active = false;
 static int s_progress = 0;
 static esp_netif_t *s_ap_netif = NULL;
-
-static void restart_task(void *pvParameter) {
-    (void)pvParameter;
-    vTaskDelay(pdMS_TO_TICKS(1500));
-    esp_restart();
-}
 
 static esp_err_t status_get_handler(httpd_req_t *req) {
     httpd_resp_set_type(req, "application/json");
@@ -36,6 +31,7 @@ static esp_err_t status_get_handler(httpd_req_t *req) {
 }
 
 static esp_err_t ota_post_handler(httpd_req_t *req) {
+    ESP_LOGI(TAG, "OTA Upload POST request started; content_len=%d", (int)req->content_len);
     esp_err_t err;
     esp_ota_handle_t update_handle = 0;
     const esp_partition_t *update_partition = esp_ota_get_next_update_partition(NULL);
@@ -48,8 +44,8 @@ static esp_err_t ota_post_handler(httpd_req_t *req) {
         return ESP_FAIL;
     }
 
-    ESP_LOGI(TAG, "Writing to partition subtype %d at offset 0x%" PRIx32,
-             update_partition->subtype, update_partition->address);
+    ESP_LOGI(TAG, "Writing OTA to partition %s (subtype %d) at address 0x%" PRIx32,
+             update_partition->label, update_partition->subtype, update_partition->address);
 
     err = esp_ota_begin(update_partition, OTA_WITH_SEQUENTIAL_WRITES, &update_handle);
     if (err != ESP_OK) {
@@ -61,12 +57,10 @@ static esp_err_t ota_post_handler(httpd_req_t *req) {
     char buf[4096];
     int received = 0;
     int total_bytes = req->content_len;
-    int remaining = total_bytes;
 
-    while (remaining > 0) {
-        int recv_size = (remaining < (int)sizeof(buf)) ? remaining : (int)sizeof(buf);
-        int ret = httpd_req_recv(req, buf, recv_size);
-        if (ret <= 0) {
+    while (true) {
+        int ret = httpd_req_recv(req, buf, sizeof(buf));
+        if (ret < 0) {
             if (ret == HTTPD_SOCK_ERR_TIMEOUT) {
                 continue;
             }
@@ -74,6 +68,10 @@ static esp_err_t ota_post_handler(httpd_req_t *req) {
             esp_ota_end(update_handle);
             httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Recv error");
             return ESP_FAIL;
+        }
+        if (ret == 0) {
+            ESP_LOGI(TAG, "HTTP stream finished. Total received bytes: %d", received);
+            break;
         }
 
         err = esp_ota_write(update_handle, (const void *)buf, ret);
@@ -85,11 +83,13 @@ static esp_err_t ota_post_handler(httpd_req_t *req) {
         }
 
         received += ret;
-        remaining -= ret;
 
         if (total_bytes > 0) {
             s_progress = (received * 100) / total_bytes;
             moto_nav_ui_update_ota_progress(s_progress);
+            ESP_LOGI(TAG, "OTA progress: %d%% (%d/%d bytes)", s_progress, received, total_bytes);
+        } else {
+            ESP_LOGI(TAG, "OTA received: %d bytes", received);
         }
     }
 
@@ -110,15 +110,20 @@ static esp_err_t ota_post_handler(httpd_req_t *req) {
     s_progress = 100;
     moto_nav_ui_update_ota_progress(100);
 
-    ESP_LOGI(TAG, "OTA Success! Restarting in 1500ms...");
+    ESP_LOGI(TAG, "OTA update successfully written and boot partition set!");
     httpd_resp_sendstr(req, "OTA OK");
 
-    xTaskCreate(&restart_task, "ota_restart", 2048, NULL, 5, NULL);
+    ESP_LOGI(TAG, "Rebooting system in 500ms...");
+    vTaskDelay(pdMS_TO_TICKS(500));
+    esp_restart();
     return ESP_OK;
 }
 
 void ota_manager_start_ap_server(void) {
     if (s_active) return;
+
+    ESP_LOGI(TAG, "Stopping BLE advertising to release radio/SRAM resources for Wi-Fi...");
+    ble_gap_adv_stop();
 
     ESP_LOGI(TAG, "Starting Wi-Fi SoftAP and OTA HTTP server...");
 

@@ -2149,16 +2149,13 @@ extern "C" void moto_nav_ui_show_ota_screen(void) {
         lv_obj_set_style_bg_color(ui.ota_overlay, kBlack, 0);
         lv_obj_set_style_bg_opa(ui.ota_overlay, LV_OPA_COVER, 0);
 
-        lv_obj_t *title = make_label(ui.ota_overlay, &lv_font_montserrat_20, kWhite, "WIFI OTA MODE");
-        lv_obj_align(title, LV_ALIGN_TOP_MID, 0, px(50));
+        lv_obj_t *title = make_label(ui.ota_overlay, &lv_font_montserrat_20, kWhite, "WIFI OTA ATTIVO");
+        lv_obj_align(title, LV_ALIGN_TOP_MID, 0, px(45));
 
-        lv_obj_t *status = make_label(ui.ota_overlay, &lv_font_montserrat_16, kIce, "Wi-Fi: MotoGPS-OTA (Pass: motogps123)");
+        lv_obj_t *status = make_label(ui.ota_overlay, &lv_font_montserrat_16, kIce, "Rete: MotoGPS-OTA - Pass: motogps123 - IP: 192.168.4.1");
         lv_obj_set_width(status, px(320));
         lv_obj_set_style_text_align(status, LV_TEXT_ALIGN_CENTER, 0);
-        lv_obj_align(status, LV_ALIGN_TOP_MID, 0, px(100));
-
-        lv_obj_t *ip = make_label(ui.ota_overlay, &lv_font_montserrat_28, kWhite, "192.168.4.1");
-        lv_obj_align(ip, LV_ALIGN_TOP_MID, 0, px(140));
+        lv_obj_align(status, LV_ALIGN_TOP_MID, 0, px(85));
 
         ui.ota_bar = lv_bar_create(ui.ota_overlay);
         lv_obj_set_size(ui.ota_bar, px(280), px(20));
