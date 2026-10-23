@@ -1398,19 +1398,18 @@ void update_navigation(const moto_ui_state_t *state) {
 
     char value[16];
     const char *unit = "m";
-    if(state->distance_to_maneuver_m >= 1000) {
+    if(state->remaining_distance_m >= 1000) {
         std::snprintf(value, sizeof(value), "%.1f",
-                      state->distance_to_maneuver_m / 1000.0);
+                      state->remaining_distance_m / 1000.0);
         unit = "km";
     } else {
         std::snprintf(value, sizeof(value), "%u",
-                      static_cast<unsigned>(state->distance_to_maneuver_m));
+                      static_cast<unsigned>(state->remaining_distance_m));
     }
     if(state->mode == MOTO_UI_ARRIVED) std::snprintf(value, sizeof(value), "0");
     lv_label_set_text(ui.nav_distance, value);
     lv_label_set_text(ui.nav_unit, unit);
-    // This number is never the total trip distance. Its physical attachment to
-    // the maneuver glyph makes that meaning clear without an explanatory label.
+    // Always display remaining route distance to destination.
     lv_obj_align(ui.nav_distance, LV_ALIGN_TOP_LEFT, px(151), px(244));
     lv_obj_align_to(ui.nav_unit, ui.nav_distance, LV_ALIGN_OUT_RIGHT_BOTTOM,
                     px(6), px(-7));
