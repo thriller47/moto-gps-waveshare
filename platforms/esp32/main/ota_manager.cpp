@@ -1,6 +1,7 @@
 #include "ota_manager.h"
 
 #include <cinttypes>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 
