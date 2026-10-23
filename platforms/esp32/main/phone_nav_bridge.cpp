@@ -11,7 +11,6 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "moto_nav_ui.h"
-#include "ota_manager.h"
 
 namespace {
 constexpr char kTag[] = "phone_nav";
@@ -567,11 +566,6 @@ moto::ble::AckStatus PhoneNavBridge::on_message(
                    value.acknowledged_sequence, value.command_id,
                    static_cast<unsigned>(value.status));
         } else if constexpr (std::is_same_v<T, moto::ble::DeviceCommand>) {
-          if (value.kind == moto::ble::DeviceCommandKind::StartOta) {
-            ESP_LOGI(kTag, "StartOta command received via BLE; launching SoftAP OTA server");
-            ota_manager_start_ap_server();
-            return moto::ble::AckStatus::Ok;
-          }
           return moto::ble::AckStatus::Unsupported;
         }
         return moto::ble::AckStatus::Ok;
