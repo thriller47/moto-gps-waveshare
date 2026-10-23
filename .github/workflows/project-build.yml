@@ -200,4 +200,4 @@ jobs:
             platforms/esp32/build/bootloader/bootloader.bin
             platforms/esp32/build/partition_table/partition-table.bin
             platforms/esp32/build/moto-gps-waveshare.bin
-          retention-days: 7
+          retention-days: 3
