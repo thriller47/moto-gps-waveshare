@@ -171,21 +171,11 @@ void test_frames_are_deterministic() {
   CHECK(first.hash == second.hash);
   CHECK(first.bytes == second.bytes);
 
-  // Perturb the UI with an unrelated page, then come back: the restored
-  // navigation frame must be identical to the original (no residue).
+  // Navigation-only UI ignores requests for removed pages.
   moto_nav_ui_set_page(MOTO_UI_PAGE_SPEED);
-  const Frame speed_page = capture();
-  moto_nav_ui_set_page(MOTO_UI_PAGE_NAVIGATION);
+  CHECK(moto_nav_ui_get_page() == MOTO_UI_PAGE_NAVIGATION);
   const Frame restored = capture();
   CHECK(restored.hash == first.hash);
-
-  // The speed page must actually render different pixels.
-  CHECK(speed_page.hash != first.hash);
-
-  // Determinism holds across repeated renders of the same page as well.
-  moto_nav_ui_set_page(MOTO_UI_PAGE_SPEED);
-  const Frame speed_again = capture();
-  CHECK(speed_again.hash == speed_page.hash);
 }
 
 void test_clearing_geometry_leaves_no_residue() {
@@ -210,35 +200,6 @@ void test_clearing_geometry_leaves_no_residue() {
   moto_nav_ui_set_state(&with_route);
   const Frame redrawn = capture();
   CHECK(redrawn.hash == route_frame.hash);
-}
-
-void test_music_page_state_and_fallback() {
-  moto_nav_ui_set_music_page_enabled(1);
-  moto_nav_ui_set_page(MOTO_UI_PAGE_MUSIC);
-  CHECK(moto_nav_ui_get_page() == MOTO_UI_PAGE_MUSIC);
-
-  moto_music_state_t music{};
-  music.connected = 1;
-  music.playing = 1;
-  music.like_available = 1;
-  music.source_name = "NetEase";
-  music.track_title = "公路之歌";
-  music.artist_name = "新裤子";
-  moto_nav_ui_set_music_state(&music);
-  const Frame titled = capture();
-
-  // Emptying the strings must visibly clear the labels (no stale text).
-  moto_music_state_t empty_state{};
-  empty_state.connected = 1;
-  moto_nav_ui_set_music_state(&empty_state);
-  const Frame emptied = capture();
-  CHECK(titled.hash != emptied.hash);
-
-  // Disabling the music page while it is on screen must fall back to the
-  // navigation page; re-enabling must not restore it by itself.
-  moto_nav_ui_set_music_page_enabled(0);
-  pump();
-  CHECK(moto_nav_ui_get_page() != MOTO_UI_PAGE_MUSIC);
 }
 
 void test_phone_lifecycle_renders_deterministically() {
@@ -434,7 +395,6 @@ int main(int argc, char **argv) {
 
   test_frames_are_deterministic();
   test_clearing_geometry_leaves_no_residue();
-  test_music_page_state_and_fallback();
   test_phone_lifecycle_renders_deterministically();
   test_demo_mode_visual_contract();
   test_capacity_payloads_render_stably();
