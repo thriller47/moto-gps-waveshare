@@ -2088,7 +2088,6 @@ extern "C" void moto_nav_ui_set_music_page_enabled(uint8_t enabled) {
     if(!ui.music_page_enabled && ui.page == MOTO_UI_PAGE_MUSIC) {
         show_page(MOTO_UI_PAGE_NAVIGATION, true);
     }
-    update_page_dots();
 }
 
 extern "C" void moto_nav_ui_set_music_command_callback(
