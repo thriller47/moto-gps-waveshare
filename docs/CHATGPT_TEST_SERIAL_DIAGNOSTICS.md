@@ -63,3 +63,31 @@ Nota: il log cita un iPhone collegato, mentre il bug corretto riguarda
 il client Android. Questa correzione Android non risolve da sola eventuali
 errori di frammentazione nel client iOS; è necessaria una verifica
 separata del trasmettitore iOS.
+
+## Confronto con il progetto iOS di origine
+
+Sorgente di riferimento: https://github.com/mx3353672833-debug/moto-gps-waveshare/tree/main/platforms/ios
+
+Il trasmettitore iOS in `App/Adapters/BLE/ESP32BLECentral.swift`
+calcola il limite dei dati per write tramite
+`peripheral.maximumWriteValueLength(for: writeType)`, lo limita
+al massimo del protocollo e poi negozia il minimo con il dispositivo.
+Per `.withoutResponse` usa `canSendWriteWithoutResponse` e pacing
+di 15 ms. Quindi l'errore Android `maxFrameSize=mtu` non è osservabile
+direttamente in questo codice iOS: **non attribuire gli errori CRC del
+log iPhone alla correzione Android**.
+
+Nel firmware `BleNavTransport::gatt_access` copia il contenuto completo
+dell'mbuf tramite `ble_hs_mbuf_to_flat` e controlla che il numero di
+byte copiati corrisponda a `OS_MBUF_PKTLEN`. Il parser confronta il
+CRC dei byte effettivamente ricevuti. L'offset 180 del CRC è coerente
+con frame BLE lunghi 182 byte (ultimi 2 byte CRC), ma non identifica
+da solo il punto in cui i dati cambiano.
+
+Prossimi controlli mirati: eseguire una prova di compatibilità
+incrociata tra byte prodotti dal codec iOS e parser nativo ESP32;
+registrare lunghezza, sequenza, offset frammento, CRC atteso e reale
+soltanto sui frame rifiutati; verificare che il firmware in esecuzione
+sia prodotto esattamente dal commit analizzato e che le code non
+vengano svuotate durante messaggi frammentati. Non registrare payload
+contenenti posizione privata in log di produzione.
