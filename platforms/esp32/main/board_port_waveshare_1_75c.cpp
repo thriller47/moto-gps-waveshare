@@ -295,11 +295,10 @@ esp_err_t write_pmic_register(std::uint8_t reg, std::uint8_t value) {
   return i2c_master_transmit(pmic, command, sizeof(command), 100);
 }
 
-// Keep one transfer in flight. Double buffering overlaps CPU drawing with the
-// active transfer; a deeper esp_lcd transaction queue does not add another
-// LVGL buffer and only increases memory/latency under continuous animation.
-static_assert(CONFIG_BSP_LCD_TRANS_QUEUE_DEPTH == 1,
-              "CO5300 transfers must be serialized to bound DMA memory");
+// Allow multiple transfers in flight so GDMA direct PSRAM DMA does not underflow
+// when high-frequency BLE notifications or task switching temporarily pause CPU submission.
+static_assert(CONFIG_BSP_LCD_TRANS_QUEUE_DEPTH == 4,
+              "CO5300 transfers must use queue depth 4 to prevent DMA TX underflow");
 
 void round_draw_area(lv_area_t* area, void*) {
   // CO5300 QSPI writes must begin/end on two-pixel boundaries. Keeping the
