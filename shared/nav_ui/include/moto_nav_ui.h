@@ -173,9 +173,6 @@ void moto_nav_ui_set_demo_change_callback(
     moto_demo_change_callback_t callback,
     void *context);
 
-void moto_nav_ui_show_ota_screen(void);
-void moto_nav_ui_hide_ota_screen(void);
-void moto_nav_ui_update_ota_progress(int percent);
 
 #ifdef __cplusplus
 }
