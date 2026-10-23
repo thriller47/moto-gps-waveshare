@@ -113,6 +113,9 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     private var lastMapSceneLon: Double = 0.0
     private var mapSceneUpdateJob: Job? = null
     private var lastOnlineTileAttemptMs: Long = 0L
+    private var lastOnlineTileAttemptLat: Double = Double.NaN
+    private var lastOnlineTileAttemptLon: Double = Double.NaN
+    private var lastMapSceneRevision: Long = 0L
     private var navigationMapsContext: Context? = null
     private var automaticCorridorJob: Job? = null
 
@@ -370,7 +373,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
 
         if (context != null) {
             val distFromLastScene = calculateDistanceMeters(lastMapSceneLat, lastMapSceneLon, latitude, longitude)
-            if (now - lastMapSceneSendTimeMs >= 1200L || distFromLastScene >= 12.0) {
+            if (now - lastMapSceneSendTimeMs >= 10_000L || distFromLastScene >= 12.0) {
                 lastMapSceneSendTimeMs = now
                 lastMapSceneLat = latitude
                 lastMapSceneLon = longitude
@@ -414,9 +417,19 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                 // Offline area/region/corridor files all share this lookup.
                 // If the current window has no usable context, fetch one cached
                 // online tile at most once per minute to avoid hammering OSM.
-                if (segments.none { it.roadClass in 1..3 && it.points.size >= 2 } &&
-                    System.currentTimeMillis() - lastOnlineTileAttemptMs >= 60_000L) {
+                val usable = segments.filter { it.roadClass in 1..3 && it.points.size >= 2 }
+                val closestMeters = usable.minOfOrNull { seg ->
+                    seg.points.minOf { pt ->
+                        calculateDistanceMeters(lat, lon, pt.latitudeE6 / 1e6, pt.longitudeE6 / 1e6)
+                    }
+                } ?: Double.POSITIVE_INFINITY
+                val tileMoved = lastOnlineTileAttemptLat.isNaN() ||
+                    calculateDistanceMeters(lat, lon, lastOnlineTileAttemptLat, lastOnlineTileAttemptLon) >= 400.0
+                if ((usable.size < 5 || closestMeters > 250.0) &&
+                    (tileMoved || System.currentTimeMillis() - lastOnlineTileAttemptMs >= 60_000L)) {
                     lastOnlineTileAttemptMs = System.currentTimeMillis()
+                    lastOnlineTileAttemptLat = lat
+                    lastOnlineTileAttemptLon = lon
                     if (repository.ensureOnlineTile(lat, lon)) {
                         segments = repository.loadFromRegionalFiles(
                             latE6 - deltaE6, lonE6 - deltaE6,
@@ -467,15 +480,17 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                 if (roadPolylines.isEmpty()) return@launch
 
                 val viewOrigin = GeoPointE6(latE6, lonE6)
+                lastMapSceneRevision = maxOf(lastMapSceneRevision + 1, System.currentTimeMillis() / 1000)
                 val scene = MotoBLEMapScene(
                     coordinateSystem = 2,
-                    sceneRevision = System.currentTimeMillis() / 1000,
+                    sceneRevision = lastMapSceneRevision,
                     viewOrigin = viewOrigin,
                     radiusM = 500,
                     roads = roadPolylines,
                     buildings = emptyList()
                 )
 
+                Log.d("NavigationVM", "Context BLE: roads=${roadPolylines.size} points=${roadPolylines.sumOf { it.points.size }} sourceSegments=${segments.size}")
                 bleManager.sendMapScene(scene)
             } catch (e: Exception) {
                 Log.w("NavigationVM", "Error updating map scene and speed limit: ${e.message}")
