@@ -366,7 +366,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     }
 
     private fun updateSpeedLimitAndMapScene(lat: Double, lon: Double, context: Context) {
-        mapSceneUpdateJob?.cancel()
+        if (mapSceneUpdateJob?.isActive == true) return
         mapSceneUpdateJob = viewModelScope.launch(Dispatchers.IO) {
             try {
                 val repository = HybridMapRepository(context)
