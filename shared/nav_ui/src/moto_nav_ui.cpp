@@ -11,11 +11,6 @@
 
 LV_FONT_DECLARE(moto_font_nav_16);
 
-extern "C" __attribute__((weak)) bool ota_manager_start_ap_server(void) { return false; }
-extern "C" __attribute__((weak)) void ota_manager_stop_ap_server(void) {}
-extern "C" __attribute__((weak)) bool ota_manager_start(void) { return false; }
-extern "C" __attribute__((weak)) bool ota_manager_is_active(void) { return false; }
-extern "C" __attribute__((weak)) bool ota_manager_has_failed(void) { return false; }
 
 namespace {
 
@@ -183,23 +178,7 @@ struct Ui {
     bool demo_active = false;
     bool reduce_motion = false;
 
-    lv_obj_t *ota_overlay = nullptr;
-    lv_obj_t *ota_bar = nullptr;
-    lv_obj_t *ota_percent_label = nullptr;
-    lv_obj_t *ota_btn = nullptr;
-    lv_obj_t *ota_btn_label = nullptr;
 } ui;
-
-void update_ota_button_style() {
-    if (ui.ota_btn == nullptr) return;
-    const bool active = ota_manager_is_active();
-    const bool failed = ota_manager_has_failed();
-    lv_color_t bg_color = active ? lv_color_hex(0x39FF14) : (failed ? lv_color_hex(0xFF0000) : lv_color_hex(0x2A2A2A));
-    lv_obj_set_style_bg_color(ui.ota_btn, bg_color, 0);
-    if (ui.ota_btn_label != nullptr) {
-        lv_obj_set_style_text_color(ui.ota_btn_label, active ? kBlack : kWhite, 0);
-    }
-}
 
 void reset_ui_state() {
     static_assert(std::is_trivially_copyable_v<Ui>,
@@ -1333,7 +1312,6 @@ LifecycleVisual desired_lifecycle_visual() {
 }
 
 void refresh_lifecycle() {
-    update_ota_button_style();
     transition_lifecycle(desired_lifecycle_visual());
 }
 
@@ -1704,22 +1682,6 @@ void create_navigation_page() {
                                             kConnectionSuccessHoldMs,
                                             nullptr);
     lv_timer_pause(ui.nav_success_timer);
-    ui.ota_btn = lv_obj_create(ui.nav_lifecycle);
-    lv_obj_remove_style_all(ui.ota_btn);
-    lv_obj_set_size(ui.ota_btn, px(52), px(52));
-    lv_obj_set_pos(ui.ota_btn, px(35), px(154));
-    lv_obj_set_style_radius(ui.ota_btn, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(ui.ota_btn, lv_color_hex(0x2A2A2A), 0);
-    lv_obj_set_style_bg_opa(ui.ota_btn, LV_OPA_COVER, 0);
-    lv_obj_add_flag(ui.ota_btn, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_flag(ui.ota_btn, LV_OBJ_FLAG_GESTURE_BUBBLE);
-    lv_obj_add_event_cb(ui.ota_btn, [](lv_event_t *e) {
-        if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
-            ota_manager_start();
-        }
-    }, LV_EVENT_CLICKED, nullptr);
-    ui.ota_btn_label = make_label(ui.ota_btn, &lv_font_montserrat_16, kWhite, "OTA");
-    lv_obj_center(ui.ota_btn_label);
     update_ota_button_style();
 
     apply_lifecycle_content(LifecycleVisual::PhoneOffline);
@@ -2168,51 +2130,3 @@ extern "C" void moto_nav_ui_set_demo_change_callback(
     ui.demo_callback_context = context;
 }
 
-extern "C" void moto_nav_ui_hide_ota_screen(void) {
-    if (ui.screen == nullptr) return;
-    if (ui.ota_overlay != nullptr) {
-        lv_obj_add_flag(ui.ota_overlay, LV_OBJ_FLAG_HIDDEN);
-    }
-    update_ota_button_style();
-}
-
-extern "C" void moto_nav_ui_show_ota_screen(void) {
-    if (ui.screen == nullptr) return;
-    update_ota_button_style();
-    if (ui.ota_overlay == nullptr) {
-        ui.ota_overlay = make_layer(ui.screen);
-        lv_obj_set_style_bg_color(ui.ota_overlay, kBlack, 0);
-        lv_obj_set_style_bg_opa(ui.ota_overlay, LV_OPA_COVER, 0);
-
-        lv_obj_t *title = make_label(ui.ota_overlay, &lv_font_montserrat_20, kWhite, "WIFI OTA ATTIVO");
-        lv_obj_align(title, LV_ALIGN_TOP_MID, 0, px(45));
-
-        lv_obj_t *status = make_label(ui.ota_overlay, &lv_font_montserrat_16, kIce, "Rete: MotoGPS-OTA - Pass: motogps123 - IP: 192.168.4.1");
-        lv_obj_set_width(status, px(320));
-        lv_obj_set_style_text_align(status, LV_TEXT_ALIGN_CENTER, 0);
-        lv_obj_align(status, LV_ALIGN_TOP_MID, 0, px(85));
-
-        ui.ota_bar = lv_bar_create(ui.ota_overlay);
-        lv_obj_set_size(ui.ota_bar, px(280), px(20));
-        lv_obj_align(ui.ota_bar, LV_ALIGN_CENTER, 0, px(20));
-        lv_bar_set_range(ui.ota_bar, 0, 100);
-        lv_bar_set_value(ui.ota_bar, 0, LV_ANIM_OFF);
-        lv_obj_set_style_bg_color(ui.ota_bar, kGraphite, LV_PART_MAIN);
-        lv_obj_set_style_bg_color(ui.ota_bar, kGreen, LV_PART_INDICATOR);
-
-        ui.ota_percent_label = make_label(ui.ota_overlay, &lv_font_montserrat_28, kGreen, "0%");
-        lv_obj_align(ui.ota_percent_label, LV_ALIGN_CENTER, 0, px(70));
-    }
-    lv_obj_remove_flag(ui.ota_overlay, LV_OBJ_FLAG_HIDDEN);
-}
-
-extern "C" void moto_nav_ui_update_ota_progress(int percent) {
-    if (ui.ota_bar != nullptr) {
-        lv_bar_set_value(ui.ota_bar, percent, LV_ANIM_OFF);
-    }
-    if (ui.ota_percent_label != nullptr) {
-        char buf[16];
-        std::snprintf(buf, sizeof(buf), "%d%%", percent);
-        lv_label_set_text(ui.ota_percent_label, buf);
-    }
-}
