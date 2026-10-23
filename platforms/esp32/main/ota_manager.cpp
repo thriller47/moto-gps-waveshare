@@ -250,11 +250,13 @@ bool ota_manager_start_ap_server(void) {
         }
     }
 
-    esp_netif_ip_info_t ip_info;
-    std::memset(&ip_info, 0, sizeof(ip_info));
-    IP4_ADDR(&ip_info.ip, 192, 168, 4, 1);
-    IP4_ADDR(&ip_info.gw, 192, 168, 4, 1);
-    IP4_ADDR(&ip_info.netmask, 255, 255, 255, 0);
+    
+    esp_netif_ip_info_t ip_info = {};
+
+    esp_netif_set_ip4_addr(&ip_info.ip, 192, 168, 4, 1);
+    esp_netif_set_ip4_addr(&ip_info.gw, 192, 168, 4, 1);
+    esp_netif_set_ip4_addr(&ip_info.netmask, 255, 255, 255, 0);
+
 
     esp_netif_dhcps_stop(s_ap_netif);
     ret = esp_netif_set_ip_info(s_ap_netif, &ip_info);
