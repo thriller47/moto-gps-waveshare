@@ -467,9 +467,12 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                                 calculateDistanceMeters(lat, lon, pt.latitudeE6 / 1e6, pt.longitudeE6 / 1e6)
                             }
                         }
-                    var pointsRemaining = 192
+                    // Diagnostic BLE profile: small map scenes to test whether
+                    // fragmented 192-point updates are being lost in transit.
+                    // Restore larger capacities after confirming delivery.
+                    var pointsRemaining = 64
                     for (seg in candidates) {
-                        if (roadPolylines.size >= 24 || pointsRemaining < 2) break
+                        if (roadPolylines.size >= 8 || pointsRemaining < 2) break
                         val points = seg.points.take(pointsRemaining)
                         if (points.size < 2) continue
                         roadPolylines.add(MotoBLEMapRoadPolyline(roadClass = seg.roadClass, points = points))
@@ -495,7 +498,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                     buildings = emptyList()
                 )
 
-                Log.d("NavigationVM", "Context BLE: roads=${roadPolylines.size} points=${roadPolylines.sumOf { it.points.size }} sourceSegments=${segments.size}")
+                Log.i("NavigationVM", "Context BLE SMALL(8/64): roads=${roadPolylines.size} points=${roadPolylines.sumOf { it.points.size }} sourceSegments=${segments.size}")
                 bleManager.sendMapScene(scene)
             } catch (e: Exception) {
                 Log.w("NavigationVM", "Error updating map scene and speed limit: ${e.message}")
