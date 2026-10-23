@@ -565,10 +565,6 @@ class HybridMapRepository(private val context: Context) {
                 onProgress?.invoke(index + 1, quads.size, "Area Attuale 50km")
             }
 
-            if (totalSegments == 0) {
-                totalSegments += writeFallbackSegment(writer, lat, lon)
-                writer.flush()
-            }
             fos.fd.sync()
         } finally {
             try { writer.close() } catch (_: Exception) {}
@@ -632,10 +628,6 @@ class HybridMapRepository(private val context: Context) {
                 onProgress?.invoke(index + 1, sampledPoints.size, "Corridoio Rotta")
             }
 
-            if (totalSegments == 0) {
-                totalSegments += writeFallbackSegment(writer, rawRoutePoints.first().first, rawRoutePoints.first().second, rawRoutePoints)
-                writer.flush()
-            }
             fos.fd.sync()
         } finally {
             try { writer.close() } catch (_: Exception) {}
@@ -712,12 +704,6 @@ class HybridMapRepository(private val context: Context) {
                 onProgress?.invoke(index + 1, quads.size, regionName)
             }
 
-            if (totalSegments == 0) {
-                val centerLat = (bbox.minLat + bbox.maxLat) / 2.0
-                val centerLon = (bbox.minLon + bbox.maxLon) / 2.0
-                totalSegments += writeFallbackSegment(writer, centerLat, centerLon)
-                writer.flush()
-            }
             fos.fd.sync()
         } finally {
             try { writer.close() } catch (_: Exception) {}
