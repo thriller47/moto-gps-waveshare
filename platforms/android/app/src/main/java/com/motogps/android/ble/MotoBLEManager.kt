@@ -81,7 +81,8 @@ class MotoBLEManager(private val context: Context) {
     }
 
     init {
-        codecPtr = bleCodec.nativeInit(247)
+        // Until ATT MTU negotiation completes, the default MTU is 23 (20-byte value).
+        codecPtr = bleCodec.nativeInit(20)
     }
 
     fun getCurrentSessionId(): Long = currentSessionId
@@ -264,7 +265,9 @@ class MotoBLEManager(private val context: Context) {
         override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 if (codecPtr != 0L) {
-                    bleCodec.nativeSetMaximumFrameSize(codecPtr, mtu.coerceAtMost(185))
+                    // ATT MTU includes its 3-byte write header; the protocol frame does not.
+                    // Keep the Android TX frame size consistent with the ESP32 receiver.
+                    bleCodec.nativeSetMaximumFrameSize(codecPtr, (mtu - 3).coerceIn(20, 182))
                 }
             }
             enqueueOperation {
