@@ -56,7 +56,6 @@ void board_port_unlock(void);
 bool board_port_power_button_pressed(void);
 
 /** GPIO0 is low while the physical BOOT key is pressed. */
-bool board_port_boot_button_pressed(void);
 
 /**
  * Request AXP2101 software power-off. Keep a deep-sleep fallback in the caller
