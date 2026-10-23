@@ -228,6 +228,7 @@ jobs:
 
       - name: Rename output binary
         run: |
+          sudo chown -R $USER:$USER platforms/esp32/build
           if [ -f "platforms/esp32/build/moto_gps_esp32.bin" ]; then
             mv "platforms/esp32/build/moto_gps_esp32.bin" "platforms/esp32/build/moto-gps-waveshare.bin"
           fi
