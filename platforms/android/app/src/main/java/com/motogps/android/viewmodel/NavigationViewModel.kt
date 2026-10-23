@@ -214,12 +214,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                         currentSpeedDeciKph = 0
                     }
 
-                    val pageName = when (_currentDevicePage.value) {
-                        1 -> "speedometer"
-                        2 -> "heading"
-                        3 -> "music"
-                        else -> "navigation"
-                    }
+                    val pageName = "navigation"
 
                     val (lat, lon) = currentLocation.value
                     val updatedSnap = updateManeuverAndDistance(lat, lon) ?: currentSnapshot?.copy() ?: snapshot.copy()
@@ -342,7 +337,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
 
         if (context != null) {
             val distFromLastScene = calculateDistanceMeters(lastMapSceneLat, lastMapSceneLon, latitude, longitude)
-            if (now - lastMapSceneSendTimeMs >= 2500L || distFromLastScene >= 25.0) {
+            if (now - lastMapSceneSendTimeMs >= 1200L || distFromLastScene >= 12.0) {
                 lastMapSceneSendTimeMs = now
                 lastMapSceneLat = latitude
                 lastMapSceneLon = longitude
@@ -386,7 +381,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
 
                 if (segments.isNotEmpty()) {
                     var minDistance = Double.MAX_VALUE
-                    var bestSpeed = lastSpeedLimitKph
+                    var bestSpeed = 0
 
                     for (seg in segments) {
                         for (pt in seg.points) {
@@ -398,9 +393,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                         }
                     }
 
-                    if (minDistance <= 50.0) {
-                        lastSpeedLimitKph = bestSpeed
-                    }
+                    lastSpeedLimitKph = if (minDistance <= 50.0) bestSpeed else 0
 
                     // Context roads: primary, secondary, tertiary, residential and unclassified only.
                     roadPolylines.addAll(segments.asSequence().filter { it.roadClass in 1..3 }.take(24).map { seg ->
