@@ -26,10 +26,10 @@
 
 namespace {
 constexpr char kTag[] = "board_waveshare";
-// Keep internal SRAM available for BLE and heading task stacks. Two 320-row
-// PSRAM buffers reduce repeated map traversal and still overlap drawing with
-// QSPI DMA. A 32-row internal-buffer experiment exhausted BLE startup memory.
-constexpr std::uint16_t kDrawBufferHeight = 320;
+// Keep internal SRAM available for BLE and heading task stacks. Two 120-row
+// PSRAM buffers reduce single DMA transfer length to ~111 KiB per strip, preventing
+// GDMA TX underflows while still overlapping CPU drawing with QSPI DMA.
+constexpr std::uint16_t kDrawBufferHeight = 120;
 constexpr bool kDrawBuffersUsePsram = true;
 constexpr std::size_t kLvglExtraPoolBytes = 2U * 1024U * 1024U;
 static_assert(kLvglExtraPoolBytes <= LV_MEM_POOL_EXPAND_SIZE,
@@ -239,7 +239,7 @@ esp_err_t initialize_hidden_panel(std::size_t maximum_transfer_size,
   io_config.cs_gpio_num = BSP_LCD_CS;
   io_config.dc_gpio_num = -1;
   io_config.spi_mode = 0;
-  io_config.pclk_hz = 40 * 1'000 * 1'000;
+  io_config.pclk_hz = 30 * 1'000 * 1'000;
   io_config.trans_queue_depth = CONFIG_BSP_LCD_TRANS_QUEUE_DEPTH;
   io_config.lcd_cmd_bits = 32;
   io_config.lcd_param_bits = 8;
@@ -295,11 +295,10 @@ esp_err_t write_pmic_register(std::uint8_t reg, std::uint8_t value) {
   return i2c_master_transmit(pmic, command, sizeof(command), 100);
 }
 
-// Keep one transfer in flight. Double buffering overlaps CPU drawing with the
-// active transfer; a deeper esp_lcd transaction queue does not add another
-// LVGL buffer and only increases memory/latency under continuous animation.
-static_assert(CONFIG_BSP_LCD_TRANS_QUEUE_DEPTH == 1,
-              "CO5300 transfers must be serialized to bound DMA memory");
+// Allow multiple transfers in flight so GDMA direct PSRAM DMA does not underflow
+// when high-frequency BLE notifications or task switching temporarily pause CPU submission.
+static_assert(CONFIG_BSP_LCD_TRANS_QUEUE_DEPTH == 10,
+              "CO5300 transfers must use queue depth 10 to prevent DMA TX underflow");
 
 void round_draw_area(lv_area_t* area, void*) {
   // CO5300 QSPI writes must begin/end on two-pixel boundaries. Keeping the
