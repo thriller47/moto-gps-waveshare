@@ -224,7 +224,11 @@ jobs:
           esp_idf_version: v5.5.5
           target: esp32s3
           path: platforms/esp32
-          command: 'idf.py set-target esp32s3 && idf.py build'
+          command: |
+            idf.py set-target esp32s3 &&
+            idf.py build &&
+            echo "=== Effective ESP-IDF PSRAM / Wi-Fi configuration ===" &&
+            grep -E '^(CONFIG_SPIRAM_USE_|CONFIG_SPIRAM_MALLOC_|CONFIG_ESP_WIFI_.*BUFFER|# CONFIG_SPIRAM_USE_.* is not set)' sdkconfig
 
       - name: Rename output binary
         run: |
