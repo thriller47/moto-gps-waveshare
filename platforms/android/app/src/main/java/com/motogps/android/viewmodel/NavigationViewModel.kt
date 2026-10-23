@@ -461,7 +461,35 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     }
 
     private fun updateManeuverAndDistance(lat: Double, lon: Double): MotoBLENavigationSnapshot? {
-        val snapshot = currentSnapshot ?: return null
+        val baseSnapshot = currentSnapshot ?: return null
+        // Recompute distance along the route at every GPS fix, even when
+        // maneuver instructions are provided separately by the routing engine.
+        val geometryPoints = currentGeometry?.points.orEmpty()
+        var remainingMeters = baseSnapshot.remainingDistanceM
+        if (geometryPoints.size >= 2) {
+            var nearestSegment = 0
+            var nearestDistance = Double.POSITIVE_INFINITY
+            for (i in 0 until geometryPoints.size - 1) {
+                val d = distanceToSegmentMeters(lat, lon, geometryPoints[i], geometryPoints[i + 1])
+                if (d < nearestDistance) {
+                    nearestDistance = d
+                    nearestSegment = i
+                }
+            }
+            val nextPoint = geometryPoints[nearestSegment + 1]
+            remainingMeters = calculateDistanceMeters(
+                lat, lon, nextPoint.latitudeE6 / 1e6, nextPoint.longitudeE6 / 1e6
+            ).coerceAtLeast(0.0).toLong()
+            for (i in nearestSegment + 1 until geometryPoints.size - 1) {
+                val a = geometryPoints[i]
+                val b = geometryPoints[i + 1]
+                remainingMeters += calculateDistanceMeters(
+                    a.latitudeE6 / 1e6, a.longitudeE6 / 1e6,
+                    b.latitudeE6 / 1e6, b.longitudeE6 / 1e6
+                ).toLong()
+            }
+        }
+        val snapshot = baseSnapshot.copy(remainingDistanceM = remainingMeters)
 
         if (routeManeuverSteps.isNotEmpty() && activeStepIndex in routeManeuverSteps.indices) {
             val step = routeManeuverSteps[activeStepIndex]
