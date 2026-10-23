@@ -1711,9 +1711,13 @@ void create_navigation_page() {
     lv_obj_set_style_radius(ui.ota_btn, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_color(ui.ota_btn, lv_color_hex(0x2A2A2A), 0);
     lv_obj_set_style_bg_opa(ui.ota_btn, LV_OPA_COVER, 0);
-    lv_obj_clear_flag(ui.ota_btn, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_flag(ui.ota_btn, LV_OBJ_FLAG_EVENT_BUBBLE);
+    lv_obj_add_flag(ui.ota_btn, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_flag(ui.ota_btn, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_add_event_cb(ui.ota_btn, [](lv_event_t *e) {
+        if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
+            ota_manager_start();
+        }
+    }, LV_EVENT_CLICKED, nullptr);
     ui.ota_btn_label = make_label(ui.ota_btn, &lv_font_montserrat_16, kWhite, "OTA");
     lv_obj_center(ui.ota_btn_label);
     update_ota_button_style();
