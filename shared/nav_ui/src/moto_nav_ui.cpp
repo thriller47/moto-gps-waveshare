@@ -11,10 +11,11 @@
 
 LV_FONT_DECLARE(moto_font_nav_16);
 
-extern "C" __attribute__((weak)) void ota_manager_start_ap_server(void) {}
+extern "C" __attribute__((weak)) bool ota_manager_start_ap_server(void) { return false; }
 extern "C" __attribute__((weak)) void ota_manager_stop_ap_server(void) {}
-extern "C" __attribute__((weak)) void ota_manager_start(void) {}
+extern "C" __attribute__((weak)) bool ota_manager_start(void) { return false; }
 extern "C" __attribute__((weak)) bool ota_manager_is_active(void) { return false; }
+extern "C" __attribute__((weak)) bool ota_manager_has_failed(void) { return false; }
 
 namespace {
 
@@ -40,12 +41,8 @@ constexpr int kCompassTickCount = 24;
 constexpr int kSpeedTickCount = 18;
 constexpr int kDesignWidth = 360;
 constexpr std::uint32_t kPageDotsVisibleMs = 5'000;
-// Keep LVGL, the UI interpolation timer and IMU presentation on the same
-// 40 Hz cadence. The previous 40/33 ms mismatch periodically produced a
-// 66 ms visual gap even when both tasks were otherwise keeping up.
+constexpr std::uint16_t MOTO_UI_ROAD_LINE_WIDGET_LIMIT = 40;
 constexpr std::uint32_t kRouteMotionFrameMs = 25;
-static_assert(LV_DEF_REFR_PERIOD == kRouteMotionFrameMs,
-              "LVGL refresh and map motion must use the same cadence");
 constexpr std::uint32_t kConnectionSuccessHoldMs = 920;
 
 enum class LifecycleVisual : std::uint8_t {
@@ -98,7 +95,7 @@ struct Ui {
     std::uint8_t nav_building_point_count = 0;
     std::uint8_t nav_building_footprint_count = 0;
     std::uint32_t nav_building_scene_revision = 0;
-    lv_obj_t *nav_roads[MOTO_UI_ROAD_POLYLINE_CAPACITY]{};
+    lv_obj_t *nav_roads[MOTO_UI_ROAD_LINE_WIDGET_LIMIT]{};
     MapPolyline nav_road_lines[MOTO_UI_ROAD_POLYLINE_CAPACITY]{};
     lv_point_precise_t nav_road_points[MOTO_UI_ROAD_POINT_CAPACITY]{};
     float nav_road_x[MOTO_UI_ROAD_POINT_CAPACITY]{};
@@ -196,7 +193,9 @@ struct Ui {
 void update_ota_button_style() {
     if (ui.ota_btn == nullptr) return;
     const bool active = ota_manager_is_active();
-    lv_obj_set_style_bg_color(ui.ota_btn, active ? lv_color_hex(0x39FF14) : lv_color_hex(0x2A2A2A), 0);
+    const bool failed = ota_manager_has_failed();
+    lv_color_t bg_color = active ? lv_color_hex(0x39FF14) : (failed ? lv_color_hex(0xFF0000) : lv_color_hex(0x2A2A2A));
+    lv_obj_set_style_bg_color(ui.ota_btn, bg_color, 0);
     if (ui.ota_btn_label != nullptr) {
         lv_obj_set_style_text_color(ui.ota_btn_label, active ? kBlack : kWhite, 0);
     }
@@ -353,6 +352,13 @@ void show_page(moto_ui_page_t page, bool reveal_on_same_page = false) {
             lv_obj_remove_flag(ui.pages[i], LV_OBJ_FLAG_HIDDEN);
         } else {
             lv_obj_add_flag(ui.pages[i], LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+    if (ui.nav_map != nullptr) {
+        if (page == MOTO_UI_PAGE_NAVIGATION) {
+            lv_obj_remove_flag(ui.nav_map, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(ui.nav_map, LV_OBJ_FLAG_HIDDEN);
         }
     }
     update_page_dots();
@@ -576,6 +582,7 @@ bool apply_building_geometry_frame(bool rebind_lines = true) {
 }
 
 void route_motion_tick(lv_timer_t *) {
+    if(ui.page != MOTO_UI_PAGE_NAVIGATION) return;
     if(ui.nav_route_target_count < 2 || ui.nav_route_point_count < 2) return;
     // 0.39 at 25 ms has approximately the same smoothing time constant as
     // the old 0.56 at 40 ms, but supplies smaller and more frequent steps.
@@ -642,13 +649,13 @@ void update_road_geometry(const moto_ui_state_t *state) {
     const std::uint8_t point_count = std::min<std::uint8_t>(
         state->road_point_count, MOTO_UI_ROAD_POINT_CAPACITY);
     const std::uint8_t polyline_count = std::min<std::uint8_t>(
-        state->road_polyline_count, MOTO_UI_ROAD_POLYLINE_CAPACITY);
+        state->road_polyline_count, MOTO_UI_ROAD_LINE_WIDGET_LIMIT);
     if(point_count < 2 || polyline_count == 0) {
         ui.nav_road_point_count = 0;
         ui.nav_road_polyline_count = 0;
         ui.nav_road_scene_revision = state->map_scene_revision;
         for(lv_obj_t *road : ui.nav_roads) {
-            lv_obj_add_flag(road, LV_OBJ_FLAG_HIDDEN);
+            if (road != nullptr) lv_obj_add_flag(road, LV_OBJ_FLAG_HIDDEN);
         }
         return;
     }
@@ -685,8 +692,8 @@ void update_road_geometry(const moto_ui_state_t *state) {
         }
     }
     if(spans_changed) {
-        for(std::uint8_t i = 0; i < MOTO_UI_ROAD_POLYLINE_CAPACITY; ++i) {
-            if(i < polyline_count) {
+        for(std::uint8_t i = 0; i < MOTO_UI_ROAD_LINE_WIDGET_LIMIT; ++i) {
+            if(i < polyline_count && ui.nav_roads[i] != nullptr) {
                 const std::uint8_t road_class = ui.nav_road_spans[i].road_class;
                 const bool major = road_class <= 2U;
                 const bool service = road_class >= 4U;
@@ -695,7 +702,7 @@ void update_road_geometry(const moto_ui_state_t *state) {
                 lv_obj_set_style_line_color(
                     ui.nav_roads[i], lv_color_hex(0xFFFFFF), 0);
                 lv_obj_remove_flag(ui.nav_roads[i], LV_OBJ_FLAG_HIDDEN);
-            } else {
+            } else if(ui.nav_roads[i] != nullptr) {
                 lv_obj_add_flag(ui.nav_roads[i], LV_OBJ_FLAG_HIDDEN);
             }
         }
@@ -1572,7 +1579,7 @@ void create_navigation_page() {
     // its own LVGL line so disconnected streets are never joined by a fake
     // diagonal. The bundled Jinan fixture uses all eight bounded slots; a
     // future online provider must simplify its response to the same limit.
-    for(std::uint8_t i = 0; i < MOTO_UI_ROAD_POLYLINE_CAPACITY; ++i) {
+    for(std::uint8_t i = 0; i < MOTO_UI_ROAD_LINE_WIDGET_LIMIT; ++i) {
         ui.nav_roads[i] = create_map_polyline(ui.nav_map, ui.nav_road_lines[i]);
         lv_obj_set_size(ui.nav_roads[i], MOTO_UI_CANVAS_WIDTH, px(232));
         lv_obj_set_style_line_width(ui.nav_roads[i], px(3), 0);

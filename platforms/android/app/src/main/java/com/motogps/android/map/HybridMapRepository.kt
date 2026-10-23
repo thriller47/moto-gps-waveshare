@@ -553,7 +553,7 @@ class HybridMapRepository(private val context: Context) {
             val p1 = rawRoutePoints[i - 1]
             val p2 = rawRoutePoints[i]
             accumulatedDist += calculateDistanceKm(p1.first, p1.second, p2.first, p2.second)
-            if (accumulatedDist >= 10.0) {
+            if (accumulatedDist >= 5.0) {
                 sampledPoints.add(p2)
                 accumulatedDist = 0.0
             }
