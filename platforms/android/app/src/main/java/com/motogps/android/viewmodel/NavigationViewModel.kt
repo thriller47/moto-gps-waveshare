@@ -402,12 +402,13 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                         lastSpeedLimitKph = bestSpeed
                     }
 
-                    roadPolylines.addAll(segments.take(24).map { seg ->
+                    // Context roads: primary, secondary, tertiary, residential and unclassified only.
+                    roadPolylines.addAll(segments.asSequence().filter { it.roadClass in 1..3 }.take(24).map { seg ->
                         MotoBLEMapRoadPolyline(
                             roadClass = seg.roadClass,
                             points = seg.points.take(192)
                         )
-                    })
+                    }.toList())
                 } else {
                     // Fallback scene using current route points or nearby grid
                     val geomPoints = currentGeometry?.points ?: emptyList()
