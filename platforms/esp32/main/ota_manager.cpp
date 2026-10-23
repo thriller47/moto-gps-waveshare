@@ -9,6 +9,7 @@
 #include "board_port.h"
 #include "esp_event.h"
 #include "esp_http_server.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_mac.h"
 #include "esp_netif.h"
@@ -269,6 +270,13 @@ bool ota_manager_start_ap_server(void) {
     }
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    // OTA SoftAP uses an ephemeral configuration (WIFI_STORAGE_RAM).
+    // Avoid the Wi-Fi NVS allocation, which fails under internal heap pressure.
+    cfg.nvs_enable = 0;
+
+    ESP_LOGI(TAG, "Before Wi-Fi init: internal free=%u bytes, largest block=%u bytes",
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
     ret = esp_wifi_init(&cfg);
     if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
         ESP_LOGE(TAG, "esp_wifi_init failed: %s", esp_err_to_name(ret));
