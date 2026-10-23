@@ -30,7 +30,7 @@ class MotoBLEProtocolCodecTest {
             routeGeneration = 1L,
             totalPointCount = 60,
             viewOrigin = GeoPointE6(45000000, 9000000),
-            points = (0 until 60).map { GeoPointE6(45000000 + it, 9000000 + it) }
+            points = (0 until 60).map { GeoPointE6(45000000 + it * 100000, 9000000 + it * 100000) }
         )
         val frames = codec.nativeEncodeRouteGeometry(handle, geometry)
         assertTrue("Geometry must be split into multiple ATT writes", frames.size > 1)
