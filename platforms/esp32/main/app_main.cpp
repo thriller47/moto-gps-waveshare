@@ -153,6 +153,41 @@ extern "C" void app_main(void) {
   ESP_LOGI(kTag, "starting %dx%d RGB565 firmware target",
            MOTO_DISPLAY_WIDTH, MOTO_DISPLAY_HEIGHT);
 
+  MOTO_PSRAM_BSS static moto::nav::NavPresenter presenter;
+  MOTO_PSRAM_BSS static PhoneNavBridge phone_bridge(presenter);
+  MOTO_PSRAM_BSS static BleNavTransport transport;
+  static MotionHeadingSensor motion_sensor;
+
+  // 1. Initialize NVS, BLE stack (NimBLE / phy_init), QMI8658 sensor, and PWR/BOOT button tasks FIRST.
+  phone_bridge.set_sender(BleNavTransport::send_from_bridge, &transport);
+  transport.set_callbacks(receive_phone_message, update_phone_link,
+                          &phone_bridge);
+  const esp_err_t ble_result = transport.start();
+  if (ble_result != ESP_OK) {
+    ESP_LOGE(kTag, "BLE startup failed; display remains in offline mode: %s",
+             esp_err_to_name(ble_result));
+  }
+
+  const esp_err_t motion_result = motion_sensor.start(update_motion_heading,
+                                                      &phone_bridge);
+  if (motion_result != ESP_OK) {
+    ESP_LOGW(kTag, "QMI8658 heading assist could not start: %s",
+             esp_err_to_name(motion_result));
+  }
+
+  if (xTaskCreate(power_button_task, "moto_power", 3'072, nullptr, 3,
+                  nullptr) != pdPASS) {
+    ESP_LOGW(kTag, "PWR long-hold task could not start");
+  }
+  if (xTaskCreate(boot_button_task, "moto_boot", 3'072, nullptr, 3,
+                  nullptr) != pdPASS) {
+    ESP_LOGW(kTag, "BOOT long-hold task could not start");
+  }
+
+  // Allow BLE_INIT and phy_init to complete startup so phy_init never interrupts display DMA.
+  vTaskDelay(pdMS_TO_TICKS(100));
+
+  // 2. ONLY NOW start the CO5300 display, CST9217 touch, and LVGL rendering task!
   const esp_err_t init_result = board_port_init();
   if (init_result != ESP_OK) {
     ESP_LOGE(kTag, "board initialization stopped before shared UI startup: %s",
@@ -185,7 +220,7 @@ extern "C" void app_main(void) {
 
   moto_nav_ui_show_boot_screen();
   // Commit the deliberately black first animation frame while the physical
-  // panel is still hidden, then reveal it.  This removes the white frame that
+  // panel is still hidden, then reveal it. This removes the white frame that
   // used to leak from LVGL's default startup screen.
   lv_refr_now(display);
   const esp_err_t reveal_result = board_port_reveal_display();
@@ -206,13 +241,10 @@ extern "C" void app_main(void) {
   }
 
   moto_nav_ui_create();
-  MOTO_PSRAM_BSS static moto::nav::NavPresenter presenter;
-  MOTO_PSRAM_BSS static PhoneNavBridge phone_bridge(presenter);
-  MOTO_PSRAM_BSS static BleNavTransport transport;
   // NavSnapshot contains the complete bounded roads/buildings window and is
-  // several kilobytes.  A temporary here inflates app_main's stack frame for
+  // several kilobytes. A temporary here inflates app_main's stack frame for
   // the entire display/BSP startup call chain, which can trip the FreeRTOS
-  // main-task canary before this line is even reached.  Keep the immutable
+  // main-task canary before this line is even reached. Keep the immutable
   // initial state in static storage just like the bridge's retained snapshots.
   static const moto::nav::NavSnapshot initial_snapshot{};
   presenter.update(initial_snapshot);
@@ -222,26 +254,9 @@ extern "C" void app_main(void) {
   board_port_unlock();
 
   if (!phone_bridge.start_renderer()) {
-    ESP_LOGE(kTag, "UI renderer startup failed; BLE was not started");
+    ESP_LOGE(kTag, "UI renderer startup failed");
     vTaskDelete(nullptr);
     return;
-  }
-
-  phone_bridge.set_sender(BleNavTransport::send_from_bridge, &transport);
-  transport.set_callbacks(receive_phone_message, update_phone_link,
-                          &phone_bridge);
-  const esp_err_t ble_result = transport.start();
-  if (ble_result != ESP_OK) {
-    ESP_LOGE(kTag, "BLE startup failed; display remains in offline mode: %s",
-             esp_err_to_name(ble_result));
-  }
-
-  static MotionHeadingSensor motion_sensor;
-  const esp_err_t motion_result = motion_sensor.start(update_motion_heading,
-                                                      &phone_bridge);
-  if (motion_result != ESP_OK) {
-    ESP_LOGW(kTag, "QMI8658 heading assist could not start: %s",
-             esp_err_to_name(motion_result));
   }
 
   // Demo generation fills the retained snapshot in place, but geometry and
@@ -249,14 +264,6 @@ extern "C" void app_main(void) {
   if (xTaskCreate(demo_tick_task, "moto_demo", 6'144, &phone_bridge, 2,
                   nullptr) != pdPASS) {
     ESP_LOGW(kTag, "navigation demo task could not start");
-  }
-  if (xTaskCreate(power_button_task, "moto_power", 3'072, nullptr, 3,
-                  nullptr) != pdPASS) {
-    ESP_LOGW(kTag, "PWR long-hold task could not start");
-  }
-  if (xTaskCreate(boot_button_task, "moto_boot", 3'072, nullptr, 3,
-                  nullptr) != pdPASS) {
-    ESP_LOGW(kTag, "BOOT long-hold task could not start");
   }
 
   ESP_LOGI(kTag,
