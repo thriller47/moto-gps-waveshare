@@ -10,6 +10,7 @@
 #include "esp_event.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
+#include "esp_mac.h"
 #include "esp_netif.h"
 #include "esp_ota_ops.h"
 #include "esp_system.h"
@@ -261,7 +262,7 @@ bool ota_manager_start_ap_server(void) {
         ESP_LOGE(TAG, "esp_netif_set_ip_info failed: %s", esp_err_to_name(ret));
     }
     ret = esp_netif_dhcps_start(s_ap_netif);
-    if (ret != ESP_OK && ret != ESP_ERR_ESP_NETIF_DHCPS_ALREADY_STARTED) {
+    if (ret != ESP_OK && ret != ESP_ERR_ESP_NETIF_DHCP_ALREADY_STARTED) {
         ESP_LOGE(TAG, "esp_netif_dhcps_start failed: %s", esp_err_to_name(ret));
     }
 
