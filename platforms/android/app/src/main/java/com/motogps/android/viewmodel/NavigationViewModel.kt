@@ -112,6 +112,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     private var lastMapSceneLat: Double = 0.0
     private var lastMapSceneLon: Double = 0.0
     private var mapSceneUpdateJob: Job? = null
+    private var lastOnlineTileAttemptMs: Long = 0L
 
     init {
         bleManager.onDeviceCommandReceived = { cmd ->
@@ -374,12 +375,26 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                 val lonE6 = (lon * 1e6).toInt()
                 val deltaE6 = 5000
 
-                val segments = repository.loadFromRegionalFiles(
+                var segments = repository.loadFromRegionalFiles(
                     queryMinLatE6 = latE6 - deltaE6,
                     queryMinLonE6 = lonE6 - deltaE6,
                     queryMaxLatE6 = latE6 + deltaE6,
                     queryMaxLonE6 = lonE6 + deltaE6
                 )
+
+                // Offline area/region/corridor files all share this lookup.
+                // If the current window has no usable context, fetch one cached
+                // online tile at most once per minute to avoid hammering OSM.
+                if (segments.none { it.roadClass in 1..3 && it.points.size >= 2 } &&
+                    System.currentTimeMillis() - lastOnlineTileAttemptMs >= 60_000L) {
+                    lastOnlineTileAttemptMs = System.currentTimeMillis()
+                    if (repository.ensureOnlineTile(lat, lon)) {
+                        segments = repository.loadFromRegionalFiles(
+                            latE6 - deltaE6, lonE6 - deltaE6,
+                            latE6 + deltaE6, lonE6 + deltaE6
+                        )
+                    }
+                }
 
                 val roadPolylines = mutableListOf<MotoBLEMapRoadPolyline>()
 
