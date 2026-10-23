@@ -22,15 +22,19 @@ on:
   workflow_dispatch:
     inputs:
       build_native:
-        description: 'Esegui test Core e Backend'
+        description: 'Build Core and Backend'
+        type: boolean
+        default: true
+      build_backend:
+        description: 'Run Backend tests'
         type: boolean
         default: true
       build_android:
-        description: 'Compila APK Android'
+        description: 'Build Android APK'
         type: boolean
         default: true
       build_esp32:
-        description: 'Compila Firmware ESP32-S3'
+        description: 'Build ESP32-S3 Firmware'
         type: boolean
         default: true
 
@@ -38,21 +42,23 @@ permissions:
   contents: read
 
 concurrency:
-  group: project-build-${{ github.ref }}
+  group: project-build-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
-  # 1. Job leggerissimo per capire quali file sono stati modificati
   detect-changes:
-    runs-on: ubuntu-latest
     if: github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-latest
     outputs:
       native: ${{ steps.filter.outputs.native }}
+      backend: ${{ steps.filter.outputs.backend }}
       android: ${{ steps.filter.outputs.android }}
       esp32: ${{ steps.filter.outputs.esp32 }}
     steps:
       - uses: actions/checkout@v5
-      - uses: dorny/paths-filter@v3
+
+      - name: Detect relevant changes
+        uses: dorny/paths-filter@v3
         id: filter
         with:
           filters: |
@@ -63,8 +69,13 @@ jobs:
               - 'src/**'
               - 'include/**'
               - 'tests/**'
+              - 'scripts/**'
+              - '.github/workflows/project-build.yml'
+            backend:
               - 'backend/**'
               - 'scripts/**'
+              - 'package.json'
+              - 'backend/package.json'
               - '.github/workflows/project-build.yml'
             android:
               - 'platforms/android/**'
@@ -77,17 +88,46 @@ jobs:
               - 'common/**'
               - '.github/workflows/project-build.yml'
 
-  # 2. Compilazione Core C++ e Backend Node.js
-  native-and-data:
+  native:
     needs: [detect-changes]
     if: |
-      always() && 
+      always() &&
       (
         (github.event_name == 'workflow_dispatch' && inputs.build_native == true) ||
         (github.event_name != 'workflow_dispatch' && needs.detect-changes.outputs.native == 'true')
       )
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Configure and build native core
+        run: |
+          cmake -S . -B build/native -DMOTO_BUILD_WEB=OFF -DMOTO_BUILD_TESTS=ON
+          cmake --build build/native --parallel 4
+
+      - name: Run native tests
+        run: ctest --test-dir build/native --output-on-failure
+
+  backend:
+    needs: [detect-changes]
+    if: |
+      always() &&
+      (
+        (github.event_name == 'workflow_dispatch' && inputs.build_backend == true) ||
+        (github.event_name != 'workflow_dispatch' && needs.detect-changes.outputs.backend == 'true')
+      )
+    runs-on: ubuntu-latest
     timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v5
         with:
@@ -100,32 +140,29 @@ jobs:
           cache: 'npm'
           cache-dependency-path: backend/package-lock.json
 
-      - name: Build shared core and host tests
-        run: |
-          cmake -S . -B build/native -DMOTO_BUILD_WEB=OFF -DMOTO_BUILD_TESTS=ON
-          cmake --build build/native --parallel 4
-          ctest --test-dir build/native --output-on-failure
+      - name: Install backend dependencies
+        run: npm ci --prefix backend
 
-      - name: Backend tests (no live API)
-        run: |
-          npm ci --prefix backend
-          npm --prefix backend test
+      - name: Run backend tests
+        run: npm --prefix backend test
 
       - name: Verify public map fixtures
         run: |
           node scripts/generate_jinan_demo_fixture.mjs --check
 
-  # 3. Compilazione App Android
-  android-build:
+  android:
     needs: [detect-changes]
     if: |
-      always() && 
+      always() &&
       (
         (github.event_name == 'workflow_dispatch' && inputs.build_android == true) ||
         (github.event_name != 'workflow_dispatch' && needs.detect-changes.outputs.android == 'true')
       )
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v5
         with:
@@ -141,27 +178,30 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x platforms/android/gradlew
 
-      - name: Build and Test Android
+      - name: Build Android app
         run: cd platforms/android && ./gradlew build -x lint -x lintVitalRelease --build-cache
 
       - name: Upload APK
+        if: ${{ hashFiles('platforms/android/app/build/outputs/apk/debug/app-debug.apk') != '' }}
         uses: actions/upload-artifact@v5
         with:
           name: Glimpse-MOTO-GPS-Android-Final.apk
           path: platforms/android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 7
 
-  # 4. Compilazione Firmware ESP32-S3
-  esp32-build:
+  esp32:
     needs: [detect-changes]
     if: |
-      always() && 
+      always() &&
       (
         (github.event_name == 'workflow_dispatch' && inputs.build_esp32 == true) ||
         (github.event_name != 'workflow_dispatch' && needs.detect-changes.outputs.esp32 == 'true')
       )
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v5
         with:
@@ -176,7 +216,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-esp32s3-ccache-
 
-      - name: Build ESP32 Firmware
+      - name: Build ESP32 firmware
         uses: espressif/esp-idf-ci-action@v1
         env:
           IDF_CCACHE_ENABLE: 1
@@ -189,10 +229,16 @@ jobs:
       - name: Rename output binary
         run: |
           if [ -f "platforms/esp32/build/moto_gps_esp32.bin" ]; then
-            sudo mv platforms/esp32/build/moto_gps_esp32.bin platforms/esp32/build/moto-gps-waveshare.bin
+            mv "platforms/esp32/build/moto_gps_esp32.bin" "platforms/esp32/build/moto-gps-waveshare.bin"
           fi
 
-      - name: Upload Artifacts
+      - name: Upload ESP32 artifacts
+        if: >-
+          ${{
+            hashFiles('platforms/esp32/build/bootloader/bootloader.bin') != '' ||
+            hashFiles('platforms/esp32/build/partition_table/partition-table.bin') != '' ||
+            hashFiles('platforms/esp32/build/moto-gps-waveshare.bin') != ''
+          }}
         uses: actions/upload-artifact@v5
         with:
           name: ESP32-Firmware
