@@ -18,7 +18,6 @@ idf_component_register(
         "ble_nav_transport_nimble.cpp"
         "board_port_waveshare_1_75c.cpp"
         "motion_heading_sensor.cpp"
-        "ota_manager.cpp"
         "phone_nav_bridge.cpp"
         "${MOTO_SHARED_BLE_PROTOCOL_SOURCE}"
         "${MOTO_SHARED_NAV_PRESENTER_SOURCE}"
@@ -42,10 +41,6 @@ idf_component_register(
         nvs_flash
         bt
         esp32_s3_touch_amoled_1_75c
-        app_update
-        esp_wifi
-        esp_netif
-        esp_http_server
 )
 
 target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_17)
