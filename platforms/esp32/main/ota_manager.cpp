@@ -28,6 +28,27 @@ static const char *TAG = "OTA";
 #ifdef ESP_PLATFORM
 static httpd_handle_t s_server = NULL;
 static esp_netif_t *s_ap_netif = NULL;
+
+static void wifi_event_handler(void *arg, esp_event_base_t event_base,
+                               int32_t event_id, void *event_data) {
+    if (event_base == WIFI_EVENT) {
+        if (event_id == WIFI_EVENT_AP_STACONNECTED) {
+            auto *event = (wifi_event_ap_staconnected_t *)event_data;
+            ESP_LOGI(TAG, "Station " MACSTR " connected, AID=%d",
+                     MAC2STR(event->mac), event->aid);
+        } else if (event_id == WIFI_EVENT_AP_STADISCONNECTED) {
+            auto *event = (wifi_event_ap_stadisconnected_t *)event_data;
+            ESP_LOGI(TAG, "Station " MACSTR " disconnected, AID=%d",
+                     MAC2STR(event->mac), event->aid);
+        }
+    } else if (event_base == IP_EVENT) {
+        if (event_id == IP_EVENT_AP_STAIPASSIGNED) {
+            auto *event = (ip_event_ap_staipassigned_t *)event_data;
+            ESP_LOGI(TAG, "Station " MACSTR " assigned IP:" IPSTR,
+                     MAC2STR(event->mac), IP2STR(&event->ip));
+        }
+    }
+}
 #endif
 
 static bool s_active = false;
@@ -208,6 +229,15 @@ bool ota_manager_start_ap_server(void) {
         return false;
     }
 
+    static bool s_handlers_registered = false;
+    if (!s_handlers_registered) {
+        esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID,
+                                            &wifi_event_handler, NULL, NULL);
+        esp_event_handler_instance_register(IP_EVENT, IP_EVENT_AP_STAIPASSIGNED,
+                                            &wifi_event_handler, NULL, NULL);
+        s_handlers_registered = true;
+    }
+
     if (s_ap_netif == NULL) {
         s_ap_netif = esp_netif_create_default_wifi_ap();
         if (s_ap_netif == NULL) {
@@ -216,6 +246,22 @@ bool ota_manager_start_ap_server(void) {
             safe_ui_show_ota_screen();
             return false;
         }
+    }
+
+    esp_netif_ip_info_t ip_info;
+    std::memset(&ip_info, 0, sizeof(ip_info));
+    IP4_ADDR(&ip_info.ip, 192, 168, 4, 1);
+    IP4_ADDR(&ip_info.gw, 192, 168, 4, 1);
+    IP4_ADDR(&ip_info.netmask, 255, 255, 255, 0);
+
+    esp_netif_dhcps_stop(s_ap_netif);
+    ret = esp_netif_set_ip_info(s_ap_netif, &ip_info);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "esp_netif_set_ip_info failed: %s", esp_err_to_name(ret));
+    }
+    ret = esp_netif_dhcps_start(s_ap_netif);
+    if (ret != ESP_OK && ret != ESP_ERR_ESP_NETIF_DHCPS_ALREADY_STARTED) {
+        ESP_LOGE(TAG, "esp_netif_dhcps_start failed: %s", esp_err_to_name(ret));
     }
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
