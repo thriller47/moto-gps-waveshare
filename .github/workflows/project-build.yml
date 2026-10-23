@@ -2,8 +2,38 @@ name: Project Build
 
 on:
   push:
+    branches:
+      - main
+      - master
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.gitignore'
+      - 'LICENSE'
   pull_request:
+    branches:
+      - main
+      - master
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.gitignore'
+      - 'LICENSE'
   workflow_dispatch:
+    inputs:
+      build_native:
+        description: 'Esegui test Core e Backend'
+        type: boolean
+        default: true
+      build_android:
+        description: 'Compila APK Android'
+        type: boolean
+        default: true
+      build_esp32:
+        description: 'Compila Firmware ESP32-S3'
+        type: boolean
+        default: true
+
 permissions:
   contents: read
 
@@ -12,70 +42,156 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  native-and-data:
+  # 1. Job leggerissimo per capire quali file sono stati modificati
+  detect-changes:
     runs-on: ubuntu-latest
+    if: github.event_name != 'workflow_dispatch'
+    outputs:
+      native: ${{ steps.filter.outputs.native }}
+      android: ${{ steps.filter.outputs.android }}
+      esp32: ${{ steps.filter.outputs.esp32 }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            native:
+              - 'CMakeLists.txt'
+              - 'core/**'
+              - 'common/**'
+              - 'src/**'
+              - 'include/**'
+              - 'tests/**'
+              - 'backend/**'
+              - 'scripts/**'
+              - '.github/workflows/project-build.yml'
+            android:
+              - 'platforms/android/**'
+              - 'core/**'
+              - 'common/**'
+              - '.github/workflows/project-build.yml'
+            esp32:
+              - 'platforms/esp32/**'
+              - 'core/**'
+              - 'common/**'
+              - '.github/workflows/project-build.yml'
+
+  # 2. Compilazione Core C++ e Backend Node.js
+  native-and-data:
+    needs: [detect-changes]
+    if: |
+      always() && 
+      (
+        (github.event_name == 'workflow_dispatch' && inputs.build_native == true) ||
+        (github.event_name != 'workflow_dispatch' && needs.detect-changes.outputs.native == 'true')
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
         with:
           submodules: recursive
           persist-credentials: false
+
       - uses: actions/setup-node@v5
         with:
           node-version: '24'
-          package-manager-cache: false
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
       - name: Build shared core and host tests
         run: |
           cmake -S . -B build/native -DMOTO_BUILD_WEB=OFF -DMOTO_BUILD_TESTS=ON
           cmake --build build/native --parallel 4
           ctest --test-dir build/native --output-on-failure
+
       - name: Backend tests (no live API)
         run: |
           npm ci --prefix backend
           npm --prefix backend test
+
       - name: Verify public map fixtures
         run: |
           node scripts/generate_jinan_demo_fixture.mjs --check
 
+  # 3. Compilazione App Android
   android-build:
+    needs: [detect-changes]
+    if: |
+      always() && 
+      (
+        (github.event_name == 'workflow_dispatch' && inputs.build_android == true) ||
+        (github.event_name != 'workflow_dispatch' && needs.detect-changes.outputs.android == 'true')
+      )
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v5
         with:
           submodules: recursive
           persist-credentials: false
+
       - uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
           java-version: '17'
+          cache: 'gradle'
+
       - name: Make gradlew executable
         run: chmod +x platforms/android/gradlew
+
       - name: Build and Test Android
-        run: cd platforms/android && ./gradlew build -x lint -x lintVitalRelease
+        run: cd platforms/android && ./gradlew build -x lint -x lintVitalRelease --build-cache
+
       - name: Upload APK
         uses: actions/upload-artifact@v5
         with:
           name: Glimpse-MOTO-GPS-Android-Final.apk
           path: platforms/android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 7
 
+  # 4. Compilazione Firmware ESP32-S3
   esp32-build:
+    needs: [detect-changes]
+    if: |
+      always() && 
+      (
+        (github.event_name == 'workflow_dispatch' && inputs.build_esp32 == true) ||
+        (github.event_name != 'workflow_dispatch' && needs.detect-changes.outputs.esp32 == 'true')
+      )
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
         with:
           submodules: recursive
           persist-credentials: false
+
+      - name: Cache ESP-IDF ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ${{ runner.os }}-esp32s3-ccache-${{ hashFiles('platforms/esp32/**') }}
+          restore-keys: |
+            ${{ runner.os }}-esp32s3-ccache-
+
       - name: Build ESP32 Firmware
         uses: espressif/esp-idf-ci-action@v1
+        env:
+          IDF_CCACHE_ENABLE: 1
         with:
           esp_idf_version: v5.5.5
           target: esp32s3
           path: platforms/esp32
           command: 'idf.py set-target esp32s3 && idf.py build'
+
       - name: Rename output binary
         run: |
           if [ -f "platforms/esp32/build/moto_gps_esp32.bin" ]; then
             sudo mv platforms/esp32/build/moto_gps_esp32.bin platforms/esp32/build/moto-gps-waveshare.bin
           fi
+
       - name: Upload Artifacts
         uses: actions/upload-artifact@v5
         with:
@@ -84,3 +200,4 @@ jobs:
             platforms/esp32/build/bootloader/bootloader.bin
             platforms/esp32/build/partition_table/partition-table.bin
             platforms/esp32/build/moto-gps-waveshare.bin
+          retention-days: 3
