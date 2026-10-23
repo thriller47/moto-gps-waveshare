@@ -9,7 +9,9 @@ CONFIG_SPIRAM=y
 CONFIG_SPIRAM_MODE_OCT=y
 CONFIG_SPIRAM_SPEED_80M=y
 CONFIG_ESP_COEX_SW_COEXIST_ENABLE=y
-CONFIG_SPIRAM_USE_CAPS_ALLOC=y
+# Let ordinary malloc() use PSRAM as well: CAPS_ALLOC keeps malloc()
+# internal-only and makes MALLOC_ALWAYSINTERNAL ineffective.
+CONFIG_SPIRAM_USE_MALLOC=y
 # Prefer PSRAM for ordinary allocations larger than 1 KiB, preserving scarce
 # internal 8-bit heap for Wi-Fi, NimBLE and the LCD DMA driver during OTA.
 CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=1024
