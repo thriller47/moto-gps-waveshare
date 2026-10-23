@@ -294,6 +294,8 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     private var activeDestination: PlaceSearchResult? = null
     private var activeGatewayUrl: String = ""
     private var lastRecalculationTime: Long = 0
+    private var offRouteFixCount = 0
+    private var rerouteInProgress = false
 
     fun updateDeviceHeading(headingDeg: Float) {
         isCompassSensorActive = true
@@ -660,27 +662,56 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         return result
     }
 
+    // Approximate shortest distance to a polyline segment in local meters.
+    private fun distanceToSegmentMeters(
+        lat: Double, lon: Double, a: GeoPointE6, b: GeoPointE6
+    ): Double {
+        val scaleX = 111320.0 * kotlin.math.cos(Math.toRadians(lat))
+        val scaleY = 111320.0
+        val ax = (a.longitudeE6 / 1e6 - lon) * scaleX
+        val ay = (a.latitudeE6 / 1e6 - lat) * scaleY
+        val bx = (b.longitudeE6 / 1e6 - lon) * scaleX
+        val by = (b.latitudeE6 / 1e6 - lat) * scaleY
+        val dx = bx - ax
+        val dy = by - ay
+        val t = if (dx * dx + dy * dy > 0.001)
+            (-(ax * dx + ay * dy) / (dx * dx + dy)).coerceIn(0.0, 1.0)
+        else 0.0
+        return kotlin.math.hypot(ax + t * dx, ay + t * dy)
+    }
+
     private fun checkOffRouteAndRecalculate(latitude: Double, longitude: Double) {
         val dest = activeDestination ?: return
-        val now = System.currentTimeMillis()
-        if (now - lastRecalculationTime < 10000) return
+        val points = currentGeometry?.points ?: return
+        if (points.size < 2 || rerouteInProgress) return
 
-        val crossTrackMeters = calculateDistanceMeters(latitude, longitude, dest.latitude, dest.longitude)
-        if (crossTrackMeters > 35) {
-            lastRecalculationTime = now
-            viewModelScope.launch {
-                try {
-                    val (snapshot, geometry) = withContext(Dispatchers.IO) {
-                        performRoutingWithGeometry(dest, activeGatewayUrl)
-                    }
-                    currentSnapshot = snapshot
-                    currentGeometry = geometry
-                    if (geometry != null) {
-                        bleManager.sendRouteGeometry(geometry)
-                    }
-                    bleManager.sendNavigationSnapshot(snapshot)
-                } catch (_: Exception) {
+        // Do not mistake distance to the destination for distance to the route.
+        var distanceFromRoute = Double.POSITIVE_INFINITY
+        for (i in 1 until points.size) {
+            distanceFromRoute = minOf(distanceFromRoute,
+                distanceToSegmentMeters(latitude, longitude, points[i - 1], points[i]))
+        }
+        offRouteFixCount = if (distanceFromRoute > 35.0) offRouteFixCount + 1 else 0
+        if (offRouteFixCount < 2) return
+
+        val now = System.currentTimeMillis()
+        if (now - lastRecalculationTime < 4000L) return
+        lastRecalculationTime = now
+        offRouteFixCount = 0
+        rerouteInProgress = true
+        viewModelScope.launch {
+            try {
+                val (snapshot, geometry) = withContext(Dispatchers.IO) {
+                    performRoutingWithGeometry(dest, activeGatewayUrl)
                 }
+                currentSnapshot = snapshot
+                currentGeometry = geometry
+                if (geometry != null) bleManager.sendRouteGeometry(geometry)
+                bleManager.sendNavigationSnapshot(snapshot)
+            } catch (e: Exception) {
+                Log.w("NavigationVM", "Route recalculation failed: ${e.message}")
+            } finally {
+                rerouteInProgress = false
             }
         }
     }
