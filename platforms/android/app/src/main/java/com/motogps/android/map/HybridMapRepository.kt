@@ -102,7 +102,7 @@ class HybridMapRepository(private val context: Context) {
         val west = lonTile * step
         val query = String.format(
             Locale.US,
-            "[out:json][timeout:25];way[\\"highway\\"~\\"^(primary|primary_link|secondary|secondary_link|tertiary|tertiary_link|residential|unclassified)$\\"](%.6f,%.6f,%.6f,%.6f);out body geom qt;",
+            "[out:json][timeout:25];way[\"highway\"~\"^(primary|primary_link|secondary|secondary_link|tertiary|tertiary_link|residential|unclassified)$\"](%.6f,%.6f,%.6f,%.6f);out body geom qt;",
             south, west, south + step, west + step
         )
         val temp = File(mapsDir, file.name + ".tmp")
