@@ -91,3 +91,19 @@ soltanto sui frame rifiutati; verificare che il firmware in esecuzione
 sia prodotto esattamente dal commit analizzato e che le code non
 vengano svuotate durante messaggi frammentati. Non registrare payload
 contenenti posizione privata in log di produzione.
+
+## Test sperimentale QSPI 20 MHz (branch chatgpt-test)
+
+Nel log successivo (build 23 ottobre 2026 10:53:43) l'iPhone si connette
+a 7241 ms e `DMA TX underflow detected` compare a circa 7542 ms,
+prima della negoziazione MTU a 8126 ms. Il test isolato riduce
+`io_config.pclk_hz` da 40 MHz a 20 MHz in
+`platforms/esp32/main/board_port_waveshare_1_75c.cpp`; mantiene
+`psram_dma_direct=true`, due buffer PSRAM da 320 righe e coda SPI a 1.
+
+Eseguire lo stesso scenario di avvio e collegamento iPhone, confrontando:
+presenza/assenza di `DMA TX underflow detected`, `send color data failed`,
+`ESP_ERR_INVALID_STATE`, errori `crc_mismatch`, FPS e heap minimo.
+Controllare che la nuova compilazione abbia una data/ELF SHA diversa dal
+firmware precedente. Questa è una variazione diagnostica: non è ancora
+provato che risolva stabilmente il difetto DMA.
