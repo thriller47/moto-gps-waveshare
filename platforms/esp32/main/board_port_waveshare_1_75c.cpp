@@ -17,6 +17,7 @@
 #include "esp_lcd_co5300.h"
 #include "esp_lcd_panel_io.h"
 #include "esp_lcd_panel_ops.h"
+#include "esp_lcd_panel_vendor.h"
 #include "esp_log.h"
 #include "esp_lv_adapter.h"
 #include "esp_timer.h"
@@ -65,6 +66,36 @@ esp_lcd_panel_handle_t panel = nullptr;
 i2c_master_dev_handle_t pmic = nullptr;
 bool display_revealed = false;
 void* lvgl_extra_pool_storage = nullptr;
+
+esp_err_t (*s_original_draw_bitmap)(esp_lcd_panel_t* panel,
+                                     int x_start,
+                                     int y_start,
+                                     int x_end,
+                                     int y_end,
+                                     const void* color_data) = nullptr;
+
+esp_err_t protected_draw_bitmap(esp_lcd_panel_t* panel,
+                                int x_start,
+                                int y_start,
+                                int x_end,
+                                int y_end,
+                                const void* color_data) {
+  if (s_original_draw_bitmap == nullptr) {
+    return ESP_ERR_INVALID_STATE;
+  }
+  const esp_err_t result = s_original_draw_bitmap(
+      panel, x_start, y_start, x_end, y_end, color_data);
+  if (result != ESP_OK) {
+    ESP_LOGE(kTag,
+             "esp_lcd_panel_draw_bitmap failed: %s (%d); calling "
+             "lv_display_flush_ready to prevent LVGL deadlock",
+             esp_err_to_name(result), static_cast<int>(result));
+    if (display != nullptr) {
+      lv_display_flush_ready(display);
+    }
+  }
+  return result;
+}
 
 struct TeSyncState {
   std::int64_t last_edge_us = 0;
@@ -280,6 +311,11 @@ esp_err_t initialize_hidden_panel(std::size_t maximum_transfer_size,
                       "CO5300 hidden initialization failed");
   ESP_RETURN_ON_ERROR(esp_lcd_panel_disp_on_off(new_panel, false), kTag,
                       "CO5300 could not remain hidden after initialization");
+
+  if (new_panel != nullptr) {
+    s_original_draw_bitmap = new_panel->draw_bitmap;
+    new_panel->draw_bitmap = protected_draw_bitmap;
+  }
 
   *panel_out = new_panel;
   *panel_io_out = new_panel_io;
