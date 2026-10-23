@@ -178,8 +178,8 @@ class HybridMapRepository(private val context: Context) {
             "motorway", "motorway_link", "trunk", "trunk_link" -> 0
             "primary", "primary_link" -> 1
             "secondary", "secondary_link", "tertiary", "tertiary_link" -> 2
-            "residential", "living_street", "unclassified" -> 3
-            "service", "pedestrian", "track", "path", "footway", "cycleway" -> 4
+            "residential", "unclassified" -> 3
+            "service", "living_street", "pedestrian", "track", "path", "footway", "cycleway" -> 4
             else -> 5
         }
     }
