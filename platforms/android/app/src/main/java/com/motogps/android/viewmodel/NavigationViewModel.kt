@@ -113,6 +113,8 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     private var lastMapSceneLon: Double = 0.0
     private var mapSceneUpdateJob: Job? = null
     private var lastOnlineTileAttemptMs: Long = 0L
+    private var navigationMapsContext: Context? = null
+    private var automaticCorridorJob: Job? = null
 
     init {
         bleManager.onDeviceCommandReceived = { cmd ->
@@ -198,6 +200,30 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
 
                 currentSnapshot = snapshot
                 currentGeometry = geometry
+                // Prepare the existing corridor cache automatically for a new
+                // route. Online tiles continue to provide immediate context.
+                val mapContext = navigationMapsContext
+                if (mapContext != null && geometry != null && geometry.points.size >= 2) {
+                    automaticCorridorJob?.cancel()
+                    val routePoints = geometry.points.map { point ->
+                        Pair(point.latitudeE6 / 1e6, point.longitudeE6 / 1e6)
+                    }
+                    automaticCorridorJob = viewModelScope.launch(Dispatchers.IO) {
+                        try {
+                            val repo = HybridMapRepository(mapContext)
+                            val hasCorridor = repo.listSavedMaps().any {
+                                it.fileName == "corridoio_rotta.motomap" && it.sizeBytes > 0L
+                            }
+                            if (!hasCorridor) {
+                                repo.downloadRouteCorridor(routePoints)
+                                val (currentLat, currentLon) = currentLocation.value
+                                updateSpeedLimitAndMapScene(currentLat, currentLon, mapContext)
+                            }
+                        } catch (e: Exception) {
+                            Log.w("NavigationVM", "Automatic corridor unavailable: ${e.message}")
+                        }
+                    }
+                }
 
                 if (geometry != null) {
                     bleManager.sendRouteGeometry(geometry)
@@ -250,6 +276,8 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         _isNavigating.value = false
         navigationJob?.cancel()
         navigationJob = null
+        automaticCorridorJob?.cancel()
+        automaticCorridorJob = null
         activeDestination = null
         currentSnapshot = null
         currentGeometry = null
@@ -312,6 +340,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         gpsBearingDeg: Float? = null,
         context: Context? = null
     ) {
+        if (context != null) navigationMapsContext = context.applicationContext
         hasFirstFix = true
         _currentLocation.value = Pair(latitude, longitude)
         val now = System.currentTimeMillis()
