@@ -31,9 +31,9 @@ CONFIG_SPIRAM_FETCH_INSTRUCTIONS=y
 CONFIG_SPIRAM_RODATA=y
 
 # The board port supplies its own PSRAM draw buffers and explicitly opts into
-# direct PSRAM DMA. Queue up to 4 QSPI transactions to prevent DMA TX underflows
-# during task switching and BLE connection bursts.
-CONFIG_BSP_LCD_TRANS_QUEUE_DEPTH=4
+# direct PSRAM DMA. Queue up to 10 QSPI transactions to prevent DMA TX underflows
+# during task switching and initial bitmap draw flushes.
+CONFIG_BSP_LCD_TRANS_QUEUE_DEPTH=10
 CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB=y
 CONFIG_ESP32S3_DATA_CACHE_64KB=y
 CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y
