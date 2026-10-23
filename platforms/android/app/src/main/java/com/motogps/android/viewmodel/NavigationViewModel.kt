@@ -1,9 +1,6 @@
 package com.motogps.android.viewmodel
 
 import android.content.Context
-import android.net.ConnectivityManager
-import android.net.Network
-import android.net.NetworkCapabilities
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -84,15 +81,6 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
 
     private val _savedMaps = MutableStateFlow<List<SavedMapInfo>>(emptyList())
     val savedMaps: StateFlow<List<SavedMapInfo>> = _savedMaps
-
-    private val _otaStatus = MutableStateFlow<String?>(null)
-    val otaStatus: StateFlow<String?> = _otaStatus
-
-    private val _otaProgress = MutableStateFlow(0)
-    val otaProgress: StateFlow<Int> = _otaProgress
-
-    private val _isUploadingOta = MutableStateFlow(false)
-    val isUploadingOta: StateFlow<Boolean> = _isUploadingOta
 
     private val _downloadProgress = MutableStateFlow(0f)
     val downloadProgress: StateFlow<Float> = _downloadProgress
@@ -1074,89 +1062,6 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                 }
             }
         }
-    }
-
-    fun uploadFirmwareOta(context: Context, fileUri: android.net.Uri, espIp: String = "192.168.4.1") {
-        viewModelScope.launch(Dispatchers.IO) {
-            _isUploadingOta.value = true
-            _otaProgress.value = 0
-            _otaStatus.value = "Avvio caricamento OTA..."
-
-            var conn: HttpURLConnection? = null
-            try {
-                val inputStream = context.contentResolver.openInputStream(fileUri)
-                    ?: throw Exception("Impossibile aprire il file selezionato")
-
-                val firmwareBytes = inputStream.use { it.readBytes() }
-                if (firmwareBytes.isEmpty()) {
-                    throw Exception("File firmware vuoto")
-                }
-
-                val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
-                var wifiNetwork: Network? = null
-                if (connectivityManager != null) {
-                    for (network in connectivityManager.allNetworks) {
-                        val caps = connectivityManager.getNetworkCapabilities(network)
-                        if (caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
-                            wifiNetwork = network
-                            break
-                        }
-                    }
-                }
-
-                val url = URL("http://$espIp/ota")
-                conn = if (wifiNetwork != null) {
-                    wifiNetwork.openConnection(url) as HttpURLConnection
-                } else {
-                    url.openConnection() as HttpURLConnection
-                }.apply {
-                    requestMethod = "POST"
-                    doOutput = true
-                    connectTimeout = 10000
-                    readTimeout = 60000
-                    setRequestProperty("Content-Type", "application/octet-stream")
-                    setFixedLengthStreamingMode(firmwareBytes.size)
-                }
-
-                val totalSize = firmwareBytes.size
-                var bytesSent = 0
-                val chunkSize = 4096
-
-                conn.outputStream.use { os ->
-                    while (bytesSent < totalSize) {
-                        val length = minOf(chunkSize, totalSize - bytesSent)
-                        os.write(firmwareBytes, bytesSent, length)
-                        bytesSent += length
-                        val prog = ((bytesSent.toLong() * 100) / totalSize).toInt().coerceIn(0, 100)
-                        _otaProgress.value = prog
-                        _otaStatus.value = "Caricamento in corso: $prog%"
-                    }
-                    os.flush()
-                }
-
-                val responseCode = conn.responseCode
-                if (responseCode in 200..299) {
-                    _otaProgress.value = 100
-                    _otaStatus.value = "Aggiornamento OTA completato (HTTP $responseCode)! Riavvio display in corso..."
-                } else {
-                    val errorText = try {
-                        conn.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
-                    } catch (_: Exception) { "" }
-                    throw Exception("HTTP Errore $responseCode: $errorText")
-                }
-            } catch (t: Throwable) {
-                _otaStatus.value = "Errore: ${t.localizedMessage ?: t.message ?: "Caricamento fallito"}. Assicurati di essere connesso al Wi-Fi MotoGPS-OTA"
-            } finally {
-                _isUploadingOta.value = false
-                conn?.disconnect()
-            }
-        }
-    }
-
-    fun resetOtaStatus() {
-        _otaStatus.value = null
-        _otaProgress.value = 0
-        _isUploadingOta.value = false
     }
 
     fun clearError() {
