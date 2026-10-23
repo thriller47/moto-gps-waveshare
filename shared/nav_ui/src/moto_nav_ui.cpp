@@ -1406,9 +1406,9 @@ void update_navigation(const moto_ui_state_t *state) {
     lv_label_set_text(ui.nav_distance, value);
     lv_label_set_text(ui.nav_unit, unit);
     // Always display remaining route distance to destination.
-    lv_obj_align(ui.nav_distance, LV_ALIGN_TOP_LEFT, px(35), px(244));
+    lv_obj_align(ui.nav_distance, LV_ALIGN_TOP_MID, 0, px(250));
     lv_obj_align_to(ui.nav_unit, ui.nav_distance, LV_ALIGN_OUT_RIGHT_BOTTOM,
-                    px(6), px(-7));
+                px(6), px(-7));
 
     lv_arc_set_value(ui.nav_progress,
                      std::min<int>(100, state->route_progress_percent));
