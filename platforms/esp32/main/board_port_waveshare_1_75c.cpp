@@ -239,7 +239,9 @@ esp_err_t initialize_hidden_panel(std::size_t maximum_transfer_size,
   io_config.cs_gpio_num = BSP_LCD_CS;
   io_config.dc_gpio_num = -1;
   io_config.spi_mode = 0;
-  io_config.pclk_hz = 40 * 1'000 * 1'000;
+  // Diagnostic: test a lower QSPI clock against DMA TX underflow when BLE connects.
+  // Keep PSRAM direct DMA and buffer geometry unchanged to isolate this variable.
+  io_config.pclk_hz = 20 * 1'000 * 1'000;
   io_config.trans_queue_depth = CONFIG_BSP_LCD_TRANS_QUEUE_DEPTH;
   io_config.lcd_cmd_bits = 32;
   io_config.lcd_param_bits = 8;
