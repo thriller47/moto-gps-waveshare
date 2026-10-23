@@ -197,6 +197,7 @@ class MotoBLEManager(private val context: Context) {
                 BluetoothProfile.STATE_CONNECTED -> {
                     connectedDevice = gatt.device
                     handshakeState = HandshakeState.IDLE
+                    if (codecPtr != 0L) bleCodec.nativeSetMaximumFrameSize(codecPtr, 20)
                     operationQueue.clear()
                     operationInProgress = false
                     synchronized(writeQueue) {
@@ -263,12 +264,15 @@ class MotoBLEManager(private val context: Context) {
         }
 
         override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
-            if (status == BluetoothGatt.GATT_SUCCESS) {
-                if (codecPtr != 0L) {
-                    // ATT MTU includes its 3-byte write header; the protocol frame does not.
-                    // Keep the Android TX frame size consistent with the ESP32 receiver.
-                    bleCodec.nativeSetMaximumFrameSize(codecPtr, (mtu - 3).coerceIn(20, 182))
+            if (codecPtr != 0L) {
+                // The negotiated ATT MTU includes the 3-byte ATT write header.
+                // On negotiation failure retain the default 20-byte payload limit.
+                val frameLimit = if (status == BluetoothGatt.GATT_SUCCESS) {
+                    (mtu - 3).coerceIn(20, 182)
+                } else {
+                    20
                 }
+                bleCodec.nativeSetMaximumFrameSize(codecPtr, frameLimit)
             }
             enqueueOperation {
                 mainHandler.postDelayed({
