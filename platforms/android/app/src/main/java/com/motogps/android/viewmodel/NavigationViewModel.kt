@@ -430,7 +430,9 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                     lastOnlineTileAttemptMs = System.currentTimeMillis()
                     lastOnlineTileAttemptLat = lat
                     lastOnlineTileAttemptLon = lon
-                    if (repository.ensureOnlineTile(lat, lon)) {
+                    val onlineAvailable = repository.ensureOnlineTile(lat, lon)
+                    Log.i("NavigationVM", "OSM online tile available=$onlineAvailable at $lat,$lon, localSegments=${segments.size}")
+                    if (onlineAvailable) {
                         segments = repository.loadFromRegionalFiles(
                             latE6 - deltaE6, lonE6 - deltaE6,
                             latE6 + deltaE6, lonE6 + deltaE6
@@ -477,7 +479,10 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
 
                 // An unavailable map tile must not erase a valid scene that
                 // is already being displayed. Wait for real OSM data.
-                if (roadPolylines.isEmpty()) return@launch
+                if (roadPolylines.isEmpty()) {
+                    Log.w("NavigationVM", "No road context for $lat,$lon: cached segments=${segments.size}")
+                    return@launch
+                }
 
                 val viewOrigin = GeoPointE6(latE6, lonE6)
                 lastMapSceneRevision = maxOf(lastMapSceneRevision + 1, System.currentTimeMillis() / 1000)
