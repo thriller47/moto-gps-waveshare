@@ -320,10 +320,7 @@ void install_interaction_wake(lv_obj_t *object) {
 }
 
 void show_page(moto_ui_page_t page, bool reveal_on_same_page = false) {
-    if(page < MOTO_UI_PAGE_NAVIGATION || page >= MOTO_UI_PAGE_COUNT) return;
-    if(page == MOTO_UI_PAGE_MUSIC && !ui.music_page_enabled) {
-        page = MOTO_UI_PAGE_NAVIGATION;
-    }
+    page = MOTO_UI_PAGE_NAVIGATION;
     const bool changed = page != ui.page;
     ui.page = page;
     for(int i = 0; i < MOTO_UI_PAGE_COUNT; ++i) {
@@ -340,7 +337,6 @@ void show_page(moto_ui_page_t page, bool reveal_on_same_page = false) {
             lv_obj_add_flag(ui.nav_map, LV_OBJ_FLAG_HIDDEN);
         }
     }
-    update_page_dots();
     // Navigation state arrives continuously. Only a real page transition or
     // user action may restart the five-second affordance timer.
     if(changed || reveal_on_same_page) reveal_page_dots();
@@ -985,7 +981,7 @@ void draw_maneuver_icon(lv_event_t *event) {
 void update_maneuver(moto_maneuver_t maneuver) {
     if(ui.nav_maneuver_type == maneuver) return;
     ui.nav_maneuver_type = maneuver;
-    lv_obj_invalidate(ui.nav_maneuver);
+    if (ui.nav_maneuver != nullptr) lv_obj_invalidate(ui.nav_maneuver);
 }
 
 void draw_segment(lv_layer_t *layer, lv_color_t color, int width,
@@ -1335,7 +1331,6 @@ void connection_success_timeout(lv_timer_t *timer) {
 
 void set_navigation_guidance_visible(bool visible) {
     lv_obj_t *objects[] = {
-        ui.nav_maneuver,
         ui.nav_distance,
         ui.nav_unit,
         ui.nav_progress,
@@ -1410,7 +1405,7 @@ void update_navigation(const moto_ui_state_t *state) {
     lv_label_set_text(ui.nav_distance, value);
     lv_label_set_text(ui.nav_unit, unit);
     // Always display remaining route distance to destination.
-    lv_obj_align(ui.nav_distance, LV_ALIGN_TOP_LEFT, px(151), px(244));
+    lv_obj_align(ui.nav_distance, LV_ALIGN_TOP_LEFT, px(35), px(244));
     lv_obj_align_to(ui.nav_unit, ui.nav_distance, LV_ALIGN_OUT_RIGHT_BOTTOM,
                     px(6), px(-7));
 
@@ -1596,13 +1591,6 @@ void create_navigation_page() {
     // The next action is the navigation page's single visual hero. The short
     // road window above is deliberately quieter and contains no fake side
     // streets; this standard symbol must be understood in one glance.
-    ui.nav_maneuver = lv_obj_create(page);
-    lv_obj_remove_style_all(ui.nav_maneuver);
-    lv_obj_set_size(ui.nav_maneuver, px(116), px(108));
-    lv_obj_set_pos(ui.nav_maneuver, px(29), px(220));
-    lv_obj_clear_flag(ui.nav_maneuver, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(ui.nav_maneuver, draw_maneuver_icon,
-                        LV_EVENT_DRAW_MAIN_END, nullptr);
 
     ui.nav_distance = make_label(page, &lv_font_montserrat_48, kWhite, "300");
     ui.nav_unit = make_label(page, &lv_font_montserrat_20, kQuiet, "m");
@@ -1975,25 +1963,17 @@ extern "C" void moto_nav_ui_create(void) {
     lv_obj_remove_flag(ui.screen, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_bg_color(ui.screen, kBlack, 0);
     lv_obj_set_style_bg_opa(ui.screen, LV_OPA_COVER, 0);
-    lv_obj_add_event_cb(ui.screen, gesture_event, LV_EVENT_GESTURE, nullptr);
+
     for(int i = 0; i < MOTO_UI_PAGE_COUNT; ++i) {
         ui.pages[i] = make_layer(ui.screen);
         lv_obj_add_flag(ui.pages[i], LV_OBJ_FLAG_GESTURE_BUBBLE);
     }
     create_navigation_page();
-    create_speed_page();
-    create_compass_page();
-    create_music_page();
-    create_page_dots();
     // Press events are delivered to the topmost object under the finger, not
     // necessarily to its page. Register once across the finished tree so any
     // touch reliably wakes the dots, including the map and music controls.
-    install_interaction_wake(ui.screen);
 
-    moto_music_state_t initial_music = {
-        "APPLE MUSIC", "NIGHT RIDE", "PHONE NOW PLAYING", 1, 1, 0, 0,
-    };
-    moto_nav_ui_set_music_state(&initial_music);
+
 
     moto_ui_state_t initial{};
     initial.mode = MOTO_UI_ACQUIRING_FIX;
@@ -2006,7 +1986,7 @@ extern "C" void moto_nav_ui_create(void) {
 
 extern "C" void moto_nav_ui_set_state(const moto_ui_state_t *state) {
     if(state == nullptr || ui.screen == nullptr) return;
-    show_page(state->page);
+    show_page(MOTO_UI_PAGE_NAVIGATION);
     // Hidden pages do not need to be invalidated. Page changes immediately
     // apply a fresh snapshot through PhoneNavBridge, so this keeps every page
     // correct while avoiding three full page redraws per navigation update.
