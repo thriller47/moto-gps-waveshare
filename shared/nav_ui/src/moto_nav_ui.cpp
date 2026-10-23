@@ -1682,7 +1682,6 @@ void create_navigation_page() {
                                             kConnectionSuccessHoldMs,
                                             nullptr);
     lv_timer_pause(ui.nav_success_timer);
-    update_ota_button_style();
 
     apply_lifecycle_content(LifecycleVisual::PhoneOffline);
     ui.lifecycle_target = LifecycleVisual::PhoneOffline;
