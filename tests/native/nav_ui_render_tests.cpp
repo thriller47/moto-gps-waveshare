@@ -183,6 +183,7 @@ void test_clearing_geometry_leaves_no_residue() {
   fill_route(with_route, 18);
   fill_streets(with_route);
   moto_nav_ui_set_state(&with_route);
+  pump(260);  // Settle any lifecycle animation before comparing pixels.
   const Frame route_frame = capture();
 
   moto_ui_state_t without_route = with_route;
@@ -192,12 +193,14 @@ void test_clearing_geometry_leaves_no_residue() {
   without_route.building_point_count = 0;
   without_route.building_footprint_count = 0;
   moto_nav_ui_set_state(&without_route);
+  pump(260);
   const Frame cleared_frame = capture();
   CHECK(route_frame.hash != cleared_frame.hash);
 
   // Re-drawing the geometry must restore the exact original frame: nothing
   // was left behind by the clear, and nothing accumulated by the redraw.
   moto_nav_ui_set_state(&with_route);
+  pump(260);
   const Frame redrawn = capture();
   CHECK(redrawn.hash == route_frame.hash);
 }
