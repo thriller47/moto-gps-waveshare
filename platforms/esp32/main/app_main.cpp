@@ -211,7 +211,6 @@ extern "C" void app_main(void) {
   static const moto::nav::NavSnapshot initial_snapshot{};
   presenter.update(initial_snapshot);
   presenter.apply_to_lvgl();
-  moto_nav_ui_set_music_page_enabled(0);
   phone_bridge.install_ui_callbacks();
   board_port_unlock();
 
