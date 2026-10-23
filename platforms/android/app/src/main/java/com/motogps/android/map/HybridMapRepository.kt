@@ -87,6 +87,45 @@ class HybridMapRepository(private val context: Context) {
         }
     }
 
+    // Online context is fetched in small, reusable tiles. No synthetic geometry
+    // is written when an Overpass server is unavailable.
+    fun ensureOnlineTile(lat: Double, lon: Double): Boolean {
+        val step = 0.02
+        val latTile = kotlin.math.floor(lat / step).toInt()
+        val lonTile = kotlin.math.floor(lon / step).toInt()
+        val file = File(mapsDir, "online_tile_${latTile}_${lonTile}.motomap")
+        if (file.exists() && file.length() > 0L &&
+            System.currentTimeMillis() - file.lastModified() < 24L * 60 * 60 * 1000) {
+            return true
+        }
+        val south = latTile * step
+        val west = lonTile * step
+        val query = String.format(
+            Locale.US,
+            "[out:json][timeout:25];way[\\"highway\\"~\\"^(primary|primary_link|secondary|secondary_link|tertiary|tertiary_link|residential|unclassified)$\\"](%.6f,%.6f,%.6f,%.6f);out body geom qt;",
+            south, west, south + step, west + step
+        )
+        val temp = File(mapsDir, file.name + ".tmp")
+        return try {
+            val count = temp.bufferedWriter().use { writer ->
+                val result = streamOverpassQueryToWriter(query, writer)
+                writer.flush()
+                result
+            }
+            if (count == 0) {
+                temp.delete()
+                false
+            } else {
+                if (file.exists()) file.delete()
+                temp.renameTo(file)
+            }
+        } catch (e: Exception) {
+            temp.delete()
+            Log.w("HybridMapRepository", "Online context tile unavailable: ${e.message}")
+            false
+        }
+    }
+
     fun loadFromRegionalFiles(
         queryMinLatE6: Int,
         queryMinLonE6: Int,
