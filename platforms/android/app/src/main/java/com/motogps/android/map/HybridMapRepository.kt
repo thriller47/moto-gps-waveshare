@@ -513,7 +513,7 @@ class HybridMapRepository(private val context: Context) {
                 if (index > 0) delay(800)
                 val query = String.format(
                     Locale.US,
-                    "[out:json][timeout:25];(way[\"highway\"~\"^(motorway|trunk|primary|secondary|tertiary)$\"](%.6f,%.6f,%.6f,%.6f););out body geom qt;",
+                    "[out:json][timeout:25];(way[\"highway\"~\"^(primary|primary_link|secondary|secondary_link|tertiary|tertiary_link|residential|unclassified)$\"](%.6f,%.6f,%.6f,%.6f););out body geom qt;",
                     q.minLat, q.minLon, q.maxLat, q.maxLon
                 )
                 try {
@@ -660,7 +660,7 @@ class HybridMapRepository(private val context: Context) {
                 if (index > 0) delay(800)
                 val query = String.format(
                     Locale.US,
-                    "[out:json][timeout:25];(way[\"highway\"~\"^(motorway|trunk|primary|secondary|tertiary)$\"](%.6f,%.6f,%.6f,%.6f););out body geom qt;",
+                    "[out:json][timeout:25];(way[\"highway\"~\"^(primary|primary_link|secondary|secondary_link|tertiary|tertiary_link|residential|unclassified)$\"](%.6f,%.6f,%.6f,%.6f););out body geom qt;",
                     q.minLat, q.minLon, q.maxLat, q.maxLon
                 )
                 try {
