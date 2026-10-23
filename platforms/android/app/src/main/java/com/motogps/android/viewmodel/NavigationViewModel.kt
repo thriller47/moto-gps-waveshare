@@ -111,6 +111,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     private var lastMapSceneSendTimeMs: Long = 0L
     private var lastMapSceneLat: Double = 0.0
     private var lastMapSceneLon: Double = 0.0
+    private var mapSceneUpdateJob: Job? = null
 
     init {
         bleManager.onDeviceCommandReceived = { cmd ->
@@ -365,7 +366,8 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     }
 
     private fun updateSpeedLimitAndMapScene(lat: Double, lon: Double, context: Context) {
-        viewModelScope.launch(Dispatchers.IO) {
+        mapSceneUpdateJob?.cancel()
+        mapSceneUpdateJob = viewModelScope.launch(Dispatchers.IO) {
             try {
                 val repository = HybridMapRepository(context)
                 val latE6 = (lat * 1e6).toInt()
@@ -397,35 +399,28 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
 
                     lastSpeedLimitKph = if (minDistance <= 50.0) bestSpeed else 0
 
-                    // Context roads: primary, secondary, tertiary, residential and unclassified only.
-                    roadPolylines.addAll(segments.asSequence().filter { it.roadClass in 1..3 }.take(24).map { seg ->
-                        MotoBLEMapRoadPolyline(
-                            roadClass = seg.roadClass,
-                            points = seg.points.take(192)
-                        )
-                    }.toList())
-                } else {
-                    // Fallback scene using current route points or nearby grid
-                    val geomPoints = currentGeometry?.points ?: emptyList()
-                    if (geomPoints.size >= 2) {
-                        roadPolylines.add(
-                            MotoBLEMapRoadPolyline(
-                                roadClass = 1,
-                                points = geomPoints.take(192)
-                            )
-                        )
-                    } else {
-                        // Offset grid lines around lat, lon
-                        val p1 = GeoPointE6(latE6 - 1500, lonE6 - 1500)
-                        val p2 = GeoPointE6(latE6 + 1500, lonE6 + 1500)
-                        roadPolylines.add(
-                            MotoBLEMapRoadPolyline(
-                                roadClass = 3,
-                                points = listOf(p1, p2)
-                            )
-                        )
+                    // Prefer actual nearby OSM roads and never exceed the ESP32's
+                    // aggregate 192-point / 24-polyline scene capacities.
+                    val candidates = segments.asSequence()
+                        .filter { it.roadClass in 1..3 && it.points.size >= 2 }
+                        .sortedBy { seg ->
+                            seg.points.minOf { pt ->
+                                calculateDistanceMeters(lat, lon, pt.latitudeE6 / 1e6, pt.longitudeE6 / 1e6)
+                            }
+                        }
+                    var pointsRemaining = 192
+                    for (seg in candidates) {
+                        if (roadPolylines.size >= 24 || pointsRemaining < 2) break
+                        val points = seg.points.take(pointsRemaining)
+                        if (points.size < 2) continue
+                        roadPolylines.add(MotoBLEMapRoadPolyline(roadClass = seg.roadClass, points = points))
+                        pointsRemaining -= points.size
                     }
                 }
+
+                // An unavailable map tile must not erase a valid scene that
+                // is already being displayed. Wait for real OSM data.
+                if (roadPolylines.isEmpty()) return@launch
 
                 val viewOrigin = GeoPointE6(latE6, lonE6)
                 val scene = MotoBLEMapScene(
