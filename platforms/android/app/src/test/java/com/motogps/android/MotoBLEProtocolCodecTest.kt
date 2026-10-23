@@ -22,6 +22,27 @@ class MotoBLEProtocolCodecTest {
     }
 
     @Test
+    fun testFramesRespectNegotiatedAttPayloadSize() {
+        // A negotiated ATT MTU of 185 permits at most 182 bytes per GATT write.
+        codec.nativeSetMaximumFrameSize(handle, 182)
+        val geometry = MotoBLERouteGeometry(
+            routeToken = 1L,
+            routeGeneration = 1L,
+            totalPointCount = 60,
+            viewOrigin = GeoPointE6(45000000, 9000000),
+            points = (0 until 60).map { GeoPointE6(45000000 + it, 9000000 + it) }
+        )
+        val frames = codec.nativeEncodeRouteGeometry(handle, geometry)
+        assertTrue("Geometry must be split into multiple ATT writes", frames.size > 1)
+        assertTrue(frames.all { it.size <= 182 })
+        for (frame in frames) {
+            val receivedCrc = (frame[frame.size - 2].toInt() and 0xff) or
+                ((frame[frame.size - 1].toInt() and 0xff) shl 8)
+            assertEquals(receivedCrc, MotoBLEProtocolCodec.crc16CcittFalse(frame, frame.size - 2))
+        }
+    }
+
+    @Test
     fun testPhoneStartingFrameEncoding() {
         val sessionId = 12345678L
         val frames = codec.nativeEncodePhoneStarting(handle, sessionId)
