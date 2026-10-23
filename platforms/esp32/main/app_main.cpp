@@ -202,7 +202,9 @@ extern "C" void app_main(void) {
     return;
   }
 
+  ESP_LOGI(kTag, "Begin navigation UI");
   moto_nav_ui_create();
+  ESP_LOGI(kTag, "Navigation UI ready");
   // NavSnapshot contains the complete bounded roads/buildings window and is
   // several kilobytes. A temporary here inflates app_main's stack frame for
   // the entire display/BSP startup call chain, which can trip the FreeRTOS
