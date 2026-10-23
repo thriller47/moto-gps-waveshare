@@ -339,7 +339,8 @@ void show_page(moto_ui_page_t page, bool reveal_on_same_page = false) {
     }
     // Navigation state arrives continuously. Only a real page transition or
     // user action may restart the five-second affordance timer.
-    if(changed || reveal_on_same_page) reveal_page_dots();
+    (void)changed;
+    (void)reveal_on_same_page;
 }
 
 void gesture_event(lv_event_t *) {
