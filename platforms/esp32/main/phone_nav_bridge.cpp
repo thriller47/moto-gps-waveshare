@@ -332,14 +332,30 @@ void PhoneNavBridge::on_link_state(bool active) {
       phone_snapshot.network = moto::nav::NetworkState::Connecting;
     } else {
       phone_session_id_ = 0;
+      // A lost BLE session must not leave a previous turn instruction active.
+      // Reconnecting will populate a fresh navigation snapshot and geometry.
+      phone_snapshot.state = moto::nav::NavState::Idle;
       phone_snapshot.network = moto::nav::NetworkState::Offline;
+      phone_snapshot.has_destination = false;
+      phone_snapshot.route_id.clear();
+      phone_snapshot.route_generation = 0;
+      phone_snapshot.route_progress_m = 0.0;
+      phone_snapshot.total_distance_m = 0.0;
+      phone_snapshot.remaining_distance_m = 0.0;
+      phone_snapshot.remaining_duration_s = 0;
+      phone_snapshot.has_next_maneuver = false;
+      phone_snapshot.next_maneuver = {};
+      phone_snapshot.distance_to_next_maneuver_m = 0.0;
       phone_snapshot.gnss_stale = true;
       phone_snapshot.has_usable_fix = false;
+      phone_snapshot.last_fix_ms = 0;
+      phone_snapshot.off_route = false;
       phone_snapshot.route_request_in_flight = false;
       phone_snapshot.traffic_request_in_flight = false;
       phone_snapshot.speed_mps = 0.0F;
       geometry_ = {};
       phone_snapshot.has_route_view = false;
+      phone_snapshot.route_view_point_count = 0;
       clear_map_context(phone_snapshot);
       heading_fusion_.reset();
       last_motion_present_ms_ = 0;
