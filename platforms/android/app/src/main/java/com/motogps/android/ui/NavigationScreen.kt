@@ -369,7 +369,7 @@ fun OfflineMapsDialog(
                 ) {
                     Icon(Icons.Default.Place, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Scarica strade vicine (~2 km)")
+                    Text("Scarica strade vicine (~8 km)")
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
