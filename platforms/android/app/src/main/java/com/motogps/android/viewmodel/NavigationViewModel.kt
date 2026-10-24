@@ -690,6 +690,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     }
 
     fun downloadCurrentArea(context: Context) {
+        automaticCorridorJob?.cancel()
         mapDownloadJob?.cancel()
         mapDownloadJob = viewModelScope.launch {
             _isDownloadingMap.value = true
@@ -732,6 +733,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
 
     fun downloadRouteCorridor(context: Context, rawRoutePoints: List<Pair<Double, Double>>) {
         if (rawRoutePoints.isEmpty()) return
+        automaticCorridorJob?.cancel()
         mapDownloadJob?.cancel()
         mapDownloadJob = viewModelScope.launch {
             _isDownloadingMap.value = true
@@ -772,6 +774,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     }
 
     fun downloadRegion(context: Context, regionName: String) {
+        automaticCorridorJob?.cancel()
         mapDownloadJob?.cancel()
         mapDownloadJob = viewModelScope.launch {
             _isDownloadingMap.value = true
