@@ -272,6 +272,22 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                     currentSnapshot = activeSnap
                     bleManager.sendNavigationSnapshot(activeSnap)
 
+                    // A stationary GPS provider may stop emitting fixes. Keep
+                    // offline map lookup / online tile retry alive independently
+                    // of location callbacks during an active route.
+                    if (loopCount == 1 || loopCount % 86 == 0) { // start and ~30s
+                        val mapContext = navigationMapsContext
+                        if (mapContext != null) {
+                            val now = System.currentTimeMillis()
+                            if (loopCount == 1 || now - lastMapSceneSendTimeMs >= 20_000L) {
+                                lastMapSceneSendTimeMs = now
+                                lastMapSceneLat = lat
+                                lastMapSceneLon = lon
+                                updateSpeedLimitAndMapScene(lat, lon, mapContext)
+                            }
+                        }
+                    }
+
                     if (loopCount % 9 == 0) { // ~3.15s interval
                         val activeGeom = currentGeometry ?: geometry
                         if (activeGeom != null) {
