@@ -14,8 +14,13 @@ BLE/display stack or flash a standalone Arduino sketch onto the device.
   existing PhoneNavBridge.
 - [ ] Add an explicit radio mode entry and back-to-GPS control in LVGL.
 - [ ] Implement Wi-Fi startup/shutdown on radio entry/exit using ESP-IDF.
-- [ ] Port ES8311 init and **stream-rate-dependent I2S re-clocking** from
-  SIGNAL; keep its I2C accesses compatible with Waveshare BSP and CST9217.
+- [x] Add the ESP-IDF I2S TX output transport with stream-rate clock switching
+  (22.05/32/44.1/48 kHz, MCLK 256×fs) and explicit stop/cleanup.
+  This component compiles into the experimental firmware but is **not started**
+  from app_main yet.
+- [ ] Port ES8311 I2C codec initialization and **synchronize codec clocking**
+  with the I2S driver on every rate change; share I2C correctly with
+  Waveshare BSP and CST9217.
 - [ ] Integrate a compatible HTTPS/MP3/AAC stream decoder and verify audio
   output with **one station** before the station browser/UI.
 - [ ] Add resource lifecycle tests: stop stream, I2S, Wi-Fi, and release audio
@@ -45,3 +50,11 @@ licenses and build compatibility before porting any source files.
 3. A failure of Wi-Fi or radio audio cannot block returning to navigation.
 4. Keep the current `NoOta` build untouched until ESP-IDF build and
    on-device audio tests pass on the experimental branch.
+
+## Current development state
+
+The first low-level audio transport exists, but **there is no radio playback
+yet**. In particular, we deliberately do not enable GPIO46 amplifier power
+without initializing ES8311. No Wi-Fi connection, decoder, station management
+or audio task has been wired to the navigation firmware. Do not flash this as
+a radio test. ESP-IDF compile and on-device verification are still required.
