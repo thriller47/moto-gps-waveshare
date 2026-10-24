@@ -444,7 +444,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
 
                 // Publish already cached vector geometry immediately; fetching a
                 // missing tile must never block a display update for ~minutes.
-                val usable = segments.filter { it.roadClass in 1..3 && it.points.size >= 2 }
+                val usable = segments.filter { it.roadClass in 0..3 && it.points.size >= 2 }
                 val closestMeters = usable.minOfOrNull { seg ->
                     seg.points.minOf { pt ->
                         calculateDistanceMeters(lat, lon, pt.latitudeE6 / 1e6, pt.longitudeE6 / 1e6)
@@ -475,7 +475,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                     // Prefer actual nearby OSM roads and never exceed the ESP32's
                     // aggregate 192-point / 24-polyline scene capacities.
                     val candidates = segments.asSequence()
-                        .filter { it.roadClass in 1..3 && it.points.size >= 2 }
+                        .filter { it.roadClass in 0..3 && it.points.size >= 2 }
                         .sortedBy { seg ->
                             seg.points.minOf { pt ->
                                 calculateDistanceMeters(lat, lon, pt.latitudeE6 / 1e6, pt.longitudeE6 / 1e6)
@@ -535,7 +535,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         lastOnlineTileAttemptLon = lon
         onlineTileJob = viewModelScope.launch(Dispatchers.IO) {
             try {
-                val available = HybridMapRepository(context).ensureOnlineTile(lat, lon)
+                val available = HybridMapRepository(context, activeGatewayUrl).ensureOnlineTile(lat, lon)
                 Log.i("NavigationVM", "OSM online tile available=$available at $lat,$lon")
                 if (available) {
                     // Wait until the local read has finished, then publish the
