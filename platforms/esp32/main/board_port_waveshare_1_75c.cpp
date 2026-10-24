@@ -906,6 +906,10 @@ extern "C" esp_err_t board_port_init(void) {
   lv_obj_set_style_bg_color(startup_screen, lv_color_black(), 0);
   lv_obj_set_style_bg_opa(startup_screen, LV_OPA_COVER, 0);
   lv_obj_remove_flag(startup_screen, LV_OBJ_FLAG_SCROLLABLE);
+  ESP_LOGI(kTag, "before LVGL worker: internal free=%u largest=%u, PSRAM free=%u",
+           static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+           static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+           static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)));
   ESP_RETURN_ON_ERROR(esp_lv_adapter_start(), kTag,
                       "LVGL worker task could not start");
 
