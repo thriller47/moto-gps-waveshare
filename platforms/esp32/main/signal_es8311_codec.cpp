@@ -13,6 +13,7 @@
 
 namespace {
 constexpr char kTag[] = "signal_es8311";
+constexpr std::uint8_t kResetSequence[] = {0x1F, 0x00, 0x80};
 constexpr std::uint16_t kAddress = 0x18;  // ES8311 CE low, Waveshare 1.75C
 constexpr int kI2cTimeoutMs = 100;
 
@@ -91,7 +92,6 @@ esp_err_t SignalEs8311Codec::start(i2c_master_bus_handle_t bus,
   ESP_LOGI(kTag, "ES8311 identified on shared I2C 0x18; ID1=0x%02x", chip_id);
 
   // Reset/power-on from Espressif ES8311 init; no amplifier is enabled here.
-  constexpr std::uint8_t kResetSequence[] = {0x1F, 0x00, 0x80};
   for (const std::uint8_t value : kResetSequence) {
     err = write_reg(0x00, value);
     if (err != ESP_OK) goto fail;
