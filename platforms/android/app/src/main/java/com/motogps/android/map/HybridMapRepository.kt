@@ -25,7 +25,10 @@ data class SavedMapInfo(
 
 data class DownloadResult(
     val file: File,
-    val totalSegments: Int
+    val totalSegments: Int,
+    val completedSectors: Int = 0,
+    val totalSectors: Int = 0,
+    val isComplete: Boolean = true
 )
 
 data class MapRoadSegment(
@@ -535,25 +538,113 @@ class HybridMapRepository(private val context: Context) {
         return quads
     }
 
-    // Publish only complete downloads. Keep the last good offline map on errors.
-    private fun publishMapDownload(temp: File, target: File, segments: Int, failures: Int): DownloadResult {
-        if (failures > 0 || segments == 0) {
-            temp.delete()
-            throw java.io.IOException("Download incompleto: $failures richieste fallite, $segments segmenti. Mappa precedente conservata.")
+    // Each successful sector is a durable checkpoint. A transient 429/504
+    // cannot erase everything downloaded before it, and a retry skips sectors
+    // already completed for the EXACT same bounding box.
+    private suspend fun downloadBoxesResumable(
+        boxes: List<BoundingBox>,
+        target: File,
+        name: String,
+        onProgress: ((Int, Int, String) -> Unit)?
+    ): DownloadResult {
+        val partsDir = File(mapsDir, ".${target.nameWithoutExtension}_parts")
+        if (!partsDir.exists() && !partsDir.mkdirs()) {
+            throw java.io.IOException("Impossibile creare la cache dei settori")
         }
-        val backup = File(mapsDir, target.name + ".bak")
-        backup.delete()
-        if (target.exists() && !target.renameTo(backup)) {
-            temp.delete()
-            throw java.io.IOException("Impossibile proteggere la mappa precedente")
+        val parts = ArrayList<File>(boxes.size)
+        var completed = 0
+        var failed = 0
+        var totalSegments = 0
+
+        fun existingSegments(file: File): Int =
+            file.useLines { lines ->
+                lines.count { line -> line.isNotBlank() && !line.startsWith("#") }
+            }
+
+        for ((index, box) in boxes.withIndex()) {
+            val key = listOf(box.minLat, box.minLon, box.maxLat, box.maxLon)
+                .joinToString("_") { (it * 1_000_000.0).toLong().toString() }
+            val part = File(partsDir, "sector_${key}.motomap")
+            parts.add(part)
+            if (part.exists() && part.length() > 0L) {
+                completed++
+                totalSegments += existingSegments(part)
+                onProgress?.invoke(index + 1, boxes.size,
+                    "$name: $completed/${boxes.size} settori salvati (ripreso)")
+                continue
+            }
+
+            if (index > 0) delay(900)
+            val tmp = File(partsDir, part.name + ".tmp")
+            try {
+                val query = String.format(
+                    Locale.US,
+                    "[out:json][timeout:25];way[\"highway\"~\"^(motorway|motorway_link|trunk|trunk_link|primary|primary_link|secondary|secondary_link|tertiary|tertiary_link|residential|unclassified)$\"](%.6f,%.6f,%.6f,%.6f);out body geom qt;",
+                    box.minLat, box.minLon, box.maxLat, box.maxLon
+                )
+                val written = tmp.bufferedWriter().use { writer ->
+                    writer.write("# Overpass sector complete\\n")
+                    val result = streamOverpassQueryToWriter(query, writer, 5000, 20000)
+                    writer.flush()
+                    result
+                }
+                if (!tmp.renameTo(part)) {
+                    throw java.io.IOException("Impossibile salvare settore $index")
+                }
+                totalSegments += written
+                completed++
+                Log.i("HybridMapRepository",
+                    "$name checkpoint: sector=${index + 1}/${boxes.size} saved=$completed segments=$totalSegments")
+            } catch (e: Exception) {
+                tmp.delete()
+                failed++
+                Log.w("HybridMapRepository",
+                    "$name sector=${index + 1}/${boxes.size} failed; previously saved sectors kept: ${e.message}")
+            }
+            onProgress?.invoke(index + 1, boxes.size,
+                "$name: $completed/${boxes.size} settori salvati, $failed da riprovare")
         }
-        if (!temp.renameTo(target)) {
-            if (backup.exists()) backup.renameTo(target)
-            temp.delete()
-            throw java.io.IOException("Impossibile salvare la nuova mappa")
+
+        val partial = File(mapsDir, "${target.nameWithoutExtension}_parziale.motomap")
+        if (completed == 0) {
+            throw java.io.IOException(
+                "Nessun settore scaricato: server mappe non disponibile. Riprova più tardi.")
         }
-        backup.delete()
-        return DownloadResult(target, segments)
+
+        val assembled = File(mapsDir, "${target.name}.assembling")
+        try {
+            assembled.bufferedWriter().use { output ->
+                for (part in parts) {
+                    if (part.exists() && part.length() > 0L) {
+                        part.forEachLine { line ->
+                            output.write(line)
+                            output.newLine()
+                        }
+                    }
+                }
+                output.flush()
+            }
+            val destination = if (completed == boxes.size) target else partial
+            val backup = File(mapsDir, destination.name + ".bak")
+            backup.delete()
+            if (destination.exists() && !destination.renameTo(backup)) {
+                throw java.io.IOException("Impossibile proteggere la mappa precedente")
+            }
+            if (!assembled.renameTo(destination)) {
+                if (backup.exists()) backup.renameTo(destination)
+                throw java.io.IOException("Impossibile pubblicare i settori scaricati")
+            }
+            backup.delete()
+            if (completed == boxes.size) {
+                // Full replacement has been published atomically.
+                partial.delete()
+                for (part in parts) part.delete()
+            }
+            return DownloadResult(destination, totalSegments, completed, boxes.size,
+                isComplete = completed == boxes.size)
+        } finally {
+            assembled.delete()
+        }
     }
 
     suspend fun downloadCurrentArea(
@@ -562,44 +653,23 @@ class HybridMapRepository(private val context: Context) {
         onProgress: ((Int, Int, String) -> Unit)? = null
     ): DownloadResult {
         val delta = 0.45
-        val minLat = lat - delta
-        val maxLat = lat + delta
-        val minLon = lon - delta
-        val maxLon = lon + delta
-
-        val quads = buildQuadrantsGrid(minLat, minLon, maxLat, maxLon, 0.30)
-        val targetFile = File(mapsDir, "area_corrente_50km.motomap")
-        val tempFile = File(mapsDir, targetFile.name + ".tmp")
-        var failedRequests = 0
-        var totalSegments = 0
-        val fos = java.io.FileOutputStream(tempFile, false)
-        val osw = OutputStreamWriter(fos, Charsets.UTF_8)
-        val writer = BufferedWriter(osw)
-
-        try {
-            for ((index, q) in quads.withIndex()) {
-                if (index > 0) delay(800)
-                val query = String.format(
-                    Locale.US,
-                    "[out:json][timeout:25];(way[\"highway\"~\"^(primary|primary_link|secondary|secondary_link|tertiary|tertiary_link|residential|unclassified)$\"](%.6f,%.6f,%.6f,%.6f););out body geom qt;",
-                    q.minLat, q.minLon, q.maxLat, q.maxLon
-                )
-                try {
-                    val written = streamOverpassQueryToWriter(query, writer)
-                    totalSegments += written
-                    writer.flush()
-                } catch (e: Exception) {
-                    failedRequests++
-                    Log.w("HybridMapRepository", "Quadrant $index failed for 50km area: ${e.message}")
-                }
-                onProgress?.invoke(index + 1, quads.size, "Area Attuale 50km")
-            }
-
-            fos.fd.sync()
-        } finally {
-            try { writer.close() } catch (_: Exception) {}
+        val boxes = buildQuadrantsGrid(
+            lat - delta, lon - delta, lat + delta, lon + delta, 0.20
+        ).sortedBy { box ->
+            val dLat = (box.minLat + box.maxLat) / 2 - lat
+            val dLon = (box.minLon + box.maxLon) / 2 - lon
+            dLat * dLat + dLon * dLon
         }
-        return publishMapDownload(tempFile, targetFile, totalSegments, failedRequests)
+        // An inexpensive small tile near the rider is tried first so a
+        // partial download is immediately useful for the live ESP32 view.
+        val nearby = BoundingBox(lat - 0.015, lon - 0.020,
+                                 lat + 0.015, lon + 0.020)
+        return downloadBoxesResumable(
+            listOf(nearby) + boxes,
+            File(mapsDir, "area_corrente_50km.motomap"),
+            "Area attuale 50 km",
+            onProgress
+        )
     }
 
     suspend fun downloadRouteCorridor(
@@ -610,60 +680,30 @@ class HybridMapRepository(private val context: Context) {
             throw IllegalArgumentException("La lista punti rotta è vuota")
         }
 
-        val sampledPoints = mutableListOf<Pair<Double, Double>>()
-        sampledPoints.add(rawRoutePoints.first())
-
-        var accumulatedDist = 0.0
+        val sampled = mutableListOf(rawRoutePoints.first())
+        var accumulatedKm = 0.0
         for (i in 1 until rawRoutePoints.size) {
             val p1 = rawRoutePoints[i - 1]
             val p2 = rawRoutePoints[i]
-            accumulatedDist += calculateDistanceKm(p1.first, p1.second, p2.first, p2.second)
-            if (accumulatedDist >= 5.0) {
-                sampledPoints.add(p2)
-                accumulatedDist = 0.0
+            accumulatedKm += calculateDistanceKm(p1.first, p1.second, p2.first, p2.second)
+            if (accumulatedKm >= 1.5) {
+                sampled.add(p2)
+                accumulatedKm = 0.0
             }
         }
-        if (sampledPoints.last() != rawRoutePoints.last()) {
-            sampledPoints.add(rawRoutePoints.last())
+        if (sampled.last() != rawRoutePoints.last()) sampled.add(rawRoutePoints.last())
+
+        val boxes = sampled.distinct().map { (lat, lon) ->
+            val latDelta = 1.5 / 111.0
+            val lonDelta = 1.5 / (111.0 * Math.cos(Math.toRadians(lat)).coerceAtLeast(0.1))
+            BoundingBox(lat - latDelta, lon - lonDelta, lat + latDelta, lon + lonDelta)
         }
-
-        val targetFile = File(mapsDir, "corridoio_rotta.motomap")
-        val tempFile = File(mapsDir, targetFile.name + ".tmp")
-        var failedRequests = 0
-        var totalSegments = 0
-        val fos = java.io.FileOutputStream(tempFile, false)
-        val osw = OutputStreamWriter(fos, Charsets.UTF_8)
-        val writer = BufferedWriter(osw)
-
-        try {
-            for ((index, pt) in sampledPoints.withIndex()) {
-                if (index > 0) delay(800)
-                val lat = pt.first
-                val lon = pt.second
-                val latDelta = 5.0 / 111.0
-                val lonDelta = 5.0 / (111.0 * Math.cos(Math.toRadians(lat)).coerceAtLeast(0.1))
-
-                val query = String.format(
-                    Locale.US,
-                    "[out:json][timeout:25];(way[\"highway\"~\"^(primary|primary_link|secondary|secondary_link|tertiary|tertiary_link|residential|unclassified)$\"](%.6f,%.6f,%.6f,%.6f););out body geom qt;",
-                    lat - latDelta, lon - lonDelta, lat + latDelta, lon + lonDelta
-                )
-                try {
-                    val written = streamOverpassQueryToWriter(query, writer)
-                    totalSegments += written
-                    writer.flush()
-                } catch (e: Exception) {
-                    failedRequests++
-                    Log.w("HybridMapRepository", "Corridor point $index failed: ${e.message}")
-                }
-                onProgress?.invoke(index + 1, sampledPoints.size, "Corridoio Rotta")
-            }
-
-            fos.fd.sync()
-        } finally {
-            try { writer.close() } catch (_: Exception) {}
-        }
-        return publishMapDownload(tempFile, targetFile, totalSegments, failedRequests)
+        return downloadBoxesResumable(
+            boxes,
+            File(mapsDir, "corridoio_rotta.motomap"),
+            "Corridoio percorso",
+            onProgress
+        )
     }
 
     private fun calculateDistanceKm(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
@@ -707,40 +747,17 @@ class HybridMapRepository(private val context: Context) {
         val bbox = italianRegions[regionName]
             ?: throw IllegalArgumentException("Regione non trovata: $regionName")
 
-        val quads = buildQuadrantsGrid(bbox.minLat, bbox.minLon, bbox.maxLat, bbox.maxLon, 0.40)
+        // Avoid huge quadrants: they are routinely rejected by public Overpass
+        // servers. Progress is checkpointed, so even a long regional download
+        // can be resumed without losing previous successful sectors.
+        val quads = buildQuadrantsGrid(bbox.minLat, bbox.minLon, bbox.maxLat, bbox.maxLon, 0.20)
         val sanitized = regionName.lowercase(Locale.ROOT).replace("[^a-z0-9]".toRegex(), "_")
-        val targetFile = File(mapsDir, "regione_${sanitized}.motomap")
-        val tempFile = File(mapsDir, targetFile.name + ".tmp")
-        var failedRequests = 0
-        var totalSegments = 0
-        val fos = java.io.FileOutputStream(tempFile, false)
-        val osw = OutputStreamWriter(fos, Charsets.UTF_8)
-        val writer = BufferedWriter(osw)
-
-        try {
-            for ((index, q) in quads.withIndex()) {
-                if (index > 0) delay(800)
-                val query = String.format(
-                    Locale.US,
-                    "[out:json][timeout:25];(way[\"highway\"~\"^(primary|primary_link|secondary|secondary_link|tertiary|tertiary_link|residential|unclassified)$\"](%.6f,%.6f,%.6f,%.6f););out body geom qt;",
-                    q.minLat, q.minLon, q.maxLat, q.maxLon
-                )
-                try {
-                    val written = streamOverpassQueryToWriter(query, writer)
-                    totalSegments += written
-                    writer.flush()
-                } catch (e: Exception) {
-                    failedRequests++
-                    Log.w("HybridMapRepository", "Quadrant $index failed for $regionName: ${e.message}")
-                }
-                onProgress?.invoke(index + 1, quads.size, regionName)
-            }
-
-            fos.fd.sync()
-        } finally {
-            try { writer.close() } catch (_: Exception) {}
-        }
-        return publishMapDownload(tempFile, targetFile, totalSegments, failedRequests)
+        return downloadBoxesResumable(
+            quads,
+            File(mapsDir, "regione_${sanitized}.motomap"),
+            "Regione $regionName",
+            onProgress
+        )
     }
 
     private fun String?.isNull_or_blank(): Boolean {
