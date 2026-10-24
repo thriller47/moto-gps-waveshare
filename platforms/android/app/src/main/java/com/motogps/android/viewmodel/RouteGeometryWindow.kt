@@ -77,8 +77,14 @@ internal object RouteGeometryWindow {
 
         // Greedy maximum-deviation simplification: retain sharp turns, not just
         // the first 24 vertices. Long straight sections need only their ends.
-        val selected = mutableListOf(0, ahead.lastIndex)
-        while (selected.size < MAX_POINTS) {
+        val selected = if (ahead.size <= MAX_POINTS) {
+            // Sparse gateway routes may contain only a few vertices. Do not
+            // remove any of them: a gentle corner can still be significant.
+            ahead.indices.toMutableList()
+        } else {
+            mutableListOf(0, ahead.lastIndex)
+        }
+        while (ahead.size > MAX_POINTS && selected.size < MAX_POINTS) {
             var bestPoint = -1
             var bestDeviation = MIN_TURN_DETAIL_METERS
             for (span in 0 until selected.lastIndex) {
