@@ -828,8 +828,15 @@ extern "C" esp_err_t board_port_init(void) {
   // CO5300 command values. Panel creation itself uses the public esp_lcd APIs
   // so DISPON can be deferred. Explicit PSRAM draw buffers feed direct DMA
   // without allocating a bounce buffer for each transaction.
-  const esp_lv_adapter_config_t adapter_config =
-      ESP_LV_ADAPTER_DEFAULT_CONFIG();
+  // The SIGNAL build adds Wi-Fi support to the existing BLE/display image.
+  // The ESP LVGL Adapter default task stack is 8 KiB; on hardware we observed
+  // an internal largest-free-block of 7680 bytes immediately before startup.
+  // Put ONLY the LVGL worker stack in PSRAM using the adapter's supported API.
+  // Do not shrink the proven navigation UI task stack or LCD DMA buffers.
+  esp_lv_adapter_config_t adapter_config = ESP_LV_ADAPTER_DEFAULT_CONFIG();
+  adapter_config.stack_in_psram = true;
+  ESP_LOGI(kTag, "LVGL worker stack requested in PSRAM (%u bytes)",
+           static_cast<unsigned>(adapter_config.task_stack_size));
   ESP_RETURN_ON_ERROR(esp_lv_adapter_init(&adapter_config), kTag,
                       "LVGL adapter initialization failed");
 
