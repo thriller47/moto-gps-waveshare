@@ -47,6 +47,19 @@ class RouteGeometryWindowTest {
     }
 
     @Test
+    fun sparseRouteKeepsEveryGatewayVertex() {
+        val points = listOf(
+            GeoPointE6(45_000_000, 8_000_000),
+            GeoPointE6(45_000_100, 8_000_000),
+            GeoPointE6(45_000_200, 8_000_020),
+            GeoPointE6(45_000_300, 8_000_030),
+            GeoPointE6(45_000_450, 8_000_040)
+        )
+        val window = RouteGeometryWindow.around(route(points), 45.0, 8.0)
+        assertEquals(points, window.points)
+    }
+
+    @Test
     fun neverExceedsEsp32CapacityEvenOnZigzagRoad() {
         val points = (0..300).map {
             GeoPointE6(45_000_000 + it * 14, 8_000_000 + if (it % 2 == 0) 0 else 80)
