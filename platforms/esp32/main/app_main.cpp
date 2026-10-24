@@ -13,6 +13,10 @@
 #include "motion_heading_sensor.h"
 #include "phone_nav_bridge.h"
 
+#ifdef MOTO_SIGNAL_AUDIO_BOOT_TEST
+void signal_start_audio_selftest();
+#endif
+
 #ifdef ESP_PLATFORM
 #include "esp_attr.h"
 #define MOTO_PSRAM_BSS EXT_RAM_BSS_ATTR
@@ -228,6 +232,12 @@ extern "C" void app_main(void) {
                   nullptr) != pdPASS) {
     ESP_LOGW(kTag, "navigation demo task could not start");
   }
+
+#ifdef MOTO_SIGNAL_AUDIO_BOOT_TEST
+  // Run only after the display/BSP has initialized the shared I2C bus.
+  // A single quiet tone, then stop I2S and the amplifier. No Wi-Fi.
+  signal_start_audio_selftest();
+#endif
 
   ESP_LOGI(kTag,
            "iPhone BLE + QMI heading -> NavPresenter -> shared LVGL running");
