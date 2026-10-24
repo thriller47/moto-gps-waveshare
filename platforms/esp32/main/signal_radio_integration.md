@@ -107,3 +107,18 @@ the experimental boot test now plays three soft notes (523, 659, 784 Hz),
 420 ms each. It uses a 22% codec level and 35 ms per-note fades, without
 Wi-Fi. Build branch `signal` again before flashing. Stop the experiment if
 any crackle, strong click, clipping, or reboot occurs. `NoOta` is unchanged.
+
+## Third audio trial: audible click, no distinct notes
+
+User reports that the second melody build boots and produces only a very quiet
+click. This does **not** establish correct PCM playback. Suspected mismatch:
+ESP-IDF Philips stereo 16-bit sends 32 BCLK ticks per LRCK frame but original
+SIGNAL ES8311 coefficient expects 64 BCLK ticks. Experimental codec register
+0x06 is now set for BCLK /8 (256fs/8=32fs) while MCLK remains 256fs.
+Per-note PCM write counts are logged to separate I2S delivery from physical
+speaker/codec issues. **Rebuild signal** and inspect serial lines:
+`signal_es8311`, `signal_audio`, `signal_radio_audio`, `signal_test`.
+If three notes remain inaudible despite completed writes, investigate BSP
+PA_CTRL handling and ES8311 register configuration rather than increasing
+volume. Waveshare's hardware reference recommends PA control via its BSP,
+not assuming GPIO46 electrical output behavior.
