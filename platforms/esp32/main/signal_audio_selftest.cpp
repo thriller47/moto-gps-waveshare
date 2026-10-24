@@ -40,6 +40,7 @@ void tone_task(void*) {
   const unsigned total_frames = kNoteDurationMs * kSampleRate / 1000U;
   const unsigned fade_frames = kFadeMs * kSampleRate / 1000U;
   for (const unsigned hz : kNotesHz) {
+    ESP_LOGI(kTag, "Playing note %u Hz (%u ms)", hz, kNoteDurationMs);
     std::uint32_t phase = 0;
     const std::uint32_t step =
         static_cast<std::uint32_t>((static_cast<std::uint64_t>(hz) << 32) / kSampleRate);
@@ -74,6 +75,7 @@ void tone_task(void*) {
       emitted += frames;
     }
     if (err != ESP_OK) break;
+    ESP_LOGI(kTag, "Note %u Hz: %u PCM frames written", hz, emitted);
   }
 
   (void)audio.set_mute(true);
