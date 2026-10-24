@@ -16,6 +16,9 @@
 #ifdef MOTO_SIGNAL_AUDIO_BOOT_TEST
 void signal_start_audio_selftest();
 #endif
+#ifdef MOTO_SIGNAL_WIFI_CONSOLE
+void signal_start_wifi_console();
+#endif
 
 #ifdef ESP_PLATFORM
 #include "esp_attr.h"
@@ -237,6 +240,10 @@ extern "C" void app_main(void) {
   // Run only after the display/BSP has initialized the shared I2C bus.
   // A single quiet tone, then stop I2S and the amplifier. No Wi-Fi.
   signal_start_audio_selftest();
+#endif
+
+#ifdef MOTO_SIGNAL_WIFI_CONSOLE
+  signal_start_wifi_console();
 #endif
 
   ESP_LOGI(kTag,
