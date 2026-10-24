@@ -108,7 +108,11 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         val (lat, lon) = currentLocation.value
         val window = RouteGeometryWindow.around(route, lat, lon)
         bleManager.sendRouteGeometry(window)
-        Log.d("NavigationVM", "Route BLE window: ${window.points.size}/${route.points.size} points origin=$lat,$lon")
+        val endpoint = route.points.lastOrNull()
+        val endMeters = endpoint?.let {
+            calculateDistanceMeters(lat, lon, it.latitudeE6 / 1e6, it.longitudeE6 / 1e6).toInt()
+        } ?: -1
+        Log.i("NavigationVM", "Route BLE window: ${window.points.size}/${route.points.size} points origin=$lat,$lon destinationPointDistance=${endMeters}m")
     }
     private var routeManeuverSteps: List<RouteManeuverStep> = emptyList()
     private var activeStepIndex: Int = 0
@@ -480,7 +484,11 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                     var pointsRemaining = 64
                     for (seg in candidates) {
                         if (roadPolylines.size >= 8 || pointsRemaining < 2) break
-                        val points = seg.points.take(pointsRemaining)
+                        // Each OSM way may begin kilometres away from the GPS fix.
+                        // Select the nearby portion, retaining junction corners.
+                        val points = RoadContextWindow.around(
+                            seg.points, lat, lon, minOf(pointsRemaining, 12)
+                        )
                         if (points.size < 2) continue
                         roadPolylines.add(MotoBLEMapRoadPolyline(roadClass = seg.roadClass, points = points))
                         pointsRemaining -= points.size
@@ -1023,6 +1031,16 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
 
                 val fullRoutePoints = pointsE6.toList()
                 val viewOrigin = fullRoutePoints.first()
+                var geometryDistanceM = 0.0
+                for (i in 1 until fullRoutePoints.size) {
+                    val from = fullRoutePoints[i - 1]
+                    val to = fullRoutePoints[i]
+                    geometryDistanceM += calculateDistanceMeters(
+                        from.latitudeE6 / 1e6, from.longitudeE6 / 1e6,
+                        to.latitudeE6 / 1e6, to.longitudeE6 / 1e6
+                    )
+                }
+                Log.i("NavigationVM", "Route source: vertices=${fullRoutePoints.size} geometryMeters=${geometryDistanceM.toInt()} providerMeters=$totalDistanceM")
 
                 val routeGeometry = MotoBLERouteGeometry(
                     coordinateSystem = 2,
