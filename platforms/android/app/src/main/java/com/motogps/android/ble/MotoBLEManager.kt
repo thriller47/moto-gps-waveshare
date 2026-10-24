@@ -122,14 +122,41 @@ class MotoBLEManager(private val context: Context) {
     fun sendRouteGeometry(geometry: MotoBLERouteGeometry) {
         if (codecPtr != 0L) {
             val frames = bleCodec.nativeEncodeRouteGeometry(codecPtr, geometry)
-            enqueueSendFramesTask(frames)
+            enqueueLatestFramesTask(frames, MotoBLEProtocolCodec.MSG_ROUTE_GEOMETRY)
         }
     }
 
     fun sendMapScene(scene: MotoBLEMapScene) {
         if (codecPtr != 0L) {
             val frames = bleCodec.nativeEncodeMapScene(codecPtr, scene)
-            enqueueSendFramesTask(frames)
+            enqueueLatestFramesTask(frames, MotoBLEProtocolCodec.MSG_MAP_SCENE)
+        }
+    }
+
+    // Geometry and road context represent replaceable snapshots. Drop older
+    // UNSENT complete messages of the same type. Never drop any fragment from
+    // an in-flight sequence: that would strand the ESP32 reassembler.
+    private fun enqueueLatestFramesTask(frames: Array<ByteArray>, type: Byte) {
+        synchronized(writeQueue) {
+            val protectedSequence = activeMessageSequence
+            val iterator = writeQueue.iterator()
+            var removed = 0
+            while (iterator.hasNext()) {
+                val queued = iterator.next()
+                if (queued.size >= 6 && queued[2] == type &&
+                    sequenceOf(queued) != protectedSequence) {
+                    iterator.remove()
+                    removed++
+                }
+            }
+            for (frame in frames) writeQueue.addLast(frame)
+            if (removed > 0) {
+                Log.d("MotoBLEManager", "Coalesced $removed obsolete BLE fragments type=${type.toInt() and 0xff}")
+            }
+            if (!writeInProgress) {
+                writeInProgress = true
+                mainHandler.post { processNextWrite() }
+            }
         }
     }
 
