@@ -9,7 +9,8 @@ constexpr char kTag[] = "signal_audio";
 constexpr gpio_num_t kBclk = GPIO_NUM_9;
 constexpr gpio_num_t kWs = GPIO_NUM_45;
 constexpr gpio_num_t kDout = GPIO_NUM_8;
-constexpr gpio_num_t kMclk = GPIO_NUM_16;
+// Waveshare ESP-IDF BSP/schematic MCLK is GPIO42 (GPIO16 is NOT wired).
+constexpr gpio_num_t kMclk = GPIO_NUM_42;
 bool valid_rate(std::uint32_t rate) {
   return rate == 22050 || rate == 32000 || rate == 44100 || rate == 48000;
 }
