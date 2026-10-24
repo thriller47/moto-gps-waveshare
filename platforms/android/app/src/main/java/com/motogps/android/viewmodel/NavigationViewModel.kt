@@ -484,16 +484,16 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                                 calculateDistanceMeters(lat, lon, pt.latitudeE6 / 1e6, pt.longitudeE6 / 1e6)
                             }
                         }
-                    // Diagnostic BLE profile: small map scenes to test whether
-                    // fragmented 192-point updates are being lost in transit.
-                    // Restore larger capacities after confirming delivery.
-                    var pointsRemaining = 64
+                    // Gradual increase after successful 8/64 field test.
+                    // Stay well below the firmware ceiling of 24/192 to
+                    // avoid BLE congestion from large fragmented scenes.
+                    var pointsRemaining = 96
                     for (seg in candidates) {
-                        if (roadPolylines.size >= 8 || pointsRemaining < 2) break
+                        if (roadPolylines.size >= 12 || pointsRemaining < 2) break
                         // Each OSM way may begin kilometres away from the GPS fix.
                         // Select the nearby portion, retaining junction corners.
                         val points = RoadContextWindow.around(
-                            seg.points, lat, lon, minOf(pointsRemaining, 12)
+                            seg.points, lat, lon, minOf(pointsRemaining, 16)
                         )
                         if (points.size < 2) continue
                         roadPolylines.add(MotoBLEMapRoadPolyline(roadClass = seg.roadClass, points = points))
@@ -519,7 +519,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                     buildings = emptyList()
                 )
 
-                Log.i("NavigationVM", "Context BLE SMALL(8/64): roads=${roadPolylines.size} points=${roadPolylines.sumOf { it.points.size }} sourceSegments=${segments.size}")
+                Log.i("NavigationVM", "Context BLE MEDIUM(12/96): roads=${roadPolylines.size} points=${roadPolylines.sumOf { it.points.size }} sourceSegments=${segments.size}")
                 bleManager.sendMapScene(scene)
             } catch (e: Exception) {
                 Log.w("NavigationVM", "Error updating map scene and speed limit: ${e.message}")
