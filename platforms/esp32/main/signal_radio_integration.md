@@ -142,3 +142,32 @@ test; full radio-mode resource cleanup must be designed before enabling
 navigation/radio switching. A new ESP-IDF build and physical speaker test
 are required. Watch `signal_test: Official Waveshare ES8311 speaker path`
 for confirmation that the replacement code actually ran.
+
+## First station and Wi-Fi foundation (October 2026)
+
+The first radio chosen is **Radio Capital Classic Rock**:
+https://www.capital.it/webradio/02/
+
+The website is a player page, not a directly decodable audio endpoint.
+A third-party directory currently reports this HLS playlist:
+`https://streamcdng7-4c4b867c89244861ac216426883d1ad0.msvdn.net/webradio/capitalclassicrock/live.m3u8`
+(https://radioitaliastreaming.it/). It may change and has **not** been
+verified end-to-end by the ESP32. `signal_stations.h` records the station
+and `requires_hls=true`, so a plain MP3 decoder is insufficient.
+
+`SignalWifi` (signal_wifi.h/.cpp) is compiled as a **dormant**, radio-only
+ESP-IDF STA manager: initialize Wi-Fi/netif/event loop, load SSID/password
+from `signal_wifi` NVS namespace, wait for DHCP address, bounded
+reconnection, disable modem sleep, and stop/destroy owned resources. It does
+NOT connect on boot or affect `NoOta`. An owner task in radio mode will
+later call `start_saved()` and `stop()` and may call
+`save_credentials(ssid,password)` during a dedicated provisioning flow.
+Do not commit secrets to source or CI. There is not yet an on-device
+credential entry screen, nor an HLS demuxer/AAC decoder. The Wi-Fi function
+therefore cannot be exercised by a normal user build yet, and the boot speaker
+test remains as before.
+
+**Next prerequisite:** add a secure on-device Wi-Fi provisioning UI and
+navigation-mode arbitration; then verify a connection to a 2.4 GHz network
+before implementing HTTP(S)/HLS decoding. The earlier successful physical
+test on official Waveshare BSP confirms that the three speaker notes worked.
