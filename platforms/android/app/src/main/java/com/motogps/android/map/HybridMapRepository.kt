@@ -51,7 +51,7 @@ class HybridMapRepository(
     companion object {
         private val offlineDownloadMutex = Mutex()
         // Cap each manual download batch, then resume remaining tiles next time.
-        private const val MAX_TILES_PER_BATCH = 12
+        private const val MAX_TILES_PER_BATCH = 24
 
         fun getSharedMapsDir(context: Context): File {
             val dir = File(context.filesDir, "maps")
@@ -357,18 +357,18 @@ class HybridMapRepository(
     }
 
     /**
-     * Small road-cache window for reliable on-phone downloads.
-     * A 50km area would require thousands of z15 tiles; never silently
-     * pretend that a 5x5 window represents a 50km offline map.
+     * 9x9 z15 tiles: roughly 8 km across at northern Italian latitudes.
+     * A bounded batch and geographical checkpoints make retries safe,
+     * without attempting an entire region in a single session.
      */
     suspend fun downloadCurrentArea(
         lat: Double,
         lon: Double,
         onProgress: ((Int, Int, String) -> Unit)? = null
     ): DownloadResult = downloadGatewayTiles(
-        GatewayRoadTiles.around(lat, lon, 2),
-        File(mapsDir, "area_vicina.motomap"),
-        "Zona vicina (~2 km)",
+        GatewayRoadTiles.around(lat, lon, 4),
+        File(mapsDir, "area_vicina_8km.motomap"),
+        "Zona vicina (~8 km)",
         onProgress
     )
 
