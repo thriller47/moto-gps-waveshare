@@ -1,3 +1,4 @@
+#include <cstdint>
 #include "esp_codec_dev.h"
 #include "driver/i2s_std.h"
 #include "bsp/esp-bsp.h"
