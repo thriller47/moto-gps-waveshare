@@ -14,7 +14,7 @@ import kotlin.math.tan
 
 /**
  * Real OpenStreetMap road geometry from the project's existing map gateway.
- * No Overpass calls, synthetic roads or bulk public-server queries.
+ * Only provider-supplied coordinates; no synthesized streets or bulk queries.
  */
 internal object GatewayRoadTiles {
     const val ZOOM = 15
@@ -104,7 +104,8 @@ internal object GatewayRoadTiles {
                     "primary" -> 1
                     "secondary" -> 2
                     "residential" -> 3
-                    "service" -> 4
+                    // Access streets are legitimate context around a rider's home.
+                    "service" -> 3
                     else -> 5
                 }
                 if (roadClass !in 0..3) continue
