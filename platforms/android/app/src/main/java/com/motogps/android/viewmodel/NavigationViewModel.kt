@@ -404,7 +404,13 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
 
         if (context != null) {
             val distFromLastScene = calculateDistanceMeters(lastMapSceneLat, lastMapSceneLon, latitude, longitude)
-            if (now - lastMapSceneSendTimeMs >= 10_000L || distFromLastScene >= 12.0) {
+            // Moving GPS fixes used to enqueue full map scenes every 12 m,
+            // saturating GATT and delaying route geometry while downloading
+            // new map tiles. Limit to one every 8s, and normally only after
+            // 100m movement (or 25s stationary refresh).
+            val sinceSceneMs = now - lastMapSceneSendTimeMs
+            if (sinceSceneMs >= 8_000L &&
+                (distFromLastScene >= 100.0 || sinceSceneMs >= 25_000L)) {
                 lastMapSceneSendTimeMs = now
                 lastMapSceneLat = latitude
                 lastMapSceneLon = longitude
