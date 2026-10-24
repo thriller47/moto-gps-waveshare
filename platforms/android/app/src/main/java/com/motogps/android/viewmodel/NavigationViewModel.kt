@@ -231,14 +231,12 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                     automaticCorridorJob = viewModelScope.launch(Dispatchers.IO) {
                         try {
                             val repo = getOrCreateRepo(mapContext)
-                            val hasCorridor = repo.listSavedMaps().any {
-                                it.fileName == "corridoio_rotta.motomap" && it.sizeBytes > 0L
-                            }
-                            if (!hasCorridor) {
-                                repo.downloadRouteCorridor(routePoints)
-                                val (currentLat, currentLon) = currentLocation.value
-                                updateSpeedLimitAndMapScene(currentLat, currentLon, mapContext)
-                            }
+                            // A completed corridor may belong to an older route.
+                            // Tile checkpoints are geographically keyed, so each
+                            // new route fills only its missing vector tiles.
+                            repo.downloadRouteCorridor(routePoints)
+                            val (currentLat, currentLon) = currentLocation.value
+                            updateSpeedLimitAndMapScene(currentLat, currentLon, mapContext)
                         } catch (e: Exception) {
                             Log.w("NavigationVM", "Automatic corridor unavailable: ${e.message}")
                         }
