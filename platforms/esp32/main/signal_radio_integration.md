@@ -80,18 +80,18 @@ the device once a deliberately opt-in radio test entry point is added.
 
 ## First physical speaker test (experimental branch only)
 
-The `signal` branch now compiles a **one-shot, 500 ms 440 Hz low-volume tone
+The `signal` branch now compiles a **one-shot, three-note (C5-E5-G5) melody, about 1.3 seconds at moderate-low volume
 at boot** by default. It runs only after `board_port_init()` so the existing
 Waveshare I2C controller already exists. The audio path starts muted with the
-amplifier off; the test reduces ES8311 volume to 12%, unmutes for the tone,
+amplifier off; the test sets ES8311 volume to 22%, uses PCM amplitude below 20% of full scale and 35 ms fades, unmutes for the melody,
 then powers everything down and leaves the GPS UI running. No Wi-Fi is started.
 
 1. Run GitHub Actions **Project Build**, branch `signal`, ESP32 job.
 2. Only if the build passes: retain a copy of the proven `NoOta` firmware
    for restoration, connect the board speaker, flash the experimental build.
 3. Open serial monitor (115200) and look for `signal_test` messages.
-   Expected: `Starting one-shot ES8311 speaker test` and
-   `Speaker test finished; audio powered down`. Report audible tone or
+   Expected: `Starting three-note ES8311 speaker melody` and
+   `Melody completed; amplifier and I2S stopped`. Report audible tone or
    silence together with any codec/I2S errors.
 4. To disable boot test for future builds, pass
    `-DMOTO_SIGNAL_AUDIO_BOOT_TEST=OFF` to ESP-IDF CMake configuration.
@@ -99,3 +99,11 @@ then powers everything down and leaves the GPS UI running. No Wi-Fi is started.
 **Unverified on physical hardware:** I2C chip recognition, codec startup,
 GPIO46 amplifier behavior and acoustic output. The successful build on
 commit c53a320 predates this new test; a fresh build is required.
+
+## Second hardware trial
+
+The first user hardware test emitted a very quiet sound. For the next trial,
+the experimental boot test now plays three soft notes (523, 659, 784 Hz),
+420 ms each. It uses a 22% codec level and 35 ms per-note fades, without
+Wi-Fi. Build branch `signal` again before flashing. Stop the experiment if
+any crackle, strong click, clipping, or reboot occurs. `NoOta` is unchanged.
