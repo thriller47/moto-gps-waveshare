@@ -73,7 +73,7 @@ async function main() {
   const port = Number(process.env.PORT ?? 8787);
   const allowedOrigin = process.env.WEB_ORIGIN ?? "http://localhost:5173";
   const mapProvider = createMapTileProvider({
-    url: process.env.MOTO_MAP_PMTILES_URL ?? (providerMode === "amap" ? "auto" : "disabled"),
+    url: process.env.MOTO_MAP_PMTILES_URL ?? (providerMode === "disabled" ? "disabled" : "auto"),
     cacheDirectory: process.env.MOTO_MAP_CACHE_DIR,
     maximumCacheBytes: process.env.MOTO_MAP_CACHE_MAX_BYTES === undefined
       ? undefined : Number(process.env.MOTO_MAP_CACHE_MAX_BYTES),
