@@ -23,6 +23,15 @@ class GatewayRoadTilesTest {
     }
 
     @Test
+    fun largerOfflineAreaUses81DistinctTilesWithCurrentTileFirst() {
+        val center = GatewayRoadTiles.tileFor(44.4424, 7.8913)
+        val tiles = GatewayRoadTiles.around(44.4424, 7.8913, 4)
+        assertEquals(81, tiles.size)
+        assertEquals(center, tiles.first())
+        assertEquals(81, tiles.distinct().size)
+    }
+
+    @Test
     fun routeCorridorSamplesIntermediateTilesWithoutDuplicatingThem() {
         val route = listOf(
             44.4424 to 7.8913,
