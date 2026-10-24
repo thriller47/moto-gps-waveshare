@@ -58,9 +58,11 @@ class HybridMapRepository(private val context: Context) {
     }
 
     private val mirrors = listOf(
-        "https://overpass-api.de/api/interpreter",
+        // Private.coffee is the current endpoint of the former kumi instance.
+        // Put it first to avoid the recurring failures seen on overpass-api.de.
+        "https://overpass.private.coffee/api/interpreter",
         "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
-        "https://overpass.kumi.systems/api/interpreter"
+        "https://overpass-api.de/api/interpreter"
     )
 
     private val mapsDir: File by lazy {
@@ -488,6 +490,7 @@ class HybridMapRepository(private val context: Context) {
                 conn.doOutput = true
                 conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
                 conn.setRequestProperty("Accept-Encoding", "gzip")
+                conn.setRequestProperty("User-Agent", "MotoGPS/1.0 (Android offline vector map cache)")
                 conn.connectTimeout = connectTimeoutMs
                 conn.readTimeout = readTimeoutMs
 
