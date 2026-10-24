@@ -285,7 +285,13 @@ class HybridMapRepository(
                     onProgress?.invoke(index + 1, tiles.size, "$label: $completed/${tiles.size} tile")
                     continue
                 }
-                if (attempts >= MAX_TILES_PER_BATCH || consecutiveFailures >= 2) break
+                // A batch is a pacing boundary, not the end of a download.
+                // Preserve checkpoints and continue automatically.
+                if (consecutiveFailures >= 3) break
+                if (attempts > 0 && attempts % MAX_TILES_PER_BATCH == 0) {
+                    onProgress?.invoke(index, tiles.size, "$label: pausa tra blocchi ($completed/${tiles.size} tile)")
+                    delay(1_500)
+                }
                 attempts++
                 val temp = File(partsDir, part.name + ".tmp")
                 try {
@@ -308,7 +314,8 @@ class HybridMapRepository(
                     Log.w("HybridMapRepository", "$label: tile ${tile.key} non disponibile: ${e.message}")
                 }
                 onProgress?.invoke(index + 1, tiles.size, "$label: $completed/${tiles.size} tile")
-                if (attempts < MAX_TILES_PER_BATCH) delay(100)
+                // Avoid bursts towards Render/PMTiles, including at block edges.
+                if (index < tiles.lastIndex) delay(if (consecutiveFailures > 0) 1_000 else 350)
             }
 
             if (totalSegments == 0) {
