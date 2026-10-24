@@ -20,7 +20,7 @@ constexpr int kI2cTimeoutMs = 100;
 // The four supported source rates share these exact coefficients in
 // Espressif's ES8311 table at MCLK=256*fs:
 // pre_div=1, pre_multi=0, adc_div=dac_div=1, fs_mode=0,
-// lrck_h=0, lrck_l=255, bclk_div=4, adc_osr=dac_osr=16.
+// lrck_h=0, lrck_l=255, bclk_div=8 for 16-bit stereo I2S,\n// adc_osr=dac_osr=16.
 struct RegisterSetting {
   std::uint8_t address;
   std::uint8_t value;
@@ -63,8 +63,7 @@ esp_err_t SignalEs8311Codec::configure_clock(std::uint32_t rate_hz) {
   }
   err = read_reg(0x06, &value);
   if (err != ESP_OK) return err;
-  // BCLK divider 4, leave upper clock bits, clear BCLK inversion.
-  err = write_reg(0x06, static_cast<std::uint8_t>((value & 0xC0) | 0x03));
+  // I2S standard stereo 16-bit has 32 BCLK pulses per sample frame.\n  // With MCLK=256*fs the ES8311 requires BCLK divider 8 (256/32),\n  // not divider 4 from SIGNAL's 64-BCLK Arduino playback path.\n  // Preserve high bits and clear the BCLK inversion bit.\n  err = write_reg(0x06, static_cast<std::uint8_t>((value & 0xC0) | 0x07));
   if (err != ESP_OK) return err;
   err = read_reg(0x07, &value);
   if (err != ESP_OK) return err;
