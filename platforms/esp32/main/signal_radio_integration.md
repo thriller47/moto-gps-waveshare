@@ -122,3 +122,23 @@ If three notes remain inaudible despite completed writes, investigate BSP
 PA_CTRL handling and ES8311 register configuration rather than increasing
 volume. Waveshare's hardware reference recommends PA control via its BSP,
 not assuming GPIO46 electrical output behavior.
+
+## Fourth trial: official Waveshare/Espressif audio stack
+
+The user reproduced only a tiny startup click, despite ES8311 ID 0x83 and
+18522 PCM frames per note being written without errors. The test now uses
+`bsp_audio_init()`, `bsp_audio_codec_speaker_init()` and the
+`esp_codec_dev_open/write/close/delete` API in place of the hand-written
+`SignalRadioAudio` path. The I2C bus was already created by the Waveshare
+board initialization; call the speaker init only *after* explicit BSP audio
+init, so it does not try to start a second I2C bus. The same C5/E5/G5 PCM
+test and low volume remain. The manual ES8311/I2S code remains compiled but
+is NOT called in this trial; no competing codec or PA initialization.
+
+**Caveat:** the official BSP does not offer a full audio/I2S deinit API. The
+codec device is closed/deleted after the melody, but the BSP-owned I2S
+peripheral remains initialized. This is acceptable for one boot-time hardware
+test; full radio-mode resource cleanup must be designed before enabling
+navigation/radio switching. A new ESP-IDF build and physical speaker test
+are required. Watch `signal_test: Official Waveshare ES8311 speaker path`
+for confirmation that the replacement code actually ran.
