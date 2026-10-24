@@ -566,6 +566,7 @@ class HybridMapRepository(private val context: Context) {
         val parts = ArrayList<File>(boxes.size)
         var completed = 0
         var failed = 0
+        var consecutiveFailures = 0
         var totalSegments = 0
 
         fun existingSegments(file: File): Int =
@@ -605,6 +606,7 @@ class HybridMapRepository(private val context: Context) {
                 }
                 totalSegments += written
                 completed++
+                consecutiveFailures = 0
                 Log.i("HybridMapRepository",
                     "$name checkpoint: sector=${index + 1}/${boxes.size} saved=$completed segments=$totalSegments")
             } catch (e: CancellationException) {
@@ -613,17 +615,25 @@ class HybridMapRepository(private val context: Context) {
             } catch (e: Exception) {
                 tmp.delete()
                 failed++
+                consecutiveFailures++
                 Log.w("HybridMapRepository",
                     "$name sector=${index + 1}/${boxes.size} failed; previously saved sectors kept: ${e.message}")
             }
             onProgress?.invoke(index + 1, boxes.size,
                 "$name: $completed/${boxes.size} settori salvati, $failed da riprovare")
+            // The shared public Overpass servers are not responding. Don't
+            // keep retrying a whole region for hours; save the successful
+            // checkpoints, back off, and let the next tap resume from here.
+            if (consecutiveFailures >= 2) {
+                Log.w("HybridMapRepository", "$name suspended after 2 consecutive failed sectors; remaining sectors will be retried later")
+                break
+            }
         }
 
         val partial = File(mapsDir, "${target.nameWithoutExtension}_parziale.motomap")
-        if (completed == 0) {
+        if (completed == 0 || totalSegments == 0) {
             throw java.io.IOException(
-                "Nessun settore scaricato: server mappe non disponibile. Riprova più tardi.")
+                "Nessuna strada scaricata: server mappe non disponibile. I settori completati rimangono nella cache per il prossimo tentativo.")
         }
 
         val assembled = File(mapsDir, "${target.name}.assembling")
