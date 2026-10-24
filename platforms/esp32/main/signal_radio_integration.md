@@ -171,3 +171,18 @@ test remains as before.
 navigation-mode arbitration; then verify a connection to a 2.4 GHz network
 before implementing HTTP(S)/HLS decoding. The earlier successful physical
 test on official Waveshare BSP confirms that the three speaker notes worked.
+
+## First live station simplified to original SIGNAL preset
+
+For the initial end-to-end radio playback use **Radio Paradise – Main Mix**,
+one of the preloaded presets in zhitianfu/signal-internet-radio's
+`station_manager.cpp`. Its official listening page lists a direct 128 kb/s
+MP3 stream on a Europe server at
+`http://stream-uk1.radioparadise.com/mp3-128`.
+`signal_stations.h` now selects this as `kFirstStation` with
+`StreamFormat::DirectMp3`. Radio Capital Classic Rock remains defined as
+`kCapitalClassicRock` with `StreamFormat::Hls` for a later milestone.
+
+This is a station-selection change only: **there is still no MP3 network
+streamer or playback decoder connected to the audio BSP**, nor a provisioning
+screen or start/stop mode UI. The dormant Wi-Fi manager remains unchanged.
