@@ -89,8 +89,13 @@ class HybridMapRepository(
 
     fun deleteSavedMap(fileName: String): Boolean {
         val file = File(mapsDir, fileName)
-        return if (file.exists() && file.canonicalPath.startsWith(mapsDir.canonicalPath)) {
-            file.delete()
+        return if (file.exists() && file.parentFile?.canonicalFile == mapsDir.canonicalFile) {
+            val deleted = file.delete()
+            if (deleted && fileName.endsWith("_parziale.motomap")) {
+                val base = fileName.removeSuffix("_parziale.motomap")
+                File(mapsDir, ".${base}_parts").deleteRecursively()
+            }
+            deleted
         } else {
             false
         }
