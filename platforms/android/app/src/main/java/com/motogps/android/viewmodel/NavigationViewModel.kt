@@ -705,6 +705,9 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
             _errorMessage.value = null
 
             try {
+                if (!hasFirstFix) {
+                    throw IllegalStateException("Attendi che il GPS trovi la posizione prima di scaricare la zona vicina")
+                }
                 val (lat, lon) = currentLocation.value
                 val repo = getOrCreateRepo(context)
                 val res = withContext(Dispatchers.IO) {
