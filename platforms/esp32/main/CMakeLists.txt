@@ -70,8 +70,8 @@ if(MOTO_SIGNAL_AUDIO_BOOT_TEST)
     target_compile_definitions(${COMPONENT_LIB} PRIVATE MOTO_SIGNAL_AUDIO_BOOT_TEST=1)
 endif()
 
-# Serial Wi-Fi test console: disabled by default for production builds.
-option(MOTO_SIGNAL_WIFI_CONSOLE "Enable lab-only SIGNAL Wi-Fi serial console" OFF)
+# Experimental branch only: CLI task is present, but Wi-Fi stays OFF until user command.
+option(MOTO_SIGNAL_WIFI_CONSOLE "Enable lab-only SIGNAL Wi-Fi serial console" ON)
 if(MOTO_SIGNAL_WIFI_CONSOLE)
     target_compile_definitions(${COMPONENT_LIB} PRIVATE MOTO_SIGNAL_WIFI_CONSOLE=1)
 endif()
