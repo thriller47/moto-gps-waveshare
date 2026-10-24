@@ -273,6 +273,7 @@ class HybridMapRepository(
             var totalSegments = 0
             var attempts = 0
             var consecutiveFailures = 0
+            var lastGatewayError: String? = null
             for ((index, tile) in tiles.withIndex()) {
                 currentCoroutineContext().ensureActive()
                 val part = File(partsDir, "tile_${tile.key}.motomap")
@@ -303,6 +304,7 @@ class HybridMapRepository(
                 } catch (e: Exception) {
                     temp.delete()
                     consecutiveFailures++
+                    lastGatewayError = e.message
                     Log.w("HybridMapRepository", "$label: tile ${tile.key} non disponibile: ${e.message}")
                 }
                 onProgress?.invoke(index + 1, tiles.size, "$label: $completed/${tiles.size} tile")
@@ -311,7 +313,7 @@ class HybridMapRepository(
 
             if (totalSegments == 0) {
                 throw IOException(
-                    "Nessuna strada scaricata dal gateway. Verifica che il servizio mappe vettoriali sia attivo.")
+                    "Nessuna strada scaricata. Gateway vettoriale: ${lastGatewayError ?: "nessuna strada nelle tile disponibili"}.")
             }
 
             val complete = completed == tiles.size
