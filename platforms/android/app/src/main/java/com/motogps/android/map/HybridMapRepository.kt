@@ -16,6 +16,7 @@ import java.util.Locale
 import java.util.zip.GZIPInputStream
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Mutex
 import org.json.JSONObject
 
 data class SavedMapInfo(
@@ -55,6 +56,10 @@ class HybridMapRepository(
 ) {
 
     companion object {
+        // Automatic corridor and manual downloads may be launched at once.
+        // Serialize updates to the same sector checkpoint and .assembling files.
+        private val offlineDownloadMutex = Mutex()
+
         fun getSharedMapsDir(context: Context): File {
             val dir = File(context.filesDir, "maps")
             if (!dir.exists()) {
@@ -588,6 +593,8 @@ class HybridMapRepository(
         name: String,
         onProgress: ((Int, Int, String) -> Unit)?
     ): DownloadResult {
+        offlineDownloadMutex.lock()
+        try {
         val partsDir = File(mapsDir, ".${target.nameWithoutExtension}_parts")
         if (!partsDir.exists() && !partsDir.mkdirs()) {
             throw java.io.IOException("Impossibile creare la cache dei settori")
@@ -698,6 +705,9 @@ class HybridMapRepository(
                 isComplete = completed == boxes.size)
         } finally {
             assembled.delete()
+        }
+        } finally {
+            offlineDownloadMutex.unlock()
         }
     }
 
