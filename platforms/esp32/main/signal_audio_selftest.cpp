@@ -1,4 +1,5 @@
-#include "signal_radio_audio.h"
+#include "esp_codec_dev.h"
+#include "driver/i2s_std.h"
 #include "bsp/esp-bsp.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -19,22 +20,56 @@ constexpr unsigned kNotesHz[] = {523, 659, 784};  // C5 E5 G5
 void tone_task(void*) {
   ESP_LOGI(kTag, "Starting three-note ES8311 speaker melody (volume=%u%%)",
            static_cast<unsigned>(kCodecVolume));
-  SignalRadioAudio audio;
-  esp_err_t err = audio.start(bsp_i2c_get_handle(), kSampleRate);
+  // Official Waveshare path: reuse BSP I2C (already initialized by the UI),
+  // let BSP own I2S and use esp_codec_dev for ES8311 + PA lifecycle.
+  i2s_std_config_t i2s_cfg = {
+      .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(kSampleRate),
+      .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(
+          I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO),
+      .gpio_cfg = {
+          .mclk = BSP_I2S_MCLK,
+          .bclk = BSP_I2S_SCLK,
+          .ws = BSP_I2S_LCLK,
+          .dout = BSP_I2S_DOUT,
+          .din = BSP_I2S_DSIN,
+          .invert_flags = {},
+      },
+  };
+  i2s_cfg.clk_cfg.mclk_multiple = I2S_MCLK_MULTIPLE_256;
+  esp_err_t err = bsp_audio_init(&i2s_cfg);
   if (err != ESP_OK) {
-    ESP_LOGE(kTag, "Audio startup failed: %s", esp_err_to_name(err));
+    ESP_LOGE(kTag, "Waveshare BSP I2S initialization failed: %s",
+             esp_err_to_name(err));
     vTaskDelete(nullptr);
     return;
   }
-
-  err = audio.set_volume(kCodecVolume);
-  if (err == ESP_OK) err = audio.set_mute(false);
-  if (err != ESP_OK) {
-    ESP_LOGE(kTag, "Cannot enable speaker: %s", esp_err_to_name(err));
-    audio.stop();
+  esp_codec_dev_handle_t speaker = bsp_audio_codec_speaker_init();
+  if (speaker == nullptr) {
+    ESP_LOGE(kTag, "Waveshare BSP speaker codec init failed");
     vTaskDelete(nullptr);
     return;
   }
+  esp_codec_dev_sample_info_t fs{};
+  fs.sample_rate = kSampleRate;
+  fs.channel = 2;
+  fs.bits_per_sample = 16;
+  int codec_err = esp_codec_dev_open(speaker, &fs);
+  if (codec_err != ESP_CODEC_DEV_OK) {
+    ESP_LOGE(kTag, "Official codec open failed: %d", codec_err);
+    esp_codec_dev_delete(speaker);
+    vTaskDelete(nullptr);
+    return;
+  }
+  codec_err = esp_codec_dev_set_out_vol(speaker, kCodecVolume);
+  if (codec_err != ESP_CODEC_DEV_OK) {
+    ESP_LOGE(kTag, "Official codec set volume failed: %d", codec_err);
+    esp_codec_dev_close(speaker);
+    esp_codec_dev_delete(speaker);
+    vTaskDelete(nullptr);
+    return;
+  }
+  ESP_LOGI(kTag, "Official Waveshare ES8311 speaker path opened at %u Hz",
+           kSampleRate);
 
   std::int16_t pcm[kFramesPerBuffer * 2];
   const unsigned total_frames = kNoteDurationMs * kSampleRate / 1000U;
@@ -65,11 +100,11 @@ void tone_task(void*) {
         pcm[2 * i + 1] = sample;
         phase += step;
       }
-      std::size_t written = 0;
-      err = audio.write_pcm(pcm, frames, &written);
-      if (err != ESP_OK || written != frames) {
-        ESP_LOGE(kTag, "PCM error at %uHz: %s (frames=%u/%u)",
-                 hz, esp_err_to_name(err), static_cast<unsigned>(written), frames);
+      codec_err = esp_codec_dev_write(speaker, pcm,
+                                       frames * 2U * sizeof(std::int16_t));
+      if (codec_err != ESP_CODEC_DEV_OK) {
+        ESP_LOGE(kTag, "BSP PCM error at %uHz: %d", hz, codec_err);
+        err = ESP_FAIL;
         break;
       }
       emitted += frames;
@@ -78,9 +113,9 @@ void tone_task(void*) {
     ESP_LOGI(kTag, "Note %u Hz: %u PCM frames written", hz, emitted);
   }
 
-  (void)audio.set_mute(true);
-  audio.stop();
-  ESP_LOGI(kTag, "Melody completed; amplifier and I2S stopped");
+  esp_codec_dev_close(speaker);
+  esp_codec_dev_delete(speaker);
+  ESP_LOGI(kTag, "BSP melody finished; codec closed and amplifier disabled");
   vTaskDelete(nullptr);
 }
 }  // namespace
