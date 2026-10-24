@@ -24,6 +24,7 @@ idf_component_register(
         "signal_radio_audio.cpp"
         "signal_audio_selftest.cpp"
         "signal_wifi.cpp"
+        "signal_wifi_console.cpp"
         "${MOTO_SHARED_BLE_PROTOCOL_SOURCE}"
         "${MOTO_SHARED_NAV_PRESENTER_SOURCE}"
         "${MOTO_SHARED_UI_FONT}"
@@ -67,4 +68,10 @@ target_compile_options(${COMPONENT_LIB} PRIVATE
 option(MOTO_SIGNAL_AUDIO_BOOT_TEST "Run one-shot SIGNAL speaker self-test at boot" ON)
 if(MOTO_SIGNAL_AUDIO_BOOT_TEST)
     target_compile_definitions(${COMPONENT_LIB} PRIVATE MOTO_SIGNAL_AUDIO_BOOT_TEST=1)
+endif()
+
+# Serial Wi-Fi test console: disabled by default for production builds.
+option(MOTO_SIGNAL_WIFI_CONSOLE "Enable lab-only SIGNAL Wi-Fi serial console" OFF)
+if(MOTO_SIGNAL_WIFI_CONSOLE)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE MOTO_SIGNAL_WIFI_CONSOLE=1)
 endif()
