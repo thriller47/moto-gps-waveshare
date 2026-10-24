@@ -19,6 +19,7 @@ idf_component_register(
         "board_port_waveshare_1_75c.cpp"
         "motion_heading_sensor.cpp"
         "phone_nav_bridge.cpp"
+        "signal_audio_output.cpp"
         "${MOTO_SHARED_BLE_PROTOCOL_SOURCE}"
         "${MOTO_SHARED_NAV_PRESENTER_SOURCE}"
         "${MOTO_SHARED_UI_FONT}"
@@ -33,6 +34,7 @@ idf_component_register(
         esp_timer
         esp_driver_gpio
         esp_driver_i2c
+        esp_driver_i2s
         esp_hw_support
         freertos
         log
