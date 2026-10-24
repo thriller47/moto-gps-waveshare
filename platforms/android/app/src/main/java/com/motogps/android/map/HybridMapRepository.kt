@@ -678,17 +678,26 @@ class HybridMapRepository(private val context: Context) {
         onProgress: ((Int, Int, String) -> Unit)? = null
     ): DownloadResult {
         val delta = 0.45
+        // Snap every sector to a fixed global grid. Coordinates from a new
+        // GPS fix differ by metres; otherwise retries would never hit cache.
+        val step = 0.20
+        val minLat = kotlin.math.floor((lat - delta) / step) * step
+        val minLon = kotlin.math.floor((lon - delta) / step) * step
+        val maxLat = kotlin.math.ceil((lat + delta) / step) * step
+        val maxLon = kotlin.math.ceil((lon + delta) / step) * step
         val boxes = buildQuadrantsGrid(
-            lat - delta, lon - delta, lat + delta, lon + delta, 0.20
+            minLat, minLon, maxLat, maxLon, step
         ).sortedBy { box ->
             val dLat = (box.minLat + box.maxLat) / 2 - lat
             val dLon = (box.minLon + box.maxLon) / 2 - lon
             dLat * dLat + dLon * dLon
         }
-        // An inexpensive small tile near the rider is tried first so a
-        // partial download is immediately useful for the live ESP32 view.
-        val nearby = BoundingBox(lat - 0.015, lon - 0.020,
-                                 lat + 0.015, lon + 0.020)
+        // A small, fixed tile near the rider is fetched before the 50km grid.
+        val localStep = 0.03
+        val localLat = kotlin.math.floor(lat / localStep) * localStep
+        val localLon = kotlin.math.floor(lon / localStep) * localStep
+        val nearby = BoundingBox(localLat, localLon,
+                                 localLat + localStep, localLon + localStep)
         return downloadBoxesResumable(
             listOf(nearby) + boxes,
             File(mapsDir, "area_corrente_50km.motomap"),
@@ -718,10 +727,18 @@ class HybridMapRepository(private val context: Context) {
         }
         if (sampled.last() != rawRoutePoints.last()) sampled.add(rawRoutePoints.last())
 
-        val boxes = sampled.distinct().map { (lat, lon) ->
-            val latDelta = 1.5 / 111.0
-            val lonDelta = 1.5 / (111.0 * Math.cos(Math.toRadians(lat)).coerceAtLeast(0.1))
-            BoundingBox(lat - latDelta, lon - lonDelta, lat + latDelta, lon + lonDelta)
+        // Stable ~3km cells with a small margin around each route waypoint.
+        // New routing requests at a nearby GPS position reuse the same files.
+        val tileStep = 0.03
+        val boxes = sampled.map { (lat, lon) ->
+            val latTile = kotlin.math.floor(lat / tileStep) * tileStep
+            val lonTile = kotlin.math.floor(lon / tileStep) * tileStep
+            BoundingBox(
+                latTile - 0.005, lonTile - 0.005,
+                latTile + tileStep + 0.005, lonTile + tileStep + 0.005
+            )
+        }.distinctBy { box ->
+            Pair((box.minLat * 1_000_000).toLong(), (box.minLon * 1_000_000).toLong())
         }
         return downloadBoxesResumable(
             boxes,
