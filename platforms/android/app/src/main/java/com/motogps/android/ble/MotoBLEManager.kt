@@ -81,7 +81,7 @@ class MotoBLEManager(private val context: Context) {
     }
 
     init {
-        codecPtr = bleCodec.nativeInit(247)
+        codecPtr = bleCodec.nativeInit(20) // Default ATT MTU 23 permits at most 20 attribute bytes
     }
 
     fun getCurrentSessionId(): Long = currentSessionId
@@ -264,7 +264,7 @@ class MotoBLEManager(private val context: Context) {
         override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 if (codecPtr != 0L) {
-                    bleCodec.nativeSetMaximumFrameSize(codecPtr, mtu.coerceAtMost(185))
+                    bleCodec.nativeSetMaximumFrameSize(codecPtr, (mtu - 3).coerceIn(20, 182))
                 }
             }
             enqueueOperation {
