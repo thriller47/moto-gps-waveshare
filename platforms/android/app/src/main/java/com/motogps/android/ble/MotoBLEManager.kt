@@ -184,7 +184,7 @@ class MotoBLEManager(private val context: Context) {
         } else {
             @Suppress("DEPRECATION")
             characteristic.value = frame!!
-            characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+            characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
             @Suppress("DEPRECATION")
             gatt.writeCharacteristic(characteristic)
         }
