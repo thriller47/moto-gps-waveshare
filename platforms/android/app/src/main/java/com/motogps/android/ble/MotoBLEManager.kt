@@ -180,7 +180,7 @@ class MotoBLEManager(private val context: Context) {
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            gatt.writeCharacteristic(characteristic, frame!!, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE)
+            gatt.writeCharacteristic(characteristic, frame!!, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)
         } else {
             @Suppress("DEPRECATION")
             characteristic.value = frame!!
@@ -291,6 +291,9 @@ class MotoBLEManager(private val context: Context) {
         }
 
         override fun onCharacteristicWrite(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) {
+            if (status != BluetoothGatt.GATT_SUCCESS) {
+                Log.w("MotoBLEManager", "BLE frame write failed: GATT status=$status")
+            }
             mainHandler.postDelayed({
                 processNextWrite()
             }, 18)
