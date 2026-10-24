@@ -22,6 +22,7 @@ idf_component_register(
         "signal_audio_output.cpp"
         "signal_es8311_codec.cpp"
         "signal_radio_audio.cpp"
+        "signal_audio_selftest.cpp"
         "${MOTO_SHARED_BLE_PROTOCOL_SOURCE}"
         "${MOTO_SHARED_NAV_PRESENTER_SOURCE}"
         "${MOTO_SHARED_UI_FONT}"
@@ -55,3 +56,10 @@ target_compile_options(${COMPONENT_LIB} PRIVATE
     $<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions>
     $<$<COMPILE_LANGUAGE:CXX>:-fno-rtti>
 )
+
+# One short, quiet speaker tone at boot on the experimental branch only.
+# Disable with -DMOTO_SIGNAL_AUDIO_BOOT_TEST=OFF when doing normal GPS checks.
+option(MOTO_SIGNAL_AUDIO_BOOT_TEST "Run one-shot SIGNAL speaker self-test at boot" ON)
+if(MOTO_SIGNAL_AUDIO_BOOT_TEST)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE MOTO_SIGNAL_AUDIO_BOOT_TEST=1)
+endif()
