@@ -217,3 +217,32 @@ The three-note audio test still runs at boot. Radio Paradise MP3 streaming
 and decode are NOT implemented yet. Build and hardware tests are pending
 for this commit. To omit the CLI pass `-DMOTO_SIGNAL_WIFI_CONSOLE=OFF`
 to CMake; it is not part of `NoOta`.
+
+## LVGL worker OOM: PSRAM stack trial (October 2026)
+
+The experimental SIGNAL build with Wi-Fi compiled but failed on actual
+hardware *before* GPS UI startup or Wi-Fi console initialization:
+
+```text
+board_waveshare: before LVGL worker: internal free=15244 largest=7680, PSRAM free=4416096
+esp_lvgl:adapter: Failed to create LVGL task
+board_waveshare: LVGL worker task could not start
+moto_gps: board initialization stopped ... ESP_ERR_NO_MEM
+```
+
+The exact resolved `espressif/esp_lvgl_adapter` dependency is **0.6.4**,
+whose documented default worker stack is **8 KiB** and whose config supports
+`stack_in_psram = true`. A 7680-byte largest contiguous internal block cannot
+fit the normal 8192-byte stack. The experimental board port now requests
+that the LVGL worker stack be placed in PSRAM before calling
+`esp_lv_adapter_init()`. The three-note audio test and Wi-Fi console are not
+started until later; this is a boot-time allocation failure unrelated to
+incorrect radio credentials.
+
+After a fresh ESP32 GitHub Actions build, verify on hardware that the
+`LVGL worker stack requested in PSRAM` line is followed by
+`Navigation UI ready` and `signal_console: Experimental Wi-Fi console ready`.
+If not, provide the complete boot errors and the `before LVGL worker`
+measurement. The adapter might fall back to internal heap or another
+internal-only allocation may be exhausted. **Do not conduct Wi-Fi tests until
+the navigation display boots reliably**. `NoOta` is unchanged.
