@@ -108,7 +108,7 @@ class HybridMapRepository(private val context: Context) {
         val temp = File(mapsDir, file.name + ".tmp")
         return try {
             val count = temp.bufferedWriter().use { writer ->
-                val result = streamOverpassQueryToWriter(query, writer)
+                val result = streamOverpassQueryToWriter(query, writer, 4500, 12000)
                 writer.flush()
                 result
             }
@@ -470,7 +470,12 @@ class HybridMapRepository(private val context: Context) {
         return count
     }
 
-    fun streamOverpassQueryToWriter(query: String, writer: BufferedWriter): Int {
+    fun streamOverpassQueryToWriter(
+        query: String,
+        writer: BufferedWriter,
+        connectTimeoutMs: Int = 10000,
+        readTimeoutMs: Int = 30000
+    ): Int {
         var lastException: Exception? = null
         val postData = "data=" + URLEncoder.encode(query, "UTF-8")
 
@@ -483,8 +488,8 @@ class HybridMapRepository(private val context: Context) {
                 conn.doOutput = true
                 conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
                 conn.setRequestProperty("Accept-Encoding", "gzip")
-                conn.connectTimeout = 10000
-                conn.readTimeout = 30000
+                conn.connectTimeout = connectTimeoutMs
+                conn.readTimeout = readTimeoutMs
 
                 conn.outputStream.use { os ->
                     os.write(postData.toByteArray(Charsets.UTF_8))
