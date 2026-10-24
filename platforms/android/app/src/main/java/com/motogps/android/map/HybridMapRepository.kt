@@ -49,7 +49,10 @@ data class BoundingBox(
     val maxLon: Double
 )
 
-class HybridMapRepository(private val context: Context) {
+class HybridMapRepository(
+    private val context: Context,
+    private val gatewayBaseUrl: String? = null
+) {
 
     companion object {
         fun getSharedMapsDir(context: Context): File {
@@ -112,6 +115,27 @@ class HybridMapRepository(private val context: Context) {
             south, west, south + step, west + step
         )
         val temp = File(mapsDir, file.name + ".tmp")
+
+        // Prefer the gateway's existing, cached z15 OSM vector tiles when
+        // navigation has configured a gateway. Overpass remains the fallback.
+        if (!gatewayBaseUrl.isNullOrBlank()) {
+            try {
+                val gatewayCount = temp.bufferedWriter().use { writer ->
+                    GatewayRoadTiles.writeNearby(gatewayBaseUrl, lat, lon, writer)
+                }
+                if (gatewayCount > 0) {
+                    if (file.exists()) file.delete()
+                    if (temp.renameTo(file)) {
+                        Log.i("HybridMapRepository", "Gateway OSM nearby cache: $gatewayCount roads")
+                        return true
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w("HybridMapRepository", "Gateway map tiles unavailable: ${e.message}")
+            } finally {
+                temp.delete()
+            }
+        }
         return try {
             val count = temp.bufferedWriter().use { writer ->
                 val result = streamOverpassQueryToWriter(query, writer, 4500, 12000)
