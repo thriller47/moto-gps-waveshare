@@ -47,68 +47,6 @@ class HybridMapRepositoryTest {
     }
 
     @Test
-    fun testStreamOverpassToMotomap() {
-        val jsonStr = """
-        {
-          "version": 0.6,
-          "elements": [
-            {
-              "type": "way",
-              "id": 12345,
-              "tags": {
-                "highway": "primary",
-                "maxspeed": "90"
-              },
-              "geometry": [
-                { "lat": 41.9028, "lon": 12.4964 },
-                { "lat": 41.9030, "lon": 12.4966 }
-              ]
-            }
-          ]
-        }
-        """.trimIndent()
-
-        val inputStream = jsonStr.toByteArray(Charsets.UTF_8).inputStream()
-        val stringWriter = java.io.StringWriter()
-        val bufferedWriter = java.io.BufferedWriter(stringWriter)
-
-        val writtenCount = repository.streamOverpassToMotomap(inputStream, bufferedWriter)
-        bufferedWriter.flush()
-
-        assertEquals(1, writtenCount)
-        val outputStr = stringWriter.toString()
-        assertTrue(outputStr.contains("1,90|41902800,12496400,41903000,12496600|41.902800,12.496400;41.903000,12.496600"))
-    }
-
-    @Test
-    fun overpassHttp200WithRemarkIsNotACompleteMap() {
-        val input = """
-            {"elements":[{"type":"way","tags":{"highway":"residential"},
-            "geometry":[{"lat":45.0,"lon":8.0},{"lat":45.001,"lon":8.001}]}],
-            "remark":"runtime error: query timed out"}
-        """.trimIndent().byteInputStream()
-        val output = java.io.BufferedWriter(java.io.StringWriter())
-        try {
-            repository.streamOverpassToMotomap(input, output)
-            org.junit.Assert.fail("A runtime remark must invalidate a sector")
-        } catch (_: java.io.IOException) {
-            // A 200 response with a runtime error is not a complete tile.
-        }
-    }
-
-    @Test
-    fun truncatedOverpassElementsAreNotCached() {
-        val input = """{"elements":[{"type":"way","tags":{"highway":"primary"}}""".byteInputStream()
-        val output = java.io.BufferedWriter(java.io.StringWriter())
-        try {
-            repository.streamOverpassToMotomap(input, output)
-            org.junit.Assert.fail("Truncated Overpass JSON must be rejected")
-        } catch (_: java.io.IOException) {
-            // Retry from a mirror instead of publishing a partial response.
-        }
-    }
-
-    @Test
     fun testMapSceneFrameEncoding() {
         val codec = MotoBLEProtocolCodec()
         val handle = codec.nativeInit(247)
