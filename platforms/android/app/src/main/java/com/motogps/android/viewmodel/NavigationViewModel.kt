@@ -103,6 +103,13 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     private var navigationJob: Job? = null
     private var currentSnapshot: MotoBLENavigationSnapshot? = null
     private var currentGeometry: MotoBLERouteGeometry? = null
+
+    private fun sendNearbyRouteGeometry(route: MotoBLERouteGeometry) {
+        val (lat, lon) = currentLocation.value
+        val window = RouteGeometryWindow.around(route, lat, lon)
+        bleManager.sendRouteGeometry(window)
+        Log.d("NavigationVM", "Route BLE window: ${window.points.size}/${route.points.size} points origin=$lat,$lon")
+    }
     private var routeManeuverSteps: List<RouteManeuverStep> = emptyList()
     private var activeStepIndex: Int = 0
     private var lastSpeedLimitKph = 0
@@ -229,7 +236,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                 }
 
                 if (geometry != null) {
-                    bleManager.sendRouteGeometry(geometry)
+                    sendNearbyRouteGeometry(geometry)
                 }
                 bleManager.sendNavigationSnapshot(snapshot)
 
@@ -263,7 +270,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                     if (loopCount % 9 == 0) { // ~3.15s interval
                         val activeGeom = currentGeometry ?: geometry
                         if (activeGeom != null) {
-                            bleManager.sendRouteGeometry(activeGeom)
+                            sendNearbyRouteGeometry(activeGeom)
                         }
                     }
                 }
@@ -796,7 +803,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                 }
                 currentSnapshot = snapshot
                 currentGeometry = geometry
-                if (geometry != null) bleManager.sendRouteGeometry(geometry)
+                if (geometry != null) sendNearbyRouteGeometry(geometry)
                 bleManager.sendNavigationSnapshot(snapshot)
             } catch (e: Exception) {
                 Log.w("NavigationVM", "Route recalculation failed: ${e.message}")
@@ -981,7 +988,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
 
                 val routeToken = computeFnv1aRouteToken(routeID)
 
-                // Extract geometry points (up to 24)
+                // Keep ALL route vertices on Android; only the BLE display window is bounded.
                 val pointsE6 = mutableListOf<GeoPointE6>()
                 val geomArray = routeObj.optJSONArray("geometry_gcj02")
                     ?: routeObj.optJSONArray("polyline")
@@ -1014,8 +1021,8 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                     pointsE6.add(GeoPointE6((place.latitude * 1e6).toInt(), (place.longitude * 1e6).toInt()))
                 }
 
-                val boundedPoints = pointsE6.take(24)
-                val viewOrigin = boundedPoints.first()
+                val fullRoutePoints = pointsE6.toList()
+                val viewOrigin = fullRoutePoints.first()
 
                 val routeGeometry = MotoBLERouteGeometry(
                     coordinateSystem = 2,
@@ -1024,9 +1031,9 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                     chunkIndex = 0,
                     chunkCount = 1,
                     firstPointIndex = 0,
-                    totalPointCount = boundedPoints.size,
+                    totalPointCount = fullRoutePoints.size,
                     viewOrigin = viewOrigin,
-                    points = boundedPoints
+                    points = fullRoutePoints
                 )
 
                 val snapshot = MotoBLENavigationSnapshot(
