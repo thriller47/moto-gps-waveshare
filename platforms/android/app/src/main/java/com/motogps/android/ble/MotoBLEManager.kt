@@ -66,6 +66,11 @@ class MotoBLEManager(private val context: Context) {
     // Synchronized FIFO Write Queue for GATT Characteristic Writes
     private val writeQueue = ArrayDeque<ByteArray>()
     private var writeInProgress = false
+    // Protect the remaining fragments of a message whose START frame was sent.
+    private var activeWriteFrame: ByteArray? = null
+    private fun sequenceOf(frame: ByteArray): Int =
+        if (frame.size >= 6) (frame[4].toInt() and 0xff) or ((frame[5].toInt() and 0xff) shl 8) else -1
+
 
     // Asynchronous Operation Queue for GATT configuration steps
     private val operationQueue = mutableListOf<() -> Unit>()
@@ -95,16 +100,17 @@ class MotoBLEManager(private val context: Context) {
 
     private fun enqueueSendSnapshotFramesTask(frames: Array<ByteArray>) {
         synchronized(writeQueue) {
+            val protectedSequence = activeWriteFrame?.let(::sequenceOf)
             val iterator = writeQueue.iterator()
             while (iterator.hasNext()) {
                 val frame = iterator.next()
-                if (frame.size >= 3 && frame[2] == MotoBLEProtocolCodec.MSG_NAVIGATION_SNAPSHOT) {
+                if (frame.size >= 3 &&
+                    frame[2] == MotoBLEProtocolCodec.MSG_NAVIGATION_SNAPSHOT &&
+                    sequenceOf(frame) != protectedSequence) {
                     iterator.remove()
                 }
             }
-            for (frame in frames) {
-                writeQueue.addLast(frame)
-            }
+            for (frame in frames) writeQueue.addLast(frame)
             if (!writeInProgress) {
                 writeInProgress = true
                 mainHandler.post { processNextWrite() }
@@ -165,13 +171,15 @@ class MotoBLEManager(private val context: Context) {
         synchronized(writeQueue) {
             frame = if (writeQueue.isNotEmpty()) writeQueue.removeFirst() else null
             if (frame == null) {
+                activeWriteFrame = null
                 writeInProgress = false
                 return
             }
         }
 
+        synchronized(writeQueue) { activeWriteFrame = frame }
         val gatt = bluetoothGatt ?: run {
-            synchronized(writeQueue) { writeInProgress = false }
+            synchronized(writeQueue) { activeWriteFrame = null; writeInProgress = false }
             return
         }
         val characteristic = writeCharacteristic ?: run {
@@ -200,6 +208,7 @@ class MotoBLEManager(private val context: Context) {
                     operationInProgress = false
                     synchronized(writeQueue) {
                         writeQueue.clear()
+                        activeWriteFrame = null
                         writeInProgress = false
                     }
                     mainHandler.postDelayed({
@@ -291,8 +300,18 @@ class MotoBLEManager(private val context: Context) {
         }
 
         override fun onCharacteristicWrite(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) {
-            if (status != BluetoothGatt.GATT_SUCCESS) {
-                Log.w("MotoBLEManager", "BLE frame write failed: GATT status=$status")
+            synchronized(writeQueue) {
+                val failed = activeWriteFrame
+                activeWriteFrame = null
+                if (status != BluetoothGatt.GATT_SUCCESS && failed != null) {
+                    // A failed fragment invalidates the rest of that message.
+                    val failedSeq = sequenceOf(failed)
+                    val iterator = writeQueue.iterator()
+                    while (iterator.hasNext()) {
+                        if (sequenceOf(iterator.next()) == failedSeq) iterator.remove()
+                    }
+                    Log.w("MotoBLEManager", "BLE message dropped after GATT status=$status type=${failed[2].toInt() and 0xff} seq=$failedSeq")
+                }
             }
             mainHandler.postDelayed({
                 processNextWrite()
