@@ -135,6 +135,7 @@ class MainActivity : ComponentActivity(), LocationListener, SensorEventListener 
         }
 
         val initialGateway = getGatewayToUse()
+        viewModel.configureMapGateway(initialGateway)
 
         setContent {
             val connectionState = viewModel.connectionState.collectAsState().value
@@ -167,6 +168,7 @@ class MainActivity : ComponentActivity(), LocationListener, SensorEventListener 
                     initialGateway = initialGateway,
                     onGatewaySave = { newGateway ->
                         sharedPrefs.edit().putString("gateway_address", newGateway).apply()
+                        viewModel.configureMapGateway(newGateway)
                     },
                     onSearch = { query ->
                         viewModel.searchDestination(query, getGatewayToUse())
