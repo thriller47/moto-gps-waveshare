@@ -152,8 +152,9 @@ class MainActivity : ComponentActivity(), LocationListener, SensorEventListener 
             val isDownloadingMap = viewModel.isDownloadingMap.collectAsState().value
 
             var mapsUpdateTrigger by remember { mutableStateOf(0) }
-            val savedMaps = remember(errorMessage, mapsUpdateTrigger) {
-                viewModel.listSavedMaps(this@MainActivity)
+            val savedMaps = viewModel.savedMaps.collectAsState().value
+            LaunchedEffect(mapsUpdateTrigger) {
+                viewModel.refreshSavedMaps(this@MainActivity)
             }
 
             if (errorMessage != null) {
