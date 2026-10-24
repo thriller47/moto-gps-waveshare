@@ -128,6 +128,7 @@ class BleNavTransport {
   std::uint16_t last_rx_ack_command_id_ = 0;
   moto::ble::AckStatus last_rx_ack_status_ = moto::ble::AckStatus::Failed;
   bool has_last_rx_ack_ = false;
+  bool disconnect_requested_ = false;  // RX worker only; one GAP termination per epoch.
   bool notified_link_active_ = false;
   bool started_ = false;
 };
