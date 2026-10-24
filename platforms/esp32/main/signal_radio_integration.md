@@ -77,3 +77,25 @@ Compile check (GitHub Actions): run Project Build on branch `signal` with
 ESP32 and Native enabled. Codec tests validate only the clock policy, not
 physical ES8311, I2C or speaker audio. Only run an actual audio test on
 the device once a deliberately opt-in radio test entry point is added.
+
+## First physical speaker test (experimental branch only)
+
+The `signal` branch now compiles a **one-shot, 500 ms 440 Hz low-volume tone
+at boot** by default. It runs only after `board_port_init()` so the existing
+Waveshare I2C controller already exists. The audio path starts muted with the
+amplifier off; the test reduces ES8311 volume to 12%, unmutes for the tone,
+then powers everything down and leaves the GPS UI running. No Wi-Fi is started.
+
+1. Run GitHub Actions **Project Build**, branch `signal`, ESP32 job.
+2. Only if the build passes: retain a copy of the proven `NoOta` firmware
+   for restoration, connect the board speaker, flash the experimental build.
+3. Open serial monitor (115200) and look for `signal_test` messages.
+   Expected: `Starting one-shot ES8311 speaker test` and
+   `Speaker test finished; audio powered down`. Report audible tone or
+   silence together with any codec/I2S errors.
+4. To disable boot test for future builds, pass
+   `-DMOTO_SIGNAL_AUDIO_BOOT_TEST=OFF` to ESP-IDF CMake configuration.
+
+**Unverified on physical hardware:** I2C chip recognition, codec startup,
+GPIO46 amplifier behavior and acoustic output. The successful build on
+commit c53a320 predates this new test; a fresh build is required.
