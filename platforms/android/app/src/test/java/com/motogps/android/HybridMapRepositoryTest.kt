@@ -81,6 +81,34 @@ class HybridMapRepositoryTest {
     }
 
     @Test
+    fun overpassHttp200WithRemarkIsNotACompleteMap() {
+        val input = """
+            {"elements":[{"type":"way","tags":{"highway":"residential"},
+            "geometry":[{"lat":45.0,"lon":8.0},{"lat":45.001,"lon":8.001}]}],
+            "remark":"runtime error: query timed out"}
+        """.trimIndent().byteInputStream()
+        val output = java.io.BufferedWriter(java.io.StringWriter())
+        try {
+            repository.streamOverpassToMotomap(input, output)
+            org.junit.Assert.fail("A runtime remark must invalidate a sector")
+        } catch (_: java.io.IOException) {
+            // A 200 response with a runtime error is not a complete tile.
+        }
+    }
+
+    @Test
+    fun truncatedOverpassElementsAreNotCached() {
+        val input = """{"elements":[{"type":"way","tags":{"highway":"primary"}}""".byteInputStream()
+        val output = java.io.BufferedWriter(java.io.StringWriter())
+        try {
+            repository.streamOverpassToMotomap(input, output)
+            org.junit.Assert.fail("Truncated Overpass JSON must be rejected")
+        } catch (_: java.io.IOException) {
+            // Retry from a mirror instead of publishing a partial response.
+        }
+    }
+
+    @Test
     fun testMapSceneFrameEncoding() {
         val codec = MotoBLEProtocolCodec()
         val handle = codec.nativeInit(247)
