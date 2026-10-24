@@ -145,3 +145,9 @@ target_include_directories(signal_mode_controller_tests PRIVATE
 )
 target_compile_features(signal_mode_controller_tests PRIVATE cxx_std_17)
 add_test(NAME signal_mode_controller_tests COMMAND signal_mode_controller_tests)
+
+add_executable(signal_codec_clock_tests signal_codec_clock_tests.cpp)
+target_include_directories(signal_codec_clock_tests PRIVATE
+  "${CMAKE_CURRENT_LIST_DIR}/../../platforms/esp32/main")
+target_compile_features(signal_codec_clock_tests PRIVATE cxx_std_17)
+add_test(NAME signal_codec_clock_tests COMMAND signal_codec_clock_tests)
