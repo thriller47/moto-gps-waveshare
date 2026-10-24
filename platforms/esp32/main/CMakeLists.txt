@@ -38,6 +38,7 @@ idf_component_register(
         esp_driver_gpio
         esp_driver_i2c
         esp_driver_i2s
+        esp_codec_dev
         esp_hw_support
         freertos
         log
