@@ -316,14 +316,6 @@ fun OfflineMapsDialog(
     onCancelDownload: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
-    val regions = listOf(
-        "Abruzzo", "Basilicata", "Calabria", "Campania", "Emilia-Romagna",
-        "Friuli-Venezia Giulia", "Lazio", "Liguria", "Lombardia", "Marche",
-        "Molise", "Piemonte", "Puglia", "Sardegna", "Sicilia",
-        "Toscana", "Trentino-Alto Adige", "Umbria", "Valle d'Aosta", "Veneto"
-    )
-    var selectedRegion by remember { mutableStateOf(regions.first()) }
-    var expandedDropdown by remember { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -377,46 +369,18 @@ fun OfflineMapsDialog(
                 ) {
                     Icon(Icons.Default.Place, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Salva Area Attuale (Raggio 50 km)")
+                    Text("Scarica strade vicine (~2 km)")
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                Box(modifier = Modifier.fillMaxWidth()) {
-                    OutlinedButton(
-                        onClick = { expandedDropdown = true },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Regione: $selectedRegion")
-                        Icon(Icons.Default.ArrowDropDown, contentDescription = null)
-                    }
-                    DropdownMenu(
-                        expanded = expandedDropdown,
-                        onDismissRequest = { expandedDropdown = false }
-                    ) {
-                        regions.forEach { reg ->
-                            DropdownMenuItem(
-                                text = { Text(reg) },
-                                onClick = {
-                                    selectedRegion = reg
-                                    expandedDropdown = false
-                                }
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Button(
-                    onClick = { onDownloadRegion(selectedRegion) },
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = !isDownloadingMap
-                ) {
-                    Icon(Icons.Default.Place, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Scarica Regione $selectedRegion")
-                }
+                Text(
+                    "Le mappe provengono dal gateway vettoriale e vengono salvate per l'uso offline. " +
+                        "Il corridoio si scarica dalla schermata percorso. " +
+                        "Le regioni complete richiedono archivi dedicati e non sono disponibili con questo metodo.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         },
         confirmButton = {
