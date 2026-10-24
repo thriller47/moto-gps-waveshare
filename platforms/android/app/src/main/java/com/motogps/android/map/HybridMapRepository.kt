@@ -15,6 +15,7 @@ import java.net.URLEncoder
 import java.util.Locale
 import java.util.zip.GZIPInputStream
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.CancellationException
 import org.json.JSONObject
 
 data class SavedMapInfo(
@@ -287,8 +288,11 @@ class HybridMapRepository(private val context: Context) {
             }
         }
 
-        if (!foundArrayStart) return 0
+        if (!foundArrayStart) {
+            throw java.io.IOException("Risposta Overpass priva dell'array elements")
+        }
 
+        var arrayClosed = false
         var depth = 0
         var inString = false
         var isEscaped = false
@@ -333,11 +337,19 @@ class HybridMapRepository(private val context: Context) {
                         }
                     }
                 } else if (c == ']' && depth == 0) {
+                    arrayClosed = true
                     break
                 }
             }
         }
 
+        if (!arrayClosed) {
+            throw java.io.IOException("Risposta Overpass troncata")
+        }
+        val trailer = reader.readText()
+        if (trailer.contains(Regex("\\\"remark\\\"\\s*:"))) {
+            throw java.io.IOException("Overpass segnala una risposta incompleta (remark)")
+        }
         return totalWritten
     }
 
@@ -583,7 +595,7 @@ class HybridMapRepository(private val context: Context) {
                     box.minLat, box.minLon, box.maxLat, box.maxLon
                 )
                 val written = tmp.bufferedWriter().use { writer ->
-                    writer.write("# Overpass sector complete\\n")
+                    writer.write("# Overpass sector complete\n")
                     val result = streamOverpassQueryToWriter(query, writer, 5000, 20000)
                     writer.flush()
                     result
@@ -595,6 +607,9 @@ class HybridMapRepository(private val context: Context) {
                 completed++
                 Log.i("HybridMapRepository",
                     "$name checkpoint: sector=${index + 1}/${boxes.size} saved=$completed segments=$totalSegments")
+            } catch (e: CancellationException) {
+                tmp.delete()
+                throw e
             } catch (e: Exception) {
                 tmp.delete()
                 failed++
