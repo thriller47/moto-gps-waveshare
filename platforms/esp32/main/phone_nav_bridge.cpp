@@ -688,6 +688,7 @@ void PhoneNavBridge::consume_navigation(
       phone_snapshot.distance_to_next_maneuver_m = 0.0;
     }
 
+    const bool was_showing_route = phone_snapshot.has_route_view;
     const bool expects_geometry = has_flag(
         input.flags, moto::ble::NavigationHasRouteView);
     if (!expects_geometry || !geometry_.complete ||
@@ -697,6 +698,10 @@ void PhoneNavBridge::consume_navigation(
     } else {
       apply_geometry_locked(phone_snapshot);
     }
+    if (!was_showing_route && phone_snapshot.has_route_view) {
+      ESP_LOGI(kTag, "route geometry visible: points=%u",
+               static_cast<unsigned>(phone_snapshot.route_view_point_count));
+    }
   }
   present_navigation();
 }
@@ -704,9 +709,13 @@ void PhoneNavBridge::consume_navigation(
 moto::ble::AckStatus PhoneNavBridge::consume_geometry(
     const moto::ble::RouteGeometry& input) {
   if (input.total_point_count > moto::nav::kRouteViewPointCapacity) {
+    ESP_LOGW(kTag, "route geometry rejected: %u points exceed capacity",
+             static_cast<unsigned>(input.total_point_count));
     return moto::ble::AckStatus::Unsupported;
   }
 
+  bool complete = false;
+  bool matched_current_snapshot = false;
   {
     const std::lock_guard<std::mutex> lock(state_mutex_);
     if (input.chunk_index == 0) {
@@ -754,7 +763,17 @@ moto::ble::AckStatus PhoneNavBridge::consume_geometry(
       geometry_.complete = true;
       geometry_.active = false;
       apply_geometry_locked(phone_snapshot_locked());
+      complete = true;
+      matched_current_snapshot = phone_snapshot_locked().has_route_view;
     }
+  }
+  if (complete) {
+    ESP_LOGI(kTag,
+             "route geometry committed: token=%lu generation=%lu points=%u active=%u",
+             static_cast<unsigned long>(input.route_token),
+             static_cast<unsigned long>(input.route_generation),
+             static_cast<unsigned>(input.total_point_count),
+             matched_current_snapshot ? 1U : 0U);
   }
   // RouteGeometry is queued immediately before its matching
   // NavigationSnapshot by the iPhone.  Retain the completed geometry here and
