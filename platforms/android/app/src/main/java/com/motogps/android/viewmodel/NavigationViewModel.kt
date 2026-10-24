@@ -717,6 +717,10 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                     "Mappa parziale utilizzabile: ${res.completedSectors}/${res.totalSectors} settori, ${res.totalSegments} segmenti salvati. Ripeti il download per completarla."
                 }
                 refreshSavedMaps(context)
+                if (res.totalSegments > 0) {
+                    val (lat, lon) = currentLocation.value
+                    updateSpeedLimitAndMapScene(lat, lon, context.applicationContext)
+                }
             } catch (e: Exception) {
                 _downloadStatus.value = "Errore download mappa: ${e.message}"
                 _errorMessage.value = "Errore download mappa: ${e.message}"
@@ -754,6 +758,10 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                     "Mappa parziale utilizzabile: ${res.completedSectors}/${res.totalSectors} settori, ${res.totalSegments} segmenti salvati. Ripeti il download per completarla."
                 }
                 refreshSavedMaps(context)
+                if (res.totalSegments > 0) {
+                    val (lat, lon) = currentLocation.value
+                    updateSpeedLimitAndMapScene(lat, lon, context.applicationContext)
+                }
             } catch (e: Exception) {
                 _downloadStatus.value = "Errore download corridoio: ${e.message}"
                 _errorMessage.value = "Errore download corridoio: ${e.message}"
@@ -790,6 +798,10 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                     "Mappa parziale utilizzabile: ${res.completedSectors}/${res.totalSectors} settori, ${res.totalSegments} segmenti salvati. Ripeti il download per completarla."
                 }
                 refreshSavedMaps(context)
+                if (res.totalSegments > 0) {
+                    val (lat, lon) = currentLocation.value
+                    updateSpeedLimitAndMapScene(lat, lon, context.applicationContext)
+                }
             } catch (e: Exception) {
                 _downloadStatus.value = "Errore download regione: ${e.message}"
                 _errorMessage.value = "Errore download regione: ${e.message}"
