@@ -699,7 +699,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         mapDownloadJob = viewModelScope.launch {
             _isDownloadingMap.value = true
             _downloadProgress.value = 0.02f
-            _downloadStatus.value = "Avvio download Zona vicina (~2 km)..."
+            _downloadStatus.value = "Avvio download Zona vicina (~8 km)..."
             _errorMessage.value = null
 
             try {
