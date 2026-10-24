@@ -129,6 +129,11 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     private var lastOnlineTileAttemptLon: Double = Double.NaN
     private var lastMapSceneRevision: Long = 0L
     private var navigationMapsContext: Context? = null
+    private var mapGatewayUrl: String = ""
+
+    fun configureMapGateway(url: String) {
+        mapGatewayUrl = url.trim()
+    }
     private var automaticCorridorJob: Job? = null
 
     init {
@@ -225,7 +230,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                     }
                     automaticCorridorJob = viewModelScope.launch(Dispatchers.IO) {
                         try {
-                            val repo = HybridMapRepository(mapContext)
+                            val repo = getOrCreateRepo(mapContext)
                             val hasCorridor = repo.listSavedMaps().any {
                                 it.fileName == "corridoio_rotta.motomap" && it.sizeBytes > 0L
                             }
@@ -430,7 +435,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         if (mapSceneUpdateJob?.isActive == true) return
         mapSceneUpdateJob = viewModelScope.launch(Dispatchers.IO) {
             try {
-                val repository = HybridMapRepository(context)
+                val repository = getOrCreateRepo(context)
                 val latE6 = (lat * 1e6).toInt()
                 val lonE6 = (lon * 1e6).toInt()
                 val deltaE6 = 5000
@@ -535,7 +540,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         lastOnlineTileAttemptLon = lon
         onlineTileJob = viewModelScope.launch(Dispatchers.IO) {
             try {
-                val available = HybridMapRepository(context, activeGatewayUrl).ensureOnlineTile(lat, lon)
+                val available = getOrCreateRepo(context).ensureOnlineTile(lat, lon)
                 Log.i("NavigationVM", "OSM online tile available=$available at $lat,$lon")
                 if (available) {
                     // Wait until the local read has finished, then publish the
@@ -681,7 +686,8 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     }
 
     private fun getOrCreateRepo(context: Context): HybridMapRepository {
-        return HybridMapRepository(context.applicationContext)
+        val gateway = mapGatewayUrl.ifBlank { activeGatewayUrl }
+        return HybridMapRepository(context.applicationContext, gateway)
     }
 
     fun refreshSavedMaps(context: Context) {
@@ -695,7 +701,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         mapDownloadJob = viewModelScope.launch {
             _isDownloadingMap.value = true
             _downloadProgress.value = 0.02f
-            _downloadStatus.value = "Avvio download Area Attuale (50km)..."
+            _downloadStatus.value = "Avvio download Zona vicina (~2 km)..."
             _errorMessage.value = null
 
             try {
@@ -779,7 +785,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         mapDownloadJob = viewModelScope.launch {
             _isDownloadingMap.value = true
             _downloadProgress.value = 0.02f
-            _downloadStatus.value = "Avvio download Regione $regionName..."
+            _downloadStatus.value = "Le regioni richiedono un archivio offline dedicato..."
             _errorMessage.value = null
 
             try {
