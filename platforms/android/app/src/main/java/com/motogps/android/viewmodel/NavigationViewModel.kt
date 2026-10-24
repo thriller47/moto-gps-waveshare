@@ -704,13 +704,18 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                     repo.downloadCurrentArea(lat, lon) { step, total, name ->
                         val prog = step.toFloat() / total.toFloat()
                         _downloadProgress.value = prog
-                        _downloadStatus.value = "Download $name: ${(prog * 100).toInt()}% (quadrante $step / $total)"
+                        _downloadStatus.value = "$name (${(prog * 100).toInt()}% tentati)"
                     }
                 }
-                _downloadProgress.value = 1.0f
+                _downloadProgress.value = if (res.isComplete) 1.0f else
+                    res.completedSectors.toFloat() / res.totalSectors.coerceAtLeast(1)
                 val file = res.file
                 val kb = maxOf(1L, file.length() / 1024)
-                _downloadStatus.value = "Salvata ${file.name}: ${res.totalSegments} strade ($kb KB)"
+                _downloadStatus.value = if (res.isComplete) {
+                    "Mappa completa: ${res.totalSegments} segmenti ($kb KB)"
+                } else {
+                    "Mappa parziale utilizzabile: ${res.completedSectors}/${res.totalSectors} settori, ${res.totalSegments} segmenti salvati. Ripeti il download per completarla."
+                }
                 refreshSavedMaps(context)
             } catch (e: Exception) {
                 _downloadStatus.value = "Errore download mappa: ${e.message}"
@@ -736,13 +741,18 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                     repo.downloadRouteCorridor(rawRoutePoints) { step, total, name ->
                         val prog = step.toFloat() / total.toFloat()
                         _downloadProgress.value = prog
-                        _downloadStatus.value = "Download $name: ${(prog * 100).toInt()}% (tappa $step / $total)"
+                        _downloadStatus.value = "$name (${(prog * 100).toInt()}% tentati)"
                     }
                 }
-                _downloadProgress.value = 1.0f
+                _downloadProgress.value = if (res.isComplete) 1.0f else
+                    res.completedSectors.toFloat() / res.totalSectors.coerceAtLeast(1)
                 val file = res.file
                 val kb = maxOf(1L, file.length() / 1024)
-                _downloadStatus.value = "Salvata ${file.name}: ${res.totalSegments} strade ($kb KB)"
+                _downloadStatus.value = if (res.isComplete) {
+                    "Mappa completa: ${res.totalSegments} segmenti ($kb KB)"
+                } else {
+                    "Mappa parziale utilizzabile: ${res.completedSectors}/${res.totalSectors} settori, ${res.totalSegments} segmenti salvati. Ripeti il download per completarla."
+                }
                 refreshSavedMaps(context)
             } catch (e: Exception) {
                 _downloadStatus.value = "Errore download corridoio: ${e.message}"
@@ -767,13 +777,18 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                     repo.downloadRegion(regionName) { step, total, name ->
                         val prog = step.toFloat() / total.toFloat()
                         _downloadProgress.value = prog
-                        _downloadStatus.value = "Download $name: ${(prog * 100).toInt()}% (quadrante $step / $total)"
+                        _downloadStatus.value = "$name (${(prog * 100).toInt()}% tentati)"
                     }
                 }
-                _downloadProgress.value = 1.0f
+                _downloadProgress.value = if (res.isComplete) 1.0f else
+                    res.completedSectors.toFloat() / res.totalSectors.coerceAtLeast(1)
                 val file = res.file
                 val kb = maxOf(1L, file.length() / 1024)
-                _downloadStatus.value = "Salvata ${file.name}: ${res.totalSegments} strade ($kb KB)"
+                _downloadStatus.value = if (res.isComplete) {
+                    "Mappa completa: ${res.totalSegments} segmenti ($kb KB)"
+                } else {
+                    "Mappa parziale utilizzabile: ${res.completedSectors}/${res.totalSectors} settori, ${res.totalSegments} segmenti salvati. Ripeti il download per completarla."
+                }
                 refreshSavedMaps(context)
             } catch (e: Exception) {
                 _downloadStatus.value = "Errore download regione: ${e.message}"
