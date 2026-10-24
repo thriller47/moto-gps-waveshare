@@ -20,6 +20,8 @@ idf_component_register(
         "motion_heading_sensor.cpp"
         "phone_nav_bridge.cpp"
         "signal_audio_output.cpp"
+        "signal_es8311_codec.cpp"
+        "signal_radio_audio.cpp"
         "${MOTO_SHARED_BLE_PROTOCOL_SOURCE}"
         "${MOTO_SHARED_NAV_PRESENTER_SOURCE}"
         "${MOTO_SHARED_UI_FONT}"
