@@ -23,6 +23,7 @@ idf_component_register(
         "signal_es8311_codec.cpp"
         "signal_radio_audio.cpp"
         "signal_audio_selftest.cpp"
+        "signal_wifi.cpp"
         "${MOTO_SHARED_BLE_PROTOCOL_SOURCE}"
         "${MOTO_SHARED_NAV_PRESENTER_SOURCE}"
         "${MOTO_SHARED_UI_FONT}"
@@ -39,6 +40,9 @@ idf_component_register(
         esp_driver_i2c
         esp_driver_i2s
         esp_codec_dev
+        esp_wifi
+        esp_event
+        esp_netif
         esp_hw_support
         freertos
         log
