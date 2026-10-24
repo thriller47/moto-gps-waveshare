@@ -222,10 +222,26 @@ void test_phone_connection_lifecycle_reaches_the_ui() {
   CHECK(moto::test::phone_nav_bridge_last_phone_connection() ==
         MOTO_UI_PHONE_ONLINE);
 
+  moto::ble::NavigationSnapshot navigation;
+  navigation.state = moto::ble::NavigationState::Navigating;
+  navigation.network = moto::ble::NetworkState::Online;
+  navigation.flags = moto::ble::NavigationHasNextManeuver;
+  navigation.route_token = 17;
+  navigation.route_generation = 1;
+  navigation.road_name = "Previous turn";
+  navigation.maneuver = moto::ble::Maneuver::Right;
+  navigation.distance_to_maneuver_m = 88;
+  CHECK(bridge.on_message(make_message(navigation, 12)) ==
+        moto::ble::AckStatus::Ok);
+  pump(bridge);
+  CHECK(moto::test::phone_nav_bridge_last_distance_to_maneuver_m() == 88);
+
   bridge.on_link_state(false);
   pump(bridge);
   CHECK(moto::test::phone_nav_bridge_last_phone_connection() ==
         MOTO_UI_PHONE_OFFLINE);
+  CHECK(moto::test::phone_nav_bridge_last_distance_to_maneuver_m() == 0);
+  CHECK(moto::test::phone_nav_bridge_last_road_name().empty());
 }
 
 void test_music_capability_state_and_touch_commands() {
