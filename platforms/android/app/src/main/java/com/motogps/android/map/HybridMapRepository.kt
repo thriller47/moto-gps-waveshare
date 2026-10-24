@@ -342,8 +342,8 @@ class HybridMapRepository(
                 backup.delete()
                 if (complete) {
                     partial.delete()
-                    // All sectors are already present in the published file.
-                    partsDir.deleteRecursively()
+                    // Preserve tile checkpoints: the next route can reuse them
+                    // without downloading the same streets a second time.
                 }
                 return DownloadResult(destination, totalSegments, completed, tiles.size, complete)
             } finally {
