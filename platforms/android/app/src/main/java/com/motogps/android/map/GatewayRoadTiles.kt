@@ -3,106 +3,136 @@ package com.motogps.android.map
 import android.util.Log
 import org.json.JSONObject
 import java.io.BufferedWriter
+import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlin.math.PI
-import kotlin.math.atan
+import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.ln
-import kotlin.math.sinh
 import kotlin.math.tan
 
 /**
- * Obtain real OSM street geometry from our existing gateway z15 vector tiles.
- * It is a bounded nearby fallback, not a substitute for a full regional extract.
+ * Real OpenStreetMap road geometry from the project's existing map gateway.
+ * No Overpass calls, synthetic roads or bulk public-server queries.
  */
 internal object GatewayRoadTiles {
-    private const val ZOOM = 15
-    private const val GRID_SIZE = 1 shl ZOOM
-    private const val MAX_FAILURES = 2
+    const val ZOOM = 15
+    private const val GRID = 1 shl ZOOM
 
-    fun writeNearby(gatewayBaseUrl: String, latitude: Double, longitude: Double, output: BufferedWriter): Int {
-        if (!gatewayBaseUrl.startsWith("https://") || !latitude.isFinite() || !longitude.isFinite()) {
-            return 0
+    data class Tile(val x: Int, val y: Int) {
+        val key: String get() = "${ZOOM}_${x}_${y}"
+    }
+
+    fun tileFor(latitude: Double, longitude: Double): Tile {
+        require(latitude.isFinite() && longitude.isFinite())
+        val lat = latitude.coerceIn(-85.0, 85.0)
+        val lon = longitude.coerceIn(-180.0, 180.0)
+        val latRad = Math.toRadians(lat)
+        val x = floor((lon + 180.0) / 360.0 * GRID).toInt().coerceIn(0, GRID - 1)
+        val y = floor((1.0 - ln(tan(latRad) + 1.0 / cos(latRad)) / PI) * GRID / 2.0)
+            .toInt().coerceIn(0, GRID - 1)
+        return Tile(x, y)
+    }
+
+    fun around(latitude: Double, longitude: Double, radius: Int): List<Tile> {
+        val center = tileFor(latitude, longitude)
+        val result = mutableListOf<Tile>()
+        for (dy in -radius..radius) for (dx in -radius..radius) {
+            val x = center.x + dx
+            val y = center.y + dy
+            if (x in 0 until GRID && y in 0 until GRID) result.add(Tile(x, y))
         }
-        val centerX = floor((longitude + 180.0) / 360.0 * GRID_SIZE).toInt()
-        val latRad = Math.toRadians(latitude.coerceIn(-85.0, 85.0))
-        val centerY = floor((1.0 - ln(tan(latRad) + 1.0 / kotlin.math.cos(latRad)) / PI) / 2.0 * GRID_SIZE).toInt()
-        val base = gatewayBaseUrl.trimEnd('/')
-        var written = 0
-        var consecutiveErrors = 0
-        for (dy in -1..1) {
-            for (dx in -1..1) {
-                val x = centerX + dx
-                val y = centerY + dy
-                if (x !in 0 until GRID_SIZE || y !in 0 until GRID_SIZE) continue
-                var connection: HttpURLConnection? = null
-                try {
-                    connection = URL("$base/v1/map/tiles/$ZOOM/$x/$y")
-                        .openConnection() as HttpURLConnection
-                    connection.requestMethod = "GET"
-                    connection.connectTimeout = 3500
-                    connection.readTimeout = 6500
-                    connection.setRequestProperty("Accept", "application/json")
-                    connection.setRequestProperty("User-Agent", "MotoGPS/1.0 (Android offline vector map cache)")
-                    if (connection.responseCode !in 200..299) {
-                        throw java.io.IOException("Gateway tile HTTP ${connection.responseCode}")
-                    }
-                    val payload = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
-                    val roads = payload.optJSONArray("roads")
-                    if (roads != null) {
-                        for (i in 0 until roads.length()) {
-                            val road = roads.optJSONObject(i) ?: continue
-                            val roadClass = when (road.optString("class")) {
-                                "motorway" -> 0
-                                "primary" -> 1
-                                "secondary" -> 2
-                                "residential" -> 3
-                                "service" -> 4
-                                else -> 5
-                            }
-                            if (roadClass !in 0..3) continue
-                            val inputPoints = road.optJSONArray("points_e6") ?: continue
-                            val points = ArrayList<Pair<Int, Int>>(inputPoints.length())
-                            for (j in 0 until inputPoints.length()) {
-                                val pair = inputPoints.optJSONArray(j) ?: continue
-                                if (pair.length() != 2) continue
-                                val latE6 = pair.optInt(0)
-                                val lonE6 = pair.optInt(1)
-                                if (latE6 in -90_000_000..90_000_000 &&
-                                    lonE6 in -180_000_000..180_000_000) {
-                                    points.add(Pair(latE6, lonE6))
-                                }
-                            }
-                            if (points.size < 2) continue
-                            val minLat = points.minOf { it.first }
-                            val minLon = points.minOf { it.second }
-                            val maxLat = points.maxOf { it.first }
-                            val maxLon = points.maxOf { it.second }
-                            val speed = when (roadClass) {
-                                0 -> 130
-                                1 -> 90
-                                2 -> 70
-                                else -> 50
-                            }
-                            output.write("$roadClass,$speed|$minLat,$minLon,$maxLat,$maxLon|")
-                            output.write(points.joinToString(";") { "${it.first},${it.second}" })
-                            output.newLine()
-                            written++
-                        }
-                    }
-                    consecutiveErrors = 0
-                } catch (e: Exception) {
-                    consecutiveErrors++
-                    Log.w("GatewayRoadTiles", "Gateway OSM tile $ZOOM/$x/$y failed: ${e.message}")
-                    if (consecutiveErrors >= MAX_FAILURES) {
-                        return written
-                    }
-                } finally {
-                    connection?.disconnect()
-                }
+        return result.sortedWith(
+            compareBy<Tile> { kotlin.math.abs(it.x - center.x) + kotlin.math.abs(it.y - center.y) }
+                .thenBy { it.y }.thenBy { it.x }
+        )
+    }
+
+    fun corridor(points: List<Pair<Double, Double>>): List<Tile> {
+        if (points.isEmpty()) return emptyList()
+        val visited = linkedSetOf<Tile>()
+        for (i in points.indices) {
+            val current = points[i]
+            val previous = if (i == 0) current else points[i - 1]
+            val northMeters = (current.first - previous.first) * 111_320.0
+            val eastMeters = (current.second - previous.second) * 111_320.0 *
+                cos(Math.toRadians(current.first))
+            val distance = kotlin.math.hypot(northMeters, eastMeters)
+            val steps = kotlin.math.ceil(distance / 250.0).toInt().coerceIn(1, 500)
+            for (step in 0..steps) {
+                val t = step.toDouble() / steps
+                val lat = previous.first + (current.first - previous.first) * t
+                val lon = previous.second + (current.second - previous.second) * t
+                visited.addAll(around(lat, lon, 1))
             }
         }
-        return written
+        return visited.toList()
+    }
+
+    /** Writes only verified, provider-supplied coordinates; 0 is valid for an empty tile. */
+    fun writeTile(gatewayBaseUrl: String, tile: Tile, writer: BufferedWriter): Int {
+        val base = gatewayBaseUrl.trimEnd('/')
+        if (!base.startsWith("https://")) throw IOException("Gateway mappe non configurato (HTTPS richiesto)")
+        var conn: HttpURLConnection? = null
+        try {
+            conn = URL("$base/v1/map/tiles/$ZOOM/${tile.x}/${tile.y}")
+                .openConnection() as HttpURLConnection
+            conn.requestMethod = "GET"
+            conn.connectTimeout = 4000
+            conn.readTimeout = 8500
+            conn.setRequestProperty("Accept", "application/json")
+            conn.setRequestProperty("User-Agent", "MotoGPS/1.0 (Android vector map)")
+            val status = conn.responseCode
+            if (status !in 200..299) {
+                val error = try {
+                    JSONObject(conn.errorStream?.bufferedReader()?.use { it.readText() } ?: "{}")
+                        .optJSONObject("error")?.optString("code").orEmpty()
+                } catch (_: Exception) { "" }
+                throw IOException("Gateway tile HTTP $status ${error}".trim())
+            }
+            val data = JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
+            if (data.optInt("schema_version") != 1 || !data.has("roads")) {
+                throw IOException("Risposta gateway mappe non valida")
+            }
+            val roads = data.optJSONArray("roads") ?: throw IOException("Elenco strade mancante")
+            var written = 0
+            for (i in 0 until roads.length()) {
+                val road = roads.optJSONObject(i) ?: continue
+                val roadClass = when (road.optString("class")) {
+                    "motorway" -> 0
+                    "primary" -> 1
+                    "secondary" -> 2
+                    "residential" -> 3
+                    "service" -> 4
+                    else -> 5
+                }
+                if (roadClass !in 0..3) continue
+                val vertices = road.optJSONArray("points_e6") ?: continue
+                if (vertices.length() !in 2..2048) continue
+                val points = ArrayList<Pair<Int, Int>>(vertices.length())
+                for (j in 0 until vertices.length()) {
+                    val pair = vertices.optJSONArray(j) ?: continue
+                    if (pair.length() != 2) continue
+                    val latE6 = pair.optInt(0, Int.MAX_VALUE)
+                    val lonE6 = pair.optInt(1, Int.MAX_VALUE)
+                    if (latE6 in -90_000_000..90_000_000 && lonE6 in -180_000_000..180_000_000) {
+                        points.add(latE6 to lonE6)
+                    }
+                }
+                if (points.size < 2) continue
+                val speed = when (roadClass) { 0 -> 130; 1 -> 90; 2 -> 70; else -> 50 }
+                writer.write("$roadClass,$speed|${points.minOf { it.first }},${points.minOf { it.second }},${points.maxOf { it.first }},${points.maxOf { it.second }}|")
+                writer.write(points.joinToString(";") { "${it.first},${it.second}" })
+                writer.newLine()
+                written++
+            }
+            return written
+        } catch (e: Exception) {
+            Log.w("GatewayRoadTiles", "Tile ${tile.key}: ${e.message}")
+            throw e
+        } finally {
+            conn?.disconnect()
+        }
     }
 }
