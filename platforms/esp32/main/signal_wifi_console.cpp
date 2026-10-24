@@ -36,6 +36,7 @@ void console_task(void*) {
       wifi.stop();
       ESP_LOGI(kTag, "Wi-Fi disabled");
     } else if (std::strcmp(line, "wifi test") == 0) {
+      wifi.stop();
       const esp_err_t err = wifi.start_saved();
       ESP_LOGI(kTag, "Wi-Fi connect result: %s", esp_err_to_name(err));
     } else if (std::strncmp(line, "wifi set ", 9) == 0) {
