@@ -367,6 +367,7 @@ void BleNavTransport::run_rx_worker() {
     }
     reassembler_.reset();
     watchdog_.reset();
+    disconnect_requested_ = false;
     protocol_ready = false;
     has_observed_loss_epoch = false;
     resynchronizing_after_loss = false;
@@ -575,9 +576,22 @@ void BleNavTransport::run_rx_worker() {
     }
 
     if (epoch_gate.connected() && watchdog_.expired(now)) {
-      // Keep the physical BLE connection, but mark navigation stale until a
-      // valid frame resumes. This separates radio link from app liveness.
+      // A dead phone process may leave the physical GATT link connected.
+      // Merely hiding the navigation UI keeps NimBLE occupied indefinitely;
+      // terminate the stale link so GAP_DISCONNECT can reset the session and
+      // start advertising again. Only one termination request per epoch.
       note_link(false);
+      const std::uint16_t handle = connection_handle_.load();
+      if (handle != kNoConnection && !disconnect_requested_) {
+        disconnect_requested_ = true;
+        ESP_LOGW(kTag, "phone heartbeat timeout; closing stale BLE connection handle=%u", handle);
+        const int rc = ble_gap_terminate(handle, BLE_ERR_REM_USER_CONN_TERM);
+        if (rc != 0) {
+          ESP_LOGW(kTag, "stale BLE termination failed: rc=%d", rc);
+          // A future iteration may retry while the link remains established.
+          disconnect_requested_ = false;
+        }
+      }
     }
   }
 }
