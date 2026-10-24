@@ -186,3 +186,34 @@ MP3 stream on a Europe server at
 This is a station-selection change only: **there is still no MP3 network
 streamer or playback decoder connected to the audio BSP**, nor a provisioning
 screen or start/stop mode UI. The dormant Wi-Fi manager remains unchanged.
+
+## Experimental serial Wi-Fi provisioning test
+
+A temporary **lab-only serial console** has been added on `signal`
+(`signal_wifi_console.cpp`), built into the default experimental firmware
+but it DOES NOT start Wi-Fi until an explicit serial command arrives.
+Use a USB serial terminal capable of sending newline-terminated input;
+some read-only monitors do not send keyboard input to the device.
+At 115200 baud, commands:
+
+- `wifi set MySSID MyPassword` — saves credentials in the ESP32 NVS namespace
+  `signal_wifi`. Spaces in SSID are not supported by this temporary CLI.
+- `wifi test` — disconnect any previous trial, connect to the saved
+  2.4 GHz network, print the DHCP IP or a timeout/error.
+- `wifi status` — print connection state.
+- `wifi off` — disconnect and shut down the Wi-Fi driver.
+
+**Security limits:** This development CLI has no password masking. Serial
+terminal echo/history may reveal the password and default NVS is not
+necessarily encrypted. Use a disposable test hotspot, not a valuable
+production Wi-Fi password. Never post serial commands containing passwords
+into issues, chats or CI logs. For the final product, replace this path with
+a secure pairing/provisioning UI and encrypted credential storage.
+
+The GPS still boots as before; **do not use the Wi-Fi test while riding or
+navigating**. This temporary lab console does not yet enforce mode
+arbitration; mode-controlled production Wi-Fi is a separate milestone.
+The three-note audio test still runs at boot. Radio Paradise MP3 streaming
+and decode are NOT implemented yet. Build and hardware tests are pending
+for this commit. To omit the CLI pass `-DMOTO_SIGNAL_WIFI_CONSOLE=OFF`
+to CMake; it is not part of `NoOta`.
