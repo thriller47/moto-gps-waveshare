@@ -527,6 +527,27 @@ class HybridMapRepository(private val context: Context) {
         return quads
     }
 
+    // Publish only complete downloads. Keep the last good offline map on errors.
+    private fun publishMapDownload(temp: File, target: File, segments: Int, failures: Int): DownloadResult {
+        if (failures > 0 || segments == 0) {
+            temp.delete()
+            throw java.io.IOException("Download incompleto: $failures richieste fallite, $segments segmenti. Mappa precedente conservata.")
+        }
+        val backup = File(mapsDir, target.name + ".bak")
+        backup.delete()
+        if (target.exists() && !target.renameTo(backup)) {
+            temp.delete()
+            throw java.io.IOException("Impossibile proteggere la mappa precedente")
+        }
+        if (!temp.renameTo(target)) {
+            if (backup.exists()) backup.renameTo(target)
+            temp.delete()
+            throw java.io.IOException("Impossibile salvare la nuova mappa")
+        }
+        backup.delete()
+        return DownloadResult(target, segments)
+    }
+
     suspend fun downloadCurrentArea(
         lat: Double,
         lon: Double,
@@ -540,10 +561,10 @@ class HybridMapRepository(private val context: Context) {
 
         val quads = buildQuadrantsGrid(minLat, minLon, maxLat, maxLon, 0.30)
         val targetFile = File(mapsDir, "area_corrente_50km.motomap")
-        if (targetFile.exists()) targetFile.delete()
-
+        val tempFile = File(mapsDir, targetFile.name + ".tmp")
+        var failedRequests = 0
         var totalSegments = 0
-        val fos = java.io.FileOutputStream(targetFile, true)
+        val fos = java.io.FileOutputStream(tempFile, false)
         val osw = OutputStreamWriter(fos, Charsets.UTF_8)
         val writer = BufferedWriter(osw)
 
@@ -560,6 +581,7 @@ class HybridMapRepository(private val context: Context) {
                     totalSegments += written
                     writer.flush()
                 } catch (e: Exception) {
+                    failedRequests++
                     Log.w("HybridMapRepository", "Quadrant $index failed for 50km area: ${e.message}")
                 }
                 onProgress?.invoke(index + 1, quads.size, "Area Attuale 50km")
@@ -569,7 +591,7 @@ class HybridMapRepository(private val context: Context) {
         } finally {
             try { writer.close() } catch (_: Exception) {}
         }
-        return DownloadResult(targetFile, totalSegments)
+        return publishMapDownload(tempFile, targetFile, totalSegments, failedRequests)
     }
 
     suspend fun downloadRouteCorridor(
@@ -598,10 +620,10 @@ class HybridMapRepository(private val context: Context) {
         }
 
         val targetFile = File(mapsDir, "corridoio_rotta.motomap")
-        if (targetFile.exists()) targetFile.delete()
-
+        val tempFile = File(mapsDir, targetFile.name + ".tmp")
+        var failedRequests = 0
         var totalSegments = 0
-        val fos = java.io.FileOutputStream(targetFile, true)
+        val fos = java.io.FileOutputStream(tempFile, false)
         val osw = OutputStreamWriter(fos, Charsets.UTF_8)
         val writer = BufferedWriter(osw)
 
@@ -615,7 +637,7 @@ class HybridMapRepository(private val context: Context) {
 
                 val query = String.format(
                     Locale.US,
-                    "[out:json][timeout:25];(way[\"highway\"](%.6f,%.6f,%.6f,%.6f););out body geom qt;",
+                    "[out:json][timeout:25];(way[\"highway\"~\"^(primary|primary_link|secondary|secondary_link|tertiary|tertiary_link|residential|unclassified)$\"](%.6f,%.6f,%.6f,%.6f););out body geom qt;",
                     lat - latDelta, lon - lonDelta, lat + latDelta, lon + lonDelta
                 )
                 try {
@@ -623,6 +645,7 @@ class HybridMapRepository(private val context: Context) {
                     totalSegments += written
                     writer.flush()
                 } catch (e: Exception) {
+                    failedRequests++
                     Log.w("HybridMapRepository", "Corridor point $index failed: ${e.message}")
                 }
                 onProgress?.invoke(index + 1, sampledPoints.size, "Corridoio Rotta")
@@ -632,7 +655,7 @@ class HybridMapRepository(private val context: Context) {
         } finally {
             try { writer.close() } catch (_: Exception) {}
         }
-        return DownloadResult(targetFile, totalSegments)
+        return publishMapDownload(tempFile, targetFile, totalSegments, failedRequests)
     }
 
     private fun calculateDistanceKm(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
@@ -679,10 +702,10 @@ class HybridMapRepository(private val context: Context) {
         val quads = buildQuadrantsGrid(bbox.minLat, bbox.minLon, bbox.maxLat, bbox.maxLon, 0.40)
         val sanitized = regionName.lowercase(Locale.ROOT).replace("[^a-z0-9]".toRegex(), "_")
         val targetFile = File(mapsDir, "regione_${sanitized}.motomap")
-        if (targetFile.exists()) targetFile.delete()
-
+        val tempFile = File(mapsDir, targetFile.name + ".tmp")
+        var failedRequests = 0
         var totalSegments = 0
-        val fos = java.io.FileOutputStream(targetFile, true)
+        val fos = java.io.FileOutputStream(tempFile, false)
         val osw = OutputStreamWriter(fos, Charsets.UTF_8)
         val writer = BufferedWriter(osw)
 
@@ -699,6 +722,7 @@ class HybridMapRepository(private val context: Context) {
                     totalSegments += written
                     writer.flush()
                 } catch (e: Exception) {
+                    failedRequests++
                     Log.w("HybridMapRepository", "Quadrant $index failed for $regionName: ${e.message}")
                 }
                 onProgress?.invoke(index + 1, quads.size, regionName)
@@ -708,7 +732,7 @@ class HybridMapRepository(private val context: Context) {
         } finally {
             try { writer.close() } catch (_: Exception) {}
         }
-        return DownloadResult(targetFile, totalSegments)
+        return publishMapDownload(tempFile, targetFile, totalSegments, failedRequests)
     }
 
     private fun String?.isNull_or_blank(): Boolean {
