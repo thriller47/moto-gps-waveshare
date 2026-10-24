@@ -91,9 +91,8 @@ esp_err_t SignalEs8311Codec::start(i2c_master_bus_handle_t bus,
   ESP_LOGI(kTag, "ES8311 identified on shared I2C 0x18; ID1=0x%02x", chip_id);
 
   // Reset/power-on from Espressif ES8311 init; no amplifier is enabled here.
-  for (const std::uint8_t value : {std::uint8_t{0x1F},
-                                    std::uint8_t{0x00},
-                                    std::uint8_t{0x80}}) {
+  constexpr std::uint8_t kResetSequence[] = {0x1F, 0x00, 0x80};
+  for (const std::uint8_t value : kResetSequence) {
     err = write_reg(0x00, value);
     if (err != ESP_OK) goto fail;
   }
