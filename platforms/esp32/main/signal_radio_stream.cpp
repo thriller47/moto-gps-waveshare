@@ -17,6 +17,7 @@
 #include "esp_codec_dev.h"
 #include "esp_heap_caps.h"
 #include "esp_http_client.h"
+#include "esp_crt_bundle.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 
@@ -212,6 +213,9 @@ void signal_radio_play_test(std::size_t station_index, moto::signal::RadioUiCont
     config.timeout_ms = 3000;
     config.buffer_size = 2048;
     config.disable_auto_redirect = false;
+    // Validate HTTPS stream servers and HTTPS redirect targets using the
+    // Espressif root-CA bundle; never disable TLS certificate checks.
+    config.crt_bundle_attach = esp_crt_bundle_attach;
     http = esp_http_client_init(&config);
     if (!http) {
       ESP_LOGE(kTag, "HTTP client allocation failed");
