@@ -6,6 +6,8 @@
 #include "driver/i2s_std.h"
 #include "esp_audio_simple_dec.h"
 #include "esp_audio_simple_dec_default.h"
+#include "esp_audio_dec.h"
+#include "impl/esp_mp3_dec.h"
 #include "esp_codec_dev.h"
 #include "esp_heap_caps.h"
 #include "esp_http_client.h"
@@ -102,6 +104,7 @@ void signal_radio_play_test() {
   esp_codec_dev_handle_t speaker = nullptr;
   esp_http_client_handle_t http = nullptr;
   bool registered = false;
+  bool mp3_registered = false;
   unsigned long long bytes_received = 0;
   unsigned long long pcm_written = 0;
 
@@ -111,6 +114,17 @@ void signal_radio_play_test() {
       break;
     }
     registered = true;
+    // The simple decoder registers the MP3 parser, but the actual MP3 frame
+    // decoder can be disabled by esp_audio_codec Kconfig defaults. Register
+    // the MP3 frame decoder explicitly so a build never silently omits it.
+    const esp_audio_err_t mp3_reg = esp_mp3_dec_register();
+    if (mp3_reg != ESP_AUDIO_ERR_OK) {
+      ESP_LOGE(kTag, "MP3 frame decoder registration failed: %d",
+               static_cast<int>(mp3_reg));
+      break;
+    }
+    mp3_registered = true;
+    ESP_LOGI(kTag, "MP3 frame decoder explicitly registered");
     esp_audio_simple_dec_cfg_t dcfg{};
     dcfg.dec_type = ESP_AUDIO_SIMPLE_DEC_TYPE_MP3;
     if (esp_audio_simple_dec_open(&dcfg, &decoder) != ESP_AUDIO_ERR_OK) {
@@ -220,6 +234,7 @@ void signal_radio_play_test() {
   }
   if (decoder) esp_audio_simple_dec_close(decoder);
   if (registered) esp_audio_simple_dec_unregister_default();
+  if (mp3_registered) esp_audio_dec_unregister(ESP_AUDIO_TYPE_MP3);
   heap_caps_free(encoded);
   heap_caps_free(pcm);
   ESP_LOGI(kTag, "Radio test completed: MP3 received=%llu bytes, PCM output=%llu bytes",
