@@ -1,5 +1,8 @@
 #include <cstdint>
 #include <cstring>
+#include <cstdio>
+
+#include "signal_serial_line.h"
 
 #include "signal_stations.h"
 #include "bsp/esp-bsp.h"
@@ -16,7 +19,7 @@
 
 namespace {
 constexpr char kTag[] = "signal_stream";
-constexpr int kMaxPlaybackSeconds = 20;
+constexpr std::size_t kStopLineLength = 48;
 constexpr std::size_t kMp3Chunk = 1024;
 constexpr std::size_t kPcmBytes = 16384;
 
@@ -71,16 +74,40 @@ esp_codec_dev_handle_t open_speaker(const esp_audio_simple_dec_info_t& info) {
   return speaker;
 }
 
+bool stop_requested(moto::signal::SerialLine<kStopLineLength>& input) {
+  // USB serial stdin returns EOF when no bytes are available.
+  for (int i = 0; i < 64; ++i) {
+    const int ch = std::getchar();
+    if (ch == EOF) {
+      std::clearerr(stdin);
+      return false;
+    }
+    const auto result = input.push(static_cast<char>(ch));
+    if (result == moto::signal::SerialLine<kStopLineLength>::Result::Pending)
+      continue;
+    if (result == moto::signal::SerialLine<kStopLineLength>::Result::TooLong) {
+      ESP_LOGW(kTag, "Playback command too long; discarded");
+      input.clear();
+      continue;
+    }
+    char* command = moto::signal::skip_spaces(input.data());
+    moto::signal::trim_right(command);
+    const bool stop = std::strcmp(command, "radio stop") == 0;
+    if (!stop) ESP_LOGW(kTag, "During playback only 'radio stop' is accepted");
+    input.clear();
+    if (stop) return true;
+  }
+  return false;
+}
 }  // namespace
 
-// Blocking, time-bounded first radio test; called from the radio-only lab
+// Blocking, continuous radio playback with serial stop; called from the radio-only lab
 // console after 'wifi test' returned ESP_OK. No background decoder task,
 // resource leaks on repeated play, or GPS/BLE activity in this lab build.
 // MP3 is a continuous stream; plain HTTP is intentional for first test.
 // No credentials or sensitive information are sent in the stream request.
 void signal_radio_play_test() {
-  ESP_LOGI(kTag, "Radio Paradise Main Mix: MP3 128 kbps, max %d seconds",
-           kMaxPlaybackSeconds);
+  ESP_LOGI(kTag, "Radio Paradise Main Mix: MP3 128 kbps (continuous). Send radio stop + Enter to stop");
   if (bsp_i2c_get_handle() == nullptr) {
     const esp_err_t init = bsp_i2c_init();
     if (init != ESP_OK) {
@@ -107,6 +134,8 @@ void signal_radio_play_test() {
   bool mp3_registered = false;
   unsigned long long bytes_received = 0;
   unsigned long long pcm_written = 0;
+  moto::signal::SerialLine<kStopLineLength> stop_input;
+  bool user_stopped = false;
 
   do {
     if (esp_audio_simple_dec_register_default() != ESP_AUDIO_ERR_OK) {
@@ -156,10 +185,13 @@ void signal_radio_play_test() {
       break;
     }
 
-    const int64_t end_us = esp_timer_get_time() + 
-                           static_cast<int64_t>(kMaxPlaybackSeconds) * 1000000LL;
     bool decode_failed = false;
-    while (esp_timer_get_time() < end_us) {
+    while (true) {
+      if (stop_requested(stop_input)) {
+        user_stopped = true;
+        ESP_LOGI(kTag, "Radio stop requested");
+        break;
+      }
       const int read_bytes = esp_http_client_read(
           http, reinterpret_cast<char*>(encoded), kMp3Chunk);
       if (read_bytes < 0) {
@@ -237,6 +269,6 @@ void signal_radio_play_test() {
   if (mp3_registered) esp_audio_dec_unregister(ESP_AUDIO_TYPE_MP3);
   heap_caps_free(encoded);
   heap_caps_free(pcm);
-  ESP_LOGI(kTag, "Radio test completed: MP3 received=%llu bytes, PCM output=%llu bytes",
-           bytes_received, pcm_written);
+  ESP_LOGI(kTag, "Radio playback %s: MP3 received=%llu bytes, PCM output=%llu bytes",
+           user_stopped ? "stopped by user" : "ended", bytes_received, pcm_written);
 }
