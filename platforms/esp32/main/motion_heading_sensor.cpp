@@ -10,8 +10,12 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-// qmi8658.h defines M_PI globally. This adapter does not use that macro and
-// removes it after the official component header to keep C++ <cmath> clean.
+// The Waveshare qmi8658 header defines M_PI unconditionally. ESP-IDF 6.1
+// may already define it in <cmath>, so remove that definition before including
+// the vendor header, then avoid leaking the vendor macro into our C++ code.
+#ifdef M_PI
+#undef M_PI
+#endif
 #include "qmi8658.h"
 #ifdef M_PI
 #undef M_PI
