@@ -13,3 +13,6 @@ dependencies:
     version: "9.5.0"
     public: true
     override_path: "../../../third_party/lvgl"
+  # ESP-IDF 5.5-compatible Espressif streaming MP3 decoder (not Arduino/ADF).
+  espressif/esp_audio_codec:
+    version: "2.6.2"
