@@ -15,6 +15,8 @@ constexpr std::size_t kLineLength = 160;
 // Never print credentials in firmware logs.
 void console_task(void*) {
   SignalWifi wifi;
+  // Receive individual bytes promptly over the native USB Serial/JTAG VFS.
+  std::setvbuf(stdin, nullptr, _IONBF, 0);
   char line[kLineLength] = {};
   ESP_LOGI(kTag, "Experimental Wi-Fi console ready. Commands: wifi set, wifi test, wifi off, wifi status");
   ESP_LOGW(kTag, "Password input may be visible in terminal history/echo; use a disposable test network");
@@ -30,6 +32,8 @@ void console_task(void*) {
       continue;
     }
     line[length] = '\0';
+    if (length != 0) ESP_LOGI(kTag, "Serial command received (%u bytes)",
+                               static_cast<unsigned>(length));
     if (std::strcmp(line, "wifi status") == 0) {
       ESP_LOGI(kTag, "Wi-Fi connected: %s", wifi.connected() ? "yes" : "no");
     } else if (std::strcmp(line, "wifi off") == 0) {
