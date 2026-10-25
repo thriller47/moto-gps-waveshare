@@ -131,6 +131,11 @@ esp_codec_dev_handle_t open_speaker(const esp_audio_simple_dec_info_t& info, int
       },
   };
   cfg.clk_cfg.mclk_multiple = I2S_MCLK_MULTIPLE_256;
+  ESP_LOGI(kTag, "Before I2S: internal free=%lu largest=%lu DMA free=%lu DMA largest=%lu",
+           static_cast<unsigned long>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+           static_cast<unsigned long>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+           static_cast<unsigned long>(heap_caps_get_free_size(MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL)),
+           static_cast<unsigned long>(heap_caps_get_largest_free_block(MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL)));
   const esp_err_t err = bsp_audio_init(&cfg);
   if (err != ESP_OK) {
     ESP_LOGE(kTag, "BSP I2S init failed: %s", esp_err_to_name(err));
