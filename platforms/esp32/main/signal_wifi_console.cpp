@@ -9,6 +9,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+void signal_radio_play_test();
+
 namespace {
 constexpr char kTag[] = "signal_console";
 constexpr std::size_t kLineLength = 160;
@@ -59,6 +61,12 @@ void run_console() {
       ESP_LOGI(kTag, "Connecting to saved 2.4 GHz hotspot...");
       const esp_err_t err = wifi.start_saved();
       ESP_LOGI(kTag, "Wi-Fi connect result: %s", esp_err_to_name(err));
+    } else if (std::strcmp(command, "radio play") == 0) {
+      if (!wifi.connected()) {
+        ESP_LOGW(kTag, "Connect first with wifi test");
+      } else {
+        signal_radio_play_test();  // Up to 20 seconds; returns to CLI.
+      }
     } else if (std::strncmp(command, "wifi set ", 9) == 0) {
       char* ssid = nullptr;
       char* password = nullptr;
@@ -70,7 +78,7 @@ void run_console() {
       }
     } else if (std::strcmp(command, "wifi help") == 0 ||
                std::strcmp(command, "wifi set") == 0) {
-      ESP_LOGI(kTag, "Commands: wifi status, wifi set SSID|PASSWORD, wifi test, wifi off");
+      ESP_LOGI(kTag, "Commands: wifi status, wifi set SSID|PASSWORD, wifi test, radio play, wifi off");
     } else {
       ESP_LOGW(kTag, "Unknown Wi-Fi command (length=%u). Send 'wifi help'",
                static_cast<unsigned>(std::strlen(command)));
