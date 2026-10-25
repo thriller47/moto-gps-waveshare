@@ -208,8 +208,8 @@ bool radio_ui_start(RadioUiControl& state) {
                 reinterpret_cast<void*>(static_cast<intptr_t>(5)));
   refresh_selection();
 #ifdef MOTO_SIGNAL_MODE_SWITCH
-  // G mirrors the Wi-Fi circle across the dial (225 + 180 = 45 degrees).
-  circle_button(screen, "G", 50, 45, back_to_navigation);
+  // Mirror Wi-Fi at 225 degrees horizontally across the vertical dial axis: 315 degrees.
+  circle_button(screen, "G", 50, 315, back_to_navigation);
 #endif
 
   lv_refr_now(board_port_get_display());
