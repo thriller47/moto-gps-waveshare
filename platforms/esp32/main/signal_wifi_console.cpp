@@ -1,4 +1,5 @@
 #include "signal_wifi.h"
+#include "signal_serial_line.h"
 
 #include <cstdio>
 #include <cstring>
@@ -20,51 +21,61 @@ void run_console() {
   SignalWifi wifi;
   // Receive individual bytes promptly over the native USB Serial/JTAG VFS.
   std::setvbuf(stdin, nullptr, _IONBF, 0);
-  char line[kLineLength] = {};
+  moto::signal::SerialLine<kLineLength> input;
   ESP_LOGI(kTag, "Experimental Wi-Fi console ready. Commands: wifi set, wifi test, wifi off, wifi status");
   ESP_LOGW(kTag, "Password input may be visible in terminal history/echo; use a disposable test network");
   while (true) {
-    std::size_t length = 0;
-    int ch = 0;
-    while ((ch = std::getchar()) != EOF) {
-      if (ch == '\r' || ch == '\n') break;
-      if (length + 1 < sizeof(line)) line[length++] = static_cast<char>(ch);
-    }
+    const int ch = std::getchar();
     if (ch == EOF) {
-      // Native USB Serial/JTAG stdin is initially non-blocking and sets EOF
-      // when no character is available. Without clearerr(), all future
-      // getchar() calls can return EOF even after a command is sent.
+      // Empty native USB read: DO NOT discard previously received bytes.
+      // The old parser reset its local buffer after each temporary EOF,
+      // so longer commands were silently lost while short ones sometimes worked.
       std::clearerr(stdin);
-      vTaskDelay(pdMS_TO_TICKS(25));
+      vTaskDelay(pdMS_TO_TICKS(10));
       continue;
     }
-    line[length] = '\0';
-    if (length != 0) ESP_LOGI(kTag, "Serial command received (%u bytes)",
-                               static_cast<unsigned>(length));
-    if (std::strcmp(line, "wifi status") == 0) {
+
+    const auto result = input.push(static_cast<char>(ch));
+    if (result == moto::signal::SerialLine<kLineLength>::Result::Pending)
+      continue;
+    if (result == moto::signal::SerialLine<kLineLength>::Result::TooLong) {
+      ESP_LOGW(kTag, "Wi-Fi command too long; input dropped safely");
+      continue;
+    }
+
+    // A complete newline-terminated line has arrived (including any USB
+    // read gaps). Never print its contents; it may contain a password.
+    ESP_LOGI(kTag, "Serial command received (%u bytes)",
+             static_cast<unsigned>(input.length()));
+    char* command = moto::signal::skip_spaces(input.data());
+    moto::signal::trim_right(command);
+    if (std::strcmp(command, "wifi status") == 0) {
       ESP_LOGI(kTag, "Wi-Fi connected: %s", wifi.connected() ? "yes" : "no");
-    } else if (std::strcmp(line, "wifi off") == 0) {
+    } else if (std::strcmp(command, "wifi off") == 0) {
       wifi.stop();
       ESP_LOGI(kTag, "Wi-Fi disabled");
-    } else if (std::strcmp(line, "wifi test") == 0) {
+    } else if (std::strcmp(command, "wifi test") == 0) {
       wifi.stop();
+      ESP_LOGI(kTag, "Connecting to saved 2.4 GHz hotspot...");
       const esp_err_t err = wifi.start_saved();
       ESP_LOGI(kTag, "Wi-Fi connect result: %s", esp_err_to_name(err));
-    } else if (std::strncmp(line, "wifi set ", 9) == 0) {
-      char* ssid = line + 9;
-      char* separator = std::strchr(ssid, ' ');
-      if (!separator) {
-        ESP_LOGW(kTag, "Syntax: wifi set SSID PASSWORD (spaces unsupported in SSID)");
+    } else if (std::strncmp(command, "wifi set ", 9) == 0) {
+      char* ssid = nullptr;
+      char* password = nullptr;
+      if (!moto::signal::parse_wifi_credentials(command + 9, ssid, password)) {
+        ESP_LOGW(kTag, "Syntax: wifi set SSID|PASSWORD (spaces allowed in SSID)");
       } else {
-        *separator = '\0';
-        const char* password = separator + 1;
         const esp_err_t err = wifi.save_credentials(ssid, password);
         ESP_LOGI(kTag, "Wi-Fi credential storage: %s", esp_err_to_name(err));
       }
-    } else if (length != 0) {
-      ESP_LOGW(kTag, "Unknown command. Supported: wifi set, wifi test, wifi off, wifi status");
+    } else if (std::strcmp(command, "wifi help") == 0 ||
+               std::strcmp(command, "wifi set") == 0) {
+      ESP_LOGI(kTag, "Commands: wifi status, wifi set SSID|PASSWORD, wifi test, wifi off");
+    } else {
+      ESP_LOGW(kTag, "Unknown Wi-Fi command (length=%u). Send 'wifi help'",
+               static_cast<unsigned>(std::strlen(command)));
     }
-    std::memset(line, 0, sizeof(line));
+    input.clear();  // Also erase the parsed password from RAM.
   }
 }
 }  // namespace
