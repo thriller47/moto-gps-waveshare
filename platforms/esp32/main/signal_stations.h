@@ -34,6 +34,8 @@ constexpr RadioStation kMp3Stations[] = {
     {"Virgin Radio - Rock Ballads",
      "http://e.radio-italiane.it/embed/virgin-radio-rock-ballads-463721",
      "http://icy.unitedradio.it/Virgin_06.mp3", StreamFormat::DirectMp3},
+    {"Radio Paradise - Rock Mix 128", "https://radioparadise.com/player/info/rock",
+     "http://stream.radioparadise.com/rock-128", StreamFormat::DirectMp3},
     {"Virgin Radio Italia", "", "http://icecast.unitedradio.it/Virgin.mp3", StreamFormat::DirectMp3},
     {"Virgin Radio Hard Rock", "", "http://icy.unitedradio.it/VirginHardRock.mp3", StreamFormat::DirectMp3},
     {"Radiofreccia", "", "https://streamingv2.shoutcast.com/radiofreccia", StreamFormat::DirectMp3},
