@@ -65,6 +65,8 @@ void SignalWifi::on_event(void* ctx, esp_event_base_t base,
     } else if (self->events_) {
       xEventGroupSetBits(self->events_, kFailed);
     }
+  } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_CONNECTED) {
+    ESP_LOGI(kTag, "Associated with hotspot; waiting for DHCP address");
   } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
     self->connected_ = true;
     self->retries_ = 0;
