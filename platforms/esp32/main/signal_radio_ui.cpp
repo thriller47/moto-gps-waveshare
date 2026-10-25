@@ -17,6 +17,10 @@ void select_station(int station) {
              static_cast<int>(kMp3StationCount);
   lv_label_set_text(station_label, kMp3Stations[selected].name);
 }
+void wifi_toggle(lv_event_t*) {
+  control->wifi_request.store(1, std::memory_order_release);
+  lv_label_set_text(status_label, "Wi-Fi connecting...");
+}
 void previous(lv_event_t*) { select_station(selected - 1); }
 void next(lv_event_t*) { select_station(selected + 1); }
 void play(lv_event_t*) {
@@ -91,6 +95,9 @@ bool radio_ui_start(RadioUiControl& state) {
   volume_label = lv_label_create(row);
   lv_label_set_text(volume_label, "VOL 20%");
   button(row, "+", adjust_volume, reinterpret_cast<void*>(static_cast<intptr_t>(5)));
+  lv_obj_t* wifi_btn = button(screen, "Wi-Fi", wifi_toggle);
+  lv_obj_set_size(wifi_btn, 112, 48);
+  lv_obj_align(wifi_btn, LV_ALIGN_BOTTOM_LEFT, 42, -12);
   lv_obj_t* stop_btn = button(screen, "STOP", stop);
   lv_obj_set_size(stop_btn, 120, 48);
   lv_obj_align(stop_btn, LV_ALIGN_BOTTOM_MID, 0, -12);
