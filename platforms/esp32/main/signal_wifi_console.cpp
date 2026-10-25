@@ -44,8 +44,9 @@ void run_console() {
           ESP_LOGI(kTag, "Touch Wi-Fi: connecting to saved network...");
           const esp_err_t err = wifi.start_saved();
           ESP_LOGI(kTag, "Touch Wi-Fi result: %s", esp_err_to_name(err));
-          moto::signal::radio_ui_status(nullptr, false, 20);
+          moto::signal::radio_ui_wifi_status(wifi.connected());
         } else {
+          moto::signal::radio_ui_wifi_status(true);
           ESP_LOGI(kTag, "Wi-Fi already connected");
         }
       }
@@ -87,12 +88,14 @@ void run_console() {
       ESP_LOGI(kTag, "Wi-Fi connected: %s", wifi.connected() ? "yes" : "no");
     } else if (std::strcmp(command, "wifi off") == 0) {
       wifi.stop();
+      if (touch_ready) moto::signal::radio_ui_wifi_status(false);
       ESP_LOGI(kTag, "Wi-Fi disabled");
     } else if (std::strcmp(command, "wifi test") == 0) {
       wifi.stop();
       ESP_LOGI(kTag, "Connecting to saved 2.4 GHz hotspot...");
       const esp_err_t err = wifi.start_saved();
       ESP_LOGI(kTag, "Wi-Fi connect result: %s", esp_err_to_name(err));
+      if (touch_ready) moto::signal::radio_ui_wifi_status(wifi.connected());
     } else if (std::strcmp(command, "radio list") == 0) {
       for (std::size_t i = 0; i < moto::signal::kMp3StationCount; ++i) {
         ESP_LOGI(kTag, "%u: %s", static_cast<unsigned>(i + 1),
