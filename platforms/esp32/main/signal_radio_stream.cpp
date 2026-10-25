@@ -222,14 +222,33 @@ void signal_radio_play_test(std::size_t station_index, moto::signal::RadioUiCont
       break;
     }
     esp_http_client_set_header(http, "Icy-MetaData", "0");
-    const esp_err_t open_result = esp_http_client_open(http, 0);
-    if (open_result != ESP_OK) {
-      ESP_LOGE(kTag, "MP3 HTTP connect failed: %s", esp_err_to_name(open_result));
-      break;
+    // Streaming uses the manual open/read API, which does not automatically
+    // follow redirects (disable_auto_redirect only governs perform()).
+    // Limit redirect hops to avoid loops, retaining TLS certificate checks.
+    int status = 0;
+    for (int redirect = 0; redirect <= 5; ++redirect) {
+      const esp_err_t open_result = esp_http_client_open(http, 0);
+      if (open_result != ESP_OK) {
+        ESP_LOGE(kTag, "MP3 HTTP connect failed: %s", esp_err_to_name(open_result));
+        break;
+      }
+      (void)esp_http_client_fetch_headers(http);
+      status = esp_http_client_get_status_code(http);
+      ESP_LOGI(kTag, "Stream HTTP status=%d (hop %d)", status, redirect);
+      if (status != 301 && status != 302 && status != 303 &&
+          status != 307 && status != 308) break;
+      if (redirect == 5) {
+        ESP_LOGE(kTag, "Too many stream redirects");
+        break;
+      }
+      const esp_err_t redirected = esp_http_client_set_redirection(http);
+      if (redirected != ESP_OK) {
+        ESP_LOGE(kTag, "Invalid HTTP redirect: %s", esp_err_to_name(redirected));
+        break;
+      }
+      esp_http_client_close(http);
+      status = 0;
     }
-    (void)esp_http_client_fetch_headers(http);
-    const int status = esp_http_client_get_status_code(http);
-    ESP_LOGI(kTag, "Stream HTTP status=%d", status);
     if (status != 200) {
       ESP_LOGE(kTag, "MP3 stream refused (HTTP %d)", status);
       break;
@@ -246,7 +265,8 @@ void signal_radio_play_test(std::size_t station_index, moto::signal::RadioUiCont
             moto::signal::radio_ui_status(nullptr, true, volume);
           }
         }
-        if (ui->stop.exchange(false) ||
+        if (ui->wifi_request.load(std::memory_order_acquire) != 0 ||
+            ui->stop.exchange(false) ||
             ui->play_station.load(std::memory_order_acquire) >= 0) {
           user_stopped = true;
           ESP_LOGI(kTag, "Radio touch stop / station switch requested");
