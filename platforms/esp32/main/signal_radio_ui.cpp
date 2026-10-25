@@ -193,30 +193,23 @@ bool radio_ui_start(RadioUiControl& state) {
   lv_label_set_text(volume_label, "VOL 20%");
   lv_obj_align(volume_label, LV_ALIGN_CENTER, 0, 67);
 
-  wifi_button = circle_button(screen, LV_SYMBOL_WIFI, 50, 222, wifi_connect);
+  wifi_button = circle_button(screen, LV_SYMBOL_WIFI, 50, 225, wifi_connect);
   lv_obj_set_style_border_color(wifi_button, lv_color_hex(kMuted), 0);
 
-  circle_button(screen, "-", 50, 142, change_volume,
+  circle_button(screen, "-", 50, 180, change_volume,
                 reinterpret_cast<void*>(static_cast<intptr_t>(-5)));
-  circle_button(screen, LV_SYMBOL_PREV, 54, 116, prior);
+  circle_button(screen, LV_SYMBOL_PREV, 54, 125, prior);
   lv_obj_t* play_button = circle_button(screen, LV_SYMBOL_PLAY, 64, 90, play_stop);
   lv_obj_set_style_bg_color(play_button, lv_color_white(), 0);
   play_label = lv_obj_get_child(play_button, 0);
   lv_obj_set_style_text_color(play_label, lv_color_black(), 0);
-  circle_button(screen, LV_SYMBOL_NEXT, 54, 64, next);
-  circle_button(screen, "+", 50, 38, change_volume,
+  circle_button(screen, LV_SYMBOL_NEXT, 54, 55, next);
+  circle_button(screen, "+", 50, 0, change_volume,
                 reinterpret_cast<void*>(static_cast<intptr_t>(5)));
   refresh_selection();
 #ifdef MOTO_SIGNAL_MODE_SWITCH
-  lv_obj_t* gps = lv_button_create(screen);
-  lv_obj_set_size(gps, 76, 35);
-  lv_obj_align(gps, LV_ALIGN_TOP_LEFT, 47, 80);
-  lv_obj_set_style_bg_color(gps, lv_color_hex(kDark), 0);
-  lv_obj_set_style_shadow_width(gps, 0, 0);
-  lv_obj_add_event_cb(gps, back_to_navigation, LV_EVENT_CLICKED, nullptr);
-  lv_obj_t* gps_text = lv_label_create(gps);
-  lv_label_set_text(gps_text, "GPS");
-  lv_obj_center(gps_text);
+  // G mirrors the Wi-Fi circle across the dial (225 + 180 = 45 degrees).
+  circle_button(screen, "G", 50, 45, back_to_navigation);
 #endif
 
   lv_refr_now(board_port_get_display());
