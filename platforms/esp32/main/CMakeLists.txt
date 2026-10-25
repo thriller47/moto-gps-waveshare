@@ -63,15 +63,16 @@ target_compile_options(${COMPONENT_LIB} PRIVATE
     $<$<COMPILE_LANGUAGE:CXX>:-fno-rtti>
 )
 
-# One short, quiet speaker tone at boot on the experimental branch only.
-# Disable with -DMOTO_SIGNAL_AUDIO_BOOT_TEST=OFF when doing normal GPS checks.
-option(MOTO_SIGNAL_AUDIO_BOOT_TEST "Run one-shot SIGNAL speaker self-test at boot" ON)
-if(MOTO_SIGNAL_AUDIO_BOOT_TEST)
-    target_compile_definitions(${COMPONENT_LIB} PRIVATE MOTO_SIGNAL_AUDIO_BOOT_TEST=1)
+# Experimental SIGNAL firmware builds in RADIO-ONLY LAB mode by default:
+# no navigation/BLE/LVGL starts in this diagnostic image. This is temporary
+# and must be disabled for any road/navigation use.
+option(MOTO_SIGNAL_WIFI_LAB_BOOT "Boot into radio Wi-Fi lab console instead of GPS UI" ON)
+if(MOTO_SIGNAL_WIFI_LAB_BOOT)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE MOTO_SIGNAL_WIFI_LAB_BOOT=1)
 endif()
 
-# Experimental branch only: CLI task is present, but Wi-Fi stays OFF until user command.
-option(MOTO_SIGNAL_WIFI_CONSOLE "Enable lab-only SIGNAL Wi-Fi serial console" ON)
-if(MOTO_SIGNAL_WIFI_CONSOLE)
-    target_compile_definitions(${COMPONENT_LIB} PRIVATE MOTO_SIGNAL_WIFI_CONSOLE=1)
+# Verified speaker test (Waveshare BSP); only used in GPS-integrated builds.
+option(MOTO_SIGNAL_AUDIO_BOOT_TEST "Run one-shot speaker test with GPS UI" OFF)
+if(MOTO_SIGNAL_AUDIO_BOOT_TEST AND NOT MOTO_SIGNAL_WIFI_LAB_BOOT)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE MOTO_SIGNAL_AUDIO_BOOT_TEST=1)
 endif()
