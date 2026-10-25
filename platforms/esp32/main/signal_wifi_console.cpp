@@ -4,6 +4,7 @@
 #include <cstring>
 #include "esp_log.h"
 #include "esp_heap_caps.h"
+#include "nvs_flash.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -13,8 +14,9 @@ constexpr std::size_t kLineLength = 160;
 
 // Laboratory-only serial provisioning. Not an end-user secure provisioning
 // interface: terminal echo, monitoring tools and scrollback may expose input.
+// Run on the existing ESP-IDF app_main task: no additional 4 KiB task stack.
 // Never print credentials in firmware logs.
-void console_task(void*) {
+void run_console() {
   SignalWifi wifi;
   // Receive individual bytes promptly over the native USB Serial/JTAG VFS.
   std::setvbuf(stdin, nullptr, _IONBF, 0);
@@ -29,7 +31,11 @@ void console_task(void*) {
       if (length + 1 < sizeof(line)) line[length++] = static_cast<char>(ch);
     }
     if (ch == EOF) {
-      vTaskDelay(pdMS_TO_TICKS(50));
+      // Native USB Serial/JTAG stdin is initially non-blocking and sets EOF
+      // when no character is available. Without clearerr(), all future
+      // getchar() calls can return EOF even after a command is sent.
+      std::clearerr(stdin);
+      vTaskDelay(pdMS_TO_TICKS(25));
       continue;
     }
     line[length] = '\0';
@@ -63,12 +69,20 @@ void console_task(void*) {
 }
 }  // namespace
 
-void signal_start_wifi_console() {
-  ESP_LOGI(kTag, "Creating serial Wi-Fi console: internal free=%u largest=%u",
+// This is intentionally a standalone radio diagnostics boot mode. The GPS
+// UI and NimBLE are never started in this mode, so Wi-Fi has the internal
+// heap required by ESP-IDF. A later, proper mode-switch UI is still needed.
+void signal_run_wifi_console() {
+  ESP_LOGW(kTag, "SIGNAL RADIO WI-FI LAB MODE: GPS UI and BLE are disabled for this boot");
+  ESP_LOGI(kTag, "Before Wi-Fi: internal free=%u largest=%u, PSRAM free=%u",
            static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
-           static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)));
-  if (xTaskCreate(console_task, "signal_wifi_cli", 4096, nullptr, 2,
-                  nullptr) != pdPASS) {
-    ESP_LOGE(kTag, "Could not start Wi-Fi console task");
+           static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+           static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)));
+  const esp_err_t err = nvs_flash_init();
+  if (err != ESP_OK) {
+    ESP_LOGE(kTag, "NVS initialization failed: %s; refusing to erase saved data",
+             esp_err_to_name(err));
+    return;
   }
+  run_console();  // Intentionally runs forever on the already allocated main stack.
 }
