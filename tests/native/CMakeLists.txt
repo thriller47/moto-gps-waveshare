@@ -151,3 +151,10 @@ target_include_directories(signal_codec_clock_tests PRIVATE
   "${CMAKE_CURRENT_LIST_DIR}/../../platforms/esp32/main")
 target_compile_features(signal_codec_clock_tests PRIVATE cxx_std_17)
 add_test(NAME signal_codec_clock_tests COMMAND signal_codec_clock_tests)
+
+# Regression tests for fragmented USB Serial/JTAG input (no ESP-IDF deps).
+add_executable(signal_serial_line_tests signal_serial_line_tests.cpp)
+target_include_directories(signal_serial_line_tests PRIVATE
+  "${CMAKE_CURRENT_LIST_DIR}/../../platforms/esp32/main")
+target_compile_features(signal_serial_line_tests PRIVATE cxx_std_17)
+add_test(NAME signal_serial_line_tests COMMAND signal_serial_line_tests)
