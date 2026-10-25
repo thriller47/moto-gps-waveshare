@@ -73,16 +73,16 @@ target_compile_options(${COMPONENT_LIB} PRIVATE
     $<$<COMPILE_LANGUAGE:CXX>:-fno-rtti>
 )
 
-# Experimental SIGNAL firmware builds in RADIO-ONLY LAB mode by default:
-# no navigation/BLE/LVGL starts in this diagnostic image. This is temporary
-# and must be disabled for any road/navigation use.
+# Integrated GPS / radio boot: GPS starts on cold boot; the RADIO/GPS touch
+# buttons select the alternate isolated mode through software restart.
+# The radio-only lab boot is preserved as an explicit opt-in fallback.
 option(MOTO_SIGNAL_MODE_SWITCH "Enable isolated GPS/radio mode switching with controlled restart" ON)
 option(MOTO_SIGNAL_WIFI_LAB_BOOT "Boot into radio Wi-Fi lab console instead of GPS UI" OFF)
 if(MOTO_SIGNAL_MODE_SWITCH)
     target_compile_definitions(${COMPONENT_LIB} PRIVATE MOTO_SIGNAL_MODE_SWITCH=1 MOTO_SIGNAL_WIFI_LAB_BOOT=1 MOTO_SIGNAL_RADIO_TOUCH_UI=1)
 endif()
-# Opt-in while checking combined display + Wi-Fi heap on physical hardware.
-# OFF preserves the already-tested radio-only firmware.
+# Touch radio UI is enabled automatically when switching modes.
+# This option still applies to isolated radio-lab builds.
 option(MOTO_SIGNAL_RADIO_TOUCH_UI "Start radio touch UI in lab mode" OFF)
 if(MOTO_SIGNAL_RADIO_TOUCH_UI AND MOTO_SIGNAL_WIFI_LAB_BOOT AND NOT MOTO_SIGNAL_MODE_SWITCH)
     target_compile_definitions(${COMPONENT_LIB} PRIVATE MOTO_SIGNAL_RADIO_TOUCH_UI=1)
