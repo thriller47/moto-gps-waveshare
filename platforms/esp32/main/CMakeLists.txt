@@ -25,6 +25,7 @@ idf_component_register(
         "signal_audio_selftest.cpp"
         "signal_wifi.cpp"
         "signal_wifi_console.cpp"
+        "signal_radio_stream.cpp"
         "${MOTO_SHARED_BLE_PROTOCOL_SOURCE}"
         "${MOTO_SHARED_NAV_PRESENTER_SOURCE}"
         "${MOTO_SHARED_UI_FONT}"
@@ -41,6 +42,8 @@ idf_component_register(
         esp_driver_i2c
         esp_driver_i2s
         esp_codec_dev
+        esp_audio_codec
+        esp_http_client
         esp_wifi
         esp_event
         esp_netif
