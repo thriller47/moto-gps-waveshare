@@ -45,6 +45,7 @@ idf_component_register(
         esp_codec_dev
         esp_audio_codec
         esp_http_client
+        esp-tls
         esp_wifi
         esp_event
         esp_netif
