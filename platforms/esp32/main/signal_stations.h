@@ -1,4 +1,5 @@
 #pragma once
+#include <cstddef>
 
 namespace moto::signal {
 enum class StreamFormat { DirectMp3, Hls };
@@ -19,6 +20,22 @@ constexpr RadioStation kFirstStation{
     "http://stream-uk1.radioparadise.com/mp3-128",
     StreamFormat::DirectMp3,
 };
+
+
+// Direct MP3 presets. These URLs still need station-by-station device testing.
+constexpr RadioStation kMp3Stations[] = {
+    kFirstStation,
+    {"Radio Paradise - Mellow Mix", "https://radioparadise.com/player/info/mellow",
+     "http://stream.radioparadise.com/mellow-192", StreamFormat::DirectMp3},
+    {"Radio Paradise - Rock Mix", "https://radioparadise.com/player/info/rock",
+     "http://stream.radioparadise.com/rock-192", StreamFormat::DirectMp3},
+    {"Virgin Radio - Rock 70", "https://www.radio-italiane.it/virgin-radio-rock-70",
+     "http://icy.unitedradio.it/VirginRock70.mp3", StreamFormat::DirectMp3},
+    {"Virgin Radio - Rock Ballads",
+     "http://e.radio-italiane.it/embed/virgin-radio-rock-ballads-463721",
+     "http://icy.unitedradio.it/Virgin_06.mp3", StreamFormat::DirectMp3},
+};
+constexpr std::size_t kMp3StationCount = sizeof(kMp3Stations) / sizeof(kMp3Stations[0]);
 
 // User-requested Radio Capital Classic Rock is retained for a later HLS
 // milestone. This external playlist URL is not yet device-verified.
