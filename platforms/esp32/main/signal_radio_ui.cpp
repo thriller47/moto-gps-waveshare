@@ -18,7 +18,7 @@ constexpr uint32_t kGreen = 0x10B981;
 constexpr uint32_t kDark = 0x1C1C1E;
 constexpr uint32_t kRed = 0xEF4444;
 constexpr float kPi = 3.14159265359f;
-static_assert(kMp3StationCount == 14, "Radio dial requires exactly 14 stations");
+static_assert(kMp3StationCount == 12, "Radio dial requires exactly 12 stations");
 
 struct StationDisplay {
   const char* code;
@@ -26,14 +26,12 @@ struct StationDisplay {
   const char* subtitle;
   const char* genre;
 };
-constexpr StationDisplay kDetails[14] = {
+constexpr StationDisplay kDetails[12] = {
   {"RPM", "RADIO\nPARADISE", "Main Mix", "ECLECTIC / ROCK"},
   {"MELL", "RP\nMELLOW", "Mellow Mix", "SOFT ROCK"},
   {"VR70", "VIRGIN\nROCK 70", "Classic 70s", "CLASSIC ROCK"},
   {"VRBL", "VIRGIN\nBALLADS", "Rock Ballads", "ROCK BALLADS"},
-  {"VIRG", "VIRGIN\nRADIO", "Virgin Italia", "MAINSTREAM ROCK"},
   {"VHRD", "VIRGIN\nHARD ROCK", "Hard Rock", "HARD ROCK"},
-  {"MARI", "RADIO\nMARILU", "Born to Rock", "ITALIAN ROCK"},
   {"KEXP", "KEXP\n90.3 FM", "Seattle", "INDIE / ALT"},
   {"CARO", "RADIO\nCAROLINE", "Album Rock", "CLASSIC ROCK"},
   {"STAR", "STAR FM\nBERLIN", "Maximum Rock", "ROCK"},
@@ -43,7 +41,7 @@ constexpr StationDisplay kDetails[14] = {
   {"BUZZ", "181.FM\nBUZZ", "The Buzz", "ALT ROCK"}
 };
 RadioUiControl* control = nullptr;
-lv_obj_t* labels[14] = {};
+lv_obj_t* labels[12] = {};
 lv_obj_t* title_label = nullptr;
 lv_obj_t* subtitle_label = nullptr;
 lv_obj_t* genre_label = nullptr;
@@ -66,19 +64,19 @@ void polar(lv_obj_t* object, int radius, float degrees) {
       kCenter + static_cast<int>(radius * std::sin(rad)) - lv_obj_get_height(object) / 2);
 }
 void refresh_selection() {
-  for (int i = 0; i < 14; ++i) {
-    const int relative = (i - selected + 14) % 14;
-    polar(labels[i], kRadius, 270.0f + relative * (360.0f / 14.0f));
+  for (int i = 0; i < 12; ++i) {
+    const int relative = (i - selected + 12) % 12;
+    polar(labels[i], kRadius, 270.0f + relative * (360.0f / 12.0f));
     lv_obj_set_style_text_color(labels[i],
         lv_color_hex(relative == 0 ? kOrange : kMuted), 0);
   }
   lv_label_set_text(title_label, kDetails[selected].title);
   lv_label_set_text(subtitle_label, kDetails[selected].subtitle);
   lv_label_set_text(genre_label, kDetails[selected].genre);
-  lv_label_set_text_fmt(count_label, "%02d / 14", selected + 1);
+  lv_label_set_text_fmt(count_label, "%02d / 12", selected + 1);
 }
 void select(int index) {
-  selected = (index + 14) % 14;
+  selected = (index + 12) % 12;
   refresh_selection();
   if (playing) control->play_station.store(selected, std::memory_order_release);
 }
@@ -145,8 +143,8 @@ bool radio_ui_start(RadioUiControl& state) {
   lv_scale_set_mode(scale, LV_SCALE_MODE_ROUND_INNER);
   lv_scale_set_angle_range(scale, 360);
   lv_scale_set_rotation(scale, 270);
-  lv_scale_set_range(scale, 0, 56);
-  lv_scale_set_total_tick_count(scale, 57);
+  lv_scale_set_range(scale, 0, 48);
+  lv_scale_set_total_tick_count(scale, 49);
   lv_scale_set_major_tick_every(scale, 4);
   lv_scale_set_label_show(scale, false);
   lv_obj_set_style_length(scale, 5, LV_PART_ITEMS);
@@ -154,7 +152,7 @@ bool radio_ui_start(RadioUiControl& state) {
   lv_obj_set_style_length(scale, 13, LV_PART_INDICATOR);
   lv_obj_set_style_line_color(scale, lv_color_hex(kMuted), LV_PART_INDICATOR);
 
-  for (int i = 0; i < 14; ++i) {
+  for (int i = 0; i < 12; ++i) {
     labels[i] = lv_label_create(screen);
     lv_label_set_text(labels[i], kDetails[i].code);
   }
@@ -215,7 +213,7 @@ void radio_ui_status(const char* station, bool is_playing, int level) {
   if (!control || !board_port_lock(100)) return;
   // Station pointer points to the immutable shared preset table.
   if (station) {
-    for (int i = 0; i < 14; ++i) {
+    for (int i = 0; i < 12; ++i) {
       if (station == kMp3Stations[i].name) { selected = i; break; }
     }
     refresh_selection();
