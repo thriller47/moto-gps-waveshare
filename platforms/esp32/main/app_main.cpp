@@ -16,8 +16,8 @@
 #ifdef MOTO_SIGNAL_AUDIO_BOOT_TEST
 void signal_start_audio_selftest();
 #endif
-#ifdef MOTO_SIGNAL_WIFI_CONSOLE
-void signal_start_wifi_console();
+#ifdef MOTO_SIGNAL_WIFI_LAB_BOOT
+void signal_run_wifi_console();
 #endif
 
 #ifdef ESP_PLATFORM
@@ -117,6 +117,13 @@ void power_button_task(void*) {
 } // namespace
 
 extern "C" void app_main(void) {
+#ifdef MOTO_SIGNAL_WIFI_LAB_BOOT
+  // Isolated bench-test only. Wi-Fi and BLE share scarce internal RAM on
+  // ESP32-S3, while the full GPS/LVGL session leaves <2 KiB free.
+  // Avoid starting GPS/BLE/display at all in this temporary lab firmware.
+  signal_run_wifi_console();
+  return;
+#endif
   static_assert(MOTO_DISPLAY_WIDTH == MOTO_UI_CANVAS_WIDTH &&
                     MOTO_DISPLAY_HEIGHT == MOTO_UI_CANVAS_HEIGHT,
                 "The board and shared UI canvas must have one resolution");
@@ -240,10 +247,6 @@ extern "C" void app_main(void) {
   // Run only after the display/BSP has initialized the shared I2C bus.
   // A single quiet tone, then stop I2S and the amplifier. No Wi-Fi.
   signal_start_audio_selftest();
-#endif
-
-#ifdef MOTO_SIGNAL_WIFI_CONSOLE
-  signal_start_wifi_console();
 #endif
 
   ESP_LOGI(kTag,
