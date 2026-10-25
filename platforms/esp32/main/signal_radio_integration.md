@@ -246,3 +246,30 @@ If not, provide the complete boot errors and the `before LVGL worker`
 measurement. The adapter might fall back to internal heap or another
 internal-only allocation may be exhausted. **Do not conduct Wi-Fi tests until
 the navigation display boots reliably**. `NoOta` is unchanged.
+
+## Native USB Serial/JTAG CLI fix (October 2026)
+
+The device now boots with the LVGL PSRAM stack but the user reports that
+Arduino IDE Monitor `wifi` commands are ignored. This board's USB-C is native
+ESP32-S3 USB D-/D+ on GPIO19/20; UART0 GPIO43/44 is routed to the expansion
+header. Espressif documents that an interactive REPL over USB Serial/JTAG
+must select `CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y` as the **primary** console,
+not only as a secondary log output. The `signal` sdkconfig defaults now
+explicitly select native USB as primary. The CLI disables stdio buffering,
+acknowledges received command lengths (never echoing secrets), and logs
+internal heap status before task creation so a failed 4 KiB task allocation
+is distinguishable from a wrong serial port.
+
+Build `signal` anew, flash it, open Arduino Monitor using the native USB
+port at 115200 with **Newline**, and send `wifi status` first. Expect
+`signal_console: Experimental Wi-Fi console ready`, followed by
+`signal_console: Serial command received` and a status line.
+If the console-ready log is absent, inspect the task-creation/error logs
+and free heap diagnostic before entering passwords. Do not look for an
+ESP32-created access point: `SignalWifi` is STA-only and joins an existing
+2.4 GHz hotspot. On a Galaxy S24 FE, select the hotspot 2.4 GHz band and
+look for a connected device in the hotspot client list, not available Wi-Fi
+networks. Use throwaway hotspot credentials: CLI/NVS are not hardened.
+
+No Wi-Fi connection, credentials, streaming, or reproduction over network
+has yet been confirmed by the device.
