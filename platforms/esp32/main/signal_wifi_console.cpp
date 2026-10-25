@@ -39,10 +39,20 @@ void run_console() {
   ESP_LOGW(kTag, "Password input may be visible in terminal history/echo; use a disposable test network");
   while (true) {
     if (touch_ready) {
+      if (ui.wifi_request.exchange(0) > 0) {
+        if (!wifi.connected()) {
+          ESP_LOGI(kTag, "Touch Wi-Fi: connecting to saved network...");
+          const esp_err_t err = wifi.start_saved();
+          ESP_LOGI(kTag, "Touch Wi-Fi result: %s", esp_err_to_name(err));
+          moto::signal::radio_ui_status(nullptr, false, 20);
+        } else {
+          ESP_LOGI(kTag, "Wi-Fi already connected");
+        }
+      }
       const int next = ui.play_station.exchange(-1);
       if (next >= 0 && next < static_cast<int>(moto::signal::kMp3StationCount)) {
         if (!wifi.connected()) {
-          ESP_LOGW(kTag, "Connect Wi-Fi first using wifi test");
+          ESP_LOGW(kTag, "Connect Wi-Fi with touchscreen Wi-Fi or wifi test");
           moto::signal::radio_ui_status(nullptr, false, 20);
         } else {
           signal_radio_play_test(static_cast<std::size_t>(next), &ui);
