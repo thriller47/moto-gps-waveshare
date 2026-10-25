@@ -84,6 +84,7 @@ void radio_network_task(void* context) {
 esp_codec_dev_handle_t retained_speaker = nullptr;
 uint32_t retained_sample_rate = 0;
 uint8_t retained_channels = 0;
+bool audio_init_failed = false;
 
 esp_codec_dev_handle_t open_speaker(const esp_audio_simple_dec_info_t& info, int volume) {
   if (retained_speaker && retained_sample_rate == info.sample_rate &&
@@ -96,15 +97,17 @@ esp_codec_dev_handle_t open_speaker(const esp_audio_simple_dec_info_t& info, int
              static_cast<unsigned long>(info.sample_rate), info.channel);
     return retained_speaker;
   }
+  if (audio_init_failed) {
+    ESP_LOGE(kTag, "Audio initialization failed earlier; avoid retrying the BSP's partial I2S state");
+    return nullptr;
+  }
   if (retained_speaker) {
-    ESP_LOGW(kTag, "Audio format change: %lu Hz/%u ch -> %lu Hz/%u ch; reinitializing codec",
-             static_cast<unsigned long>(retained_sample_rate), retained_channels,
-             static_cast<unsigned long>(info.sample_rate), info.channel);
-    // Only close/reconfigure when the next station requires a new PCM format.
-    esp_codec_dev_close(retained_speaker);
-    retained_speaker = nullptr;
-    retained_sample_rate = 0;
-    retained_channels = 0;
+    // This BSP's bsp_audio_init() reuses its existing channels without changing
+    // their clock or slot layout. Closing only the codec does not reconfigure I2S.
+    ESP_LOGE(kTag, "Station uses %lu Hz/%u ch, but I2S is %lu Hz/%u ch; format switch not supported",
+             static_cast<unsigned long>(info.sample_rate), info.channel,
+             static_cast<unsigned long>(retained_sample_rate), retained_channels);
+    return nullptr;
   }
   if (info.bits_per_sample != 16 || (info.channel != 1 && info.channel != 2) ||
       (info.sample_rate != 44100 && info.sample_rate != 48000 &&
@@ -147,6 +150,7 @@ esp_codec_dev_handle_t open_speaker(const esp_audio_simple_dec_info_t& info, int
              static_cast<unsigned long>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
              static_cast<unsigned long>(heap_caps_get_free_size(MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL)),
              static_cast<unsigned long>(heap_caps_get_largest_free_block(MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL)));
+    audio_init_failed = true;  // Some BSP versions retain partial I2S handles on failure.
     return nullptr;
   }
   esp_codec_dev_handle_t speaker = bsp_audio_codec_speaker_init();
@@ -241,6 +245,21 @@ void signal_radio_play_test(std::size_t station_index, moto::signal::RadioUiCont
     const esp_err_t init = bsp_i2c_init();
     if (init != ESP_OK) {
       ESP_LOGE(kTag, "Waveshare I2C init failed: %s", esp_err_to_name(init));
+      return;
+    }
+  }
+
+  // Allocate the I2S DMA buffers before HTTP/TLS, MP3 decoder and streaming
+  // tasks consume or fragment scarce internal DMA-capable SRAM. All bundled
+  // stations are expected to provide 44.1 kHz stereo MP3; reject an unexpected
+  // PCM format rather than silently reusing channels at the wrong clock rate.
+  if (!retained_speaker) {
+    esp_audio_simple_dec_info_t initial_format{};
+    initial_format.sample_rate = 44100;
+    initial_format.channel = 2;
+    initial_format.bits_per_sample = 16;
+    if (!open_speaker(initial_format, kDefaultVolume)) {
+      ESP_LOGE(kTag, "Radio audio unavailable; skipping stream to avoid a BSP retry crash");
       return;
     }
   }
