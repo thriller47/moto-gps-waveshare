@@ -8,7 +8,6 @@ import kotlin.math.hypot
 internal object RoadContextWindow {
     fun around(points: List<GeoPointE6>, latitude: Double, longitude: Double, maximumPoints: Int): List<GeoPointE6> {
         if (points.size < 2 || maximumPoints < 2) return emptyList()
-        if (points.size <= maximumPoints) return points
 
         val xScale = 111_320.0 * cos(Math.toRadians(latitude))
         val yScale = 111_320.0
@@ -38,7 +37,7 @@ internal object RoadContextWindow {
         var left = nearest
         var right = nearest + 1
         var distance = 0.0
-        while (left > 0 && distance < 350.0) {
+        while (left > 0 && distance < 180.0) {
             distance += segmentLength(left - 1)
             left--
         }
