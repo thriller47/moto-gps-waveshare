@@ -137,7 +137,7 @@ void run_console() {
       }
     } else if (std::strcmp(command, "wifi help") == 0 ||
                std::strcmp(command, "wifi set") == 0) {
-      ESP_LOGI(kTag, "Commands: wifi status, wifi set SSID|PASSWORD, wifi test, radio list, radio play N, radio stop, radio volume 0..60 (during playback), wifi off");
+      ESP_LOGI(kTag, "Commands: wifi status, wifi set SSID|PASSWORD, wifi test, radio list, radio play N, radio stop, radio volume 0..100 (during playback), wifi off");
     } else {
       ESP_LOGW(kTag, "Unknown Wi-Fi command (length=%u). Send 'wifi help'",
                static_cast<unsigned>(std::strlen(command)));
