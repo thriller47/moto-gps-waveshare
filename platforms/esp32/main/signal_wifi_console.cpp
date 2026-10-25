@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <cstring>
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -63,6 +64,9 @@ void console_task(void*) {
 }  // namespace
 
 void signal_start_wifi_console() {
+  ESP_LOGI(kTag, "Creating serial Wi-Fi console: internal free=%u largest=%u",
+           static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+           static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)));
   if (xTaskCreate(console_task, "signal_wifi_cli", 4096, nullptr, 2,
                   nullptr) != pdPASS) {
     ESP_LOGE(kTag, "Could not start Wi-Fi console task");
