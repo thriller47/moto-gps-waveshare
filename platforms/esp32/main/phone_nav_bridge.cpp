@@ -313,9 +313,23 @@ bool PhoneNavBridge::start_renderer() {
       render_task, "moto_ui_render", 8'192, this, 2, &created);
 #endif
   if (created_ok != pdPASS) {
-    ESP_LOGE(kTag, "could not start coalescing UI renderer");
+    ESP_LOGE(kTag,
+             "could not start coalescing UI renderer: internal free=%lu largest=%lu; "
+             "PSRAM free=%lu largest=%lu; external task stacks=%d",
+             static_cast<unsigned long>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+             static_cast<unsigned long>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+             static_cast<unsigned long>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)),
+             static_cast<unsigned long>(heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)),
+             static_cast<int>(CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM));
     return false;
   }
+  ESP_LOGI(kTag, "UI renderer task created (%s stack)",
+#if CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM
+           "PSRAM"
+#else
+           "internal"
+#endif
+  );
   render_task_handle_.store(created, std::memory_order_release);
   // Also covers a render request submitted between task creation and handle
   // publication.
