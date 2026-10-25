@@ -1,15 +1,18 @@
 #include "signal_wifi.h"
 #include "signal_serial_line.h"
+#include "signal_stations.h"
 
 #include <cstdio>
 #include <cstring>
+#include <cstdlib>
+#include <cerrno>
 #include "esp_log.h"
 #include "esp_heap_caps.h"
 #include "nvs_flash.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-void signal_radio_play_test();
+void signal_radio_play_test(std::size_t station_index);
 
 namespace {
 constexpr char kTag[] = "signal_console";
@@ -61,11 +64,33 @@ void run_console() {
       ESP_LOGI(kTag, "Connecting to saved 2.4 GHz hotspot...");
       const esp_err_t err = wifi.start_saved();
       ESP_LOGI(kTag, "Wi-Fi connect result: %s", esp_err_to_name(err));
-    } else if (std::strcmp(command, "radio play") == 0) {
+    } else if (std::strcmp(command, "radio list") == 0) {
+      for (std::size_t i = 0; i < moto::signal::kMp3StationCount; ++i) {
+        ESP_LOGI(kTag, "%u: %s", static_cast<unsigned>(i + 1),
+                 moto::signal::kMp3Stations[i].name);
+      }
+    } else if (std::strcmp(command, "radio play") == 0 ||
+               std::strncmp(command, "radio play ", 11) == 0) {
+      std::size_t station = 0;
+      if (command[10] != '\0') {
+        const char* value = command + 11;
+        char* end = nullptr;
+        errno = 0;
+        const long index = std::strtol(value, &end, 10);
+        if (errno || value == end || *end != '\0' ||
+            index < 1 ||
+            index > static_cast<long>(moto::signal::kMp3StationCount)) {
+          ESP_LOGW(kTag, "Station must be 1..%u; use radio list",
+                   static_cast<unsigned>(moto::signal::kMp3StationCount));
+          input.clear();
+          continue;
+        }
+        station = static_cast<std::size_t>(index - 1);
+      }
       if (!wifi.connected()) {
         ESP_LOGW(kTag, "Connect first with wifi test");
       } else {
-        signal_radio_play_test();  // Continuous until radio stop or stream failure.
+        signal_radio_play_test(station);  // Until stop or stream failure.
       }
     } else if (std::strcmp(command, "radio stop") == 0) {
       ESP_LOGI(kTag, "Radio is not playing");
@@ -80,7 +105,7 @@ void run_console() {
       }
     } else if (std::strcmp(command, "wifi help") == 0 ||
                std::strcmp(command, "wifi set") == 0) {
-      ESP_LOGI(kTag, "Commands: wifi status, wifi set SSID|PASSWORD, wifi test, radio play, radio stop, radio volume 0..60 (during playback), wifi off");
+      ESP_LOGI(kTag, "Commands: wifi status, wifi set SSID|PASSWORD, wifi test, radio list, radio play N, radio stop, radio volume 0..60 (during playback), wifi off");
     } else {
       ESP_LOGW(kTag, "Unknown Wi-Fi command (length=%u). Send 'wifi help'",
                static_cast<unsigned>(std::strlen(command)));
