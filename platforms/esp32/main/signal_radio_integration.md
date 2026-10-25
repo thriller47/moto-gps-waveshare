@@ -273,3 +273,51 @@ networks. Use throwaway hotspot credentials: CLI/NVS are not hardened.
 
 No Wi-Fi connection, credentials, streaming, or reproduction over network
 has yet been confirmed by the device.
+
+## Radio-only Wi-Fi lab boot after definitive RAM diagnosis
+
+The user's full hardware boot log showed successful navigation UI startup but
+**only 1280 bytes of internal RAM free, largest contiguous block 1152 bytes**
+when starting the radio test tasks:
+
+```text
+moto_gps: Navigation UI ready
+signal_test: Could not start speaker test task
+signal_console: Creating serial Wi-Fi console: internal free=1280 largest=1152
+signal_console: Could not start Wi-Fi console task
+```
+
+This is why Arduino serial input appeared ignored: no Wi-Fi console task
+actually existed. It would also be unsafe to try `esp_wifi_init()` at that
+memory level. Additionally, the serial parser did not call `clearerr(stdin)`
+after the non-blocking USB Serial/JTAG read returned EOF, which could prevent
+subsequent input even with the task running.
+
+**Temporary strategy:** the default `signal` build now sets
+`MOTO_SIGNAL_WIFI_LAB_BOOT=ON` and starts `signal_run_wifi_console()`
+**directly in the existing ESP-IDF app_main task**, *before* BLE, LVGL,
+display buffers or demo tasks start. This deliberately disables the GPS UI
+in this temporary diagnostic firmware, keeping maximum internal RAM for
+Wi-Fi. No additional 4096-byte CLI task is created. The old speaker test
+is disabled for this build; the audible Waveshare BSP test has already passed.
+
+Boot logs should include:
+`signal_console: SIGNAL RADIO WI-FI LAB MODE: GPS UI and BLE are disabled for this boot`,
+`signal_console: Before Wi-Fi: internal free=... largest=... PSRAM free=...`,
+and `signal_console: Experimental Wi-Fi console ready`.
+
+At 115200 baud, Arduino IDE Monitor's USB-C native Serial/JTAG port and
+newline terminator, first send `wifi status` and expect
+`Serial command received (11 bytes)` and `Wi-Fi connected: no`.
+Then use an expendable 2.4 GHz hotspot:
+`wifi set TestSSID TemporaryPassword`, then `wifi test`, then
+`wifi status`, then `wifi off`.
+Do **not** paste the real hotspot password into public logs.
+The ESP32 is an STA client and will never appear as a hotspot itself.
+Look at the Samsung S24 FE **Connected devices** list in hotspot settings.
+
+The user must be told that this signal build temporarily does NOT navigate.
+To restore normal GPS startup on signal during future development, use
+`-DMOTO_SIGNAL_WIFI_LAB_BOOT=OFF`, or flash the untouched proven `NoOta`.
+There is no MP3 streaming in this firmware. Real Wi-Fi connection, BLE/Wi-Fi
+transition and in-navigation memory behavior are **not** validated yet.
