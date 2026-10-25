@@ -77,12 +77,17 @@ void enter_radio(lv_event_t*) {
 }
 void add_radio_entry() {
   lv_obj_t* btn = lv_button_create(lv_screen_active());
-  lv_obj_set_size(btn, 86, 42);
-  lv_obj_align(btn, LV_ALIGN_TOP_RIGHT, -24, 38);
+  lv_obj_set_size(btn, 50, 50);
+  // Right-hand three-o'clock position on the 466px circular display.
+  lv_obj_align(btn, LV_ALIGN_CENTER, 144, 0);
+  lv_obj_set_style_radius(btn, LV_RADIUS_CIRCLE, 0);
   lv_obj_set_style_bg_color(btn, lv_color_hex(0x1C1C1E), 0);
+  lv_obj_set_style_border_color(btn, lv_color_hex(0x8E8E93), 0);
+  lv_obj_set_style_border_width(btn, 1, 0);
+  lv_obj_set_style_shadow_width(btn, 0, 0);
   lv_obj_add_event_cb(btn, enter_radio, LV_EVENT_CLICKED, nullptr);
   lv_obj_t* txt = lv_label_create(btn);
-  lv_label_set_text(txt, "RADIO");
+  lv_label_set_text(txt, LV_SYMBOL_WIFI);
   lv_obj_center(txt);
 }
 void power_button_task(void*) {
