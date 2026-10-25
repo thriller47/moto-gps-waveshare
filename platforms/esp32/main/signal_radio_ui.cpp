@@ -61,7 +61,6 @@ bool radio_ui_start(RadioUiControl& state) {
   lv_obj_t* title = lv_label_create(screen);
   lv_label_set_text(title, "MOTO GPS  |  RADIO");
   lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 34);
-  lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
   station_label = lv_label_create(screen);
   lv_obj_set_width(station_label, 370);
   lv_label_set_long_mode(station_label, LV_LABEL_LONG_WRAP);
