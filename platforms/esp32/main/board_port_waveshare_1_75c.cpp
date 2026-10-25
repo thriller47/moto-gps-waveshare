@@ -236,7 +236,7 @@ esp_err_t initialize_hidden_panel(std::size_t maximum_transfer_size,
 
   esp_lcd_panel_io_spi_config_t io_config{};
   io_config.cs_gpio_num = static_cast<gpio_num_t>(BSP_LCD_CS);
-  io_config.dc_gpio_num = -1;
+  io_config.dc_gpio_num = GPIO_NUM_NC;
   io_config.spi_mode = 0;
   io_config.pclk_hz = 30 * 1'000 * 1'000;
   io_config.trans_queue_depth = CONFIG_BSP_LCD_TRANS_QUEUE_DEPTH;
