@@ -336,6 +336,7 @@ void signal_radio_play_test(std::size_t station_index, moto::signal::RadioUiCont
     ring.http = http;
     ring.parent = xTaskGetCurrentTaskHandle();
     TaskHandle_t producer = nullptr;
+    (void)ulTaskNotifyTake(pdTRUE, 0);  // discard stale radio completion
     if (xTaskCreate(radio_network_task, "radio_http", 6144, &ring, 4,
                     &producer) != pdPASS) {
       ESP_LOGE(kTag, "Radio HTTP task creation failed");
@@ -451,9 +452,10 @@ void signal_radio_play_test(std::size_t station_index, moto::signal::RadioUiCont
       if (decode_failed) break;
     }
     ring.cancel.store(true, std::memory_order_release);
-    // HTTP cleanup and PSRAM release must wait for the producer to exit.
-    while (!ring.finished.load(std::memory_order_acquire))
-      (void)ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(100));
+    // The producer sends its completion notification after its final ring
+    // access. Wait for that notification before freeing the ring or HTTP.
+    // It only calls vTaskDelete(nullptr) after notifying the parent.
+    (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
     ESP_LOGI(kTag, "Radio buffering: underruns=%lu slow=%lu max_ms=%lu",
              static_cast<unsigned long>(underruns),
              static_cast<unsigned long>(ring.slow),
