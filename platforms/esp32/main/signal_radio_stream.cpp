@@ -29,7 +29,7 @@ namespace {
 constexpr char kTag[] = "signal_stream";
 constexpr std::size_t kStopLineLength = 48;
 constexpr int kDefaultVolume = 20;
-constexpr int kMaxSafeVolume = 60;
+constexpr int kMaxSafeVolume = 100;
 // Larger TLS reads reduce network/decoder handoffs; one buffer in PSRAM.
 constexpr std::size_t kMp3Chunk = 4096;
 constexpr std::size_t kPcmBytes = 16384;
@@ -218,7 +218,7 @@ void signal_radio_play_test(std::size_t station_index, moto::signal::RadioUiCont
   }
   const auto& station = moto::signal::kMp3Stations[station_index];
   ESP_LOGI(kTag, "Tuning: %s", station.name);
-  ESP_LOGI(kTag, "MP3 stream (continuous). Send radio stop or radio volume 0..60 + Enter");
+  ESP_LOGI(kTag, "MP3 stream (continuous). Send radio stop or radio volume 0..100 + Enter");
   if (bsp_i2c_get_handle() == nullptr) {
     const esp_err_t init = bsp_i2c_init();
     if (init != ESP_OK) {
