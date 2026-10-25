@@ -172,7 +172,10 @@ void signal_radio_play_test(std::size_t station_index, moto::signal::RadioUiCont
   unsigned long long pcm_written = 0;
   moto::signal::SerialLine<kStopLineLength> stop_input;
   bool user_stopped = false;
-  int volume = kDefaultVolume;
+  // Retain the last volume across station changes and repeated play calls.
+  // Playback runs on the console task, so no extra synchronization is needed.
+  static int saved_volume = kDefaultVolume;
+  int volume = saved_volume;
   if (ui) {
     const int pending = ui->volume.exchange(-1);
     if (pending >= 0 && pending <= kMaxSafeVolume) volume = pending;
@@ -328,6 +331,7 @@ void signal_radio_play_test(std::size_t station_index, moto::signal::RadioUiCont
   if (mp3_registered) esp_audio_dec_unregister(ESP_AUDIO_TYPE_MP3);
   heap_caps_free(encoded);
   heap_caps_free(pcm);
+  saved_volume = volume;
   if (ui) moto::signal::radio_ui_status(station.name, false, volume);
   ESP_LOGI(kTag, "Radio playback %s: MP3 received=%llu bytes, PCM output=%llu bytes",
            user_stopped ? "stopped by user" : "ended", bytes_received, pcm_written);
