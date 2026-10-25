@@ -65,3 +65,7 @@ CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU=185
 # SIGNAL radio lab: keep the MP3 frame decoder enabled for Radio Paradise.
 # The simple MP3 parser alone is insufficient to decode audio frames.
 CONFIG_AUDIO_DECODER_MP3_SUPPORT=y
+
+# Verify HTTPS radio station TLS certificates using Espressif root CAs.
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
+CONFIG_MBEDTLS_DEFAULT_CERTIFICATE_BUNDLE=y
