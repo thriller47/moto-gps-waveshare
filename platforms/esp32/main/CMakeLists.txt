@@ -61,7 +61,9 @@ target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_17)
 target_compile_options(${COMPONENT_LIB} PRIVATE
     -Wall
     -Wextra
-    -Wpedantic
+    # ESP-IDF 6.1 uses GCC #include_next in esp_libc/assert.h.
+    # -Wpedantic flags that SDK header and becomes fatal with -Werror.
+    # Retain -Wall/-Wextra without enforcing pedantic on vendor headers.
     $<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions>
     $<$<COMPILE_LANGUAGE:CXX>:-fno-rtti>
 )
