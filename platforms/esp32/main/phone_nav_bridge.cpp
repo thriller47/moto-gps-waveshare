@@ -10,6 +10,8 @@
 #include "demo_fixture/jinan_big_data_demo.hpp"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "esp_heap_caps.h"
+#include "sdkconfig.h"
 #include "moto_nav_ui.h"
 
 namespace {
@@ -299,8 +301,18 @@ bool PhoneNavBridge::start_renderer() {
     return true;
   }
   TaskHandle_t created = nullptr;
-  if (xTaskCreate(render_task, "moto_ui_render", 8'192, this, 2,
-                  &created) != pdPASS) {
+  ESP_LOGI(kTag, "Before renderer: internal free=%lu largest=%lu",
+           static_cast<unsigned long>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+           static_cast<unsigned long>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)));
+#if CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM
+  const BaseType_t created_ok = xTaskCreateWithCaps(
+      render_task, "moto_ui_render", 8'192, this, 2, &created,
+      MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+#else
+  const BaseType_t created_ok = xTaskCreate(
+      render_task, "moto_ui_render", 8'192, this, 2, &created);
+#endif
+  if (created_ok != pdPASS) {
     ESP_LOGE(kTag, "could not start coalescing UI renderer");
     return false;
   }
