@@ -3,6 +3,10 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cerrno>
+#include <atomic>
+#include <algorithm>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #include "signal_serial_line.h"
 
@@ -29,6 +33,46 @@ constexpr int kMaxSafeVolume = 60;
 // Larger TLS reads reduce network/decoder handoffs; one buffer in PSRAM.
 constexpr std::size_t kMp3Chunk = 4096;
 constexpr std::size_t kPcmBytes = 16384;
+
+constexpr uint32_t kRingCapacity = 65536;
+constexpr uint32_t kPrebuffer = 16384;
+struct RadioRing {
+  uint8_t* memory = nullptr;
+  esp_http_client_handle_t http = nullptr;
+  TaskHandle_t parent = nullptr;
+  std::atomic<uint32_t> write{0}, read{0};
+  std::atomic<bool> cancel{false}, finished{false};
+  int result = 0;
+  uint32_t slow = 0, longest_ms = 0;
+};
+void radio_network_task(void* context) {
+  auto* q = static_cast<RadioRing*>(context);
+  while (!q->cancel.load(std::memory_order_acquire)) {
+    const uint32_t w = q->write.load(std::memory_order_relaxed);
+    const uint32_t r = q->read.load(std::memory_order_acquire);
+    const uint32_t free_bytes = kRingCapacity - (w - r);
+    if (free_bytes == 0) { vTaskDelay(pdMS_TO_TICKS(5)); continue; }
+    const uint32_t len = std::min<uint32_t>(
+        kMp3Chunk, std::min<uint32_t>(free_bytes, kRingCapacity - w % kRingCapacity));
+    const int64_t started = esp_timer_get_time();
+    const int count = esp_http_client_read(q->http,
+        reinterpret_cast<char*>(q->memory + w % kRingCapacity), len);
+    const uint32_t ms = (esp_timer_get_time() - started) / 1000;
+    if (ms > q->longest_ms) q->longest_ms = ms;
+    if (ms > 100) {
+      ++q->slow;
+      if (q->slow <= 5 || q->slow % 50 == 0)
+        ESP_LOGW(kTag, "Slow TLS read %lu ms, %d bytes",
+                 static_cast<unsigned long>(ms), count);
+    }
+    if (count <= 0) { q->result = count; break; }
+    q->write.store(w + count, std::memory_order_release);
+  }
+  q->finished.store(true, std::memory_order_release);
+  xTaskNotifyGive(q->parent);
+  vTaskDelete(nullptr);
+}
+
 
 // Keep the BSP-owned ES8311 session open across station switches. All calls
 // are serialized on the radio console task; there is no concurrent playback.
