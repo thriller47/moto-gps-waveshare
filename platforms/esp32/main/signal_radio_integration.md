@@ -321,3 +321,33 @@ To restore normal GPS startup on signal during future development, use
 `-DMOTO_SIGNAL_WIFI_LAB_BOOT=OFF`, or flash the untouched proven `NoOta`.
 There is no MP3 streaming in this firmware. Real Wi-Fi connection, BLE/Wi-Fi
 transition and in-navigation memory behavior are **not** validated yet.
+
+## Fix: only short USB commands recognized (25 October 2026)
+
+After the radio-only lab boot enabled the serial console, the user reported that
+`wifi status` was accepted but other commands were not. The old parser
+allocated `length` and the line buffer inside a read loop and dropped those
+partial bytes whenever non-blocking native USB `getchar()` returned `EOF`.
+Depending on USB delivery timing, short input could survive while longer input
+was silently discarded.
+
+`signal_serial_line.h` introduces a persistent, allocation-free line
+accumulator: it preserves partial bytes across temporary EOF, accepts CR/LF/
+CRLF, rejects an oversized line, and clears all bytes after execution to
+avoid retaining entered passwords. `signal_wifi_console.cpp` now prints a
+receipt length for every completed line, never the entered password.
+Regression tests are in `tests/native/signal_serial_line_tests.cpp`.
+
+The Galaxy S24 FE hotspot name may contain spaces. The preferred syntax is:
+`wifi set Galaxy S24 FE|temporary-password`
+(note the literal **|** separator). Alternatives:
+`wifi set "Galaxy S24 FE" temporary-password` or
+`wifi set SimpleSSID temporary-password`.
+Send `wifi help`, then `wifi status`, then the `wifi set` command, then
+`wifi test`. Inspect `signal_wifi: Radio Wi-Fi connected, IP ...` and the
+phone's hotspot **connected devices** listing. `wifi off` shuts down Wi-Fi.
+Always use a disposable test password and DO NOT share it in logs.
+
+Changes are committed but a fresh GitHub Actions ESP32 build and device test
+are still required. `NoOta` is unchanged, and `signal` remains a radio-only
+laboratory firmware (GPS/BLE are intentionally disabled).
