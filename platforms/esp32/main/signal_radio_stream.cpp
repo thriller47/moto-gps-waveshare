@@ -1,6 +1,8 @@
 #include <cstdint>
 #include <cstring>
 #include <cstdio>
+#include <cstdlib>
+#include <cerrno>
 
 #include "signal_serial_line.h"
 
@@ -20,10 +22,12 @@
 namespace {
 constexpr char kTag[] = "signal_stream";
 constexpr std::size_t kStopLineLength = 48;
+constexpr int kDefaultVolume = 20;
+constexpr int kMaxSafeVolume = 60;
 constexpr std::size_t kMp3Chunk = 1024;
 constexpr std::size_t kPcmBytes = 16384;
 
-esp_codec_dev_handle_t open_speaker(const esp_audio_simple_dec_info_t& info) {
+esp_codec_dev_handle_t open_speaker(const esp_audio_simple_dec_info_t& info, int volume) {
   if (info.bits_per_sample != 16 || (info.channel != 1 && info.channel != 2) ||
       (info.sample_rate != 44100 && info.sample_rate != 48000 &&
        info.sample_rate != 32000 && info.sample_rate != 22050)) {
@@ -68,13 +72,19 @@ esp_codec_dev_handle_t open_speaker(const esp_audio_simple_dec_info_t& info) {
     esp_codec_dev_delete(speaker);
     return nullptr;
   }
-  (void)esp_codec_dev_set_out_vol(speaker, 20);  // Conservative first test.
-  ESP_LOGI(kTag, "Speaker opened: %lu Hz, %u channels, 16-bit, 20%% volume",
-           static_cast<unsigned long>(info.sample_rate), info.channel);
+  if (esp_codec_dev_set_out_vol(speaker, volume) != ESP_CODEC_DEV_OK) {
+    ESP_LOGE(kTag, "Speaker volume configuration failed");
+    esp_codec_dev_close(speaker);
+    esp_codec_dev_delete(speaker);
+    return nullptr;
+  }
+  ESP_LOGI(kTag, "Speaker opened: %lu Hz, %u channels, 16-bit, %d%% volume",
+           static_cast<unsigned long>(info.sample_rate), info.channel, volume);
   return speaker;
 }
 
-bool stop_requested(moto::signal::SerialLine<kStopLineLength>& input) {
+bool stop_requested(moto::signal::SerialLine<kStopLineLength>& input,
+                    esp_codec_dev_handle_t speaker, int& volume) {
   // USB serial stdin returns EOF when no bytes are available.
   for (int i = 0; i < 64; ++i) {
     const int ch = std::getchar();
@@ -93,7 +103,26 @@ bool stop_requested(moto::signal::SerialLine<kStopLineLength>& input) {
     char* command = moto::signal::skip_spaces(input.data());
     moto::signal::trim_right(command);
     const bool stop = std::strcmp(command, "radio stop") == 0;
-    if (!stop) ESP_LOGW(kTag, "During playback only 'radio stop' is accepted");
+    if (!stop && std::strncmp(command, "radio volume ", 13) == 0) {
+      const char* value = command + 13;
+      char* end = nullptr;
+      errno = 0;
+      const long requested = std::strtol(value, &end, 10);
+      if (errno || value == end || *end != '\0' ||
+          requested < 0 || requested > kMaxSafeVolume) {
+        ESP_LOGW(kTag, "Volume must be 0..%d", kMaxSafeVolume);
+      } else if (speaker &&
+                 esp_codec_dev_set_out_vol(speaker, static_cast<int>(requested))
+                     != ESP_CODEC_DEV_OK) {
+        ESP_LOGE(kTag, "Volume update failed");
+      } else {
+        volume = static_cast<int>(requested);
+        ESP_LOGI(kTag, "Radio volume: %d%%", volume);
+      }
+    } else if (!stop) {
+      ESP_LOGW(kTag, "During playback: radio stop or radio volume 0..%d",
+               kMaxSafeVolume);
+    }
     input.clear();
     if (stop) return true;
   }
@@ -107,7 +136,7 @@ bool stop_requested(moto::signal::SerialLine<kStopLineLength>& input) {
 // MP3 is a continuous stream; plain HTTP is intentional for first test.
 // No credentials or sensitive information are sent in the stream request.
 void signal_radio_play_test() {
-  ESP_LOGI(kTag, "Radio Paradise Main Mix: MP3 128 kbps (continuous). Send radio stop + Enter to stop");
+  ESP_LOGI(kTag, "Radio Paradise Main Mix: MP3 128 kbps (continuous). Send radio stop or radio volume 0..60 + Enter");
   if (bsp_i2c_get_handle() == nullptr) {
     const esp_err_t init = bsp_i2c_init();
     if (init != ESP_OK) {
@@ -136,6 +165,7 @@ void signal_radio_play_test() {
   unsigned long long pcm_written = 0;
   moto::signal::SerialLine<kStopLineLength> stop_input;
   bool user_stopped = false;
+  int volume = kDefaultVolume;
 
   do {
     if (esp_audio_simple_dec_register_default() != ESP_AUDIO_ERR_OK) {
@@ -187,7 +217,7 @@ void signal_radio_play_test() {
 
     bool decode_failed = false;
     while (true) {
-      if (stop_requested(stop_input)) {
+      if (stop_requested(stop_input, speaker, volume)) {
         user_stopped = true;
         ESP_LOGI(kTag, "Radio stop requested");
         break;
@@ -237,7 +267,7 @@ void signal_radio_play_test() {
               decode_failed = true;
               break;
             }
-            speaker = open_speaker(info);
+            speaker = open_speaker(info, volume);
             if (!speaker) {
               decode_failed = true;
               break;
