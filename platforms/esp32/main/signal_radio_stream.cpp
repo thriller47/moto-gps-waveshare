@@ -417,9 +417,12 @@ void signal_radio_play_test(std::size_t station_index, moto::signal::RadioUiCont
         const esp_audio_err_t decode_result =
             esp_audio_simple_dec_process(decoder, &part, &out);
         if (decode_result != ESP_AUDIO_ERR_OK) {
-          ESP_LOGE(kTag, "MP3 decoder error: %d, requested PCM size=%lu",
+          ESP_LOGE(kTag, "MP3 decoder error: %d, requested PCM size=%lu; internal free=%lu largest=%lu PSRAM free=%lu",
                    static_cast<int>(decode_result),
-                   static_cast<unsigned long>(out.needed_size));
+                   static_cast<unsigned long>(out.needed_size),
+                   static_cast<unsigned long>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+                   static_cast<unsigned long>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+                   static_cast<unsigned long>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)));
           decode_failed = true;
           break;
         }
