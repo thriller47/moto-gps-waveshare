@@ -24,7 +24,7 @@ void run_console() {
   // Receive individual bytes promptly over the native USB Serial/JTAG VFS.
   std::setvbuf(stdin, nullptr, _IONBF, 0);
   moto::signal::SerialLine<kLineLength> input;
-  ESP_LOGI(kTag, "Experimental Wi-Fi console ready. Commands: wifi set, wifi test, wifi off, wifi status, radio play");
+  ESP_LOGI(kTag, "Experimental Wi-Fi console ready. Commands: wifi set, wifi test, wifi off, wifi status, radio play, radio stop");
   ESP_LOGW(kTag, "Password input may be visible in terminal history/echo; use a disposable test network");
   while (true) {
     const int ch = std::getchar();
@@ -80,7 +80,7 @@ void run_console() {
       }
     } else if (std::strcmp(command, "wifi help") == 0 ||
                std::strcmp(command, "wifi set") == 0) {
-      ESP_LOGI(kTag, "Commands: wifi status, wifi set SSID|PASSWORD, wifi test, radio play, radio stop (during playback), wifi off");
+      ESP_LOGI(kTag, "Commands: wifi status, wifi set SSID|PASSWORD, wifi test, radio play, radio stop, radio volume 0..60 (during playback), wifi off");
     } else {
       ESP_LOGW(kTag, "Unknown Wi-Fi command (length=%u). Send 'wifi help'",
                static_cast<unsigned>(std::strlen(command)));
