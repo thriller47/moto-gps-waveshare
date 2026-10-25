@@ -7,6 +7,7 @@
 #include <algorithm>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "sdkconfig.h"
 
 #include "signal_serial_line.h"
 
@@ -70,7 +71,11 @@ void radio_network_task(void* context) {
   }
   q->finished.store(true, std::memory_order_release);
   xTaskNotifyGive(q->parent);
+#if CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM
+  vTaskDeleteWithCaps(nullptr);
+#else
   vTaskDelete(nullptr);
+#endif
 }
 
 
@@ -340,8 +345,19 @@ void signal_radio_play_test(std::size_t station_index, moto::signal::RadioUiCont
     ring.parent = xTaskGetCurrentTaskHandle();
     TaskHandle_t producer = nullptr;
     (void)ulTaskNotifyTake(pdTRUE, 0);  // discard stale radio completion
-    if (xTaskCreate(radio_network_task, "radio_http", 6144, &ring, 4,
-                    &producer) != pdPASS) {
+    ESP_LOGI(kTag, "Before network task: internal free=%lu largest=%lu PSRAM free=%lu",
+             static_cast<unsigned long>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+             static_cast<unsigned long>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+             static_cast<unsigned long>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)));
+#if CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM
+    const BaseType_t created = xTaskCreateWithCaps(
+        radio_network_task, "radio_http", 6144, &ring, 4, &producer,
+        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+#else
+    const BaseType_t created = xTaskCreate(
+        radio_network_task, "radio_http", 6144, &ring, 4, &producer);
+#endif
+    if (created != pdPASS) {
       ESP_LOGE(kTag, "Radio HTTP task creation failed");
       heap_caps_free(ring.memory);
       break;
