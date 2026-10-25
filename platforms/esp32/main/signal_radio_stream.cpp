@@ -326,9 +326,25 @@ void signal_radio_play_test(std::size_t station_index, moto::signal::RadioUiCont
       break;
     }
 
+    RadioRing ring;
+    ring.memory = static_cast<uint8_t*>(heap_caps_malloc(
+        kRingCapacity, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!ring.memory) {
+      ESP_LOGE(kTag, "PSRAM radio ring allocation failed");
+      break;
+    }
+    ring.http = http;
+    ring.parent = xTaskGetCurrentTaskHandle();
+    TaskHandle_t producer = nullptr;
+    if (xTaskCreate(radio_network_task, "radio_http", 6144, &ring, 4,
+                    &producer) != pdPASS) {
+      ESP_LOGE(kTag, "Radio HTTP task creation failed");
+      heap_caps_free(ring.memory);
+      break;
+    }
     bool decode_failed = false;
-    std::uint32_t slow_reads = 0;
-    std::uint32_t max_read_ms = 0;
+    bool buffered = false;
+    uint32_t underruns = 0;
     while (true) {
       if (ui) {
         const int pending = ui->volume.exchange(-1);
@@ -352,28 +368,36 @@ void signal_radio_play_test(std::size_t station_index, moto::signal::RadioUiCont
         ESP_LOGI(kTag, "Radio stop requested");
         break;
       }
-      const int64_t read_start_us = esp_timer_get_time();
-      const int read_bytes = esp_http_client_read(
-          http, reinterpret_cast<char*>(encoded), kMp3Chunk);
-      const std::uint32_t elapsed_ms = static_cast<std::uint32_t>(
-          (esp_timer_get_time() - read_start_us) / 1000);
-      if (elapsed_ms > max_read_ms) max_read_ms = elapsed_ms;
-      if (elapsed_ms > 100) {
-        ++slow_reads;
-        if (slow_reads <= 5 || slow_reads % 50 == 0) {
-          ESP_LOGW(kTag, "Slow network read: %lu ms, %d bytes (count=%lu)",
-                   static_cast<unsigned long>(elapsed_ms), read_bytes,
-                   static_cast<unsigned long>(slow_reads));
+      const uint32_t read_pos = ring.read.load(std::memory_order_relaxed);
+      const uint32_t available =
+          ring.write.load(std::memory_order_acquire) - read_pos;
+      const bool finished = ring.finished.load(std::memory_order_acquire);
+      if (!buffered) {
+        if (available < kPrebuffer && !finished) {
+          vTaskDelay(pdMS_TO_TICKS(10));
+          continue;
         }
+        buffered = true;
+        ESP_LOGI(kTag, "Radio prebuffer: %lu bytes",
+                 static_cast<unsigned long>(available));
       }
-      if (read_bytes < 0) {
-        ESP_LOGE(kTag, "MP3 HTTP read error: %d", read_bytes);
-        break;
+      if (available == 0) {
+        if (finished) {
+          ESP_LOGW(kTag, "Radio network ended: %d", ring.result);
+          break;
+        }
+        ++underruns;
+        if (underruns <= 5 || underruns % 50 == 0)
+          ESP_LOGW(kTag, "MP3 buffer underrun: %lu",
+                   static_cast<unsigned long>(underruns));
+        vTaskDelay(pdMS_TO_TICKS(10));
+        continue;
       }
-      if (read_bytes == 0) {
-        ESP_LOGW(kTag, "MP3 stream ended or stalled");
-        break;
-      }
+      const uint32_t read_bytes = std::min<uint32_t>(
+          kMp3Chunk,
+          std::min<uint32_t>(available, kRingCapacity - read_pos % kRingCapacity));
+      std::memcpy(encoded, ring.memory + read_pos % kRingCapacity, read_bytes);
+      ring.read.store(read_pos + read_bytes, std::memory_order_release);
       bytes_received += static_cast<unsigned>(read_bytes);
       esp_audio_simple_dec_raw_t raw{};
       raw.buffer = encoded;
@@ -426,9 +450,15 @@ void signal_radio_play_test(std::size_t station_index, moto::signal::RadioUiCont
       }
       if (decode_failed) break;
     }
-    ESP_LOGI(kTag, "Network read diagnostic: slow_reads=%lu, max_read_ms=%lu",
-             static_cast<unsigned long>(slow_reads),
-             static_cast<unsigned long>(max_read_ms));
+    ring.cancel.store(true, std::memory_order_release);
+    // HTTP cleanup and PSRAM release must wait for the producer to exit.
+    while (!ring.finished.load(std::memory_order_acquire))
+      (void)ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(100));
+    ESP_LOGI(kTag, "Radio buffering: underruns=%lu slow=%lu max_ms=%lu",
+             static_cast<unsigned long>(underruns),
+             static_cast<unsigned long>(ring.slow),
+             static_cast<unsigned long>(ring.longest_ms));
+    heap_caps_free(ring.memory);
   } while (false);
 
   // Keep the codec open for the next station with the same sample format.
