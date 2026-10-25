@@ -351,3 +351,35 @@ Always use a disposable test password and DO NOT share it in logs.
 Changes are committed but a fresh GitHub Actions ESP32 build and device test
 are still required. `NoOta` is unchanged, and `signal` remains a radio-only
 laboratory firmware (GPS/BLE are intentionally disabled).
+
+## First end-to-end Radio Paradise MP3 test (experimental, not yet built)
+
+Added `espressif/esp_audio_codec` v2.6.2, the ESP-IDF HTTP client and
+`signal_radio_stream.cpp`. This tests a direct HTTP MP3 stream using the
+official Waveshare ES8311 speaker APIs already acoustically verified in the
+earlier three-note test. The decoder's actual MP3 sample rate and channel
+count are applied to the BSP I2S config. Decoder PCM and input buffers are
+allocated in PSRAM. Audio codec output volume defaults to 20%.
+
+In SIGNAL **radio-only lab mode**, use the Arduino serial monitor at 115200
+with Newline:
+1. `wifi status`
+2. If not connected: `wifi test` (credentials already saved in NVS)
+3. After `ESP_OK`: `radio play` (Radio Paradise Main Mix)
+4. The command plays at most 20 seconds, then returns to the console;
+   `wifi off` disconnects afterwards.
+
+The `radio play` command runs synchronously on the lab main task, so there
+is no interactive stop during this first 20-second test. The purpose is to
+validate network → MP3 parser/decoder → PCM → ESP codec dev → ES8311. The
+HTTP stream URL is cleartext and contains no personal credentials. The
+station's server may redirect or alter codec/sample rate; failures must be
+reported honestly from device logs.
+
+**Build, flash, actual audio and resource cleanup are NOT yet validated.**
+The build may expose differences in codec API/dependency packaging to be
+fixed after CI. Once audible playback is established, design an asynchronous
+worker that honors explicit stop and GPS preemption; do not run this bench
+firmware for navigation. The Waveshare BSP I2S singleton has no official
+deinit, and repeated play sessions require additional hardware testing.
+The normal navigation branch `NoOta` is untouched.
