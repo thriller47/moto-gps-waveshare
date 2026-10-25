@@ -26,6 +26,7 @@ idf_component_register(
         "signal_wifi.cpp"
         "signal_wifi_console.cpp"
         "signal_radio_stream.cpp"
+        "signal_radio_ui.cpp"
         "${MOTO_SHARED_BLE_PROTOCOL_SOURCE}"
         "${MOTO_SHARED_NAV_PRESENTER_SOURCE}"
         "${MOTO_SHARED_UI_FONT}"
@@ -75,6 +76,12 @@ target_compile_options(${COMPONENT_LIB} PRIVATE
 # no navigation/BLE/LVGL starts in this diagnostic image. This is temporary
 # and must be disabled for any road/navigation use.
 option(MOTO_SIGNAL_WIFI_LAB_BOOT "Boot into radio Wi-Fi lab console instead of GPS UI" ON)
+# Opt-in while checking combined display + Wi-Fi heap on physical hardware.
+# OFF preserves the already-tested radio-only firmware.
+option(MOTO_SIGNAL_RADIO_TOUCH_UI "Start radio touch UI in lab mode" OFF)
+if(MOTO_SIGNAL_RADIO_TOUCH_UI AND MOTO_SIGNAL_WIFI_LAB_BOOT)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE MOTO_SIGNAL_RADIO_TOUCH_UI=1)
+endif()
 if(MOTO_SIGNAL_WIFI_LAB_BOOT)
     target_compile_definitions(${COMPONENT_LIB} PRIVATE MOTO_SIGNAL_WIFI_LAB_BOOT=1)
 endif()
