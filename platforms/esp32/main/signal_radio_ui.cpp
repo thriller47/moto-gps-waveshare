@@ -6,6 +6,9 @@
 #include <cmath>
 #include <cstdint>
 
+#ifdef MOTO_SIGNAL_MODE_SWITCH
+extern "C" void signal_request_mode(int radio);
+#endif
 namespace moto::signal {
 namespace {
 constexpr int kSize = 466;
@@ -99,6 +102,9 @@ void change_volume(lv_event_t* event) {
   control->volume.store(volume, std::memory_order_release);
   lv_label_set_text_fmt(volume_label, "VOL %d%%", volume);
 }
+#ifdef MOTO_SIGNAL_MODE_SWITCH
+void back_to_navigation(lv_event_t*) { signal_request_mode(0); }
+#endif
 void wifi_connect(lv_event_t*) {
   // Real network operation occurs on console task, not inside LVGL callback.
   control->wifi_request.store(1, std::memory_order_release);
@@ -201,6 +207,17 @@ bool radio_ui_start(RadioUiControl& state) {
   circle_button(screen, "+", 50, 38, change_volume,
                 reinterpret_cast<void*>(static_cast<intptr_t>(5)));
   refresh_selection();
+#ifdef MOTO_SIGNAL_MODE_SWITCH
+  lv_obj_t* gps = lv_button_create(screen);
+  lv_obj_set_size(gps, 76, 35);
+  lv_obj_align(gps, LV_ALIGN_TOP_LEFT, 47, 80);
+  lv_obj_set_style_bg_color(gps, lv_color_hex(kDark), 0);
+  lv_obj_set_style_shadow_width(gps, 0, 0);
+  lv_obj_add_event_cb(gps, back_to_navigation, LV_EVENT_CLICKED, nullptr);
+  lv_obj_t* gps_text = lv_label_create(gps);
+  lv_label_set_text(gps_text, "GPS");
+  lv_obj_center(gps_text);
+#endif
 
   lv_refr_now(board_port_get_display());
   const esp_err_t shown = board_port_reveal_display();
