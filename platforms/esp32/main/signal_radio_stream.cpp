@@ -135,8 +135,14 @@ bool stop_requested(moto::signal::SerialLine<kStopLineLength>& input,
 // resource leaks on repeated play, or GPS/BLE activity in this lab build.
 // MP3 is a continuous stream; plain HTTP is intentional for first test.
 // No credentials or sensitive information are sent in the stream request.
-void signal_radio_play_test() {
-  ESP_LOGI(kTag, "Radio Paradise Main Mix: MP3 128 kbps (continuous). Send radio stop or radio volume 0..60 + Enter");
+void signal_radio_play_test(std::size_t station_index) {
+  if (station_index >= moto::signal::kMp3StationCount) {
+    ESP_LOGE(kTag, "Invalid station number");
+    return;
+  }
+  const auto& station = moto::signal::kMp3Stations[station_index];
+  ESP_LOGI(kTag, "Tuning: %s", station.name);
+  ESP_LOGI(kTag, "MP3 stream (continuous). Send radio stop or radio volume 0..60 + Enter");
   if (bsp_i2c_get_handle() == nullptr) {
     const esp_err_t init = bsp_i2c_init();
     if (init != ESP_OK) {
@@ -192,7 +198,7 @@ void signal_radio_play_test() {
     }
 
     esp_http_client_config_t config{};
-    config.url = moto::signal::kFirstStation.stream_url;
+    config.url = station.stream_url;
     config.timeout_ms = 3000;
     config.buffer_size = 2048;
     config.disable_auto_redirect = false;
