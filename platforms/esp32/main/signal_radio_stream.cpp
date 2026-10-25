@@ -72,13 +72,13 @@ esp_codec_dev_handle_t open_speaker(const esp_audio_simple_dec_info_t& info, int
   sample.bits_per_sample = info.bits_per_sample;
   if (esp_codec_dev_open(speaker, &sample) != ESP_CODEC_DEV_OK) {
     ESP_LOGE(kTag, "Speaker codec open failed");
-    esp_codec_dev_delete(speaker);
+    // BSP owns this cached device handle; never delete it here.
     return nullptr;
   }
   if (esp_codec_dev_set_out_vol(speaker, volume) != ESP_CODEC_DEV_OK) {
     ESP_LOGE(kTag, "Speaker volume configuration failed");
     esp_codec_dev_close(speaker);
-    esp_codec_dev_delete(speaker);
+    // BSP owns this cached device handle; never delete it here.
     return nullptr;
   }
   ESP_LOGI(kTag, "Speaker opened: %lu Hz, %u channels, 16-bit, %d%% volume",
@@ -362,8 +362,9 @@ void signal_radio_play_test(std::size_t station_index, moto::signal::RadioUiCont
   } while (false);
 
   if (speaker) {
+    // The Waveshare BSP caches speaker_codec_dev. Close the stream, but do
+    // not destroy the BSP-owned handle: it is reused on station changes.
     esp_codec_dev_close(speaker);
-    esp_codec_dev_delete(speaker);
   }
   if (http) {
     esp_http_client_close(http);
