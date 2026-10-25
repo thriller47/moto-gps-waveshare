@@ -359,6 +359,9 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     private var activeGatewayUrl: String = ""
     private var lastRecalculationTime: Long = 0
     private var offRouteFixCount = 0
+    private var offRouteFirstFixMs = 0L
+    private var lastOffRouteFixMs = 0L
+    private var lastGpsSpeedMs = 0f
     private var rerouteInProgress = false
 
     fun updateDeviceHeading(headingDeg: Float) {
@@ -380,6 +383,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         val now = System.currentTimeMillis()
         lastLocationTimeMs = now
 
+        lastGpsSpeedMs = speedMs
         val speedZero = speedMs < 0.8f
         if (speedZero) {
             currentSpeedDeciKph = 0
@@ -868,13 +872,28 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
             distanceFromRoute = minOf(distanceFromRoute,
                 distanceToSegmentMeters(latitude, longitude, points[i - 1], points[i]))
         }
-        offRouteFixCount = if (distanceFromRoute > 35.0) offRouteFixCount + 1 else 0
-        if (offRouteFixCount < 2) return
-
         val now = System.currentTimeMillis()
-        if (now - lastRecalculationTime < 4000L) return
+        // Nearby parallel roads and short GPS jumps must not trigger rerouting.
+        // Demand four consecutive, time-separated moving fixes at least 60 m
+        // from the actual route, sustained for >= 6 seconds.
+        if (distanceFromRoute <= 60.0 || lastGpsSpeedMs < 1.5f) {
+            offRouteFixCount = 0
+            offRouteFirstFixMs = 0L
+            return
+        }
+        if (now - lastOffRouteFixMs > 5_000L) {
+            offRouteFixCount = 0
+            offRouteFirstFixMs = 0L
+        }
+        if (offRouteFixCount == 0) offRouteFirstFixMs = now
+        offRouteFixCount++
+        lastOffRouteFixMs = now
+        if (offRouteFixCount < 4 || now - offRouteFirstFixMs < 6_000L) return
+
+        if (now - lastRecalculationTime < 15_000L) return
         lastRecalculationTime = now
         offRouteFixCount = 0
+        offRouteFirstFixMs = 0L
         rerouteInProgress = true
         viewModelScope.launch {
             try {
