@@ -6,6 +6,9 @@
 #include "esp_log.h"
 #include "esp_sleep.h"
 #include "esp_timer.h"
+#include "esp_attr.h"
+#include "esp_system.h"
+#include "lvgl.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "moto_nav_presenter.hpp"
@@ -26,6 +29,17 @@ void signal_run_wifi_console();
 #else
 #define MOTO_PSRAM_BSS
 #endif
+
+// RTC survives software restart but is cleared by a cold power cycle.
+// 0 = navigation (safe default), 1 = radio.
+RTC_NOINIT_ATTR static uint32_t signal_boot_magic;
+RTC_NOINIT_ATTR static uint32_t signal_boot_choice;
+constexpr uint32_t kSignalBootMagic = 0x5349474e;
+extern "C" void signal_request_mode(int radio) {
+  signal_boot_choice = radio ? 1u : 0u;
+  signal_boot_magic = kSignalBootMagic;
+  esp_restart();
+}
 
 namespace {
 constexpr char kTag[] = "moto_gps";
@@ -58,6 +72,19 @@ void demo_tick_task(void* context) {
   }
 }
 
+void enter_radio(lv_event_t*) {
+  signal_request_mode(1);
+}
+void add_radio_entry() {
+  lv_obj_t* btn = lv_button_create(lv_screen_active());
+  lv_obj_set_size(btn, 86, 42);
+  lv_obj_align(btn, LV_ALIGN_TOP_RIGHT, -24, 38);
+  lv_obj_set_style_bg_color(btn, lv_color_hex(0x1C1C1E), 0);
+  lv_obj_add_event_cb(btn, enter_radio, LV_EVENT_CLICKED, nullptr);
+  lv_obj_t* txt = lv_label_create(btn);
+  lv_label_set_text(txt, "RADIO");
+  lv_obj_center(txt);
+}
 void power_button_task(void*) {
   std::uint64_t pressed_since_ms = 0;
   // The AXP2101 needs roughly a one-second press to power the board on, so
@@ -117,7 +144,19 @@ void power_button_task(void*) {
 } // namespace
 
 extern "C" void app_main(void) {
-#ifdef MOTO_SIGNAL_WIFI_LAB_BOOT
+#ifdef MOTO_SIGNAL_MODE_SWITCH
+  const bool radio_requested =
+      esp_reset_reason() == ESP_RST_SW &&
+      signal_boot_magic == kSignalBootMagic && signal_boot_choice == 1u;
+  // Consume immediately to avoid a stale radio selection on later resets.
+  signal_boot_magic = 0;
+  signal_boot_choice = 0;
+  if (radio_requested) {
+    ESP_LOGI(kTag, "Starting radio after controlled mode switch");
+    signal_run_wifi_console();
+    return;
+  }
+#elif defined(MOTO_SIGNAL_WIFI_LAB_BOOT)
   // Isolated bench-test only. Wi-Fi and BLE share scarce internal RAM on
   // ESP32-S3, while the full GPS/LVGL session leaves <2 KiB free.
   // Avoid starting GPS/BLE/display at all in this temporary lab firmware.
@@ -218,6 +257,9 @@ extern "C" void app_main(void) {
 
   ESP_LOGI(kTag, "Begin navigation UI");
   moto_nav_ui_create();
+#ifdef MOTO_SIGNAL_MODE_SWITCH
+  add_radio_entry();
+#endif
   ESP_LOGI(kTag, "Navigation UI ready");
   // NavSnapshot contains the complete bounded roads/buildings window and is
   // several kilobytes. A temporary here inflates app_main's stack frame for
