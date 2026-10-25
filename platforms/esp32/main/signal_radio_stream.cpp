@@ -30,7 +30,30 @@ constexpr int kMaxSafeVolume = 60;
 constexpr std::size_t kMp3Chunk = 4096;
 constexpr std::size_t kPcmBytes = 16384;
 
+// Keep the BSP-owned ES8311 session open across station switches. All calls
+// are serialized on the radio console task; there is no concurrent playback.
+esp_codec_dev_handle_t retained_speaker = nullptr;
+uint32_t retained_sample_rate = 0;
+uint8_t retained_channels = 0;
+
 esp_codec_dev_handle_t open_speaker(const esp_audio_simple_dec_info_t& info, int volume) {
+  if (retained_speaker && retained_sample_rate == info.sample_rate &&
+      retained_channels == info.channel) {
+    if (esp_codec_dev_set_out_vol(retained_speaker, volume) != ESP_CODEC_DEV_OK) {
+      ESP_LOGE(kTag, "Reused speaker volume configuration failed");
+      return nullptr;
+    }
+    ESP_LOGI(kTag, "Reusing open ES8311 / I2S: %lu Hz, %u channels",
+             static_cast<unsigned long>(info.sample_rate), info.channel);
+    return retained_speaker;
+  }
+  if (retained_speaker) {
+    // Only close/reconfigure when the next station requires a new PCM format.
+    esp_codec_dev_close(retained_speaker);
+    retained_speaker = nullptr;
+    retained_sample_rate = 0;
+    retained_channels = 0;
+  }
   if (info.bits_per_sample != 16 || (info.channel != 1 && info.channel != 2) ||
       (info.sample_rate != 44100 && info.sample_rate != 48000 &&
        info.sample_rate != 32000 && info.sample_rate != 22050)) {
@@ -81,6 +104,9 @@ esp_codec_dev_handle_t open_speaker(const esp_audio_simple_dec_info_t& info, int
     // BSP owns this cached device handle; never delete it here.
     return nullptr;
   }
+  retained_speaker = speaker;
+  retained_sample_rate = info.sample_rate;
+  retained_channels = info.channel;
   ESP_LOGI(kTag, "Speaker opened: %lu Hz, %u channels, 16-bit, %d%% volume",
            static_cast<unsigned long>(info.sample_rate), info.channel, volume);
   return speaker;
@@ -361,11 +387,8 @@ void signal_radio_play_test(std::size_t station_index, moto::signal::RadioUiCont
              static_cast<unsigned long>(max_read_ms));
   } while (false);
 
-  if (speaker) {
-    // The Waveshare BSP caches speaker_codec_dev. Close the stream, but do
-    // not destroy the BSP-owned handle: it is reused on station changes.
-    esp_codec_dev_close(speaker);
-  }
+  // Keep the codec open for the next station with the same sample format.
+  // The next call to open_speaker() reconfigures it only when necessary.
   if (http) {
     esp_http_client_close(http);
     esp_http_client_cleanup(http);
