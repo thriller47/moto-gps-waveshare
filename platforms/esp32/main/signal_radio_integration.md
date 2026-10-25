@@ -383,3 +383,23 @@ worker that honors explicit stop and GPS preemption; do not run this bench
 firmware for navigation. The Waveshare BSP I2S singleton has no official
 deinit, and repeated play sessions require additional hardware testing.
 The normal navigation branch `NoOta` is untouched.
+
+## MP3 decoder registration fix (25 October 2026)
+
+The device confirmed `wifi test` successful, but `radio play` failed
+immediately with `AUDIO_DEC: Decoder MP3 ... not registered` and
+`AUD_SDEC: Fail to open decoder MP3 ret -7`. Consequently no HTTP bytes
+had been received and no PCM was produced.
+
+`esp_audio_simple_dec_register_default()` registered the simple-parser layer,
+but the frame decoder itself was not registered under the resolved component
+configuration. `signal_radio_stream.cpp` now explicitly calls
+`esp_mp3_dec_register()` before `esp_audio_simple_dec_open()`, checks
+the registration result, and unregisters the MP3 decoder after closing the
+simple decoder. No change to the already verified Wi-Fi credentials or
+Waveshare BSP speaker path.
+
+A fresh `signal` ESP32 build and device test are required. Expected:
+`MP3 frame decoder explicitly registered` then an HTTP status log.
+Do not claim audible streaming until `PCM output>0` and the hardware
+speaker test succeed. `NoOta` remains untouched.
