@@ -61,3 +61,7 @@ CONFIG_BT_NIMBLE_GATT_CLIENT=y
 CONFIG_BT_NIMBLE_SECURITY_ENABLE=n
 CONFIG_BT_NIMBLE_NVS_PERSIST=n
 CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU=185
+
+# SIGNAL radio lab: keep the MP3 frame decoder enabled for Radio Paradise.
+# The simple MP3 parser alone is insufficient to decode audio frames.
+CONFIG_AUDIO_DECODER_MP3_SUPPORT=y
