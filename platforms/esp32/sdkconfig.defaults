@@ -41,7 +41,10 @@ CONFIG_LOG_DEFAULT_LEVEL_INFO=y
 # Creating the complete four-page LVGL instrument UI calls deeply into LVGL
 # after the vendor BSP has initialized the display. The ESP-IDF default 3584
 # byte app_main stack overflows during that one-time startup on real hardware.
-CONFIG_ESP_MAIN_TASK_STACK_SIZE=16384
+# In SIGNAL lab mode the same main task also parses/decodes streaming MP3.
+# Espressif recommends ~20 KiB decoder stack; use 32 KiB for the bounded
+# lab test (this config is signal-only; NoOta stays at its stable settings).
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=32768
 
 # NimBLE is the phone transport. Bluetooth Classic is intentionally disabled
 # on ESP32-S3 and not required by the navigation link.
