@@ -24,7 +24,7 @@ void run_console() {
   // Receive individual bytes promptly over the native USB Serial/JTAG VFS.
   std::setvbuf(stdin, nullptr, _IONBF, 0);
   moto::signal::SerialLine<kLineLength> input;
-  ESP_LOGI(kTag, "Experimental Wi-Fi console ready. Commands: wifi set, wifi test, wifi off, wifi status");
+  ESP_LOGI(kTag, "Experimental Wi-Fi console ready. Commands: wifi set, wifi test, wifi off, wifi status, radio play");
   ESP_LOGW(kTag, "Password input may be visible in terminal history/echo; use a disposable test network");
   while (true) {
     const int ch = std::getchar();
@@ -65,8 +65,10 @@ void run_console() {
       if (!wifi.connected()) {
         ESP_LOGW(kTag, "Connect first with wifi test");
       } else {
-        signal_radio_play_test();  // Up to 20 seconds; returns to CLI.
+        signal_radio_play_test();  // Continuous until radio stop or stream failure.
       }
+    } else if (std::strcmp(command, "radio stop") == 0) {
+      ESP_LOGI(kTag, "Radio is not playing");
     } else if (std::strncmp(command, "wifi set ", 9) == 0) {
       char* ssid = nullptr;
       char* password = nullptr;
@@ -78,7 +80,7 @@ void run_console() {
       }
     } else if (std::strcmp(command, "wifi help") == 0 ||
                std::strcmp(command, "wifi set") == 0) {
-      ESP_LOGI(kTag, "Commands: wifi status, wifi set SSID|PASSWORD, wifi test, radio play, wifi off");
+      ESP_LOGI(kTag, "Commands: wifi status, wifi set SSID|PASSWORD, wifi test, radio play, radio stop (during playback), wifi off");
     } else {
       ESP_LOGW(kTag, "Unknown Wi-Fi command (length=%u). Send 'wifi help'",
                static_cast<unsigned>(std::strlen(command)));
