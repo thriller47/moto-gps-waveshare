@@ -69,3 +69,7 @@ CONFIG_AUDIO_DECODER_MP3_SUPPORT=y
 # Verify HTTPS radio station TLS certificates using Espressif root CAs.
 CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
 CONFIG_MBEDTLS_DEFAULT_CERTIFICATE_BUNDLE=y
+
+# Isolate the radio HTTP/TLS task's 6 KiB stack in PSRAM. This avoids
+# consuming internal heap needed when the MP3 decoder initializes lazily.
+CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM=y
