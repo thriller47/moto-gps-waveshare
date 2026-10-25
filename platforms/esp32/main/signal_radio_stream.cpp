@@ -138,7 +138,15 @@ esp_codec_dev_handle_t open_speaker(const esp_audio_simple_dec_info_t& info, int
            static_cast<unsigned long>(heap_caps_get_largest_free_block(MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL)));
   const esp_err_t err = bsp_audio_init(&cfg);
   if (err != ESP_OK) {
-    ESP_LOGE(kTag, "BSP I2S init failed: %s", esp_err_to_name(err));
+    ESP_LOGE(kTag,
+             "BSP I2S init failed: %s at %lu Hz/%u ch; "
+             "after failure internal free=%lu largest=%lu; DMA free=%lu largest=%lu",
+             esp_err_to_name(err),
+             static_cast<unsigned long>(info.sample_rate), info.channel,
+             static_cast<unsigned long>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+             static_cast<unsigned long>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+             static_cast<unsigned long>(heap_caps_get_free_size(MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL)),
+             static_cast<unsigned long>(heap_caps_get_largest_free_block(MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL)));
     return nullptr;
   }
   esp_codec_dev_handle_t speaker = bsp_audio_codec_speaker_init();
