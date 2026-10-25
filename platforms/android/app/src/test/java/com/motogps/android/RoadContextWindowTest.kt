@@ -29,6 +29,15 @@ class RoadContextWindowTest {
     }
 
     @Test
+    fun shortWindowIsAppliedEvenWhenWholeWayFitsPointBudget() {
+        val road = (0..100).map { GeoPointE6(45_000_000 + it * 90, 8_000_000) }
+        val result = RoadContextWindow.around(road, 45.0045, 8.0, 128)
+        assertTrue(result.size < road.size)
+        assertTrue(result.first().latitudeE6 > 45_001_000)
+        assertTrue(result.last().latitudeE6 < 45_008_000)
+    }
+
+    @Test
     fun tinyRoadIsPreserved() {
         val points = listOf(GeoPointE6(45_000_000, 8_000_000), GeoPointE6(45_000_050, 8_000_000))
         assertEquals(points, RoadContextWindow.around(points, 45.0, 8.0, 12))
