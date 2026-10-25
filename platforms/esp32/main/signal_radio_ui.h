@@ -13,4 +13,5 @@ struct RadioUiControl {
 };
 bool radio_ui_start(RadioUiControl& control);
 void radio_ui_status(const char* station, bool playing, int volume);
+void radio_ui_wifi_status(bool connected);
 }  // namespace moto::signal
