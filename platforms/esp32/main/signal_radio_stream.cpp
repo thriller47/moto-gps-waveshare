@@ -26,7 +26,8 @@ constexpr char kTag[] = "signal_stream";
 constexpr std::size_t kStopLineLength = 48;
 constexpr int kDefaultVolume = 20;
 constexpr int kMaxSafeVolume = 60;
-constexpr std::size_t kMp3Chunk = 1024;
+// Larger TLS reads reduce network/decoder handoffs; one buffer in PSRAM.
+constexpr std::size_t kMp3Chunk = 4096;
 constexpr std::size_t kPcmBytes = 16384;
 
 esp_codec_dev_handle_t open_speaker(const esp_audio_simple_dec_info_t& info, int volume) {
@@ -211,7 +212,8 @@ void signal_radio_play_test(std::size_t station_index, moto::signal::RadioUiCont
     esp_http_client_config_t config{};
     config.url = station.stream_url;
     config.timeout_ms = 3000;
-    config.buffer_size = 2048;
+    config.buffer_size = 4096;
+    config.buffer_size_tx = 1024;
     config.disable_auto_redirect = false;
     // Validate HTTPS stream servers and HTTPS redirect targets using the
     // Espressif root-CA bundle; never disable TLS certificate checks.
@@ -255,6 +257,8 @@ void signal_radio_play_test(std::size_t station_index, moto::signal::RadioUiCont
     }
 
     bool decode_failed = false;
+    std::uint32_t slow_reads = 0;
+    std::uint32_t max_read_ms = 0;
     while (true) {
       if (ui) {
         const int pending = ui->volume.exchange(-1);
@@ -278,8 +282,20 @@ void signal_radio_play_test(std::size_t station_index, moto::signal::RadioUiCont
         ESP_LOGI(kTag, "Radio stop requested");
         break;
       }
+      const int64_t read_start_us = esp_timer_get_time();
       const int read_bytes = esp_http_client_read(
           http, reinterpret_cast<char*>(encoded), kMp3Chunk);
+      const std::uint32_t elapsed_ms = static_cast<std::uint32_t>(
+          (esp_timer_get_time() - read_start_us) / 1000);
+      if (elapsed_ms > max_read_ms) max_read_ms = elapsed_ms;
+      if (elapsed_ms > 100) {
+        ++slow_reads;
+        if (slow_reads <= 5 || slow_reads % 50 == 0) {
+          ESP_LOGW(kTag, "Slow network read: %lu ms, %d bytes (count=%lu)",
+                   static_cast<unsigned long>(elapsed_ms), read_bytes,
+                   static_cast<unsigned long>(slow_reads));
+        }
+      }
       if (read_bytes < 0) {
         ESP_LOGE(kTag, "MP3 HTTP read error: %d", read_bytes);
         break;
@@ -340,6 +356,9 @@ void signal_radio_play_test(std::size_t station_index, moto::signal::RadioUiCont
       }
       if (decode_failed) break;
     }
+    ESP_LOGI(kTag, "Network read diagnostic: slow_reads=%lu, max_read_ms=%lu",
+             static_cast<unsigned long>(slow_reads),
+             static_cast<unsigned long>(max_read_ms));
   } while (false);
 
   if (speaker) {
