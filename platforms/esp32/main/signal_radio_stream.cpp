@@ -7,6 +7,7 @@
 #include "signal_serial_line.h"
 
 #include "signal_stations.h"
+#include "signal_radio_ui.h"
 #include "bsp/esp-bsp.h"
 #include "driver/i2s_std.h"
 #include "esp_audio_simple_dec.h"
@@ -135,7 +136,7 @@ bool stop_requested(moto::signal::SerialLine<kStopLineLength>& input,
 // resource leaks on repeated play, or GPS/BLE activity in this lab build.
 // MP3 is a continuous stream; plain HTTP is intentional for first test.
 // No credentials or sensitive information are sent in the stream request.
-void signal_radio_play_test(std::size_t station_index) {
+void signal_radio_play_test(std::size_t station_index, moto::signal::RadioUiControl* ui) {
   if (station_index >= moto::signal::kMp3StationCount) {
     ESP_LOGE(kTag, "Invalid station number");
     return;
@@ -172,6 +173,12 @@ void signal_radio_play_test(std::size_t station_index) {
   moto::signal::SerialLine<kStopLineLength> stop_input;
   bool user_stopped = false;
   int volume = kDefaultVolume;
+  if (ui) {
+    const int pending = ui->volume.exchange(-1);
+    if (pending >= 0 && pending <= kMaxSafeVolume) volume = pending;
+    ui->stop.store(false);
+    moto::signal::radio_ui_status(station.name, true, volume);
+  }
 
   do {
     if (esp_audio_simple_dec_register_default() != ESP_AUDIO_ERR_OK) {
@@ -223,6 +230,22 @@ void signal_radio_play_test(std::size_t station_index) {
 
     bool decode_failed = false;
     while (true) {
+      if (ui) {
+        const int pending = ui->volume.exchange(-1);
+        if (pending >= 0 && pending <= kMaxSafeVolume) {
+          if (!speaker || esp_codec_dev_set_out_vol(speaker, pending) ==
+                                  ESP_CODEC_DEV_OK) {
+            volume = pending;
+            moto::signal::radio_ui_status(nullptr, true, volume);
+          }
+        }
+        if (ui->stop.exchange(false) ||
+            ui->play_station.load(std::memory_order_acquire) >= 0) {
+          user_stopped = true;
+          ESP_LOGI(kTag, "Radio touch stop / station switch requested");
+          break;
+        }
+      }
       if (stop_requested(stop_input, speaker, volume)) {
         user_stopped = true;
         ESP_LOGI(kTag, "Radio stop requested");
@@ -305,6 +328,7 @@ void signal_radio_play_test(std::size_t station_index) {
   if (mp3_registered) esp_audio_dec_unregister(ESP_AUDIO_TYPE_MP3);
   heap_caps_free(encoded);
   heap_caps_free(pcm);
+  if (ui) moto::signal::radio_ui_status(station.name, false, volume);
   ESP_LOGI(kTag, "Radio playback %s: MP3 received=%llu bytes, PCM output=%llu bytes",
            user_stopped ? "stopped by user" : "ended", bytes_received, pcm_written);
 }
