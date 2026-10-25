@@ -92,6 +92,9 @@ esp_codec_dev_handle_t open_speaker(const esp_audio_simple_dec_info_t& info, int
     return retained_speaker;
   }
   if (retained_speaker) {
+    ESP_LOGW(kTag, "Audio format change: %lu Hz/%u ch -> %lu Hz/%u ch; reinitializing codec",
+             static_cast<unsigned long>(retained_sample_rate), retained_channels,
+             static_cast<unsigned long>(info.sample_rate), info.channel);
     // Only close/reconfigure when the next station requires a new PCM format.
     esp_codec_dev_close(retained_speaker);
     retained_speaker = nullptr;
