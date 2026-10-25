@@ -1,6 +1,7 @@
 #include "signal_wifi.h"
 #include "signal_serial_line.h"
 #include "signal_stations.h"
+#include "signal_radio_ui.h"
 
 #include <cstdio>
 #include <cstring>
@@ -12,7 +13,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-void signal_radio_play_test(std::size_t station_index);
+void signal_radio_play_test(std::size_t station_index, moto::signal::RadioUiControl* ui);
 
 namespace {
 constexpr char kTag[] = "signal_console";
@@ -24,12 +25,30 @@ constexpr std::size_t kLineLength = 160;
 // Never print credentials in firmware logs.
 void run_console() {
   SignalWifi wifi;
+  moto::signal::RadioUiControl ui;
+#ifdef MOTO_SIGNAL_RADIO_TOUCH_UI
+  const bool touch_ready = moto::signal::radio_ui_start(ui);
+  ESP_LOGI(kTag, "Radio touch UI: %s", touch_ready ? "ready" : "unavailable");
+#else
+  const bool touch_ready = false;
+#endif
   // Receive individual bytes promptly over the native USB Serial/JTAG VFS.
   std::setvbuf(stdin, nullptr, _IONBF, 0);
   moto::signal::SerialLine<kLineLength> input;
   ESP_LOGI(kTag, "Experimental Wi-Fi console ready. Commands: wifi set, wifi test, wifi off, wifi status, radio play, radio stop");
   ESP_LOGW(kTag, "Password input may be visible in terminal history/echo; use a disposable test network");
   while (true) {
+    if (touch_ready) {
+      const int next = ui.play_station.exchange(-1);
+      if (next >= 0 && next < static_cast<int>(moto::signal::kMp3StationCount)) {
+        if (!wifi.connected()) {
+          ESP_LOGW(kTag, "Connect Wi-Fi first using wifi test");
+          moto::signal::radio_ui_status(nullptr, false, 20);
+        } else {
+          signal_radio_play_test(static_cast<std::size_t>(next), &ui);
+        }
+      }
+    }
     const int ch = std::getchar();
     if (ch == EOF) {
       // Empty native USB read: DO NOT discard previously received bytes.
@@ -90,7 +109,7 @@ void run_console() {
       if (!wifi.connected()) {
         ESP_LOGW(kTag, "Connect first with wifi test");
       } else {
-        signal_radio_play_test(station);  // Until stop or stream failure.
+        signal_radio_play_test(station, touch_ready ? &ui : nullptr);
       }
     } else if (std::strcmp(command, "radio stop") == 0) {
       ESP_LOGI(kTag, "Radio is not playing");
