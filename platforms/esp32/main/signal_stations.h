@@ -33,11 +33,9 @@ constexpr RadioStation kMp3Stations[] = {
      "http://e.radio-italiane.it/embed/virgin-radio-rock-ballads-463721",
      "http://icy.unitedradio.it/Virgin_06.mp3", StreamFormat::DirectMp3},
     {"Virgin Radio Hard Rock", "", "http://icy.unitedradio.it/VirginHardRock.mp3", StreamFormat::DirectMp3},
-    {"KEXP 90.3 FM Seattle", "", "https://kexp-mp3-128.streamguys1.com/kexp128.mp3", StreamFormat::DirectMp3},
     {"Radio Caroline UK", "", "http://sc6.radiocaroline.net:8040/stream.mp3", StreamFormat::DirectMp3},
     {"STAR FM Berlin", "", "https://stream.starfm.de/berlin/mp3-192/", StreamFormat::DirectMp3},
     {"SomaFM Indie Pop Rocks!", "", "http://ice1.somafm.com/indiepop-128-mp3", StreamFormat::DirectMp3},
-    {"SomaFM Underground 80s", "", "http://ice1.somafm.com/u80s-256-mp3", StreamFormat::DirectMp3},
     {"181.fm The Eagle", "", "https://listen.181fm.com/181-eagle_128k.mp3", StreamFormat::DirectMp3},
     {"181.fm The Buzz", "", "https://listen.181fm.com/181-buzz_128k.mp3", StreamFormat::DirectMp3},
 };
