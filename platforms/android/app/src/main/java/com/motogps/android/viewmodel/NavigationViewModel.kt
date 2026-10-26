@@ -1,6 +1,8 @@
 package com.motogps.android.viewmodel
 
 import android.content.Context
+import android.location.Location
+import android.os.SystemClock
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -13,6 +15,7 @@ import com.motogps.android.jni.MotoBLENavigationSnapshot
 import com.motogps.android.jni.MotoBLERouteGeometry
 import com.motogps.android.map.HybridMapRepository
 import com.motogps.android.map.SavedMapInfo
+import com.motogps.android.location.LocationFixFilter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -118,6 +121,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     private var activeStepIndex: Int = 0
     private var lastSpeedLimitKph = 0
 
+    private val locationFixFilter = LocationFixFilter()
     private var lastLocationTimeMs: Long = 0L
     private var lastMapSceneSendTimeMs: Long = 0L
     private var lastMapSceneLat: Double = 0.0
@@ -370,12 +374,42 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         currentHeadingCentiDeg = (normalized * 100f).toInt().coerceIn(0, 35999)
     }
 
-    fun updateDeviceLocation(
+    /**
+     * Sole entry point for GPS/network provider updates. A rejected fix must
+     * not move the rider, request OSM tiles or trigger an off-route recalculation.
+     * Keeping the previous accepted origin also preserves the ESP32 route
+     * window when Android reports a one-off network location kilometres away.
+     */
+    fun updateDeviceLocation(location: Location, context: Context? = null) {
+        val fix = LocationFixFilter.Fix(
+            latitude = location.latitude,
+            longitude = location.longitude,
+            elapsedRealtimeMs = location.elapsedRealtimeNanos / 1_000_000L,
+            accuracyMeters = if (location.hasAccuracy()) location.accuracy else Float.POSITIVE_INFINITY,
+            provider = location.provider.orEmpty(),
+            speedMetersPerSecond = if (location.hasSpeed()) location.speed else 0f
+        )
+        val decision = locationFixFilter.evaluate(fix, SystemClock.elapsedRealtime())
+        if (!decision.accepted) {
+            Log.w("NavigationVM", "Location rejected: ${decision.reason} provider=${fix.provider} " +
+                "accuracy=${fix.accuracyMeters.toInt()}m jump=${decision.distanceMeters.toInt()}m")
+            return
+        }
+        updateAcceptedDeviceLocation(
+            latitude = location.latitude,
+            longitude = location.longitude,
+            speedMs = fix.speedMetersPerSecond,
+            gpsBearingDeg = if (location.hasBearing()) location.bearing else null,
+            context = context
+        )
+    }
+
+    private fun updateAcceptedDeviceLocation(
         latitude: Double,
         longitude: Double,
-        speedMs: Float = 0f,
-        gpsBearingDeg: Float? = null,
-        context: Context? = null
+        speedMs: Float,
+        gpsBearingDeg: Float?,
+        context: Context?
     ) {
         if (context != null) navigationMapsContext = context.applicationContext
         hasFirstFix = true
