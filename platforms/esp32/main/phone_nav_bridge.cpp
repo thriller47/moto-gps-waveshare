@@ -391,9 +391,10 @@ void PhoneNavBridge::on_link_state(bool active) {
       media_state_.track_title = "In Attesa...";
     }
   }
-  const std::uint32_t flags = static_cast<std::uint32_t>(RenderNavigation) |
-      (active ? 0U : static_cast<std::uint32_t>(RenderMedia));
-  request_render(flags);
+  // Disconnect only needs to update the navigation lifecycle. The legacy
+  // music page is no longer created in SIGNAL; scheduling its media redraw
+  // used to dereference missing LVGL labels and trigger task WDT on CPU0.
+  request_render(RenderNavigation);
 }
 
 void PhoneNavBridge::on_imu_sample(float heading_rate_dps,
