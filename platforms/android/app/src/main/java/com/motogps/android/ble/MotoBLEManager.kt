@@ -40,7 +40,7 @@ class MotoBLEManager(private val context: Context) {
     var onConnectionError: ((String) -> Unit)? = null
     var onDeviceCommandReceived: ((MotoBLEDeviceCommand) -> Unit)? = null
 
-    private var bluetoothGatt: BluetoothGatt? = null
+    @Volatile private var bluetoothGatt: BluetoothGatt? = null
     private var connectedDevice: BluetoothDevice? = null
     private var writeCharacteristic: BluetoothGattCharacteristic? = null
     private var readCharacteristic: BluetoothGattCharacteristic? = null
@@ -58,7 +58,7 @@ class MotoBLEManager(private val context: Context) {
         COMPLETED
     }
 
-    private var handshakeState = HandshakeState.IDLE
+    @Volatile private var handshakeState = HandshakeState.IDLE
     private var currentSessionId: Long = 0L
 
     private var isScanning = false
@@ -93,6 +93,7 @@ class MotoBLEManager(private val context: Context) {
     fun getCurrentSessionId(): Long = currentSessionId
 
     fun sendNavigationSnapshot(snapshot: MotoBLENavigationSnapshot) {
+        if (bluetoothGatt == null || handshakeState != HandshakeState.COMPLETED) return
         if (codecPtr != 0L) {
             val frames = bleCodec.nativeEncodeNavigationSnapshot(codecPtr, snapshot)
             enqueueSendSnapshotFramesTask(frames)
@@ -120,6 +121,7 @@ class MotoBLEManager(private val context: Context) {
     }
 
     fun sendRouteGeometry(geometry: MotoBLERouteGeometry) {
+        if (bluetoothGatt == null || handshakeState != HandshakeState.COMPLETED) return
         if (codecPtr != 0L) {
             val frames = bleCodec.nativeEncodeRouteGeometry(codecPtr, geometry)
             enqueueLatestFramesTask(frames, MotoBLEProtocolCodec.MSG_ROUTE_GEOMETRY)
@@ -127,6 +129,7 @@ class MotoBLEManager(private val context: Context) {
     }
 
     fun sendMapScene(scene: MotoBLEMapScene) {
+        if (bluetoothGatt == null || handshakeState != HandshakeState.COMPLETED) return
         if (codecPtr != 0L) {
             val frames = bleCodec.nativeEncodeMapScene(codecPtr, scene)
             enqueueLatestFramesTask(frames, MotoBLEProtocolCodec.MSG_MAP_SCENE)
@@ -211,7 +214,12 @@ class MotoBLEManager(private val context: Context) {
             if (frame != null && activeMessageSequence == null) activeMessageSequence = sequenceOf(frame)
         }
         val gatt = bluetoothGatt ?: run {
-            synchronized(writeQueue) { activeWriteFrame = null; activeMessageSequence = null; writeInProgress = false }
+            synchronized(writeQueue) {
+                writeQueue.clear()
+                activeWriteFrame = null
+                activeMessageSequence = null
+                writeInProgress = false
+            }
             return
         }
         val characteristic = writeCharacteristic ?: run {
@@ -289,6 +297,7 @@ class MotoBLEManager(private val context: Context) {
         }
 
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
+            if (bluetoothGatt !== gatt) return
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 val service = gatt.getService(serviceUuid)
                 if (service != null) {
@@ -310,6 +319,7 @@ class MotoBLEManager(private val context: Context) {
         }
 
         override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
+            if (bluetoothGatt !== gatt) return
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 if (codecPtr != 0L) {
                     bleCodec.nativeSetMaximumFrameSize(codecPtr, (mtu - 3).coerceIn(20, 182))
@@ -324,6 +334,7 @@ class MotoBLEManager(private val context: Context) {
         }
 
         override fun onDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
+            if (bluetoothGatt !== gatt) return
             if (descriptor.uuid == cccdUuid) {
                 mainHandler.removeCallbacks(cccdTimeoutRunnable)
                 if (status == BluetoothGatt.GATT_SUCCESS) {
@@ -339,6 +350,7 @@ class MotoBLEManager(private val context: Context) {
         }
 
         override fun onCharacteristicWrite(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) {
+            if (bluetoothGatt !== gatt) return
             synchronized(writeQueue) {
                 val failed = activeWriteFrame
                 activeWriteFrame = null
@@ -362,12 +374,14 @@ class MotoBLEManager(private val context: Context) {
 
         @Deprecated("Deprecated in API 33")
         override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
+            if (bluetoothGatt !== gatt) return
             @Suppress("DEPRECATION")
             val data = characteristic.value ?: return
             handleInboundFrame(data)
         }
 
         override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, value: ByteArray) {
+            if (bluetoothGatt !== gatt) return
             handleInboundFrame(value)
         }
     }
