@@ -915,7 +915,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         viewModelScope.launch {
             try {
                 val (snapshot, geometry) = withContext(Dispatchers.IO) {
-                    performRoutingWithGeometry(dest, activeGatewayUrl)
+                    performRoutingWithGeometry(dest, activeGatewayUrl, isReroute = true)
                 }
                 currentSnapshot = snapshot
                 currentGeometry = geometry
@@ -1036,7 +1036,9 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         }
     }
 
-    private fun performRoutingWithGeometry(place: PlaceSearchResult, gatewayBaseUrl: String): Pair<MotoBLENavigationSnapshot, MotoBLERouteGeometry?> {
+    private fun performRoutingWithGeometry(
+        place: PlaceSearchResult, gatewayBaseUrl: String, isReroute: Boolean = false
+    ): Pair<MotoBLENavigationSnapshot, MotoBLERouteGeometry?> {
         val baseUrl = if (gatewayBaseUrl.endsWith("/")) gatewayBaseUrl else "$gatewayBaseUrl/"
         val endpoint = "${baseUrl}v1/routes"
 
@@ -1069,7 +1071,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                 put("latitude_deg", place.latitude)
             }
             put("destination", destObj)
-            put("is_reroute", false)
+            put("is_reroute", isReroute)
         }
 
         connection.outputStream.use { os ->
