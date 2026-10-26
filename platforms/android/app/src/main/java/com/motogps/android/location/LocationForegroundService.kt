@@ -47,6 +47,9 @@ class LocationForegroundService : Service(), LocationListener {
     @SuppressLint("MissingPermission")
     private fun startLocationUpdates() {
         try {
+            // A START_STICKY service may receive onStartCommand repeatedly.
+            // Keep only one pair of system listeners for each active service.
+            locationManager.removeUpdates(this)
             val lastGps = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
             val lastNet = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
 
