@@ -408,13 +408,11 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
 
         if (context != null) {
             val distFromLastScene = calculateDistanceMeters(lastMapSceneLat, lastMapSceneLon, latitude, longitude)
-            // Moving GPS fixes used to enqueue full map scenes every 12 m,
-            // saturating GATT and delaying route geometry while downloading
-            // new map tiles. Limit to one every 8s, and normally only after
-            // 100m movement (or 25s stationary refresh).
+            // Refresh context before junctions become imminent, while still
+            // throttling BLE scenes (the former 12m cadence congested GATT).
             val sinceSceneMs = now - lastMapSceneSendTimeMs
-            if (sinceSceneMs >= 8_000L &&
-                (distFromLastScene >= 100.0 || sinceSceneMs >= 25_000L)) {
+            if (sinceSceneMs >= 6_000L &&
+                (distFromLastScene >= 60.0 || sinceSceneMs >= 25_000L)) {
                 lastMapSceneSendTimeMs = now
                 lastMapSceneLat = latitude
                 lastMapSceneLon = longitude
@@ -487,13 +485,32 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
 
                     // Prefer actual nearby OSM roads and never exceed the ESP32's
                     // aggregate 192-point / 24-polyline scene capacities.
-                    val candidates = segments.asSequence()
-                        .filter { it.roadClass in 0..3 && it.points.size >= 2 }
-                        .sortedBy { seg ->
-                            seg.points.minOf { pt ->
-                                calculateDistanceMeters(lat, lon, pt.latitudeE6 / 1e6, pt.longitudeE6 / 1e6)
-                            }
+                    val roadSegments = segments.filter { it.roadClass in 0..3 && it.points.size >= 2 }
+                    fun roadDistance(seg: com.motogps.android.map.MapRoadSegment, centerLat: Double, centerLon: Double) =
+                        seg.points.minOf { pt ->
+                            calculateDistanceMeters(centerLat, centerLon,
+                                pt.latitudeE6 / 1e6, pt.longitudeE6 / 1e6)
                         }
+                    val nearest = roadSegments.sortedBy { roadDistance(it, lat, lon) }
+                    // Reserve some of the 12 BLE street slots for intersections
+                    // ahead on the selected route. Otherwise the 12 nearest
+                    // residential roads behind the rider hide roundabout exits
+                    // until the last few metres.
+                    val upcoming = currentGeometry?.let { geometry ->
+                        val window = RouteGeometryWindow.around(geometry, lat, lon)
+                        window.points.drop(1).firstOrNull { point ->
+                            calculateDistanceMeters(lat, lon,
+                                point.latitudeE6 / 1e6, point.longitudeE6 / 1e6) >= 160.0
+                        } ?: window.points.lastOrNull()
+                    }
+                    val orderedRoads = LinkedHashSet<com.motogps.android.map.MapRoadSegment>()
+                    nearest.take(6).forEach { orderedRoads.add(it) }
+                    if (upcoming != null) {
+                        roadSegments.sortedBy { roadDistance(it, upcoming.latitudeE6 / 1e6, upcoming.longitudeE6 / 1e6) }
+                            .take(6).forEach { orderedRoads.add(it) }
+                    }
+                    nearest.forEach { orderedRoads.add(it) }
+                    val candidates = orderedRoads.asSequence()
                     // Gradual increase after successful 8/64 field test.
                     // Stay well below the firmware ceiling of 24/192 to
                     // avoid BLE congestion from large fragmented scenes.
