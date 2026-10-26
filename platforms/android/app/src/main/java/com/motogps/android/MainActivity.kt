@@ -80,6 +80,19 @@ class MainActivity : ComponentActivity(), LocationListener, SensorEventListener 
             magnetometerSensor = sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)
         }
 
+        bleManager = MotoBLEManager(this).apply {
+            onConnectionStateChange = { state ->
+                viewModel.setConnectionState(state)
+            }
+            onConnectionError = { errorMsg ->
+                runOnUiThread {
+                    Toast.makeText(this@MainActivity, errorMsg, Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+
+        // BLE must exist before the foreground GPS service can initialize the
+        // ViewModel through its first location callback on an already-running app.
         val callback: (Location) -> Unit = { location ->
             runOnUiThread {
                 if (!isFinishing && !isDestroyed) {
@@ -97,16 +110,6 @@ class MainActivity : ComponentActivity(), LocationListener, SensorEventListener 
         foregroundLocationCallback = callback
         LocationForegroundService.onLocationUpdate = callback
 
-        bleManager = MotoBLEManager(this).apply {
-            onConnectionStateChange = { state ->
-                viewModel.setConnectionState(state)
-            }
-            onConnectionError = { errorMsg ->
-                runOnUiThread {
-                    Toast.makeText(this@MainActivity, errorMsg, Toast.LENGTH_LONG).show()
-                }
-            }
-        }
 
         // Double-tap Back button to exit
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
