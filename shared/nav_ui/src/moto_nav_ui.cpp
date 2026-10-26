@@ -2070,6 +2070,14 @@ extern "C" void moto_nav_ui_set_page_change_callback(
 
 extern "C" void moto_nav_ui_set_music_state(const moto_music_state_t *state) {
     if(state == nullptr || ui.screen == nullptr) return;
+    // SIGNAL only creates the navigation page. A BLE media update (including
+    // the disconnect reset) must not pass null, uncreated LVGL labels to
+    // lv_label_set_text(): doing so stalls moto_ui_render until task WDT fires.
+    if(ui.music_source == nullptr || ui.music_title == nullptr ||
+       ui.music_artist == nullptr || ui.music_disc == nullptr ||
+       ui.music_button_labels[1] == nullptr ||
+       ui.music_button_labels[3] == nullptr ||
+       ui.music_buttons[3] == nullptr) return;
     ui.music = *state;
     copy_text(ui.music_source_text, sizeof(ui.music_source_text),
               state->source_name, "PHONE MEDIA");
