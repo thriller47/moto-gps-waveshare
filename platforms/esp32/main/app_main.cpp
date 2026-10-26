@@ -283,6 +283,15 @@ extern "C" void app_main(void) {
     return;
   }
 
+  // The NimBLE host/PHY must start before the panel to avoid interrupting
+  // display DMA during initialization. However, the GATT peripheral must NOT
+  // become connectable until LVGL objects and moto_ui_render exist: a phone
+  // already scanning during cold boot otherwise streams navigation/map frames
+  // while the UI is still being constructed.
+  if (ble_result == ESP_OK) {
+    transport.enable_advertising();
+  }
+
   // Demo generation fills the retained snapshot in place, but geometry and
   // LVGL projection still use deeper C++ call frames than a trivial task.
   if (xTaskCreate(demo_tick_task, "moto_demo", 6'144, &phone_bridge, 2,
