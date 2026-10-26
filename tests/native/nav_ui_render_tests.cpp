@@ -231,6 +231,24 @@ void test_phone_lifecycle_renders_deterministically() {
   moto_nav_ui_set_phone_connection(MOTO_UI_PHONE_OFFLINE); CHECK(capture().hash == offline.hash);
 }
 
+void test_removed_music_page_ignores_disconnect_media_state() {
+  // SIGNAL only constructs the navigation page. The disconnection path used
+  // to call lv_label_set_text on absent music labels from moto_ui_render.
+  moto_nav_ui_set_page(MOTO_UI_PAGE_NAVIGATION);
+  moto_nav_ui_set_phone_connection(MOTO_UI_PHONE_OFFLINE);
+  moto_nav_ui_set_music_page_enabled(0);
+  const Frame before = capture();
+
+  moto_music_state_t stale_media{};
+  stale_media.source_name = "Android";
+  stale_media.track_title = "In Attesa...";
+  stale_media.artist_name = "";
+  moto_nav_ui_set_music_state(&stale_media);
+  const Frame after = capture();
+  CHECK(after.hash == before.hash);
+  CHECK(moto_nav_ui_get_page() == MOTO_UI_PAGE_NAVIGATION);
+}
+
 void test_demo_mode_visual_contract() {
   // Demo mode suppresses the full-screen connection lifecycle and labels the
   // status line "DEMO RIDE"; toggling it must be perfectly reversible.
@@ -399,6 +417,7 @@ int main(int argc, char **argv) {
   test_frames_are_deterministic();
   test_clearing_geometry_leaves_no_residue();
   test_phone_lifecycle_renders_deterministically();
+  test_removed_music_page_ignores_disconnect_media_state();
   test_demo_mode_visual_contract();
   test_capacity_payloads_render_stably();
   test_motion_frames_interpolate_then_settle_without_residue();
