@@ -677,7 +677,6 @@ void PhoneNavBridge::consume_navigation(
     phone_snapshot.remaining_distance_m = input.remaining_distance_m;
     phone_snapshot.remaining_duration_s = input.remaining_duration_s;
     phone_snapshot.traffic_ahead = map_traffic(input.traffic);
-    phone_snapshot.route_generation = input.route_generation;
     phone_snapshot.now_ms = monotonic_ms();
     phone_snapshot.last_fix_ms =
         phone_snapshot.has_usable_fix ? phone_snapshot.now_ms : 0;
@@ -685,7 +684,11 @@ void PhoneNavBridge::consume_navigation(
     char route_id[20]{};
     std::snprintf(route_id, sizeof(route_id), "ble-%08lx",
                   static_cast<unsigned long>(input.route_token));
+    const bool same_route_as_previous =
+        phone_snapshot.route_id == route_id &&
+        phone_snapshot.route_generation == input.route_generation;
     phone_snapshot.route_id = route_id;
+    phone_snapshot.route_generation = input.route_generation;
 
     // The built-in demo predates MapScene and still uses its matching,
     // attributed OSM fixture. Once a live MapScene revision has arrived,
@@ -717,12 +720,20 @@ void PhoneNavBridge::consume_navigation(
     const bool was_showing_route = phone_snapshot.has_route_view;
     const bool expects_geometry = has_flag(
         input.flags, moto::ble::NavigationHasRouteView);
-    if (!expects_geometry || !geometry_.complete ||
-        geometry_.route_token != input.route_token ||
-        geometry_.route_generation != input.route_generation) {
+    if (!expects_geometry) {
+      phone_snapshot.has_route_view = false;
+    } else if (geometry_.complete &&
+               geometry_.route_token == input.route_token &&
+               geometry_.route_generation == input.route_generation) {
+      apply_geometry_locked(phone_snapshot);
+    } else if (!same_route_as_previous || !was_showing_route) {
+      // A genuinely new route must wait for its matching geometry.
       phone_snapshot.has_route_view = false;
     } else {
-      apply_geometry_locked(phone_snapshot);
+      // Periodic BLE geometry updates replace the staging buffer chunk by
+      // chunk. Keep displaying the last fully committed route while the new
+      // fragments are in flight; otherwise 350 ms snapshots blank the map.
+      ESP_LOGD(kTag, "retaining last matching route during BLE geometry refresh");
     }
     if (!was_showing_route && phone_snapshot.has_route_view) {
       ESP_LOGI(kTag, "route geometry visible: points=%u",
