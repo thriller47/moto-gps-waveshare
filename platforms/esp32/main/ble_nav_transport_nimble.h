@@ -30,6 +30,9 @@ class BleNavTransport {
                      LinkCallback link_callback,
                      void* context) noexcept;
   esp_err_t start();
+  // NimBLE/PHY starts before display DMA, but do not let Android connect
+  // until the navigation UI and its renderer have both been initialized.
+  void enable_advertising();
   bool send_message(const moto::ble::Message& message,
                     std::uint8_t frame_flags = 0);
 
@@ -130,5 +133,7 @@ class BleNavTransport {
   bool has_last_rx_ack_ = false;
   bool disconnect_requested_ = false;  // RX worker only; one GAP termination per epoch.
   bool notified_link_active_ = false;
+  std::atomic<bool> host_ready_{false};
+  std::atomic<bool> advertising_enabled_{false};
   bool started_ = false;
 };
