@@ -23,6 +23,10 @@ extern "C" void ble_store_config_init(void);
 namespace {
 constexpr char kTag[] = "moto_ble";
 constexpr char kDeviceName[] = "MOTO GPS";
+// A fresh Android GATT link still needs service discovery, MTU negotiation,
+// CCCD subscription and the v1 handshake before its first application frame.
+// Do not apply the 3x-heartbeat timeout until Phone Ready is received.
+constexpr std::uint64_t kHandshakeGraceMs = 12'000U;
 
 // BLE_UUID128_INIT takes the Bluetooth little-endian byte representation.
 const ble_uuid128_t kServiceUuid = BLE_UUID128_INIT(
@@ -353,6 +357,7 @@ void BleNavTransport::run_rx_worker() {
   bool resynchronizing_after_loss = false;
   std::uint32_t observed_loss_epoch = 0;
   if (epoch_gate.connected()) {
+    watchdog_.set_timeout(kHandshakeGraceMs);
     watchdog_.note_valid_frame(monotonic_ms());
     note_link(true);
   }
@@ -367,6 +372,7 @@ void BleNavTransport::run_rx_worker() {
     }
     reassembler_.reset();
     watchdog_.reset();
+    watchdog_.set_timeout(kHandshakeGraceMs);
     disconnect_requested_ = false;
     protocol_ready = false;
     has_observed_loss_epoch = false;
@@ -502,11 +508,8 @@ void BleNavTransport::run_rx_worker() {
         session_id_.store(phone_status->session_id);
         peer_max_frame_size_.store(phone_status->max_frame_size);
         last_tx_ms_.store(static_cast<std::uint32_t>(now));
-        const std::uint64_t timeout = std::clamp<std::uint64_t>(
-            static_cast<std::uint64_t>(
-                phone_status->heartbeat_interval_ms) * 3U,
-            1'500U, 15'000U);
-        watchdog_.set_timeout(timeout);
+        // Keep the handshake grace period until the peer has sent Ready.
+        // Android may still be preparing notifications after Phone Starting.
       }
 
       const bool is_session_message =
@@ -552,6 +555,15 @@ void BleNavTransport::run_rx_worker() {
             // gate, so the iOS side cannot wait forever for our status.
             send_connection_status(moto::ble::ConnectionState::Ready);
             protocol_ready = true;
+            // Once the phone is ready, return to the short heartbeat watchdog
+            // that detects a dead Android process and frees the radio promptly.
+            const std::uint64_t heartbeat_timeout = std::clamp<std::uint64_t>(
+                static_cast<std::uint64_t>(phone_status->heartbeat_interval_ms) * 3U,
+                1'500U, 15'000U);
+            watchdog_.set_timeout(heartbeat_timeout);
+            watchdog_.note_valid_frame(now);
+            ESP_LOGI(kTag, "BLE handshake ready; heartbeat timeout=%llu ms",
+                     static_cast<unsigned long long>(heartbeat_timeout));
           }
         }
       }
@@ -584,7 +596,8 @@ void BleNavTransport::run_rx_worker() {
       const std::uint16_t handle = connection_handle_.load();
       if (handle != kNoConnection && !disconnect_requested_) {
         disconnect_requested_ = true;
-        ESP_LOGW(kTag, "phone heartbeat timeout; closing stale BLE connection handle=%u", handle);
+        ESP_LOGW(kTag, "%s timeout; closing stale BLE connection handle=%u",
+                   protocol_ready ? "phone heartbeat" : "phone handshake", handle);
         const int rc = ble_gap_terminate(handle, BLE_ERR_REM_USER_CONN_TERM);
         if (rc != 0) {
           ESP_LOGW(kTag, "stale BLE termination failed: rc=%d", rc);
