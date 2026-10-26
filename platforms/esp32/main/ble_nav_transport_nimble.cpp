@@ -129,8 +129,21 @@ esp_err_t BleNavTransport::start() {
   active_instance_ = this;
   started_ = true;
   nimble_port_freertos_init(host_task);
-  ESP_LOGI(kTag, "BLE peripheral started; service=%s", moto::ble::kServiceUuid);
+  ESP_LOGI(kTag, "BLE host started; advertising deferred until navigation UI ready; service=%s",
+           moto::ble::kServiceUuid);
   return ESP_OK;
+}
+
+void BleNavTransport::enable_advertising() {
+  if (!started_) return;
+  // Publish readiness after the UI and renderer have been initialized. If
+  // the NimBLE host has not completed synchronization yet, host_sync() will
+  // start advertising when it becomes ready.
+  advertising_enabled_.store(true, std::memory_order_release);
+  ESP_LOGI(kTag, "Navigation UI ready; enabling BLE advertising");
+  if (host_ready_.load(std::memory_order_acquire)) {
+    advertise();
+  }
 }
 
 int BleNavTransport::register_gatt_service() {
@@ -294,6 +307,10 @@ int BleNavTransport::gap_event(ble_gap_event* event, void* argument) {
 }
 
 void BleNavTransport::host_reset(int reason) {
+  BleNavTransport* self = active_instance_;
+  if (self != nullptr) {
+    self->host_ready_.store(false, std::memory_order_release);
+  }
   ESP_LOGE(kTag, "NimBLE host reset: reason=%d", reason);
 }
 
@@ -310,10 +327,19 @@ void BleNavTransport::host_sync() {
     ESP_LOGE(kTag, "could not select BLE identity address: rc=%d", result);
     return;
   }
-  self->advertise();
+  self->host_ready_.store(true, std::memory_order_release);
+  if (self->advertising_enabled_.load(std::memory_order_acquire)) {
+    self->advertise();
+  } else {
+    ESP_LOGI(kTag, "NimBLE synchronized; waiting for navigation UI readiness");
+  }
 }
 
 void BleNavTransport::advertise() {
+  if (!advertising_enabled_.load(std::memory_order_acquire) ||
+      !host_ready_.load(std::memory_order_acquire)) {
+    return;
+  }
   ble_hs_adv_fields fields{};
   fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
   fields.name = reinterpret_cast<std::uint8_t*>(
