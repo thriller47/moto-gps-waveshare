@@ -130,14 +130,29 @@ class HybridMapRepository(
         queryMaxLonE6: Int
     ): List<MapRoadSegment> {
         val results = mutableListOf<MapRoadSegment>()
-        val mapFiles = mapsDir.listFiles { _, name -> name.endsWith(".motomap") } ?: return results
-
-        for (file in mapFiles) {
+        val mapFiles = mapsDir.listFiles { _, name -> name.endsWith(".motomap") }
+            ?.toList().orEmpty()
+        // Route-corridor downloads checkpoint each tile immediately but only
+        // assemble the final .motomap when the entire download finishes.
+        // Read already-completed nearby tiles as well: otherwise the rider can
+        // leave the 8 km offline area while the next corridor is still downloading.
+        val midLat = (queryMinLatE6.toLong() + queryMaxLatE6.toLong()) / 2_000_000.0
+        val midLon = (queryMinLonE6.toLong() + queryMaxLonE6.toLong()) / 2_000_000.0
+        val nearTiles = GatewayRoadTiles.around(midLat, midLon, 2)
+        val checkpointFiles = mapsDir.listFiles { file ->
+            file.isDirectory && file.name.endsWith("_parts")
+        }?.flatMap { folder ->
+            nearTiles.map { tile -> File(folder, "tile_${tile.key}.motomap") }
+                .filter { it.isFile && it.length() > 0L }
+        }.orEmpty()
+        val seenRoads = HashSet<String>()
+        for (file in mapFiles + checkpointFiles) {
             try {
                 file.bufferedReader().useLines { lines ->
                     for (line in lines) {
                         val trimmed = line.trim()
                         if (trimmed.isEmpty() || trimmed.startsWith("#")) continue
+                        if (!seenRoads.add(trimmed)) continue
 
                         val parts = trimmed.split("|")
                         if (parts.size < 3) continue
