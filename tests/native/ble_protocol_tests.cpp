@@ -585,6 +585,19 @@ void test_link_watchdog() {
   CHECK(watchdog.expired(8'000));
   watchdog.reset();
   CHECK(!watchdog.armed());
+
+  // A fresh GATT link must survive slow Android service discovery/CCCD
+  // subscription. Only after Phone Ready should the strict 3-second
+  // heartbeat watchdog take over.
+  watchdog.set_timeout(12'000);
+  watchdog.note_valid_frame(20'000);
+  CHECK(!watchdog.expired(23'500));
+  CHECK(!watchdog.expired(31'999));
+  CHECK(watchdog.expired(32'000));
+  watchdog.note_valid_frame(28'000);  // Phone Ready
+  watchdog.set_timeout(3'000);
+  CHECK(!watchdog.expired(30'999));
+  CHECK(watchdog.expired(31'000));
 }
 
 }  // namespace
