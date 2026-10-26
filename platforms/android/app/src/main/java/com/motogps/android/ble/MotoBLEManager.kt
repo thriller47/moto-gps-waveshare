@@ -62,6 +62,10 @@ class MotoBLEManager(private val context: Context) {
     private var currentSessionId: Long = 0L
 
     private var isScanning = false
+    // One bounded retry for the ESP32's remote-termination (GATT 19) during
+    // the initial handshake. A successful Ready frame resets the allowance.
+    private var initialConnectRetries = 0
+    @Volatile private var closed = false
 
     // Synchronized FIFO Write Queue for GATT Characteristic Writes
     private val writeQueue = ArrayDeque<ByteArray>()
@@ -265,13 +269,16 @@ class MotoBLEManager(private val context: Context) {
                     }, 300)
                 }
                 BluetoothProfile.STATE_DISCONNECTED -> {
+                    val retryInitialConnect =
+                        status == 19 && handshakeState != HandshakeState.COMPLETED &&
+                        initialConnectRetries == 0 && !closed
                     stopHeartbeat()
                     mainHandler.removeCallbacks(cccdTimeoutRunnable)
                     cccdWritePending = false
                     cccdRetryCount = 0
                     handshakeState = HandshakeState.IDLE
                     mainHandler.post { onConnectionStateChange?.invoke("Non connesso") }
-                    if (status != BluetoothGatt.GATT_SUCCESS) {
+                    if (status != BluetoothGatt.GATT_SUCCESS && !retryInitialConnect) {
                         mainHandler.post { onConnectionError?.invoke("Errore di connessione GATT ($status)") }
                     }
                     writeCharacteristic = null
@@ -291,6 +298,15 @@ class MotoBLEManager(private val context: Context) {
                     } catch (_: Exception) {}
                     if (bluetoothGatt == gatt) {
                         bluetoothGatt = null
+                    }
+                    if (retryInitialConnect) {
+                        initialConnectRetries++
+                        Log.i("MotoBLEManager", "GATT 19 before handshake; retrying scan once")
+                        mainHandler.postDelayed({
+                            if (!closed && bluetoothGatt == null && !isScanning) {
+                                startScan(automaticRetry = true)
+                            }
+                        }, 1_500L)
                     }
                 }
             }
@@ -471,6 +487,7 @@ class MotoBLEManager(private val context: Context) {
                     enqueueSendFramesTask(frames)
                 } else if (handshakeState == HandshakeState.READY_SENT) {
                     handshakeState = HandshakeState.COMPLETED
+                    initialConnectRetries = 0
                     mainHandler.post { onConnectionStateChange?.invoke("Connesso") }
                     startHeartbeat()
                 }
@@ -484,6 +501,7 @@ class MotoBLEManager(private val context: Context) {
 
     private val scanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult?) {
+            if (!isScanning || bluetoothGatt != null || closed) return
             result?.device?.let { device ->
                 mainHandler.post { onConnectionStateChange?.invoke("Connessione in corso...") }
 
@@ -517,7 +535,9 @@ class MotoBLEManager(private val context: Context) {
         }
     }
 
-    fun startScan() {
+    fun startScan(automaticRetry: Boolean = false) {
+        if (closed) return
+        if (!automaticRetry) initialConnectRetries = 0
         // A new scan must not leave an old GATT session or fragmented BLE
         // messages alive when ESP32 is already powered on.
         disconnect()
@@ -598,6 +618,7 @@ class MotoBLEManager(private val context: Context) {
     }
 
     fun close() {
+        closed = true
         disconnect()
         onConnectionStateChange = null
         onConnectionError = null
