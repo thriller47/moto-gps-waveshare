@@ -1,7 +1,6 @@
 package com.motogps.android
 
 import android.Manifest
-import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -10,8 +9,6 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.location.Location
-import android.location.LocationListener
-import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
@@ -35,9 +32,8 @@ import com.motogps.android.ui.NavigationScreen
 import com.motogps.android.viewmodel.NavigationViewModel
 import com.motogps.android.viewmodel.NavigationViewModelFactory
 
-class MainActivity : ComponentActivity(), LocationListener, SensorEventListener {
+class MainActivity : ComponentActivity(), SensorEventListener {
     private lateinit var bleManager: MotoBLEManager
-    private lateinit var locationManager: LocationManager
     private lateinit var sensorManager: SensorManager
     private var rotationVectorSensor: Sensor? = null
     private var accelerometerSensor: Sensor? = null
@@ -71,7 +67,6 @@ class MainActivity : ComponentActivity(), LocationListener, SensorEventListener 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
 
         rotationVectorSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
@@ -96,14 +91,7 @@ class MainActivity : ComponentActivity(), LocationListener, SensorEventListener 
         val callback: (Location) -> Unit = { location ->
             runOnUiThread {
                 if (!isFinishing && !isDestroyed) {
-                    val bearing = if (location.hasBearing()) location.bearing else null
-                    viewModel.updateDeviceLocation(
-                        latitude = location.latitude,
-                        longitude = location.longitude,
-                        speedMs = location.speed,
-                        gpsBearingDeg = bearing,
-                        context = this
-                    )
+                    viewModel.updateDeviceLocation(location, context = this)
                 }
             }
         }
@@ -262,65 +250,23 @@ class MainActivity : ComponentActivity(), LocationListener, SensorEventListener 
         }
     }
 
-    @SuppressLint("MissingPermission")
     private fun startLocationUpdates() {
-        try {
-            val lastGps = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
-            val lastNet = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
-
-            val bestLast = selectBestLocation(lastGps, lastNet)
-            if (bestLast != null) {
-                val speedMs = bestLast.speed
-                val bearing = if (bestLast.hasBearing()) bestLast.bearing else null
-                viewModel.updateDeviceLocation(
-                    latitude = bestLast.latitude,
-                    longitude = bestLast.longitude,
-                    speedMs = speedMs,
-                    gpsBearingDeg = bearing,
-                    context = this
-                )
-            }
-
-            if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
-                locationManager.requestLocationUpdates(
-                    LocationManager.GPS_PROVIDER,
-                    1000L,
-                    1f,
-                    this
-                )
-            }
-
-            if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
-                locationManager.requestLocationUpdates(
-                    LocationManager.NETWORK_PROVIDER,
-                    1000L,
-                    1f,
-                    this
-                )
-            }
-
-            val serviceIntent = Intent(this, LocationForegroundService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                startForegroundService(serviceIntent)
-            } else {
-                startService(serviceIntent)
-            }
-        } catch (_: Exception) {}
-    }
-
-    private fun selectBestLocation(loc1: Location?, loc2: Location?): Location? {
-        if (loc1 == null) return loc2
-        if (loc2 == null) return loc1
-        return if (loc1.time >= loc2.time) loc1 else loc2
+        // Only the foreground service registers with LocationManager. The
+        // Activity previously registered a SECOND GPS+network listener, so
+        // competing callbacks could overwrite a good GPS fix with a coarse
+        // network fix and teleport the ESP32 map origin for ~3 seconds.
+        val serviceIntent = Intent(this, LocationForegroundService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(serviceIntent)
+        } else {
+            startService(serviceIntent)
+        }
     }
 
     override fun onDestroy() {
         // finish() is an actual app exit, not merely Home/background navigation.
         // Release GATT and callbacks so the next launch can reconnect to an
         // already powered-on ESP32 without an orphaned Android BLE session.
-        if (::locationManager.isInitialized) {
-            try { locationManager.removeUpdates(this) } catch (_: Exception) {}
-        }
         if (LocationForegroundService.onLocationUpdate === foregroundLocationCallback) {
             LocationForegroundService.onLocationUpdate = null
         }
@@ -397,20 +343,5 @@ class MainActivity : ComponentActivity(), LocationListener, SensorEventListener 
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
 
-    override fun onLocationChanged(location: Location) {
-        val speedMs = location.speed
-        val bearing = if (location.hasBearing()) location.bearing else null
-        viewModel.updateDeviceLocation(
-            latitude = location.latitude,
-            longitude = location.longitude,
-            speedMs = speedMs,
-            gpsBearingDeg = bearing,
-            context = this
-        )
-    }
 
-    @Deprecated("Deprecated in Java")
-    override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
-    override fun onProviderEnabled(provider: String) {}
-    override fun onProviderDisabled(provider: String) {}
 }
