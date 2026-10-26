@@ -232,6 +232,12 @@ class MotoBLEManager(private val context: Context) {
 
     private val gattCallback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
+            if (bluetoothGatt !== gatt) {
+                // A closed/stale GATT callback must never overwrite the new
+                // session or re-enter discovery after the app has exited.
+                try { gatt.close() } catch (_: Exception) {}
+                return
+            }
             when (newState) {
                 BluetoothProfile.STATE_CONNECTED -> {
                     connectedDevice = gatt.device
@@ -498,7 +504,9 @@ class MotoBLEManager(private val context: Context) {
     }
 
     fun startScan() {
-        stopScan()
+        // A new scan must not leave an old GATT session or fragmented BLE
+        // messages alive when ESP32 is already powered on.
+        disconnect()
         onConnectionStateChange?.invoke("Ricerca in corso...")
         val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
         val adapter = bluetoothManager.adapter ?: return
@@ -546,14 +554,43 @@ class MotoBLEManager(private val context: Context) {
     fun disconnect() {
         stopHeartbeat()
         stopScan()
-        bluetoothGatt?.let { gatt ->
-            try {
-                gatt.disconnect()
-            } catch (_: Exception) {}
-            try {
-                gatt.close()
-            } catch (_: Exception) {}
-        }
+        mainHandler.removeCallbacksAndMessages(null)
+        val gatt = bluetoothGatt
         bluetoothGatt = null
+        writeCharacteristic = null
+        readCharacteristic = null
+        connectedDevice = null
+        currentSessionId = 0L
+        handshakeState = HandshakeState.IDLE
+        cccdWritePending = false
+        cccdRetryCount = 0
+        operationQueue.clear()
+        operationInProgress = false
+        synchronized(writeQueue) {
+            writeQueue.clear()
+            activeWriteFrame = null
+            activeMessageSequence = null
+            writeInProgress = false
+        }
+        if (codecPtr != 0L) {
+            bleCodec.nativeResetInboundState(codecPtr)
+            bleCodec.nativeSetMaximumFrameSize(codecPtr, 20)
+        }
+        gatt?.let {
+            try { it.disconnect() } catch (_: Exception) {}
+            try { it.close() } catch (_: Exception) {}
+        }
+        onConnectionStateChange?.invoke("Non connesso")
+    }
+
+    fun close() {
+        disconnect()
+        onConnectionStateChange = null
+        onConnectionError = null
+        onDeviceCommandReceived = null
+        if (codecPtr != 0L) {
+            bleCodec.nativeDestroy(codecPtr)
+            codecPtr = 0L
+        }
     }
 }
