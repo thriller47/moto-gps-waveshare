@@ -51,6 +51,7 @@ class MainActivity : ComponentActivity(), LocationListener, SensorEventListener 
     private var lastSentHeading = -1f
     private var lastSentHeadingTime = 0L
     private var lastBackPressTime = 0L
+    private var foregroundLocationCallback: ((Location) -> Unit)? = null
 
     private val viewModel: NavigationViewModel by viewModels {
         NavigationViewModelFactory(bleManager)
@@ -79,19 +80,22 @@ class MainActivity : ComponentActivity(), LocationListener, SensorEventListener 
             magnetometerSensor = sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)
         }
 
-        LocationForegroundService.onLocationUpdate = { location ->
+        val callback: (Location) -> Unit = { location ->
             runOnUiThread {
-                val speedMs = location.speed
-                val bearing = if (location.hasBearing()) location.bearing else null
-                viewModel.updateDeviceLocation(
-                    latitude = location.latitude,
-                    longitude = location.longitude,
-                    speedMs = speedMs,
-                    gpsBearingDeg = bearing,
-                    context = this
-                )
+                if (!isFinishing && !isDestroyed) {
+                    val bearing = if (location.hasBearing()) location.bearing else null
+                    viewModel.updateDeviceLocation(
+                        latitude = location.latitude,
+                        longitude = location.longitude,
+                        speedMs = location.speed,
+                        gpsBearingDeg = bearing,
+                        context = this
+                    )
+                }
             }
         }
+        foregroundLocationCallback = callback
+        LocationForegroundService.onLocationUpdate = callback
 
         bleManager = MotoBLEManager(this).apply {
             onConnectionStateChange = { state ->
@@ -305,6 +309,24 @@ class MainActivity : ComponentActivity(), LocationListener, SensorEventListener 
         if (loc1 == null) return loc2
         if (loc2 == null) return loc1
         return if (loc1.time >= loc2.time) loc1 else loc2
+    }
+
+    override fun onDestroy() {
+        // finish() is an actual app exit, not merely Home/background navigation.
+        // Release GATT and callbacks so the next launch can reconnect to an
+        // already powered-on ESP32 without an orphaned Android BLE session.
+        if (::locationManager.isInitialized) {
+            try { locationManager.removeUpdates(this) } catch (_: Exception) {}
+        }
+        if (LocationForegroundService.onLocationUpdate === foregroundLocationCallback) {
+            LocationForegroundService.onLocationUpdate = null
+        }
+        foregroundLocationCallback = null
+        if (::bleManager.isInitialized) bleManager.close()
+        if (isFinishing) {
+            stopService(Intent(this, LocationForegroundService::class.java))
+        }
+        super.onDestroy()
     }
 
     override fun onResume() {
