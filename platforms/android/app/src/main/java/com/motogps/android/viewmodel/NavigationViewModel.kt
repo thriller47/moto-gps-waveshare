@@ -514,13 +514,15 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                     // Gradual increase after successful 8/64 field test.
                     // Stay well below the firmware ceiling of 24/192 to
                     // avoid BLE congestion from large fragmented scenes.
+                    // Eight vertices per street preserve roundabout corners
+                    // while leaving 96/8 = 12 slots for nearby and ahead roads.
                     var pointsRemaining = 96
                     for (seg in candidates) {
                         if (roadPolylines.size >= 12 || pointsRemaining < 2) break
                         // Each OSM way may begin kilometres away from the GPS fix.
                         // Select the nearby portion, retaining junction corners.
                         val points = RoadContextWindow.around(
-                            seg.points, lat, lon, minOf(pointsRemaining, 16)
+                            seg.points, lat, lon, minOf(pointsRemaining, 8)
                         )
                         if (points.size < 2) continue
                         roadPolylines.add(MotoBLEMapRoadPolyline(roadClass = seg.roadClass, points = points))
