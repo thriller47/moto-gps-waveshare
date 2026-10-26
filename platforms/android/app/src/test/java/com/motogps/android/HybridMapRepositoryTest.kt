@@ -11,6 +11,11 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import org.junit.Rule
+import org.junit.rules.TemporaryFolder
+import org.mockito.Mockito.`when`
+import java.io.File
+import com.motogps.android.map.GatewayRoadTiles
 import org.mockito.Mockito.mock
 import android.content.Context
 
@@ -22,6 +27,26 @@ class HybridMapRepositoryTest {
     fun setUp() {
         val mockContext = mock(Context::class.java)
         repository = HybridMapRepository(mockContext)
+    }
+
+    @get:Rule
+    val temporaryFiles = TemporaryFolder()
+
+    @Test
+    fun readsCompletedCorridorCheckpointBeforeFullMapIsAssembled() {
+        val context = mock(Context::class.java)
+        `when`(context.filesDir).thenReturn(temporaryFiles.root)
+        val cache = HybridMapRepository(context)
+        val maps = File(temporaryFiles.root, "maps")
+        val checkpoints = File(maps, ".corridoio_rotta_parts")
+        assertTrue(checkpoints.mkdirs())
+        val tile = GatewayRoadTiles.tileFor(45.0, 8.0)
+        File(checkpoints, "tile_${tile.key}.motomap").writeText(
+            "# completed tile\n3,50|45000000,8000000,45000100,8000000|45000000,8000000;45000100,8000000\n"
+        )
+        val roads = cache.loadFromRegionalFiles(44_995_000, 7_995_000, 45_005_000, 8_005_000)
+        assertEquals(1, roads.size)
+        assertEquals(2, roads.single().points.size)
     }
 
     @Test
