@@ -118,6 +118,8 @@ struct Ui {
     lv_timer_t *nav_route_motion_timer = nullptr;
     lv_obj_t *nav_marker = nullptr;
     lv_obj_t *nav_status = nullptr;
+    lv_obj_t *nav_street_arc = nullptr;
+    char nav_street_text[96]{};
     lv_obj_t *nav_distance = nullptr;
     lv_obj_t *nav_unit = nullptr;
     lv_obj_t *nav_maneuver = nullptr;
@@ -1373,7 +1375,31 @@ void update_nav_status(const moto_ui_state_t *state) {
     lv_obj_set_style_text_color(ui.nav_status, color, 0);
 }
 
+void update_street_arc(const moto_ui_state_t *state) {
+#if LV_USE_ARCLABEL
+    if(ui.nav_street_arc == nullptr) return;
+    const char *name = state->next_road_name;
+    if(name == nullptr || name[0] == '\0') name = state->road_name;
+    if(name == nullptr || name[0] == '\0') {
+        lv_obj_add_flag(ui.nav_street_arc, LV_OBJ_FLAG_HIDDEN);
+        ui.nav_street_text[0] = '\0';
+        return;
+    }
+    // Keep updates cheap: the navigation snapshot arrives several times per second.
+    char limited[sizeof(ui.nav_street_text)]{};
+    std::snprintf(limited, sizeof(limited), "%.60s", name);
+    if(std::strcmp(ui.nav_street_text, limited) != 0) {
+        std::strcpy(ui.nav_street_text, limited);
+        lv_arclabel_set_text(ui.nav_street_arc, ui.nav_street_text);
+    }
+    lv_obj_remove_flag(ui.nav_street_arc, LV_OBJ_FLAG_HIDDEN);
+#else
+    (void)state;
+#endif
+}
+
 void update_navigation(const moto_ui_state_t *state) {
+    update_street_arc(state);
     update_building_geometry(state);
     update_road_geometry(state);
     update_route_geometry(state);
@@ -1583,6 +1609,26 @@ void create_navigation_page() {
     lv_obj_clear_flag(ui.nav_marker, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(ui.nav_marker, draw_vehicle_marker,
                         LV_EVENT_DRAW_MAIN_END, nullptr);
+
+#if LV_USE_ARCLABEL
+    // Street name follows the upper circular bezel; the route/map, arrow and
+    // distance retain their existing positions.
+    ui.nav_street_arc = lv_arclabel_create(page);
+    lv_obj_set_size(ui.nav_street_arc, MOTO_UI_CANVAS_WIDTH, MOTO_UI_CANVAS_WIDTH);
+    lv_obj_center(ui.nav_street_arc);
+    lv_obj_set_style_bg_opa(ui.nav_street_arc, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(ui.nav_street_arc, 0, 0);
+    lv_obj_set_style_text_color(ui.nav_street_arc, kWhite, 0);
+    lv_obj_set_style_text_font(ui.nav_street_arc, &lv_font_montserrat_16, 0);
+    lv_arclabel_set_radius(ui.nav_street_arc, px(165));
+    lv_arclabel_set_angle_start(ui.nav_street_arc, 200);
+    lv_arclabel_set_angle_size(ui.nav_street_arc, 140);
+    lv_arclabel_set_text_horizontal_align(ui.nav_street_arc, LV_ARCLABEL_TEXT_ALIGN_CENTER);
+    lv_arclabel_set_dir(ui.nav_street_arc, LV_ARCLABEL_DIR_CLOCKWISE);
+    lv_arclabel_set_text(ui.nav_street_arc, "");
+    lv_obj_add_flag(ui.nav_street_arc, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(ui.nav_street_arc, LV_OBJ_FLAG_CLICKABLE);
+#endif
 
     ui.nav_status = make_label(page, &lv_font_montserrat_16, kAmber, "");
     lv_obj_set_width(ui.nav_status, px(220));
