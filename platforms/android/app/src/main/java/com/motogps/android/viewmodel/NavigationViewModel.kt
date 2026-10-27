@@ -16,6 +16,7 @@ import com.motogps.android.jni.MotoBLERouteGeometry
 import com.motogps.android.map.HybridMapRepository
 import com.motogps.android.map.SavedMapInfo
 import com.motogps.android.location.LocationFixFilter
+import com.motogps.android.routing.OfflineValhallaRouter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -1089,172 +1090,172 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     private fun performRoutingWithGeometry(
         place: PlaceSearchResult, gatewayBaseUrl: String, isReroute: Boolean = false
     ): Pair<MotoBLENavigationSnapshot, MotoBLERouteGeometry?> {
-        val baseUrl = if (gatewayBaseUrl.endsWith("/")) gatewayBaseUrl else "$gatewayBaseUrl/"
-        val endpoint = "${baseUrl}v1/routes"
-
-        val url = URL(endpoint)
-        val connection = url.openConnection() as HttpURLConnection
-        connection.requestMethod = "POST"
-        connection.setRequestProperty("Content-Type", "application/json")
-        connection.setRequestProperty("Accept", "application/json")
-        connection.connectTimeout = 15000
-        connection.readTimeout = 15000
-        connection.doOutput = true
-
         val (originLat, originLon) = currentLocation.value
-        // Only the recent GPS travel bearing (never compass orientation) constrains a reroute.
+        // Course over ground, not device/compass orientation. Offline Valhalla
+        // can snap this origin onto the road the motorcycle is travelling on.
         val rerouteBearing = if (isReroute && lastGpsSpeedMs >= 3f &&
             SystemClock.elapsedRealtime() - lastReliableGpsBearingMs in 0L..5_000L)
             lastReliableGpsBearing else null
 
-        val jsonPayload = JSONObject().apply {
-            put("protocol_version", 1)
-            put("request_id", System.currentTimeMillis().rem(Int.MAX_VALUE).toInt())
-            put("route_mode", "driving")
-
-            val originObj = JSONObject().apply {
-                put("coordinate_system", "WGS84")
-                put("longitude_deg", originLon)
-                put("latitude_deg", originLat)
+        val context = navigationMapsContext
+        if (context != null && OfflineValhallaRouter.hasTiles(context)) {
+            val localResponse = OfflineValhallaRouter.route(
+                context, originLat, originLon, place.latitude, place.longitude,
+                isReroute, rerouteBearing
+            )
+            if (localResponse != null) {
+                Log.i("NavigationVM", "Using offline Valhalla routing tiles")
+                return parseMotoRouteResponse(localResponse, originLat, originLon, place)
             }
-            put("origin", originObj)
-
-            val destObj = JSONObject().apply {
-                put("coordinate_system", "WGS84")
-                put("longitude_deg", place.longitude)
-                put("latitude_deg", place.latitude)
-            }
-            put("destination", destObj)
-            put("is_reroute", isReroute)
-            if (rerouteBearing != null) put("origin_bearing_deg", rerouteBearing.toDouble())
         }
 
-        connection.outputStream.use { os ->
-            val input = jsonPayload.toString().toByteArray(Charsets.UTF_8)
-            os.write(input, 0, input.size)
+        // Transitional fallback while the user has not yet installed a
+        // Valhalla routing graph. This stays isolated from offline routing.
+        require(gatewayBaseUrl.isNotBlank()) {
+            "Installa le tile Valhalla per calcolare percorsi senza Internet"
         }
-
+        val baseUrl = if (gatewayBaseUrl.endsWith("/")) gatewayBaseUrl else "$gatewayBaseUrl/"
+        val connection = (URL("${baseUrl}v1/routes").openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            setRequestProperty("Content-Type", "application/json")
+            setRequestProperty("Accept", "application/json")
+            connectTimeout = 15000
+            readTimeout = 15000
+            doOutput = true
+        }
+        val payload = JSONObject()
+            .put("protocol_version", 1)
+            .put("request_id", System.currentTimeMillis().rem(Int.MAX_VALUE).toInt())
+            .put("route_mode", "driving")
+            .put("origin", JSONObject().put("coordinate_system", "WGS84")
+                .put("longitude_deg", originLon).put("latitude_deg", originLat))
+            .put("destination", JSONObject().put("coordinate_system", "WGS84")
+                .put("longitude_deg", place.longitude).put("latitude_deg", place.latitude))
+            .put("is_reroute", isReroute)
+        if (rerouteBearing != null) payload.put("origin_bearing_deg", rerouteBearing.toDouble())
         try {
-            val responseCode = connection.responseCode
-            if (responseCode in 200..299) {
-                val response = connection.inputStream.bufferedReader().use { it.readText() }
-                val jsonObject = JSONObject(response)
-
-                val protocolVersion = jsonObject.optInt("protocol_version", 1)
-                if (protocolVersion != 1) {
-                    throw Exception("Versione del protocollo non valida: $protocolVersion")
-                }
-
-                val routeObj = jsonObject.getJSONObject("route")
-                val totalDistanceM = routeObj.optLong("total_distance_m", routeObj.optDouble("totalDistanceM", 0.0).toLong())
-                val totalDurationS = routeObj.optLong("estimated_duration_s", routeObj.optInt("totalDurationS", 0).toLong())
-                val routeID = routeObj.optString("route_id", routeObj.optString("routeID", "route_${System.currentTimeMillis()}"))
-
-                var maneuverName = "continue"
-                var instruction = "Segui il percorso"
-                val maneuversArray = routeObj.optJSONArray("maneuvers")
-                if (maneuversArray != null && maneuversArray.length() > 0) {
-                    val firstManeuver = maneuversArray.getJSONObject(0)
-                    maneuverName = firstManeuver.optString("type", "continue")
-                    instruction = firstManeuver.optString("instruction", "Segui il percorso")
-                }
-
-                val routeToken = computeFnv1aRouteToken(routeID)
-
-                // Keep ALL route vertices on Android; only the BLE display window is bounded.
-                val pointsE6 = mutableListOf<GeoPointE6>()
-                val geomArray = routeObj.optJSONArray("geometry_gcj02")
-                    ?: routeObj.optJSONArray("polyline")
-                    ?: routeObj.optJSONArray("coordinates")
-
-                if (geomArray != null) {
-                    for (i in 0 until geomArray.length()) {
-                        val item = geomArray.optJSONObject(i)
-                        if (item != null) {
-                            val lat = item.optDouble("latitude_deg", item.optDouble("latitude", Double.NaN))
-                            val lon = item.optDouble("longitude_deg", item.optDouble("longitude", Double.NaN))
-                            if (!lat.isNaN() && !lon.isNaN()) {
-                                pointsE6.add(GeoPointE6((lat * 1e6).toInt(), (lon * 1e6).toInt()))
-                            }
-                        } else {
-                            val coordArr = geomArray.optJSONArray(i)
-                            if (coordArr != null && coordArr.length() >= 2) {
-                                val lon = coordArr.optDouble(0, Double.NaN)
-                                val lat = coordArr.optDouble(1, Double.NaN)
-                                if (!lat.isNaN() && !lon.isNaN()) {
-                                    pointsE6.add(GeoPointE6((lat * 1e6).toInt(), (lon * 1e6).toInt()))
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if (pointsE6.isEmpty()) {
-                    pointsE6.add(GeoPointE6((originLat * 1e6).toInt(), (originLon * 1e6).toInt()))
-                    pointsE6.add(GeoPointE6((place.latitude * 1e6).toInt(), (place.longitude * 1e6).toInt()))
-                }
-
-                val fullRoutePoints = pointsE6.toList()
-                val viewOrigin = fullRoutePoints.first()
-                var geometryDistanceM = 0.0
-                for (i in 1 until fullRoutePoints.size) {
-                    val from = fullRoutePoints[i - 1]
-                    val to = fullRoutePoints[i]
-                    geometryDistanceM += calculateDistanceMeters(
-                        from.latitudeE6 / 1e6, from.longitudeE6 / 1e6,
-                        to.latitudeE6 / 1e6, to.longitudeE6 / 1e6
-                    )
-                }
-                Log.i("NavigationVM", "Route source: vertices=${fullRoutePoints.size} geometryMeters=${geometryDistanceM.toInt()} providerMeters=$totalDistanceM")
-
-                val routeGeometry = MotoBLERouteGeometry(
-                    coordinateSystem = 2,
-                    routeToken = routeToken,
-                    routeGeneration = 1L,
-                    chunkIndex = 0,
-                    chunkCount = 1,
-                    firstPointIndex = 0,
-                    totalPointCount = fullRoutePoints.size,
-                    viewOrigin = viewOrigin,
-                    points = fullRoutePoints
-                )
-
-                val snapshot = MotoBLENavigationSnapshot(
-                    stateName = "navigating",
-                    networkName = "online",
-                    displayPageName = "navigation",
-                    maneuverName = maneuverName,
-                    trafficName = "free_flow",
-                    hasDestination = true,
-                    hasFix = hasFirstFix,
-                    gnssStale = false,
-                    offRoute = false,
-                    routeRequestInFlight = false,
-                    trafficRequestInFlight = false,
-                    routeToken = routeToken,
-                    routeGeneration = 1L,
-                    maneuverID = 1L,
-                    distanceToManeuverM = totalDistanceM,
-                    remainingDistanceM = totalDistanceM,
-                    remainingDurationS = totalDurationS,
-                    routeProgressM = 0L,
-                    totalDistanceM = totalDistanceM,
-                    speedDeciKPH = currentSpeedDeciKph,
-                    speedLimitKPH = lastSpeedLimitKph,
-                    headingCentiDegrees = currentHeadingCentiDeg,
-                    accuracyDecimeters = 50,
-                    crossTrackDecimeters = 0,
-                    roundaboutExit = 0,
-                    instructionText = instruction
-                )
-
-                return Pair(snapshot, routeGeometry)
-            } else {
-                throw Exception("HTTP Error $responseCode")
-            }
+            connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
+            val status = connection.responseCode
+            if (status !in 200..299) throw Exception("HTTP Error $status")
+            val response = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+            return parseMotoRouteResponse(response, originLat, originLon, place)
         } finally {
             connection.disconnect()
         }
+    }
+
+    private fun parseMotoRouteResponse(
+        jsonObject: JSONObject, originLat: Double, originLon: Double, place: PlaceSearchResult
+    ): Pair<MotoBLENavigationSnapshot, MotoBLERouteGeometry?> {
+    val protocolVersion = jsonObject.optInt("protocol_version", 1)
+    if (protocolVersion != 1) {
+        throw Exception("Versione del protocollo non valida: $protocolVersion")
+    }
+
+    val routeObj = jsonObject.getJSONObject("route")
+    val totalDistanceM = routeObj.optLong("total_distance_m", routeObj.optDouble("totalDistanceM", 0.0).toLong())
+    val totalDurationS = routeObj.optLong("estimated_duration_s", routeObj.optInt("totalDurationS", 0).toLong())
+    val routeID = routeObj.optString("route_id", routeObj.optString("routeID", "route_${System.currentTimeMillis()}"))
+
+    var maneuverName = "continue"
+    var instruction = "Segui il percorso"
+    val maneuversArray = routeObj.optJSONArray("maneuvers")
+    if (maneuversArray != null && maneuversArray.length() > 0) {
+        val firstManeuver = maneuversArray.getJSONObject(0)
+        maneuverName = firstManeuver.optString("type", "continue")
+        instruction = firstManeuver.optString("instruction", "Segui il percorso")
+    }
+
+    val routeToken = computeFnv1aRouteToken(routeID)
+
+    // Keep ALL route vertices on Android; only the BLE display window is bounded.
+    val pointsE6 = mutableListOf<GeoPointE6>()
+    val geomArray = routeObj.optJSONArray("geometry_gcj02")
+        ?: routeObj.optJSONArray("polyline")
+        ?: routeObj.optJSONArray("coordinates")
+
+    if (geomArray != null) {
+        for (i in 0 until geomArray.length()) {
+            val item = geomArray.optJSONObject(i)
+            if (item != null) {
+                val lat = item.optDouble("latitude_deg", item.optDouble("latitude", Double.NaN))
+                val lon = item.optDouble("longitude_deg", item.optDouble("longitude", Double.NaN))
+                if (!lat.isNaN() && !lon.isNaN()) {
+                    pointsE6.add(GeoPointE6((lat * 1e6).toInt(), (lon * 1e6).toInt()))
+                }
+            } else {
+                val coordArr = geomArray.optJSONArray(i)
+                if (coordArr != null && coordArr.length() >= 2) {
+                    val lon = coordArr.optDouble(0, Double.NaN)
+                    val lat = coordArr.optDouble(1, Double.NaN)
+                    if (!lat.isNaN() && !lon.isNaN()) {
+                        pointsE6.add(GeoPointE6((lat * 1e6).toInt(), (lon * 1e6).toInt()))
+                    }
+                }
+            }
+        }
+    }
+
+    if (pointsE6.isEmpty()) {
+        pointsE6.add(GeoPointE6((originLat * 1e6).toInt(), (originLon * 1e6).toInt()))
+        pointsE6.add(GeoPointE6((place.latitude * 1e6).toInt(), (place.longitude * 1e6).toInt()))
+    }
+
+    val fullRoutePoints = pointsE6.toList()
+    val viewOrigin = fullRoutePoints.first()
+    var geometryDistanceM = 0.0
+    for (i in 1 until fullRoutePoints.size) {
+        val from = fullRoutePoints[i - 1]
+        val to = fullRoutePoints[i]
+        geometryDistanceM += calculateDistanceMeters(
+            from.latitudeE6 / 1e6, from.longitudeE6 / 1e6,
+            to.latitudeE6 / 1e6, to.longitudeE6 / 1e6
+        )
+    }
+    Log.i("NavigationVM", "Route source: vertices=${fullRoutePoints.size} geometryMeters=${geometryDistanceM.toInt()} providerMeters=$totalDistanceM")
+
+    val routeGeometry = MotoBLERouteGeometry(
+        coordinateSystem = 2,
+        routeToken = routeToken,
+        routeGeneration = 1L,
+        chunkIndex = 0,
+        chunkCount = 1,
+        firstPointIndex = 0,
+        totalPointCount = fullRoutePoints.size,
+        viewOrigin = viewOrigin,
+        points = fullRoutePoints
+    )
+
+    val snapshot = MotoBLENavigationSnapshot(
+        stateName = "navigating",
+        networkName = "online",
+        displayPageName = "navigation",
+        maneuverName = maneuverName,
+        trafficName = "free_flow",
+        hasDestination = true,
+        hasFix = hasFirstFix,
+        gnssStale = false,
+        offRoute = false,
+        routeRequestInFlight = false,
+        trafficRequestInFlight = false,
+        routeToken = routeToken,
+        routeGeneration = 1L,
+        maneuverID = 1L,
+        distanceToManeuverM = totalDistanceM,
+        remainingDistanceM = totalDistanceM,
+        remainingDurationS = totalDurationS,
+        routeProgressM = 0L,
+        totalDistanceM = totalDistanceM,
+        speedDeciKPH = currentSpeedDeciKph,
+        speedLimitKPH = lastSpeedLimitKph,
+        headingCentiDegrees = currentHeadingCentiDeg,
+        accuracyDecimeters = 50,
+        crossTrackDecimeters = 0,
+        roundaboutExit = 0,
+        instructionText = instruction
+    )
+
+    return Pair(snapshot, routeGeometry)
     }
 
     private fun performSearch(query: String, gatewayBaseUrl: String): List<PlaceSearchResult> {
