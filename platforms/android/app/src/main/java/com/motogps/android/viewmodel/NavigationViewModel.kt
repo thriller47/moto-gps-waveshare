@@ -375,6 +375,8 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     private var offRouteFirstFixMs = 0L
     private var lastOffRouteFixMs = 0L
     private var lastGpsSpeedMs = 0f
+    private var lastReliableGpsBearing: Float? = null
+    private var lastReliableGpsBearingMs = 0L
     private var rerouteInProgress = false
 
     fun updateDeviceHeading(headingDeg: Float) {
@@ -427,6 +429,10 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         lastLocationTimeMs = now
 
         lastGpsSpeedMs = speedMs
+        if (gpsBearingDeg != null && gpsBearingDeg.isFinite() && speedMs >= 3f) {
+            lastReliableGpsBearing = (gpsBearingDeg % 360f + 360f) % 360f
+            lastReliableGpsBearingMs = SystemClock.elapsedRealtime()
+        }
         val speedZero = speedMs < 0.8f
         if (speedZero) {
             currentSpeedDeciKph = 0
@@ -1008,6 +1014,10 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         connection.doOutput = true
 
         val (originLat, originLon) = currentLocation.value
+        // Only GPS travel bearing (never device compass orientation) can constrain OSRM.
+        val rerouteBearing = if (isReroute && lastGpsSpeedMs >= 3f &&
+            SystemClock.elapsedRealtime() - lastReliableGpsBearingMs in 0..5_000L)
+            lastReliableGpsBearing else null
 
         val jsonPayload = JSONObject().apply {
             put("protocol_version", 1)
@@ -1117,6 +1127,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
             }
             put("destination", destObj)
             put("is_reroute", isReroute)
+            if (rerouteBearing != null) put("origin_bearing_deg", rerouteBearing.toDouble())
         }
 
         connection.outputStream.use { os ->
