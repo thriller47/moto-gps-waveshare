@@ -10,7 +10,7 @@ class OfflineCoordinateSearchTest {
         val result = requireNotNull(OfflineCoordinateSearch.parse("45.4642, 9.1900"))
         assertEquals(45.4642, result.latitude, 0.000001)
         assertEquals(9.1900, result.longitude, 0.000001)
-        assertEquals("Coordinate GPS (offline)", result.name)
+        assertEquals("Coordinate GPS", result.name)
     }
 
     @Test fun acceptsSouthernAndWesternHemispheres() {
