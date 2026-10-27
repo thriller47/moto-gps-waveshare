@@ -114,3 +114,15 @@ su rete pubblica o su grafo nativo installato.
 
 Dati: © OpenStreetMap contributors (ODbL). Valhalla demo:
 FOSSGIS e.V.; Photon demo: komoot; tile di esempio: community Librescoot.
+
+## Diagnostica recupero strade OSM
+
+Se le strade non compaiono sull'ESP32, aprire **Gestione Mappe Offline**:
+la voce di stato segnala se la richiesta automatica alla tile OSM ha trovato
+strade oppure se è fallita. Il log Android `GatewayRoadTiles` riporta
+endpoint e dettaglio HTTP, mentre `NavigationVM` registra il risultato
+complessivo. Il client prova, in sequenza e solo in caso di errore,
+`overpass-api.de` e `overpass.kumi.systems`; non chiama Render.
+Una risposta valida senza strade non viene convertita artificialmente
+in geometrie. La presenza di un percorso Valhalla online non garantisce
+che Overpass abbia risposto.

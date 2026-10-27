@@ -85,27 +85,49 @@ internal object GatewayRoadTiles {
         return "[out:json][timeout:12];way[highway~\"^(motorway|trunk|primary|secondary|tertiary|residential|unclassified|service|motorway_link|trunk_link|primary_link|secondary_link)$\"]($bbox);out geom($bbox);"
     }
 
+    // Public instances can be temporarily unavailable or rate limited.
+    // Only one small tile is attempted per GPS position; never fan out requests.
+    private val ENDPOINTS = listOf(
+        "https://overpass-api.de/api/interpreter",
+        "https://overpass.kumi.systems/api/interpreter"
+    )
+
     fun writeTile(tile: Tile, writer: BufferedWriter): Int {
-        val endpoint = URL("https://overpass-api.de/api/interpreter")
-        val conn = (endpoint.openConnection() as HttpURLConnection).apply {
-            requestMethod = "POST"
-            connectTimeout = 8_000
-            readTimeout = 18_000
-            doOutput = true
-            setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=utf-8")
-            setRequestProperty("Accept", "application/json")
-            setRequestProperty("User-Agent", "MotoGPS-Android/0.3 (OSM road context)")
+        val payload = "data=" + java.net.URLEncoder.encode(query(tile), "UTF-8")
+        var lastError: IOException? = null
+        for (endpoint in ENDPOINTS) {
+            val conn = (URL(endpoint).openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                connectTimeout = 9_000
+                readTimeout = 23_000
+                doOutput = true
+                setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=utf-8")
+                setRequestProperty("Accept", "application/json")
+                setRequestProperty("User-Agent", "MotoGPS-Android/0.3 (OSM road context)")
+            }
+            try {
+                conn.outputStream.use { it.write(payload.toByteArray(Charsets.UTF_8)) }
+                val code = conn.responseCode
+                if (code !in 200..299) {
+                    val body = conn.errorStream?.bufferedReader()?.use { it.readText().take(300) }
+                        ?.replace('\n', ' ')?.replace('\r', ' ')?.trim().orEmpty()
+                    throw IOException("Overpass HTTP $code at $endpoint: $body")
+                }
+                val response = JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
+                // A successful response with zero streets is valid; do not retry
+                // against another public server if the query actually succeeded.
+                return writeOsmWays(response, writer)
+            } catch (e: IOException) {
+                lastError = e
+                android.util.Log.w("GatewayRoadTiles", "OSM ${tile.key}: ${e.message}")
+            } catch (e: org.json.JSONException) {
+                lastError = IOException("Risposta Overpass non valida da $endpoint", e)
+                android.util.Log.w("GatewayRoadTiles", lastError.message)
+            } finally {
+                conn.disconnect()
+            }
         }
-        try {
-            val payload = "data=" + java.net.URLEncoder.encode(query(tile), "UTF-8")
-            conn.outputStream.use { it.write(payload.toByteArray(Charsets.UTF_8)) }
-            if (conn.responseCode !in 200..299)
-                throw IOException("OSM Overpass HTTP ${conn.responseCode}")
-            val response = JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
-            return writeOsmWays(response, writer)
-        } finally {
-            conn.disconnect()
-        }
+        throw lastError ?: IOException("Impossibile scaricare tile OSM ${tile.key}")
     }
 
     /** Converts an actual Overpass 'out geom' response to the existing BLE map cache. */

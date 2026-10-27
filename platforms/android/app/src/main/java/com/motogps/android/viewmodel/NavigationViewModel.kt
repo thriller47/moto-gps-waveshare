@@ -625,6 +625,9 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
             try {
                 val available = getOrCreateRepo(context).ensureOnlineTile(lat, lon)
                 Log.i("NavigationVM", "OSM online tile available=$available at $lat,$lon")
+                _downloadStatus.value = if (available)
+                    "OSM: dati stradali ricevuti, aggiornamento ESP32..."
+                else "OSM: nessuna strada scaricata per la posizione corrente"
                 if (available) {
                     // Wait until the local read has finished, then publish the
                     // newly cached roads without waiting for another GPS fix.
@@ -634,6 +637,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                 }
             } catch (e: Exception) {
                 Log.w("NavigationVM", "OSM online tile fetch failed: ${e.message}")
+                _downloadStatus.value = "Errore strade OSM: ${e.message}"
             }
         }
     }
