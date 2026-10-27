@@ -1,6 +1,7 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose") version "2.2.10"
 }
 
 android {
@@ -25,9 +26,6 @@ android {
 
     buildFeatures {
         compose = true
-    }
-    composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.10"
     }
 
     buildTypes {
@@ -66,4 +64,5 @@ dependencies {
     testImplementation("org.mockito.kotlin:mockito-kotlin:5.2.1")
     implementation("org.json:json:20231013")
     implementation("org.osmdroid:osmdroid-android:6.1.18")
+    implementation("io.github.rallista:valhalla-mobile:0.6.4")
 }
