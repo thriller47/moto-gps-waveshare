@@ -60,7 +60,7 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Detect relevant changes
-        uses: dorny/paths-filter@v3
+        uses: dorny/paths-filter@v4
         id: filter
         with:
           filters: |
@@ -185,7 +185,7 @@ jobs:
 
       - name: Upload APK
         if: ${{ hashFiles('platforms/android/app/build/outputs/apk/debug/app-debug.apk') != '' }}
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: Glimpse-MOTO-GPS-Android-Final.apk
           path: platforms/android/app/build/outputs/apk/debug/app-debug.apk
@@ -211,7 +211,7 @@ jobs:
           persist-credentials: false
 
       - name: Cache ESP-IDF ccache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.ccache
           key: ${{ runner.os }}-esp32s3-ccache-${{ hashFiles('platforms/esp32/**') }}
@@ -242,7 +242,7 @@ jobs:
             hashFiles('platforms/esp32/build/partition_table/partition-table.bin') != '' ||
             hashFiles('platforms/esp32/build/moto-gps-waveshare.bin') != ''
           }}
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: ESP32-Firmware
           path: |
