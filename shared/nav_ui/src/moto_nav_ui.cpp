@@ -1390,6 +1390,22 @@ void update_street_arc(const moto_ui_state_t *state) {
     std::snprintf(limited, sizeof(limited), "%.60s", name);
     if(std::strcmp(ui.nav_street_text, limited) != 0) {
         std::strcpy(ui.nav_street_text, limited);
+        // Give short road names a much larger font while keeping long names
+        // inside the existing 140-degree arc. All three fonts are already
+        // enabled in lv_conf.h, so no additional font assets are needed.
+        const int32_t arc_text_limit = static_cast<int32_t>(
+            px(165) * (140.0 * kPi / 180.0) * 0.88);
+        const auto fits_arc = [&](const lv_font_t *font) {
+            lv_point_t text_size{};
+            // LVGL 9.5 exposes text measurement through lv_text_get_size().
+            lv_text_get_size(&text_size, ui.nav_street_text, font, 0, 0,
+                             LV_COORD_MAX, LV_TEXT_FLAG_EXPAND);
+            return text_size.x <= arc_text_limit;
+        };
+        const lv_font_t *street_font = &lv_font_montserrat_28;
+        if(!fits_arc(street_font)) street_font = &lv_font_montserrat_20;
+        if(!fits_arc(street_font)) street_font = &lv_font_montserrat_16;
+        lv_obj_set_style_text_font(ui.nav_street_arc, street_font, 0);
         lv_arclabel_set_text(ui.nav_street_arc, ui.nav_street_text);
     }
     lv_obj_remove_flag(ui.nav_street_arc, LV_OBJ_FLAG_HIDDEN);
@@ -1619,7 +1635,8 @@ void create_navigation_page() {
     lv_obj_set_style_bg_opa(ui.nav_street_arc, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(ui.nav_street_arc, 0, 0);
     lv_obj_set_style_text_color(ui.nav_street_arc, kWhite, 0);
-    lv_obj_set_style_text_font(ui.nav_street_arc, &lv_font_montserrat_16, 0);
+    // Updated per street name: 28 px normally, 20/16 px only if needed.
+    lv_obj_set_style_text_font(ui.nav_street_arc, &lv_font_montserrat_28, 0);
     lv_arclabel_set_radius(ui.nav_street_arc, px(165));
     lv_arclabel_set_angle_start(ui.nav_street_arc, 200);
     lv_arclabel_set_angle_size(ui.nav_street_arc, 140);
