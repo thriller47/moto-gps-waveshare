@@ -14,8 +14,9 @@ Ogni operazione (anteprima, avvio e ricalcolo del percorso) usa:
 3. Se entrambi falliscono, l'app mostra il motivo del mancato routing;
    non invia richieste ai vecchi endpoint OSRM.
 
-La UI mostra **Percorso Valhalla offline** oppure **Percorso Valhalla
-online**, e distingue il motore effettivo anche dopo l'avvio.
+La UI mostra semplicemente **Percorso Valhalla**, senza specificare
+la modalità. Il provider effettivo resta disponibile nei dati tecnici
+(`route.provider`) e nei log, senza alterare la scelta automatica del motore.
 Il ricalcolo utilizza, quando disponibile, il bearing GPS recente,
 non la bussola del dispositivo. Le geometrie e le istruzioni di
 entrambi i motori passano dallo stesso `ValhallaRouteAdapter` e
@@ -53,8 +54,8 @@ un fornitore con condizioni compatibili.
 
 ## Archivi di routing locali
 
-**Gestione Mappe Offline → Routing Valhalla offline → Aggiorna regioni →
-Scarica routing.** Il catalogo di prova proviene da
+**Gestione mappe → Grafi Valhalla → Aggiorna elenco regioni →
+Scarica grafo.** Il catalogo di prova proviene da
 [Librescoot](https://github.com/librescoot/valhalla-tiles/releases/tag/latest).
 L'archivio `.tar` viene verificato tramite dimensione, SHA-256 e
 presenza di tile `.gph`. Percorso:
@@ -81,8 +82,9 @@ dell'APK raggiunge Render.
   viene conservato in `files/maps/osm_near_*.motomap` per 7 giorni.
 - Il caricamento automatico di *tutto* il corridoio di un itinerario è
   disabilitato: interrogherebbe centinaia di tile del server pubblico.
-- I download espliciti della zona e del corridoio restano disponibili,
-  eseguono richieste distanziate e mantengono checkpoint locali.
+- Il download del corridoio lungo un percorso resta disponibile e
+  mantiene checkpoint locali. Il pulsante per la zona vicina (~8 km)
+  non è più esposto nell'interfaccia; per grandi aree importare ZIP preparati su PC.
   Non sono una soluzione per scaricare intere regioni: per quella
   occorre un archivio OSM regionalizzato.
 - Le velocità dei tratti non sono fornite da Valhalla: si usa il tag
@@ -121,7 +123,7 @@ FOSSGIS e.V.; Photon demo: komoot; tile di esempio: community Librescoot.
 
 ## Diagnostica recupero strade OSM
 
-Se le strade non compaiono sull'ESP32, aprire **Gestione Mappe Offline**:
+Se le strade non compaiono sull'ESP32, aprire **Gestione mappe**:
 la voce di stato segnala se la richiesta automatica alla tile OSM ha trovato
 strade oppure se è fallita. Il log Android `GatewayRoadTiles` riporta
 endpoint e dettaglio HTTP, mentre `NavigationVM` registra il risultato
@@ -143,7 +145,7 @@ python scripts/offline_map/pbf_to_motomap.py italy-nord-ovest-latest.osm.pbf -o 
 
 Scaricare il `.osm.pbf` della regione desiderata dal catalogo
 [Geofabrik](https://download.geofabrik.de/europe/italy.html).
-Copiare il `.motomap.zip` sul telefono, aprire **Gestione Mappe Offline**
+Copiare il `.motomap.zip` sul telefono, aprire **Gestione mappe**
 e premere **Importa pacchetto strade OSM (.zip)**.
 Selezionare il file dal selettore Android: gli archivi vengono conservati
 senza estrazione in `files/maps/.osm_packages` e le singole tile sono lette
