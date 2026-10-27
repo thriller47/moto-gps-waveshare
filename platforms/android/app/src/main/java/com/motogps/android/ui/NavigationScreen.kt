@@ -3,6 +3,8 @@ package com.motogps.android.ui
 import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -24,6 +26,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.motogps.android.map.SavedMapInfo
+import com.motogps.android.routing.ValhallaRegion
 import com.motogps.android.viewmodel.PlaceSearchResult
 import com.motogps.android.viewmodel.RouteOption
 import org.json.JSONArray
@@ -307,6 +310,17 @@ fun MapDownloadProgressBox(
 @Composable
 fun OfflineMapsDialog(
     savedMaps: List<SavedMapInfo>,
+    valhallaRegions: List<ValhallaRegion>,
+    valhallaCatalogLoading: Boolean,
+    valhallaInstalledBytes: Long,
+    valhallaDownloading: Boolean,
+    valhallaProgress: Float,
+    valhallaStatus: String?,
+    isNavigating: Boolean,
+    onRefreshValhallaCatalog: () -> Unit,
+    onDownloadValhalla: (String) -> Unit,
+    onCancelValhalla: () -> Unit,
+    onDeleteValhalla: () -> Unit,
     onDeleteMap: (String) -> Unit,
     onDownloadArea: () -> Unit,
     onDownloadRegion: (String) -> Unit,
@@ -321,7 +335,21 @@ fun OfflineMapsDialog(
         onDismissRequest = onDismiss,
         title = { Text("Gestione Mappe Offline") },
         text = {
-            Column(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.fillMaxWidth().heightIn(max = 560.dp)
+                .verticalScroll(rememberScrollState())) {
+                ValhallaRoutingSection(
+                    regions = valhallaRegions,
+                    loadingCatalog = valhallaCatalogLoading,
+                    installedBytes = valhallaInstalledBytes,
+                    isDownloading = valhallaDownloading,
+                    progress = valhallaProgress,
+                    status = valhallaStatus,
+                    isNavigating = isNavigating,
+                    onRefreshCatalog = onRefreshValhallaCatalog,
+                    onDownload = onDownloadValhalla,
+                    onCancel = onCancelValhalla,
+                    onDelete = onDeleteValhalla
+                )
                 Text("Mappe .motomap salvate:", style = MaterialTheme.typography.titleSmall)
                 Spacer(modifier = Modifier.height(8.dp))
 
@@ -407,6 +435,16 @@ fun NavigationScreen(
     isNavigating: Boolean = false,
     currentLocation: Pair<Double, Double>? = null,
     savedMaps: List<SavedMapInfo> = emptyList(),
+    valhallaRegions: List<ValhallaRegion> = emptyList(),
+    valhallaCatalogLoading: Boolean = false,
+    valhallaInstalledBytes: Long = 0L,
+    valhallaDownloading: Boolean = false,
+    valhallaProgress: Float = 0f,
+    valhallaStatus: String? = null,
+    onRefreshValhallaCatalog: () -> Unit = {},
+    onDownloadValhalla: (String) -> Unit = {},
+    onCancelValhalla: () -> Unit = {},
+    onDeleteValhalla: () -> Unit = {},
     onRouteOptionSelect: (Int) -> Unit,
     onRouteSelected: (PlaceSearchResult) -> Unit,
     onStartNavigation: (PlaceSearchResult) -> Unit,
@@ -467,12 +505,24 @@ fun NavigationScreen(
     LaunchedEffect(showOfflineDialog) {
         if (showOfflineDialog) {
             onRefreshMaps()
+            onRefreshValhallaCatalog()
         }
     }
 
     if (showOfflineDialog) {
         OfflineMapsDialog(
             savedMaps = savedMaps,
+            valhallaRegions = valhallaRegions,
+            valhallaCatalogLoading = valhallaCatalogLoading,
+            valhallaInstalledBytes = valhallaInstalledBytes,
+            valhallaDownloading = valhallaDownloading,
+            valhallaProgress = valhallaProgress,
+            valhallaStatus = valhallaStatus,
+            isNavigating = isNavigating,
+            onRefreshValhallaCatalog = onRefreshValhallaCatalog,
+            onDownloadValhalla = onDownloadValhalla,
+            onCancelValhalla = onCancelValhalla,
+            onDeleteValhalla = onDeleteValhalla,
             onDeleteMap = onDeleteMap,
             onDownloadArea = onDownloadArea,
             onDownloadRegion = onDownloadRegion,
@@ -548,7 +598,7 @@ fun NavigationScreen(
                     }
 
                     Text(
-                        text = "Seleziona percorso (OSM)",
+                        text = "Percorso Valhalla (offline)",
                         style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.padding(16.dp)
                     )

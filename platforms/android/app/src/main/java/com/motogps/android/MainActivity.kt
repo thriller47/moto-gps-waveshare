@@ -145,6 +145,12 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             val downloadStatus = viewModel.downloadStatus.collectAsState().value
             val downloadProgress = viewModel.downloadProgress.collectAsState().value
             val isDownloadingMap = viewModel.isDownloadingMap.collectAsState().value
+            val valhallaRegions = viewModel.valhallaRegions.collectAsState().value
+            val valhallaCatalogLoading = viewModel.valhallaCatalogLoading.collectAsState().value
+            val valhallaInstalledBytes = viewModel.valhallaInstalledBytes.collectAsState().value
+            val valhallaDownloading = viewModel.valhallaDownloading.collectAsState().value
+            val valhallaProgress = viewModel.valhallaProgress.collectAsState().value
+            val valhallaStatus = viewModel.valhallaStatus.collectAsState().value
 
             var mapsUpdateTrigger by remember { mutableStateOf(0) }
             val savedMaps = viewModel.savedMaps.collectAsState().value
@@ -212,6 +218,16 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     downloadStatus = downloadStatus,
                     downloadProgress = downloadProgress,
                     isDownloadingMap = isDownloadingMap,
+                    valhallaRegions = valhallaRegions,
+                    valhallaCatalogLoading = valhallaCatalogLoading,
+                    valhallaInstalledBytes = valhallaInstalledBytes,
+                    valhallaDownloading = valhallaDownloading,
+                    valhallaProgress = valhallaProgress,
+                    valhallaStatus = valhallaStatus,
+                    onRefreshValhallaCatalog = { viewModel.refreshValhallaCatalog() },
+                    onDownloadValhalla = { id -> viewModel.downloadValhallaRegion(this@MainActivity, id) },
+                    onCancelValhalla = { viewModel.cancelValhallaDownload() },
+                    onDeleteValhalla = { viewModel.deleteValhallaGraph(this@MainActivity) },
                     onCancelDownload = {
                         viewModel.cancelMapDownload()
                     },

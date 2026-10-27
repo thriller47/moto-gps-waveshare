@@ -1,77 +1,57 @@
-# Esperimento Valhalla offline (`valhalla`)
+# Valhalla offline — branch `valhalla`
 
-Questo branch nasce da `signal`. `signal`, `main`, `NoOta` e il
-servizio Render di produzione **non devono essere aggiornati** finché
-l'integrazione non è collaudata.
+Questo branch **non usa OSRM per il routing**: né il calcolo iniziale né
+l'anteprima o il ricalcolo chiamano gli endpoint `/v1/routes` e
+`/v1/route-options`. In assenza di dati Valhalla il calcolo si ferma
+con un messaggio esplicito. **Il backend Render non cambia**; soltanto
+l'APK di questo branch evita il routing del gateway.
 
-## Implementato nella prima fase
+## Primo test sul telefono
 
-- Libreria Android `io.github.rallista:valhalla-mobile:0.6.4`.
-- Motore locale `OfflineValhallaRouter` (Valhalla C++/JNI, non HTTP).
-- Ricalcolo con direzione GPS recente, quando disponibile.
-- Conversione di shape `polyline6` e manovre nel formato del gateway
-  Moto-GPS che il firmware ESP32 già riceve via BLE.
-- Anteprima del percorso e navigazione attraverso Valhalla se è presente
-  un archivio di tile da routing locale.
-- Ripiego temporaneo al gateway OSRM/Render **soltanto quando manca**
-  l'archivio. Con l'archivio presente, gli errori di Valhalla vengono
-  mostrati e non nascosti tramite un routing differente.
+1. Installa l'APK Android del branch `valhalla`.
+2. Apri **Gestione Mappe Offline → Routing Valhalla offline**.
+3. Premi **Aggiorna regioni**, scegli un'area e **Scarica routing**.
+   Per la Lombardia scegli **Italia Nord-Ovest** (include anche Piemonte,
+   Liguria e Valle d'Aosta). Gli archivi possono pesare centinaia di MB.
+4. Una volta installato il grafo, **disattiva Wi-Fi e rete dati**.
+5. Per scegliere una destinazione offline usa una **pressione prolungata
+   sulla mappa** (la ricerca testuale dei luoghi è ancora online).
+6. Controlla il percorso sull'app e sull'ESP32, poi prova una deviazione
+   per attivare il ricalcolo locale.
 
-## Differenza tra OSM, OSRM, Valhalla e motomap
+## Origine e formato
 
-Valhalla è un motore di routing che usa normalmente i dati
-OpenStreetMap. Non elimina il formato o la provenienza OSM delle strade.
-La cache di visualizzazione `.motomap` non contiene il grafo di routing
-necessario a Valhalla e non può essere rinominata in `.tar`.
+L'app interroga il catalogo dei pacchetti `.tar` delle release di
+[Librescoot Valhalla Tiles](https://github.com/librescoot/valhalla-tiles/releases/tag/latest).
+Sono grafi stradali derivati da OpenStreetMap; non sono file `.osm.pbf`,
+`.motomap` o archivi compressi `.tar.zst`.
 
-Per l'uso offline sono necessari dati Valhalla generati in anticipo
-(per esempio a partire da un extract OSM PBF) per la regione desiderata.
-L'archivio previsto dall'app si chiama:
+Il download avviene in streaming dentro un file provvisorio; dimensione
+e SHA-256 sono confrontati con le informazioni pubblicate dalla release,
+e si controlla che il tar contenga almeno un file graph tile `.gph`.
+Solo dopo tutte le verifiche la nuova versione sostituisce quella precedente.
+Se manca spazio, il trasferimento è interrotto, viene annullato o il checksum
+non coincide, il vecchio grafo rimane disponibile.
 
-```text
+Percorso dell'archivio:
+```
 Android/data/com.motogps.android/files/routing/valhalla_tiles.tar
 ```
 
-Il path è relativo alla **memoria condivisa primaria**; in codice
-viene calcolato tramite `getExternalFilesDir(null)`, con fallback alla
-directory privata dell'app. L'archivio deve contenere vere tile di
-routing Valhalla, non un file OSM `.pbf` e non una cache `.motomap`.
+## Limitazioni della fase di prova
 
-### Installazione temporanea per i test con ADB
+- **Un solo archivio alla volta.** Scaricare una nuova regione sostituisce la precedente.
+- Non sostituire o eliminare il grafo durante la navigazione: i controlli
+  nell'app bloccano queste azioni.
+- Il routing funziona soltanto per percorsi coperti dalle tile scaricate.
+- La **ricerca indirizzi** e il caricamento delle **mappe di visualizzazione**
+  possono ancora accedere alla rete. Solo **il calcolo del percorso** è
+  esclusivamente offline.
+- Non sono ancora disponibili download persistenti in background, unione
+  di regioni né ricerca luoghi offline.
+- La compatibilità delle tile di Librescoot con la versione nativa di
+  Valhalla Mobile richiede ancora una prova reale: un tar integro non
+  certifica la compatibilità binaria del grafo con la libreria.
+- ESP32, formato BLE, `main`, `signal`, `NoOta` e Render non sono modificati.
 
-1. Compilare la versione Android dal branch `valhalla` e installarla.
-2. Ottenere un archivio `valhalla_tiles.tar` coerente con la versione
-   del motore e con l'area del test.
-3. Sul dispositivo di test (debug), trasferirlo, per esempio:
-
-   ```sh
-   adb shell mkdir -p /sdcard/Android/data/com.motogps.android/files/routing
-   adb push valhalla_tiles.tar /sdcard/Android/data/com.motogps.android/files/routing/valhalla_tiles.tar
-   ```
-
-   Su dispositivi con restrizioni dello storage, questo metodo potrebbe
-   essere bloccato. In quel caso usare un file picker/importer da
-   implementare nella fase successiva.
-
-4. Riaprire l'app e pianificare un itinerario **dentro i confini
-   geografici delle tile installate**.
-
-Non copiare l'archivio durante una navigazione in corso: il motore lo
-tiene aperto e mappato in memoria.
-
-## Non ancora completato
-
-- Creazione, download e gestione in-app degli extract regionali.
-- Importazione GPX, tappe intermedie e preferenze motociclistiche.
-- Ricerca di luoghi/indirizzi offline (la ricerca attuale usa il gateway).
-- Conversione del contesto stradale `.motomap` a una fonte interamente
-  offline: la cache funziona ma il recupero delle tile mancanti usa
-  ancora Internet.
-- Eliminazione definitiva di Render/OSRM dal prodotto.
-- Test su dispositivo con archivi reali.
-
-L'ESP32 e il protocollo BLE restano invariati.
-
-Riferimenti:
-- https://github.com/Rallista/valhalla-mobile
-- https://valhalla.github.io/valhalla/
+Dati: © OpenStreetMap contributors (ODbL); archivi della community Librescoot.
