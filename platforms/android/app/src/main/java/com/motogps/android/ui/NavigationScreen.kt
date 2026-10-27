@@ -1,7 +1,5 @@
 package com.motogps.android.ui
 
-import android.content.Context
-import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -32,7 +30,6 @@ import com.motogps.android.viewmodel.RouteOption
 import org.json.JSONArray
 import org.osmdroid.config.Configuration
 import org.osmdroid.events.MapEventsReceiver
-import org.osmdroid.tileprovider.cachemanager.CacheManager
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
@@ -180,36 +177,6 @@ fun MainMapView(
     )
 }
 
-fun triggerOfflineMapDownload(mapView: MapView?, context: Context) {
-    if (mapView == null) {
-        Toast.makeText(context, "Mappa non ancora pronta", Toast.LENGTH_SHORT).show()
-        return
-    }
-    val boundingBox = mapView.boundingBox
-    if (boundingBox != null) {
-        val cacheManager = CacheManager(mapView)
-        val zoomMin = 12
-        val zoomMax = 16
-        try {
-            cacheManager.downloadAreaAsync(context, boundingBox, zoomMin, zoomMax, object : CacheManager.CacheManagerCallback {
-                override fun downloadStarted() {}
-                override fun onTaskComplete() {
-                    Toast.makeText(context, "Mappa offline salvata con successo", Toast.LENGTH_SHORT).show()
-                }
-                override fun onTaskFailed(errors: Int) {
-                    Toast.makeText(context, "Errore download mappa: $errors", Toast.LENGTH_SHORT).show()
-                }
-                override fun updateProgress(progress: Int, currentZoomLevel: Int, zoomMin: Int, zoomMax: Int) {}
-                override fun setPossibleTilesInArea(total: Int) {}
-            })
-            Toast.makeText(context, "Download mappa offline avviato...", Toast.LENGTH_SHORT).show()
-        } catch (e: Exception) {
-            Toast.makeText(context, "Impossibile salvare la mappa: ${e.message}", Toast.LENGTH_SHORT).show()
-        }
-    } else {
-        Toast.makeText(context, "Area mappa non valida", Toast.LENGTH_SHORT).show()
-    }
-}
 
 fun extractGeoPoints(
     selectedRoute: RouteOption?,
@@ -650,7 +617,7 @@ fun NavigationScreen(
                     }
 
                     // Salva Mappa Corridoio Quick Action Button
-                    OutlinedButton(
+                    FilledTonalButton(
                         onClick = {
                             val pts = geoPoints.map { Pair(it.latitude, it.longitude) }
                             onDownloadCorridor(pts)
@@ -663,7 +630,7 @@ fun NavigationScreen(
                     ) {
                         Icon(Icons.Default.Place, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Salva Mappa Corridoio (10 km)")
+                        Text("Scarica strade del percorso")
                     }
 
                     if (isNavigating) {
