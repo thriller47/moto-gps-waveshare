@@ -44,6 +44,8 @@ import org.osmdroid.views.overlay.Polyline
 @Composable
 fun RouteMapView(
     geoPoints: List<GeoPoint>,
+    currentLocation: Pair<Double, Double>? = null,
+    destinationLocation: Pair<Double, Double>? = null,
     modifier: Modifier = Modifier
 ) {
     AndroidView(
@@ -56,18 +58,41 @@ fun RouteMapView(
         },
         update = { mapView ->
             mapView.overlays.clear()
-            if (geoPoints.isNotEmpty()) {
-                val polyline = Polyline().apply {
+            val viewPoints = mutableListOf<GeoPoint>()
+            if (geoPoints.size >= 2) {
+                mapView.overlays.add(Polyline().apply {
                     setPoints(geoPoints)
                     outlinePaint.color = android.graphics.Color.BLUE
                     outlinePaint.strokeWidth = 12f
-                }
-                mapView.overlays.add(polyline)
-
-                val boundingBox = BoundingBox.fromGeoPoints(geoPoints)
-                mapView.post {
-                    mapView.zoomToBoundingBox(boundingBox, true, 64)
-                }
+                })
+                viewPoints.addAll(geoPoints)
+            }
+            if (currentLocation != null && currentLocation.first in -90.0..90.0 &&
+                currentLocation.second in -180.0..180.0) {
+                val here = GeoPoint(currentLocation.first, currentLocation.second)
+                mapView.overlays.add(Marker(mapView).apply {
+                    position = here
+                    title = "La mia posizione"
+                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                })
+                if (geoPoints.size < 2) viewPoints.add(here)
+            }
+            if (destinationLocation != null && destinationLocation.first in -90.0..90.0 &&
+                destinationLocation.second in -180.0..180.0) {
+                val target = GeoPoint(destinationLocation.first, destinationLocation.second)
+                mapView.overlays.add(Marker(mapView).apply {
+                    position = target
+                    title = "Destinazione selezionata"
+                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                })
+                if (geoPoints.size < 2) viewPoints.add(target)
+            }
+            if (viewPoints.size >= 2) {
+                val bounds = BoundingBox.fromGeoPoints(viewPoints)
+                mapView.post { mapView.zoomToBoundingBox(bounds, true, 64) }
+            } else if (viewPoints.size == 1) {
+                mapView.controller.setCenter(viewPoints.first())
+                mapView.controller.setZoom(15.0)
             }
             mapView.invalidate()
         },
@@ -242,14 +267,8 @@ fun extractGeoPoints(
         }
     }
 
-    if (geoPoints.isEmpty()) {
-        if (currentLocation != null && (currentLocation.first != 0.0 || currentLocation.second != 0.0)) {
-            geoPoints.add(GeoPoint(currentLocation.first, currentLocation.second))
-        }
-        if (destination != null) {
-            geoPoints.add(GeoPoint(destination.latitude, destination.longitude))
-        }
-    }
+    // No synthetic straight line: a route exists only when Valhalla returned
+    // road-following geometry. The map shows origin/destination markers separately.
 
     return geoPoints
 }
@@ -440,6 +459,7 @@ fun NavigationScreen(
     routeOptions: List<RouteOption>,
     selectedRouteIndex: Int,
     routingSource: String? = null,
+    routePreviewError: String? = null,
     isNavigating: Boolean = false,
     currentLocation: Pair<Double, Double>? = null,
     savedMaps: List<SavedMapInfo> = emptyList(),
@@ -558,6 +578,8 @@ fun NavigationScreen(
                 ) {
                     RouteMapView(
                         geoPoints = geoPoints,
+                        currentLocation = currentLocation,
+                        destinationLocation = Pair(routePreview.latitude, routePreview.longitude),
                         modifier = Modifier.fillMaxSize()
                     )
                 }
@@ -574,7 +596,8 @@ fun NavigationScreen(
                     }
 
                     Text(
-                        text = routingSource ?: "Calcolo percorso Valhalla",
+                        text = routingSource ?: if (isLoading) "Calcolo percorso Valhalla"
+                            else "Percorso Valhalla non disponibile",
                         style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.padding(16.dp)
                     )
@@ -607,8 +630,29 @@ fun NavigationScreen(
                             }
                         }
                     } else {
-                        Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                            Text("Calcolo del percorso in corso...")
+                        Column(
+                            modifier = Modifier.weight(1f).fillMaxWidth().padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                routePreviewError ?: if (valhallaInstalledBytes == 0L)
+                                    "Nessun grafo Valhalla offline installato. Il pacchetto .motomap.zip mostra le strade sull'ESP32, ma non calcola itinerari."
+                                else "Nessun percorso stradale calcolato. Controlla che la destinazione sia coperta dal grafo Valhalla.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                            Text(
+                                "I marcatori sulla mappa indicano solo partenza e destinazione: non sono un itinerario.",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                            if (valhallaInstalledBytes == 0L) {
+                                OutlinedButton(onClick = { showOfflineDialog = true }) {
+                                    Text("Installa grafo Valhalla offline")
+                                }
+                            }
+                            OutlinedButton(onClick = { onRouteSelected(routePreview) }) {
+                                Text("Riprova calcolo percorso")
+                            }
                         }
                     }
 
@@ -618,6 +662,7 @@ fun NavigationScreen(
                             val pts = geoPoints.map { Pair(it.latitude, it.longitude) }
                             onDownloadCorridor(pts)
                         },
+                        enabled = selectedRoute != null && geoPoints.size >= 2 && !isLoading,
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp, vertical = 4.dp)
@@ -645,6 +690,7 @@ fun NavigationScreen(
                     } else {
                         Button(
                             onClick = { onStartNavigation(routePreview) },
+                            enabled = selectedRoute != null && geoPoints.size >= 2 && !isLoading,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 16.dp, vertical = 8.dp)
