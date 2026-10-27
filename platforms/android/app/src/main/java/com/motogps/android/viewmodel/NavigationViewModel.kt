@@ -77,6 +77,8 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
 
     private val _routeOptions = MutableStateFlow<List<RouteOption>>(emptyList())
     val routeOptions: StateFlow<List<RouteOption>> = _routeOptions
+    private val _routePreviewError = MutableStateFlow<String?>(null)
+    val routePreviewError: StateFlow<String?> = _routePreviewError
     private val _routingSource = MutableStateFlow<String?>(null)
     val routingSource: StateFlow<String?> = _routingSource
 
@@ -192,6 +194,8 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         _routeOptions.value = emptyList()
         _selectedRouteIndex.value = 0
         _routingSource.value = null
+        _routePreviewError.value = null
+        _errorMessage.value = null
 
         viewModelScope.launch {
             _isLoading.value = true
@@ -207,6 +211,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                         else null
                     }
             } catch (e: Exception) {
+                _routePreviewError.value = e.message ?: "Impossibile calcolare il percorso Valhalla"
                 _errorMessage.value = "Impossibile recuperare opzioni percorso: ${e.message}"
             } finally {
                 _isLoading.value = false
@@ -224,6 +229,8 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         _routePreview.value = null
         _routeOptions.value = emptyList()
         _selectedRouteIndex.value = 0
+        _routingSource.value = null
+        _routePreviewError.value = null
     }
 
     fun startNavigation(place: PlaceSearchResult) {
@@ -231,10 +238,13 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
             _errorMessage.value = "Attendi un segnale GPS valido prima di navigare"
             return
         }
+        if (_routeOptions.value.isEmpty()) {
+            _errorMessage.value = "Nessun percorso stradale calcolato. Installa il grafo Valhalla offline o riprova con rete attiva."
+            return
+        }
+        if (_isLoading.value || _isNavigating.value) return
 
-        activeDestination = place
-        _isNavigating.value = true
-        _currentDevicePage.value = 0 // Reset to navigation page on start
+        _routePreviewError.value = null
 
         navigationJob?.cancel()
         navigationJob = viewModelScope.launch {
@@ -246,6 +256,9 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                     performRoutingWithGeometry(place)
                 }
 
+                activeDestination = place
+                _isNavigating.value = true
+                _currentDevicePage.value = 0 // Reset to navigation page on start
                 currentSnapshot = snapshot
                 currentGeometry = geometry
                 // Keep the source of the ACTUAL navigation route visible.
@@ -322,6 +335,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
             } catch (e: Exception) {
                 _isNavigating.value = false
                 activeDestination = null
+                _routePreviewError.value = e.message ?: "Navigazione Valhalla non disponibile"
                 _errorMessage.value = "Errore durante la navigazione: ${e.message}"
             } finally {
                 _isLoading.value = false
