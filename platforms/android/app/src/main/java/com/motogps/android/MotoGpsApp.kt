@@ -1,7 +1,7 @@
 package com.motogps.android
 
 import android.app.Application
-import android.preference.PreferenceManager
+import android.content.Context
 import org.osmdroid.config.Configuration
 
 class MotoGpsApp : Application() {
@@ -9,7 +9,7 @@ class MotoGpsApp : Application() {
         super.onCreate()
         try {
             Configuration.getInstance().userAgentValue = packageName
-            Configuration.getInstance().load(this, PreferenceManager.getDefaultSharedPreferences(this))
+            Configuration.getInstance().load(this, getSharedPreferences("${packageName}_preferences", Context.MODE_PRIVATE))
         } catch (_: Exception) {}
     }
 }
