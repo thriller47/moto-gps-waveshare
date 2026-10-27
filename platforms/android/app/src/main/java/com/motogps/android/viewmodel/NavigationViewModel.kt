@@ -168,6 +168,16 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     fun searchDestination(query: String) {
         if (query.isBlank()) return
 
+        // Coordinates typed as "lat, lon" bypass Photon entirely.
+        OfflineCoordinateSearch.parse(query)?.let { destination ->
+            _searchResults.value = listOf(destination)
+            _errorMessage.value = null
+            _routePreview.value = null
+            _routeOptions.value = emptyList()
+            _routePreviewError.value = null
+            return
+        }
+
         viewModelScope.launch {
             _isLoading.value = true
             _errorMessage.value = null
