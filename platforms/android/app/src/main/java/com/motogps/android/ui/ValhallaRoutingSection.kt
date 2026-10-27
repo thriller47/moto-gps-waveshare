@@ -7,6 +7,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.motogps.android.routing.ValhallaRegion
 
+/** Compact, touch-friendly controls for the routing graph inside the map dialog. */
 @Composable
 fun ValhallaRoutingSection(
     regions: List<ValhallaRegion>,
@@ -25,64 +26,129 @@ fun ValhallaRoutingSection(
     var selectedId by remember { mutableStateOf<String?>(null) }
     val selected = regions.find { it.id == selectedId } ?: regions.firstOrNull()
 
-    Text("Routing Valhalla offline", style = MaterialTheme.typography.titleMedium)
-    Text(
-        if (installedBytes > 0)
-            "Grafo installato: " + (installedBytes / 1_000_000) + " MB · OSRM disabilitato"
-        else "Nessun grafo di routing. Installa una regione per attivare la navigazione.",
-        style = MaterialTheme.typography.bodySmall
-    )
-    Spacer(Modifier.height(6.dp))
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedButton(onClick = onRefreshCatalog, enabled = !isDownloading && !loadingCatalog) {
-            Text(if (loadingCatalog) "Caricamento..." else "Aggiorna regioni")
-        }
-        if (installedBytes > 0) {
-            OutlinedButton(onClick = onDelete, enabled = !isDownloading && !isNavigating) {
-                Text("Elimina routing")
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+        )
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text("Grafi Valhalla", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Servono per calcolare percorsi e svolte. Sono separati dalle mappe stradali.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                if (installedBytes > 0L)
+                    "Grafo installato · ${installedBytes / 1_000_000} MB"
+                else "Nessun grafo installato",
+                style = MaterialTheme.typography.bodyMedium
+            )
+
+            OutlinedButton(
+                onClick = onRefreshCatalog,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                enabled = !isDownloading && !loadingCatalog
+            ) {
+                Text(if (loadingCatalog) "Caricamento regioni..." else "Aggiorna elenco regioni")
             }
-        }
-    }
-    if (regions.isNotEmpty()) {
-        Box {
-            OutlinedButton(onClick = { expanded = true }, enabled = !isDownloading) {
-                Text(selected?.label ?: "Seleziona regione")
+
+            if (regions.isNotEmpty()) {
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    OutlinedButton(
+                        onClick = { expanded = true },
+                        enabled = !isDownloading && !isNavigating && !loadingCatalog,
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)
+                    ) {
+                        Column {
+                            Text("Regione selezionata", style = MaterialTheme.typography.labelSmall)
+                            Text(
+                                selected?.label ?: "Seleziona una regione",
+                                style = MaterialTheme.typography.bodyMedium,
+                                maxLines = 2
+                            )
+                        }
+                    }
+                    DropdownMenu(
+                        expanded = expanded,
+                        onDismissRequest = { expanded = false }
+                    ) {
+                        regions.forEach { region ->
+                            DropdownMenuItem(
+                                text = {
+                                    Column {
+                                        Text(region.label, maxLines = 2)
+                                        Text(
+                                            "${region.bytes / 1_000_000} MB",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                },
+                                onClick = {
+                                    selectedId = region.id
+                                    expanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+                Button(
+                    onClick = { selected?.let { onDownload(it.id) } },
+                    enabled = !isDownloading && !isNavigating && !loadingCatalog && selected != null,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
+                ) {
+                    Text("Scarica grafo · ${selected?.bytes?.div(1_000_000) ?: 0} MB")
+                }
+            } else if (!loadingCatalog) {
+                Text(
+                    "Aggiorna l'elenco per scegliere il grafo da scaricare.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
-            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                regions.forEach { region ->
-                    DropdownMenuItem(
-                        text = { Text(region.label + " · " + (region.bytes / 1_000_000) + " MB") },
-                        onClick = { selectedId = region.id; expanded = false }
-                    )
+
+            if (isDownloading) {
+                LinearProgressIndicator(
+                    progress = { progress.coerceIn(0f, 1f) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Text(
+                    "Download grafo · ${(progress.coerceIn(0f, 1f) * 100).toInt()}%",
+                    style = MaterialTheme.typography.labelMedium
+                )
+                OutlinedButton(
+                    onClick = onCancel,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                ) {
+                    Text("Annulla download")
                 }
             }
-        }
-        Button(
-            onClick = { selected?.let { onDownload(it.id) } },
-            enabled = !isDownloading && !isNavigating && selected != null
-        ) {
-            Text("Scarica routing " + (selected?.let { "(" + (it.bytes / 1_000_000) + " MB)" } ?: ""))
+
+            if (status != null) {
+                Text(status, style = MaterialTheme.typography.bodySmall)
+            }
+
+            if (installedBytes > 0L) {
+                OutlinedButton(
+                    onClick = onDelete,
+                    enabled = !isDownloading && !isNavigating,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                ) {
+                    Text("Rimuovi grafo installato")
+                }
+            }
+            if (isNavigating) {
+                Text(
+                    "Termina la navigazione prima di sostituire il grafo.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
-    if (isDownloading) {
-        LinearProgressIndicator(
-            progress = { progress.coerceIn(0f, 1f) },
-            modifier = Modifier.fillMaxWidth()
-        )
-        Text((progress * 100).toInt().toString() + "%")
-        OutlinedButton(onClick = onCancel) { Text("Annulla download") }
-    }
-    if (status != null) Text(status, style = MaterialTheme.typography.bodySmall)
-    if (isNavigating) Text(
-        "Termina la navigazione prima di sostituire le mappe.",
-        style = MaterialTheme.typography.bodySmall
-    )
-    Text(
-        "I dati di routing sono distinti dalle mappe .motomap. " +
-            "Il download richiede Internet; il calcolo dei percorsi usa poi solo Valhalla locale. " +
-            "Ricerca indirizzi e cartografia possono ancora richiedere la rete.",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant
-    )
-    HorizontalDivider(Modifier.padding(vertical = 12.dp))
 }
