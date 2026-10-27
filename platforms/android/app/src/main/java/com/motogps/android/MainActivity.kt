@@ -195,9 +195,6 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     onImportOsmPack = {
                         importOsmPackLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
                     },
-                    onDownloadArea = {
-                        viewModel.downloadCurrentArea(this@MainActivity)
-                    },
                     onDownloadCorridor = { points ->
                         viewModel.downloadRouteCorridor(this@MainActivity, points)
                     },
