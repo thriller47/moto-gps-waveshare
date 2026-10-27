@@ -1,5 +1,11 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
+plugins {
+    id("com.android.application")
+    id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose") version "2.2.10"
+}
+
 // The CI run number is monotonically increasing across builds in this repo.
 // Keep the applicationId unchanged so Android sees a regular app update.
 val motoVersionCode = System.getenv("MOTO_GPS_VERSION_CODE")
@@ -18,11 +24,6 @@ if (!signingStorePath.isNullOrBlank() && !persistentSigning) {
     error("Firma Android incompleta: configurare tutte le credenziali del keystore")
 }
 
-plugins {
-    id("com.android.application")
-    id("org.jetbrains.kotlin.android")
-    id("org.jetbrains.kotlin.plugin.compose") version "2.2.10"
-}
 
 android {
     namespace = "com.motogps.android"
