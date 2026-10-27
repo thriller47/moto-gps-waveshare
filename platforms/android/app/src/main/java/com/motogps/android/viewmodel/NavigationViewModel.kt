@@ -206,7 +206,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     }
 
     fun startNavigation(place: PlaceSearchResult, gatewayUrl: String) {
-        if (gatewayUrl.isBlank()) return
+        if (gatewayUrl.isBlank() && navigationMapsContext?.let { OfflineValhallaRouter.hasTiles(it) } != true) return
 
         activeDestination = place
         activeGatewayUrl = gatewayUrl
@@ -1002,6 +1002,22 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     }
 
     private fun fetchRouteOptions(place: PlaceSearchResult, gatewayBaseUrl: String): List<RouteOption> {
+        val offlineContext = navigationMapsContext
+        if (offlineContext != null && OfflineValhallaRouter.hasTiles(offlineContext)) {
+            val (lat, lon) = currentLocation.value
+            val routeResponse = OfflineValhallaRouter.route(
+                offlineContext, lat, lon, place.latitude, place.longitude)
+                ?: error("Valhalla tiles not available")
+            val route = routeResponse.getJSONObject("route")
+            val maneuvers = route.optJSONArray("maneuvers")
+            val instructions = (0 until (maneuvers?.length() ?: 0)).map { index ->
+                maneuvers!!.getJSONObject(index).optString("instruction", "")
+            }.filter { it.isNotBlank() }
+            return listOf(RouteOption(
+                "valhalla-0", "Percorso Valhalla offline",
+                route.getLong("total_distance_m"), route.getLong("estimated_duration_s"),
+                instructions, route))
+        }
         val baseUrl = if (gatewayBaseUrl.endsWith("/")) gatewayBaseUrl else "$gatewayBaseUrl/"
         val endpoint = "${baseUrl}v1/route-options"
 
