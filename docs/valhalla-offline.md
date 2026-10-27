@@ -42,8 +42,12 @@ una singola richiesta alla pressione del pulsante Cerca.
 - Nessun autocomplete continuo per non sovraccaricare il server demo.
 
 Photon è online: offline si può comunque scegliere una destinazione
-tramite pressione prolungata sulla mappa, mentre l'indice locale
-degli indirizzi resta un lavoro futuro. Anche Photon demo può limitare
+tramite pressione prolungata sulla mappa **oppure inserendo coordinate GPS**
+nel formato `45.4642, 9.1900`. Le coordinate vengono riconosciute localmente,
+senza chiamare Photon. L'indice locale degli indirizzi resta un lavoro futuro.
+**Nota UI:** se Valhalla non ha prodotto alcuna geometria, l'anteprima
+mostra soltanto marcatori di partenza e arrivo, mai una finta linea retta;
+il motivo dell'errore rimane visibile e Avvia navigazione è disabilitato. Anche Photon demo può limitare
 o rifiutare richieste: per produzione usare una propria istanza o
 un fornitore con condizioni compatibili.
 
