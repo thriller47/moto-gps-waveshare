@@ -64,6 +64,12 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         }
     }
 
+    private val importOsmPackLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) viewModel.importOsmRoadPack(this, uri)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -183,6 +189,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     },
                     onBackToSearch = {
                         viewModel.clearRoutePreview()
+                    },
+                    onImportOsmPack = {
+                        importOsmPackLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
                     },
                     onDownloadArea = {
                         viewModel.downloadCurrentArea(this@MainActivity)

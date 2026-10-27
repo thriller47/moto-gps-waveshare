@@ -126,3 +126,36 @@ complessivo. Il client prova, in sequenza e solo in caso di errore,
 Una risposta valida senza strade non viene convertita artificialmente
 in geometrie. La presenza di un percorso Valhalla online non garantisce
 che Overpass abbia risposto.
+
+## Pacchetti stradali offline da .osm.pbf (prima versione)
+
+Il file OSM PBF è un formato sorgente, non una mappa pronta per il rendering.
+Preparare il pacchetto su PC Linux o Windows con Python e pyosmium:
+
+```bash
+python -m pip install osmium
+python scripts/offline_map/pbf_to_motomap.py italy-nord-ovest-latest.osm.pbf -o nord-ovest.motomap.zip
+```
+
+Scaricare il `.osm.pbf` della regione desiderata dal catalogo
+[Geofabrik](https://download.geofabrik.de/europe/italy.html).
+Copiare il `.motomap.zip` sul telefono, aprire **Gestione Mappe Offline**
+e premere **Importa pacchetto strade OSM (.zip)**.
+Selezionare il file dal selettore Android: le tile vengono conservate
+in `files/maps/.osm_import_parts` e lette dall'indice stradale
+esistente. Il contenuto è destinato al **contesto stradale ESP32**,
+non sostituisce il grafo Valhalla `.tar` usato per il routing.
+
+**Attenzione alle dimensioni.** Questa prima versione usa un convertitore
+Python in memoria; su estratti PBF grandi (per esempio un'intera
+macroregione) richiede molta RAM. Partire con un estratto locale piccolo
+prima di tentare regioni complete. Una versione successiva dovrà
+generare le tile con indicizzazione su disco e offrire il download di
+pacchetti precompilati. L'importazione Android limita ZIP, numero di
+file e dimensioni estratte, e protegge i dati già installati durante
+l'aggiornamento.
+
+Nessun pacchetto regionale precompilato è incluso nell'APK.
+La disponibilità delle strade offline dipende dall'avvenuta
+**conversione e importazione** del pacchetto; non basta installare
+l'app senza scaricare dati.

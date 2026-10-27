@@ -323,6 +323,7 @@ fun OfflineMapsDialog(
     onDeleteValhalla: () -> Unit,
     onDeleteMap: (String) -> Unit,
     onDownloadArea: () -> Unit,
+    onImportOsmPack: () -> Unit,
     onDownloadRegion: (String) -> Unit,
     downloadStatus: String? = null,
     downloadProgress: Float = 0f,
@@ -391,6 +392,14 @@ fun OfflineMapsDialog(
                 }
 
                 Button(
+                    onClick = onImportOsmPack,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !isDownloadingMap
+                ) {
+                    Text("Importa pacchetto strade OSM (.zip)")
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(
                     onClick = onDownloadArea,
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !isDownloadingMap
@@ -450,6 +459,7 @@ fun NavigationScreen(
     onStopNavigation: () -> Unit = {},
     onBackToSearch: () -> Unit,
     onDownloadArea: () -> Unit = {},
+    onImportOsmPack: () -> Unit = {},
     onDownloadCorridor: (List<Pair<Double, Double>>) -> Unit = {},
     onDownloadRegion: (String) -> Unit = {},
     onDeleteMap: (String) -> Unit = {},
@@ -493,6 +503,7 @@ fun NavigationScreen(
             onDeleteValhalla = onDeleteValhalla,
             onDeleteMap = onDeleteMap,
             onDownloadArea = onDownloadArea,
+            onImportOsmPack = onImportOsmPack,
             onDownloadRegion = onDownloadRegion,
             downloadStatus = downloadStatus,
             downloadProgress = downloadProgress,

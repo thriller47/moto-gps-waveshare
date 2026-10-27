@@ -122,7 +122,7 @@ internal object GatewayRoadTiles {
                 android.util.Log.w("GatewayRoadTiles", "OSM ${tile.key}: ${e.message}")
             } catch (e: org.json.JSONException) {
                 lastError = IOException("Risposta Overpass non valida da $endpoint", e)
-                android.util.Log.w("GatewayRoadTiles", lastError.message)
+                android.util.Log.w("GatewayRoadTiles", lastError?.message ?: "Risposta Overpass non valida")
             } finally {
                 conn.disconnect()
             }

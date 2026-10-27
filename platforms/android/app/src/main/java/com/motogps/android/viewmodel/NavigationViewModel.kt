@@ -1,6 +1,8 @@
 package com.motogps.android.viewmodel
 
 import android.content.Context
+import android.net.Uri
+import com.motogps.android.map.MotomapPackImporter
 import android.location.Location
 import android.os.SystemClock
 import android.util.Log
@@ -835,6 +837,36 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
 
     private fun getOrCreateRepo(context: Context): HybridMapRepository =
         HybridMapRepository(context.applicationContext)
+
+    fun importOsmRoadPack(context: Context, uri: Uri) {
+        if (_isDownloadingMap.value) {
+            _errorMessage.value = "Un download mappe è già in corso"
+            return
+        }
+        mapDownloadJob?.cancel()
+        mapDownloadJob = viewModelScope.launch {
+            _isDownloadingMap.value = true
+            _downloadProgress.value = 0f
+            _downloadStatus.value = "Importazione pacchetto strade OSM..."
+            try {
+                val tiles = withContext(Dispatchers.IO) {
+                    MotomapPackImporter.install(context.applicationContext, uri) { count ->
+                        _downloadStatus.value = "Importate $count tile OSM..."
+                    }
+                }
+                _downloadProgress.value = 1f
+                _downloadStatus.value = "Pacchetto OSM importato: $tiles tile disponibili offline"
+                refreshSavedMaps(context)
+                val (lat, lon) = currentLocation.value
+                if (hasFirstFix) updateSpeedLimitAndMapScene(lat, lon, context.applicationContext)
+            } catch (e: Exception) {
+                _downloadStatus.value = "Errore importazione OSM: ${e.message}"
+                _errorMessage.value = _downloadStatus.value
+            } finally {
+                _isDownloadingMap.value = false
+            }
+        }
+    }
 
     fun refreshSavedMaps(context: Context) {
         _valhallaInstalledBytes.value = OfflineValhallaRouter.tileFile(context)
