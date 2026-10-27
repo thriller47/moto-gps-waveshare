@@ -28,6 +28,7 @@
 #define LV_FONT_SOURCE_HAN_SANS_SC_16_CJK 0
 
 #define LV_USE_ARC 1
+#define LV_USE_ARCLABEL 1
 #define LV_USE_LABEL 1
 #define LV_USE_LINE 1
 #define LV_USE_BUTTON 1
