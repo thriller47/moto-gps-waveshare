@@ -10,7 +10,9 @@
 #include "demo_fixture/jinan_big_data_demo.hpp"
 #include "esp_log.h"
 #include "esp_timer.h"
+#ifdef ESP_PLATFORM
 #include "esp_heap_caps.h"
+#endif
 #include "sdkconfig.h"
 #include "moto_nav_ui.h"
 
