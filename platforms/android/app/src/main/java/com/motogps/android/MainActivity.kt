@@ -131,6 +131,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             val routePreview = viewModel.routePreview.collectAsState().value
             val routeOptions = viewModel.routeOptions.collectAsState().value
             val routingSource = viewModel.routingSource.collectAsState().value
+            val routePreviewError = viewModel.routePreviewError.collectAsState().value
             val selectedRouteIndex = viewModel.selectedRouteIndex.collectAsState().value
             val isNavigating = viewModel.isNavigating.collectAsState().value
             val currentLocation = viewModel.currentLocation.collectAsState().value
@@ -171,6 +172,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     routePreview = routePreview,
                     routeOptions = routeOptions,
                     routingSource = routingSource,
+                    routePreviewError = routePreviewError,
                     selectedRouteIndex = selectedRouteIndex,
                     isNavigating = isNavigating,
                     currentLocation = currentLocation,
