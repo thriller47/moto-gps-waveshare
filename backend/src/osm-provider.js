@@ -196,10 +196,17 @@ export function createOsmProvider({
         const url = `${cleanEndpoint}${coords}?overview=full&geometries=geojson&steps=true${heading}`;
 
         try {
-          let resData = await fetchJsonWithTimeout(url, {}, 12000);
-          // GPS heading can disagree with the snapped road, e.g. near hairpins.
-          // Retry the same endpoint unconstrained before choosing another server.
-          if (heading && (resData?.code !== "Ok" || !resData?.routes?.length)) {
+          let resData;
+          if (heading) {
+            try {
+              resData = await fetchJsonWithTimeout(url, {}, 12000);
+            } catch {
+              // OSRM can respond NoSegment/400 for a bearing constraint.
+              // Preserve legacy routing before failing over to other servers.
+              resData = null;
+            }
+          }
+          if (!resData?.routes?.length) {
             resData = await fetchJsonWithTimeout(url.replace(heading, ""), {}, 12000);
           }
           if (resData && resData.routes && resData.routes.length > 0) {
