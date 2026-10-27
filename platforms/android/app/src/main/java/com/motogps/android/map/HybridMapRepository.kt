@@ -5,6 +5,7 @@ import android.util.Log
 import com.motogps.android.jni.GeoPointE6
 import java.io.File
 import java.io.IOException
+import java.util.zip.ZipFile
 import java.util.Locale
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
@@ -140,51 +141,37 @@ class HybridMapRepository(
                 .filter { it.isFile && it.length() > 0L }
         }.orEmpty()
         val seenRoads = HashSet<String>()
+        // ZipFile resolves individual tile names using the ZIP central directory:
+        // no extraction and no scan of every Italian road on each GPS update.
+        val packageDir = MotomapPackImporter.packagesDir(context)
+        val packFiles = packageDir.listFiles { file ->
+            file.isFile && file.name.endsWith(".motomap.zip", ignoreCase = true)
+        }?.toList().orEmpty()
+        val wantedNames = nearTiles.map { "tile_${it.key}.motomap" }
+        for (archive in packFiles) {
+            try {
+                ZipFile(archive).use { zip ->
+                    for (name in wantedNames) {
+                        val entry = zip.getEntry(name) ?: continue
+                        if (entry.size <= 0L || entry.size > 5L * 1024 * 1024) continue
+                        zip.getInputStream(entry).bufferedReader().useLines { lines ->
+                            for (line in lines) {
+                                parseRoadLine(line, queryMinLatE6, queryMinLonE6,
+                                    queryMaxLatE6, queryMaxLonE6, seenRoads, results)
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("HybridMapRepository", "Error reading pack ${archive.name}: ${e.message}")
+            }
+        }
         for (file in mapFiles + checkpointFiles) {
             try {
                 file.bufferedReader().useLines { lines ->
                     for (line in lines) {
-                        val trimmed = line.trim()
-                        if (trimmed.isEmpty() || trimmed.startsWith("#")) continue
-                        if (!seenRoads.add(trimmed)) continue
-
-                        val parts = trimmed.split("|")
-                        if (parts.size < 3) continue
-
-                        val headerParts = parts[0].split(",")
-                        if (headerParts.size < 2) continue
-                        val roadClass = headerParts[0].toIntOrNull() ?: 5
-                        val maxSpeedKph = headerParts[1].toIntOrNull() ?: getDefaultSpeedLimitForClass(roadClass)
-
-                        val bboxParts = parts[1].split(",")
-                        if (bboxParts.size < 4) continue
-                        val minLatE6 = bboxParts[0].toIntOrNull() ?: continue
-                        val minLonE6 = bboxParts[1].toIntOrNull() ?: continue
-                        val maxLatE6 = bboxParts[2].toIntOrNull() ?: continue
-                        val maxLonE6 = bboxParts[3].toIntOrNull() ?: continue
-
-                        // Spatial BBox filter check
-                        if (maxLatE6 < queryMinLatE6 || minLatE6 > queryMaxLatE6 ||
-                            maxLonE6 < queryMinLonE6 || minLonE6 > queryMaxLonE6
-                        ) {
-                            continue
-                        }
-
-                        val coordStr = parts[2]
-                        val points = parseCoordinates(coordStr)
-                        if (points.isNotEmpty()) {
-                            results.add(
-                                MapRoadSegment(
-                                    roadClass = roadClass,
-                                    maxSpeedKph = maxSpeedKph,
-                                    minLatE6 = minLatE6,
-                                    minLonE6 = minLonE6,
-                                    maxLatE6 = maxLatE6,
-                                    maxLonE6 = maxLonE6,
-                                    points = points
-                                )
-                            )
-                        }
+                        parseRoadLine(line, queryMinLatE6, queryMinLonE6,
+                            queryMaxLatE6, queryMaxLonE6, seenRoads, results)
                     }
                 }
             } catch (e: Exception) {
@@ -192,6 +179,54 @@ class HybridMapRepository(
             }
         }
         return results
+    }
+
+    private fun parseRoadLine(
+        line: String, queryMinLatE6: Int, queryMinLonE6: Int,
+        queryMaxLatE6: Int, queryMaxLonE6: Int,
+        seenRoads: MutableSet<String>, results: MutableList<MapRoadSegment>
+    ) {
+        val trimmed = line.trim()
+        if (trimmed.isEmpty() || trimmed.startsWith("#")) return
+        if (!seenRoads.add(trimmed)) return
+
+        val parts = trimmed.split("|")
+        if (parts.size < 3) return
+
+        val headerParts = parts[0].split(",")
+        if (headerParts.size < 2) return
+        val roadClass = headerParts[0].toIntOrNull() ?: 5
+        val maxSpeedKph = headerParts[1].toIntOrNull() ?: getDefaultSpeedLimitForClass(roadClass)
+
+        val bboxParts = parts[1].split(",")
+        if (bboxParts.size < 4) return
+        val minLatE6 = bboxParts[0].toIntOrNull() ?: return
+        val minLonE6 = bboxParts[1].toIntOrNull() ?: return
+        val maxLatE6 = bboxParts[2].toIntOrNull() ?: return
+        val maxLonE6 = bboxParts[3].toIntOrNull() ?: return
+
+        // Spatial BBox filter check
+        if (maxLatE6 < queryMinLatE6 || minLatE6 > queryMaxLatE6 ||
+            maxLonE6 < queryMinLonE6 || minLonE6 > queryMaxLonE6
+        ) {
+            return
+        }
+
+        val coordStr = parts[2]
+        val points = parseCoordinates(coordStr)
+        if (points.isNotEmpty()) {
+            results.add(
+                MapRoadSegment(
+                    roadClass = roadClass,
+                    maxSpeedKph = maxSpeedKph,
+                    minLatE6 = minLatE6,
+                    minLonE6 = minLonE6,
+                    maxLatE6 = maxLatE6,
+                    maxLonE6 = maxLonE6,
+                    points = points
+                )
+            )
+        }
     }
 
     private fun parseCoordinates(coordStr: String): List<GeoPointE6> {
