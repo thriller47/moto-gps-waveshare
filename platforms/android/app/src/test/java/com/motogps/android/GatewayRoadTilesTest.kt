@@ -36,19 +36,6 @@ class GatewayRoadTilesTest {
     }
 
     @Test
-    fun routeCorridorSamplesIntermediateTilesWithoutDuplicatingThem() {
-        val route = listOf(
-            44.4424 to 7.8913,
-            44.4550 to 7.9000,
-            44.4670 to 7.9100
-        )
-        val tiles = GatewayRoadTiles.corridor(route)
-        assertTrue(tiles.contains(GatewayRoadTiles.tileFor(44.4424, 7.8913)))
-        assertTrue(tiles.contains(GatewayRoadTiles.tileFor(44.4670, 7.9100)))
-        assertEquals(tiles.size, tiles.distinct().size)
-        assertTrue(tiles.size > 9)
-    }
-    @Test
     fun overpassQueryTargetsSingleTileNotRender() {
         val q = GatewayRoadTiles.query(GatewayRoadTiles.tileFor(45.62, 8.85))
         assertTrue(q.contains("way[highway"))

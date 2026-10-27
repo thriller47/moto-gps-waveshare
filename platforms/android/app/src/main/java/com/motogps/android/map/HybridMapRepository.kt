@@ -4,27 +4,13 @@ import android.content.Context
 import android.util.Log
 import com.motogps.android.jni.GeoPointE6
 import java.io.File
-import java.io.IOException
 import java.util.zip.ZipFile
 import java.util.Locale
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.sync.Mutex
 
 data class SavedMapInfo(
     val fileName: String,
     val sizeBytes: Long,
     val lastModifiedMs: Long
-)
-
-data class DownloadResult(
-    val file: File,
-    val totalSegments: Int,
-    val completedSectors: Int = 0,
-    val totalSectors: Int = 0,
-    val isComplete: Boolean = true
 )
 
 data class MapRoadSegment(
@@ -49,9 +35,6 @@ class HybridMapRepository(
     private val context: Context
 ) {
     companion object {
-        private val offlineDownloadMutex = Mutex()
-        // Cap each manual download batch, then resume remaining tiles next time.
-        private const val MAX_TILES_PER_BATCH = 24
 
         fun getSharedMapsDir(context: Context): File {
             val dir = File(context.filesDir, "maps")
@@ -294,150 +277,6 @@ class HybridMapRepository(
             4 -> 30
             else -> 50
         }
-    }
-
-    private suspend fun downloadGatewayTiles(
-        tiles: List<GatewayRoadTiles.Tile>,
-        target: File,
-        label: String,
-        onProgress: ((Int, Int, String) -> Unit)?
-    ): DownloadResult {
-        if (tiles.isEmpty()) throw IOException("Nessuna tile richiesta")
-        offlineDownloadMutex.lock()
-        try {
-            val partsDir = File(mapsDir, ".${target.nameWithoutExtension}_parts")
-            if (!partsDir.exists() && !partsDir.mkdirs()) {
-                throw IOException("Impossibile creare la cache mappe")
-            }
-            var completed = 0
-            var totalSegments = 0
-            var attempts = 0
-            var consecutiveFailures = 0
-            var lastGatewayError: String? = null
-            for ((index, tile) in tiles.withIndex()) {
-                currentCoroutineContext().ensureActive()
-                val part = File(partsDir, "tile_${tile.key}.motomap")
-                if (part.exists() && part.length() > 0L) {
-                    completed++
-                    totalSegments += part.useLines { lines ->
-                        lines.count { it.isNotBlank() && !it.startsWith("#") }
-                    }
-                    onProgress?.invoke(index + 1, tiles.size, "$label: $completed/${tiles.size} tile")
-                    continue
-                }
-                // A batch is a pacing boundary, not the end of a download.
-                // Preserve checkpoints and continue automatically.
-                if (consecutiveFailures >= 3) break
-                if (attempts > 0 && attempts % MAX_TILES_PER_BATCH == 0) {
-                    onProgress?.invoke(index, tiles.size, "$label: pausa tra blocchi ($completed/${tiles.size} tile)")
-                    delay(1_500)
-                }
-                attempts++
-                val temp = File(partsDir, part.name + ".tmp")
-                try {
-                    val count = temp.bufferedWriter().use { writer ->
-                        writer.write("# OSM Overpass vector tile ${tile.key}\n")
-                        GatewayRoadTiles.writeTile(tile, writer)
-                    }
-                    if (!temp.renameTo(part)) throw IOException("Impossibile salvare tile ${tile.key}")
-                    completed++
-                    totalSegments += count
-                    consecutiveFailures = 0
-                    Log.i("HybridMapRepository", "$label checkpoint: ${tile.key} strade=$count completate=$completed")
-                } catch (e: CancellationException) {
-                    temp.delete()
-                    throw e
-                } catch (e: Exception) {
-                    temp.delete()
-                    consecutiveFailures++
-                    lastGatewayError = e.message
-                    Log.w("HybridMapRepository", "$label: tile ${tile.key} non disponibile: ${e.message}")
-                }
-                onProgress?.invoke(index + 1, tiles.size, "$label: $completed/${tiles.size} tile")
-                // Back off between requests to the public Overpass API.
-                if (index < tiles.lastIndex) delay(if (consecutiveFailures > 0) 5_000 else 2_000)
-            }
-
-            if (totalSegments == 0) {
-                throw IOException(
-                    "Nessuna strada OSM scaricata: ${lastGatewayError ?: "nessuna strada nelle tile disponibili"}.")
-            }
-
-            val complete = completed == tiles.size
-            val partial = File(mapsDir, "${target.nameWithoutExtension}_parziale.motomap")
-            val destination = if (complete) target else partial
-            val assembling = File(mapsDir, "${target.name}.assembling")
-            try {
-                assembling.bufferedWriter().use { out ->
-                    for (tile in tiles) {
-                        val part = File(partsDir, "tile_${tile.key}.motomap")
-                        if (part.exists() && part.length() > 0L) {
-                            part.forEachLine { line ->
-                                out.write(line)
-                                out.newLine()
-                            }
-                        }
-                    }
-                }
-                val backup = File(mapsDir, destination.name + ".bak")
-                backup.delete()
-                if (destination.exists() && !destination.renameTo(backup)) {
-                    throw IOException("Impossibile proteggere la mappa precedente")
-                }
-                if (!assembling.renameTo(destination)) {
-                    if (backup.exists()) backup.renameTo(destination)
-                    throw IOException("Impossibile pubblicare la mappa scaricata")
-                }
-                backup.delete()
-                if (complete) {
-                    partial.delete()
-                    // Preserve tile checkpoints: the next route can reuse them
-                    // without downloading the same streets a second time.
-                }
-                return DownloadResult(destination, totalSegments, completed, tiles.size, complete)
-            } finally {
-                assembling.delete()
-            }
-        } finally {
-            offlineDownloadMutex.unlock()
-        }
-    }
-
-    /**
-     * 9x9 z15 tiles: roughly 8 km across at northern Italian latitudes.
-     * A bounded batch and geographical checkpoints make retries safe,
-     * without attempting an entire region in a single session.
-     */
-    suspend fun downloadCurrentArea(
-        lat: Double,
-        lon: Double,
-        onProgress: ((Int, Int, String) -> Unit)? = null
-    ): DownloadResult = downloadGatewayTiles(
-        GatewayRoadTiles.around(lat, lon, 4),
-        File(mapsDir, "area_vicina_8km.motomap"),
-        "Zona vicina (~8 km)",
-        onProgress
-    )
-
-    suspend fun downloadRouteCorridor(
-        rawRoutePoints: List<Pair<Double, Double>>,
-        onProgress: ((Int, Int, String) -> Unit)? = null
-    ): DownloadResult {
-        if (rawRoutePoints.size < 2) throw IllegalArgumentException("Percorso non disponibile")
-        return downloadGatewayTiles(
-            GatewayRoadTiles.corridor(rawRoutePoints),
-            File(mapsDir, "corridoio_rotta.motomap"),
-            "Corridoio percorso",
-            onProgress
-        )
-    }
-
-    suspend fun downloadRegion(
-        regionName: String,
-        onProgress: ((Int, Int, String) -> Unit)? = null
-    ): DownloadResult {
-        throw UnsupportedOperationException(
-            "Download regionale temporaneamente non disponibile: serve un archivio offline regionale dedicato, non migliaia di tile dal gateway.")
     }
 
     private fun String?.isNull_or_blank(): Boolean = this == null || this.trim().isEmpty()

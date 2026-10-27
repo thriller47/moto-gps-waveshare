@@ -309,7 +309,6 @@ fun OfflineMapsDialog(
     onDeleteValhalla: () -> Unit,
     onDeleteMap: (String) -> Unit,
     onImportOsmPack: () -> Unit,
-    onDownloadRegion: (String) -> Unit,
     downloadStatus: String? = null,
     downloadProgress: Float = 0f,
     isDownloadingMap: Boolean = false,
@@ -441,8 +440,6 @@ fun NavigationScreen(
     onStopNavigation: () -> Unit = {},
     onBackToSearch: () -> Unit,
     onImportOsmPack: () -> Unit = {},
-    onDownloadCorridor: (List<Pair<Double, Double>>) -> Unit = {},
-    onDownloadRegion: (String) -> Unit = {},
     onDeleteMap: (String) -> Unit = {},
     downloadStatus: String? = null,
     downloadProgress: Float = 0f,
@@ -484,7 +481,6 @@ fun NavigationScreen(
             onDeleteValhalla = onDeleteValhalla,
             onDeleteMap = onDeleteMap,
             onImportOsmPack = onImportOsmPack,
-            onDownloadRegion = onDownloadRegion,
             downloadStatus = downloadStatus,
             downloadProgress = downloadProgress,
             isDownloadingMap = isDownloadingMap,
@@ -614,23 +610,6 @@ fun NavigationScreen(
                                 Text("Riprova calcolo percorso")
                             }
                         }
-                    }
-
-                    // Salva Mappa Corridoio Quick Action Button
-                    FilledTonalButton(
-                        onClick = {
-                            val pts = geoPoints.map { Pair(it.latitude, it.longitude) }
-                            onDownloadCorridor(pts)
-                        },
-                        enabled = selectedRoute != null && geoPoints.size >= 2 && !isLoading,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 4.dp)
-                            .height(48.dp)
-                    ) {
-                        Icon(Icons.Default.Place, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Scarica strade del percorso")
                     }
 
                     if (isNavigating) {

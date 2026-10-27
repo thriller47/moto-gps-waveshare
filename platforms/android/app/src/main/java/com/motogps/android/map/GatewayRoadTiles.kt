@@ -48,27 +48,6 @@ internal object GatewayRoadTiles {
         )
     }
 
-    fun corridor(points: List<Pair<Double, Double>>): List<Tile> {
-        if (points.isEmpty()) return emptyList()
-        val visited = linkedSetOf<Tile>()
-        for (i in points.indices) {
-            val current = points[i]
-            val previous = if (i == 0) current else points[i - 1]
-            val northMeters = (current.first - previous.first) * 111_320.0
-            val eastMeters = (current.second - previous.second) * 111_320.0 *
-                cos(Math.toRadians(current.first))
-            val distance = kotlin.math.hypot(northMeters, eastMeters)
-            val steps = kotlin.math.ceil(distance / 250.0).toInt().coerceIn(1, 500)
-            for (step in 0..steps) {
-                val t = step.toDouble() / steps
-                val lat = previous.first + (current.first - previous.first) * t
-                val lon = previous.second + (current.second - previous.second) * t
-                visited.addAll(around(lat, lon, 1))
-            }
-        }
-        return visited.toList()
-    }
-
     /**
      * Overpass QL is used only for small, explicit OSM bbox requests.
      * Coordinates originate exclusively from the server's real OSM ways.

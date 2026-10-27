@@ -195,12 +195,6 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     onImportOsmPack = {
                         importOsmPackLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
                     },
-                    onDownloadCorridor = { points ->
-                        viewModel.downloadRouteCorridor(this@MainActivity, points)
-                    },
-                    onDownloadRegion = { region ->
-                        viewModel.downloadRegion(this@MainActivity, region)
-                    },
                     onDeleteMap = { fileName ->
                         viewModel.deleteSavedMap(this@MainActivity, fileName)
                         mapsUpdateTrigger++

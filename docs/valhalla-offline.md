@@ -68,38 +68,25 @@ Con la versione attuale è possibile installare un solo grafo alla volta.
 Un percorso che esce dalla zona scaricata può essere richiesto al servizio
 Valhalla online; offline non è possibile navigare fuori copertura.
 
-## Cartografia stradale indipendente da Render
+## Cartografia stradale da pacchetti OSM
 
-Anche il contesto stradale dell'ESP32 viene ora acquisito da dati OSM
-**direttamente tramite Overpass**. L'endpoint
-`https://overpass-api.de/api/interpreter` restituisce vere geometrie
-OSM per piccole bounding box intorno al GPS. Il convertitore preserva
-il formato `.motomap` e il protocollo BLE esistente; nessuna richiesta
-dell'APK raggiunge Render.
+Le strade mostrate sull'ESP32 provengono dagli archivi `.motomap.zip` importati
+nell'app. Le tile vengono lette direttamente dagli ZIP in base alla posizione GPS
+e inviate tramite il protocollo BLE esistente, senza estrarre l'intero archivio.
 
-- La posizione corrente provoca una richiesta di **una sola tile**
-  zoom 15 quando il contesto in cache è insufficiente. Il risultato
-  viene conservato in `files/maps/osm_near_*.motomap` per 7 giorni.
-- Il caricamento automatico di *tutto* il corridoio di un itinerario è
-  disabilitato: interrogherebbe centinaia di tile del server pubblico.
-- Il download del corridoio lungo un percorso resta disponibile e
-  mantiene checkpoint locali. Il pulsante per la zona vicina (~8 km)
-  non è più esposto nell'interfaccia; per grandi aree importare ZIP preparati su PC.
-  Non sono una soluzione per scaricare intere regioni: per quella
-  occorre un archivio OSM regionalizzato.
-- Le velocità dei tratti non sono fornite da Valhalla: si usa il tag
-  OSM `maxspeed` numerico, ove presente, o il valore indicativo per
-  classe di strada. **Non va interpretato come limite legale certo**.
-- Dati già in cache `.motomap` rimangono leggibili.
-- Photon e Valhalla online rimangono servizi distinti e indipendenti
-  da Render; la visualizzazione raster OSMDroid usa la propria fonte.
+La schermata **Gestione mappe** offre solo **Importa mappa ZIP** per le strade e
+il download dei **Grafi Valhalla** per il routing. Il comando **Scarica strade del
+percorso** e i precedenti download manuali della zona vicina (~8 km) e della
+regione sono stati eliminati insieme ai relativi metodi di acquisizione.
+Una mappa stradale .motomap e un grafo Valhalla .tar restano file distinti:
+la prima disegna le strade, il secondo calcola svolte e itinerari.
 
-**Limite importante:** il server Overpass pubblico è condiviso,
-soggetto a code, rallentamenti e quote; questa integrazione è
-sperimentale. Per offrire il caricamento automatico su larga scala
-occorrono tile regionali offline o un servizio OSM/PMTiles dedicato.
-Le richieste non garantiscono che tutte le strade vengano mostrate
-immediatamente. Il sistema BLE e l'ESP32 non sono stati modificati.
+Se non ci sono strade utilizzabili nella zona GPS, resta attivo il recupero
+automatico e limitato di una tile OSM da Overpass. Non scarica corridoi o intere
+regioni; è un fallback per le zone non coperte dai pacchetti, e può fallire per
+limiti o indisponibilità del servizio pubblico. I file .motomap già salvati e
+le cache legacy `*_parts` restano leggibili. Il valore `maxspeed` delle strade
+non è una garanzia del limite legale vigente.
 
 ## Test consigliati
 
@@ -121,17 +108,13 @@ su rete pubblica o su grafo nativo installato.
 Dati: © OpenStreetMap contributors (ODbL). Valhalla demo:
 FOSSGIS e.V.; Photon demo: komoot; tile di esempio: community Librescoot.
 
-## Diagnostica recupero strade OSM
+## Diagnostica delle strade
 
-Se le strade non compaiono sull'ESP32, aprire **Gestione mappe**:
-la voce di stato segnala se la richiesta automatica alla tile OSM ha trovato
-strade oppure se è fallita. Il log Android `GatewayRoadTiles` riporta
-endpoint e dettaglio HTTP, mentre `NavigationVM` registra il risultato
-complessivo. Il client prova, in sequenza e solo in caso di errore,
-`overpass-api.de` e `overpass.kumi.systems`; non chiama Render.
-Una risposta valida senza strade non viene convertita artificialmente
-in geometrie. La presenza di un percorso Valhalla online non garantisce
-che Overpass abbia risposto.
+Se le strade non compaiono sull'ESP32, verificare che il pacchetto
+`.motomap.zip` sia stato importato correttamente e contenga la zona GPS.
+Il fallback automatico a una singola tile Overpass registra eventuali
+errori con i tag Android `GatewayRoadTiles` e `NavigationVM`. Il suo
+mancato funzionamento non impedisce di usare le strade già installate.
 
 ## Pacchetti stradali offline da .osm.pbf (prima versione)
 
@@ -146,7 +129,7 @@ python scripts/offline_map/pbf_to_motomap.py italy-nord-ovest-latest.osm.pbf -o 
 Scaricare il `.osm.pbf` della regione desiderata dal catalogo
 [Geofabrik](https://download.geofabrik.de/europe/italy.html).
 Copiare il `.motomap.zip` sul telefono, aprire **Gestione mappe**
-e premere **Importa pacchetto strade OSM (.zip)**.
+e premere **Importa mappa ZIP**.
 Selezionare il file dal selettore Android: gli archivi vengono conservati
 senza estrazione in `files/maps/.osm_packages` e le singole tile sono lette
 direttamente dallo ZIP in base alla posizione GPS. Archivi con nomi diversi

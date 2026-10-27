@@ -15,6 +15,8 @@ import org.junit.Rule
 import org.junit.rules.TemporaryFolder
 import org.mockito.Mockito.`when`
 import java.io.File
+import java.util.zip.ZipOutputStream
+import java.util.zip.ZipEntry
 import com.motogps.android.map.GatewayRoadTiles
 import org.mockito.Mockito.mock
 import android.content.Context
@@ -33,7 +35,7 @@ class HybridMapRepositoryTest {
     val temporaryFiles = TemporaryFolder()
 
     @Test
-    fun readsCompletedCorridorCheckpointBeforeFullMapIsAssembled() {
+    fun readsLegacyCheckpointTilesWithoutNewDownloads() {
         val context = mock(Context::class.java)
         `when`(context.filesDir).thenReturn(temporaryFiles.root)
         val cache = HybridMapRepository(context)
@@ -47,6 +49,30 @@ class HybridMapRepositoryTest {
         val roads = cache.loadFromRegionalFiles(44_995_000, 7_995_000, 45_005_000, 8_005_000)
         assertEquals(1, roads.size)
         assertEquals(2, roads.single().points.size)
+    }
+
+    @Test
+    fun readsRoadsDirectlyFromCompressedOsmPack() {
+        val context = mock(Context::class.java)
+        `when`(context.filesDir).thenReturn(temporaryFiles.root)
+        val cache = HybridMapRepository(context)
+        val packages = File(temporaryFiles.root, "maps/.osm_packages")
+        assertTrue(packages.mkdirs())
+        val tile = GatewayRoadTiles.tileFor(45.0, 8.0)
+        val archive = File(packages, "italy-test.motomap.zip")
+        ZipOutputStream(archive.outputStream().buffered()).use { zip ->
+            zip.putNextEntry(ZipEntry("tile_${tile.key}.motomap"))
+            zip.write(
+                "# OSM import\\n3,50|45000000,8000000,45000100,8000000|45000000,8000000;45000100,8000000\\n"
+                    .replace("\\n", "\n").toByteArray(Charsets.UTF_8)
+            )
+            zip.closeEntry()
+        }
+        val roads = cache.loadFromRegionalFiles(
+            44_995_000, 7_995_000, 45_005_000, 8_005_000
+        )
+        assertEquals(1, roads.size)
+        assertEquals(2, roads.first().points.size)
     }
 
     @Test
