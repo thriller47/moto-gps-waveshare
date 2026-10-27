@@ -16,7 +16,7 @@ internal object OfflineCoordinateSearch {
             lat !in -90.0..90.0 || lon !in -180.0..180.0) return null
         return PlaceSearchResult(
             name = "Coordinate GPS (offline)",
-            address = String.format(Locale.ITALY, "%.6f, %.6f", lat, lon),
+            address = String.format(Locale.US, "%.6f, %.6f", lat, lon),
             displayArea = "Coordinate",
             latitude = lat,
             longitude = lon
