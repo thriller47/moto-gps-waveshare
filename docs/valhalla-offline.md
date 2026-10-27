@@ -56,7 +56,10 @@ un fornitore con condizioni compatibili.
 
 **Gestione mappe → Grafi Valhalla → Aggiorna elenco regioni →
 Scarica grafo.** Il catalogo di prova proviene da
-[Librescoot](https://github.com/librescoot/valhalla-tiles/releases/tag/latest).
+[Librescoot](https://github.com/librescoot/valhalla-tiles/releases/latest).
+Il catalogo Android interroga la release piu recente tramite
+`/releases/latest`, evitando il tag storico `/releases/tags/latest` che
+non seguiva i nuovi rilasci mensili.
 L'archivio `.tar` viene verificato tramite dimensione, SHA-256 e
 presenza di tile `.gph`. Percorso:
 ```

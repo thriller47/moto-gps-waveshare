@@ -19,7 +19,9 @@ data class ValhallaRegion(
 )
 
 internal object ValhallaTileDownloads {
-    private const val CATALOG = "https://api.github.com/repos/librescoot/valhalla-tiles/releases/tags/latest"
+    // /releases/latest follows the newest published release; /releases/tags/latest
+    // is an old, immutable release tag and no longer tracks monthly builds.
+    private const val CATALOG = "https://api.github.com/repos/librescoot/valhalla-tiles/releases/latest"
     private const val ORIGIN = "https://github.com/librescoot/valhalla-tiles/releases/download/"
     private val archive = Regex("^valhalla_tiles_([a-z0-9_-]+)\\.tar$")
     private val digestFormat = Regex("^sha256:([a-fA-F0-9]{64})$")

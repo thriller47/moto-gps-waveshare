@@ -13,7 +13,7 @@ class ValhallaTileDownloadsTest {
         .put("size", 419_000_000L)
         .put("digest", digest)
         .put("browser_download_url",
-            "https://github.com/librescoot/valhalla-tiles/releases/download/latest/" + name)
+            "https://github.com/librescoot/valhalla-tiles/releases/download/tiles-20261001T110408Z/" + name)
 
     @Test fun filtersCatalogToVerifiedTarArchives() {
         val sha = "sha256:" + "a".repeat(64)
