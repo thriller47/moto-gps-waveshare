@@ -5,6 +5,7 @@ const REQUEST_KEYS = new Set([
   "origin",
   "destination",
   "is_reroute",
+  "origin_bearing_deg",
   "previous_route_id",
   "destination_poi_id",
 ]);
@@ -75,6 +76,12 @@ export function validateRouteRequest(value) {
   }
   if (typeof value.is_reroute !== "boolean") {
     throw new ProtocolValidationError("is_reroute must be a boolean");
+  }
+  if (value.origin_bearing_deg !== undefined && (
+    !value.is_reroute || !Number.isFinite(value.origin_bearing_deg) ||
+    value.origin_bearing_deg < 0 || value.origin_bearing_deg >= 360
+  )) {
+    throw new ProtocolValidationError("origin_bearing_deg must be [0, 360) on reroutes");
   }
   if (value.previous_route_id !== undefined) {
     if (
