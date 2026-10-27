@@ -82,4 +82,24 @@ class ValhallaRouteAdapterTest {
         assertEquals("valhalla-local", route.getString("provider"))
         assertTrue(result.getInt("protocol_version") == 1)
     }
+    @Test
+    fun identifiesOnlineRoutesWithoutChangingMotoBleEnvelope() {
+        val points = listOf(45.0 to 9.0, 45.001 to 9.001)
+        val leg = JSONObject()
+            .put("shape", encode(points))
+            .put("summary", JSONObject().put("length", 0.2))
+            .put("maneuvers", JSONArray().put(
+                JSONObject().put("type", 1).put("begin_shape_index", 0)
+                    .put("instruction", "Prosegui")))
+        val trip = JSONObject().put("summary", JSONObject().put("length", 0.2)
+            .put("time", 35))
+            .put("legs", JSONArray().put(leg))
+        val response = ValhallaRouteAdapter.toMotoRoute(
+            JSONObject().put("trip", trip), 45.0, 9.0, 45.001, 9.001,
+            provider = "valhalla-online")
+        assertEquals(1, response.getInt("protocol_version"))
+        assertEquals("valhalla-online", response.getJSONObject("route").getString("provider"))
+        assertEquals(2, response.getJSONObject("route").getJSONArray("geometry_gcj02").length())
+    }
+
 }

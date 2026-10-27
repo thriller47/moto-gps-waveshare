@@ -17,9 +17,11 @@ import com.motogps.android.map.HybridMapRepository
 import com.motogps.android.map.SavedMapInfo
 import com.motogps.android.location.LocationFixFilter
 import com.motogps.android.routing.OfflineValhallaRouter
+import com.motogps.android.routing.OnlineValhallaRouter
 import com.motogps.android.routing.ValhallaTileDownloads
 import com.motogps.android.routing.ValhallaRegion
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -28,9 +30,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
-import java.net.URLEncoder
 import java.util.Locale
 
 data class PlaceSearchResult(
@@ -76,6 +75,8 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
 
     private val _routeOptions = MutableStateFlow<List<RouteOption>>(emptyList())
     val routeOptions: StateFlow<List<RouteOption>> = _routeOptions
+    private val _routingSource = MutableStateFlow<String?>(null)
+    val routingSource: StateFlow<String?> = _routingSource
 
     private val _selectedRouteIndex = MutableStateFlow(0)
     val selectedRouteIndex: StateFlow<Int> = _selectedRouteIndex
@@ -166,8 +167,8 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         }
     }
 
-    fun searchDestination(query: String, gatewayUrl: String) {
-        if (query.isBlank() || gatewayUrl.isBlank()) return
+    fun searchDestination(query: String) {
+        if (query.isBlank()) return
 
         viewModelScope.launch {
             _isLoading.value = true
@@ -176,7 +177,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
 
             try {
                 val results = withContext(Dispatchers.IO) {
-                    performSearch(query, gatewayUrl)
+                    PhotonPlaceSearch.search(query, if (hasFirstFix) currentLocation.value else null)
                 }
                 _searchResults.value = results
                 if (results.isEmpty()) {
@@ -190,10 +191,11 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         }
     }
 
-    fun previewRoute(place: PlaceSearchResult, gatewayUrl: String) {
+    fun previewRoute(place: PlaceSearchResult) {
         _routePreview.value = place
         _routeOptions.value = emptyList()
         _selectedRouteIndex.value = 0
+        _routingSource.value = null
 
         viewModelScope.launch {
             _isLoading.value = true
@@ -202,6 +204,12 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                     fetchRouteOptions(place)
                 }
                 _routeOptions.value = options
+                _routingSource.value = options.firstOrNull()?.rawRouteJson
+                    ?.optString("provider")?.let {
+                        if (it == "valhalla-local") "Valhalla offline"
+                        else if (it == "valhalla-online") "Valhalla online"
+                        else null
+                    }
             } catch (e: Exception) {
                 _errorMessage.value = "Impossibile recuperare opzioni percorso: ${e.message}"
             } finally {
@@ -223,8 +231,8 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     }
 
     fun startNavigation(place: PlaceSearchResult, gatewayUrl: String) {
-        if (navigationMapsContext?.let { OfflineValhallaRouter.hasTiles(it) } != true) {
-            _errorMessage.value = "Scarica prima le tile Valhalla in Gestione Mappe Offline"
+        if (!hasFirstFix) {
+            _errorMessage.value = "Attendi un segnale GPS valido prima di navigare"
             return
         }
 
@@ -245,6 +253,8 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
 
                 currentSnapshot = snapshot
                 currentGeometry = geometry
+                // Keep the source of the ACTUAL navigation route visible.
+                _routingSource.value = lastRoutingProvider
                 // Prepare the existing corridor cache automatically for a new
                 // route. Online tiles continue to provide immediate context.
                 val mapContext = navigationMapsContext
@@ -332,7 +342,11 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                         }
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
+                _isNavigating.value = false
+                activeDestination = null
                 _errorMessage.value = "Errore durante la navigazione: ${e.message}"
             } finally {
                 _isLoading.value = false
@@ -347,6 +361,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         automaticCorridorJob?.cancel()
         automaticCorridorJob = null
         activeDestination = null
+        _routingSource.value = null
         currentSnapshot = null
         currentGeometry = null
 
@@ -391,6 +406,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     private var hasFirstFix = false
     private var activeDestination: PlaceSearchResult? = null
     private var activeGatewayUrl: String = ""
+    @Volatile private var lastRoutingProvider: String? = null
     private var lastRecalculationTime: Long = 0
     private var offRouteFixCount = 0
     private var offRouteFirstFixMs = 0L
@@ -1054,6 +1070,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                 }
                 currentSnapshot = snapshot
                 currentGeometry = geometry
+                _routingSource.value = lastRoutingProvider
                 if (geometry != null) sendNearbyRouteGeometry(geometry)
                 bleManager.sendNavigationSnapshot(snapshot)
             } catch (e: Exception) {
@@ -1084,20 +1101,60 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         return if (hash == 0L) 1L else hash
     }
 
-    private fun fetchRouteOptions(place: PlaceSearchResult): List<RouteOption> {
+    /** One routing policy for preview, initial turn-by-turn, and reroutes.
+     * Local graph always gets first attempt; network is only a Valhalla fallback.
+     */
+    private fun resolveRoute(
+        originLat: Double, originLon: Double, place: PlaceSearchResult,
+        isReroute: Boolean = false, bearing: Float? = null
+    ): JSONObject {
+        var localError = "nessuna regione Valhalla installata"
         val context = navigationMapsContext
-            ?: throw IllegalStateException("Attendi una posizione GPS per il routing offline")
-        if (!OfflineValhallaRouter.hasTiles(context))
-            throw IllegalStateException("Scarica il grafo Valhalla: OSRM è disabilitato")
+        if (context != null && OfflineValhallaRouter.hasTiles(context)) {
+            try {
+                val result = OfflineValhallaRouter.route(
+                    context, originLat, originLon, place.latitude, place.longitude,
+                    isReroute, bearing)
+                if (result != null) {
+                    Log.i("NavigationVM", "Routing: Valhalla offline")
+                    return result
+                }
+                localError = "nessun percorso nel grafo locale"
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                localError = e.message ?: "grafo locale non utilizzabile"
+                Log.w("NavigationVM", "Local Valhalla unavailable: $localError")
+            }
+        }
+        return try {
+            val result = OnlineValhallaRouter.route(
+                originLat, originLon, place.latitude, place.longitude, isReroute, bearing)
+            Log.i("NavigationVM", "Routing: Valhalla online (local: $localError)")
+            result
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            throw IllegalStateException(
+                "Valhalla offline: $localError; Valhalla online: ${e.message}. " +
+                    "Controlla connessione o scarica la regione.", e)
+        }
+    }
+
+    private fun fetchRouteOptions(place: PlaceSearchResult): List<RouteOption> {
+        if (!hasFirstFix)
+            throw IllegalStateException("Attendi un fix GPS valido prima del calcolo")
         val (lat, lon) = currentLocation.value
-        val response = OfflineValhallaRouter.route(context, lat, lon, place.latitude, place.longitude)
-            ?: throw IllegalStateException("Valhalla non ha restituito un percorso")
+        val response = resolveRoute(lat, lon, place)
         val route = response.getJSONObject("route")
         val maneuvers = route.optJSONArray("maneuvers")
         val instructions = (0 until (maneuvers?.length() ?: 0)).map { i ->
             maneuvers!!.getJSONObject(i).optString("instruction", "")
         }.filter { it.isNotBlank() }
-        return listOf(RouteOption("valhalla-0", "Percorso Valhalla offline",
+        val offline = route.optString("provider") == "valhalla-local"
+        return listOf(RouteOption(
+            "valhalla-0",
+            if (offline) "Percorso Valhalla offline" else "Percorso Valhalla online",
             route.getLong("total_distance_m"), route.getLong("estimated_duration_s"),
             instructions, route))
     }
@@ -1105,18 +1162,18 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     private fun performRoutingWithGeometry(
         place: PlaceSearchResult, isReroute: Boolean = false
     ): Pair<MotoBLENavigationSnapshot, MotoBLERouteGeometry?> {
+        if (!hasFirstFix)
+            throw IllegalStateException("Fix GPS assente: impossibile navigare")
         val (originLat, originLon) = currentLocation.value
         val bearing = if (isReroute && lastGpsSpeedMs >= 3f &&
             SystemClock.elapsedRealtime() - lastReliableGpsBearingMs in 0L..5_000L)
             lastReliableGpsBearing else null
-        val context = navigationMapsContext
-            ?: throw IllegalStateException("GPS non disponibile per Valhalla offline")
-        if (!OfflineValhallaRouter.hasTiles(context))
-            throw IllegalStateException("Scarica il grafo Valhalla: OSRM è disabilitato")
-        val result = OfflineValhallaRouter.route(context, originLat, originLon,
-            place.latitude, place.longitude, isReroute, bearing)
-            ?: throw IllegalStateException("Valhalla non ha restituito un percorso")
-        Log.i("NavigationVM", "Routing esclusivamente offline: Valhalla")
+        val result = resolveRoute(originLat, originLon, place, isReroute, bearing)
+        lastRoutingProvider = when (result.getJSONObject("route").optString("provider")) {
+            "valhalla-local" -> "Valhalla offline"
+            "valhalla-online" -> "Valhalla online"
+            else -> "Valhalla"
+        }
         return parseMotoRouteResponse(result, originLat, originLon, place)
     }
 
@@ -1232,53 +1289,6 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     )
 
     return Pair(snapshot, routeGeometry)
-    }
-
-    private fun performSearch(query: String, gatewayBaseUrl: String): List<PlaceSearchResult> {
-        val baseUrl = if (gatewayBaseUrl.endsWith("/")) gatewayBaseUrl else "$gatewayBaseUrl/"
-        val (originLat, originLon) = currentLocation.value
-        val endpoint = "${baseUrl}v1/places?keywords=${URLEncoder.encode(query, "UTF-8")}&longitude_deg=$originLon&latitude_deg=$originLat"
-
-        val url = URL(endpoint)
-        val connection = url.openConnection() as HttpURLConnection
-        connection.requestMethod = "GET"
-        connection.setRequestProperty("Accept", "application/json")
-        connection.connectTimeout = 10000
-        connection.readTimeout = 10000
-
-        try {
-            val responseCode = connection.responseCode
-            if (responseCode in 200..299) {
-                val response = connection.inputStream.bufferedReader().use { it.readText() }
-                val jsonObject = JSONObject(response)
-
-                val protocolVersion = jsonObject.optInt("protocol_version", 1)
-                if (protocolVersion != 1) {
-                    throw Exception("Versione del protocollo non valida: $protocolVersion")
-                }
-
-                val placesArray = jsonObject.optJSONArray("places") ?: return emptyList()
-                val results = mutableListOf<PlaceSearchResult>()
-
-                for (i in 0 until placesArray.length()) {
-                    val placeObj = placesArray.getJSONObject(i)
-                    val name = placeObj.optString("name", "")
-                    val address = placeObj.optString("address", "")
-                    val displayArea = placeObj.optString("display_area", "")
-
-                    val locationObj = placeObj.optJSONObject("location")
-                    val lat = locationObj?.optDouble("latitude_deg", 0.0) ?: 0.0
-                    val lon = locationObj?.optDouble("longitude_deg", 0.0) ?: 0.0
-
-                    results.add(PlaceSearchResult(name, address, displayArea, lat, lon))
-                }
-                return results
-            } else {
-                throw Exception("HTTP Error $responseCode")
-            }
-        } finally {
-            connection.disconnect()
-        }
     }
 
     fun setConnectionState(state: String) {

@@ -1,57 +1,89 @@
-# Valhalla offline — branch `valhalla`
+# Moto-GPS Valhalla: routing ibrido e ricerca Photon
 
-Questo branch **non usa OSRM per il routing**: né il calcolo iniziale né
-l'anteprima o il ricalcolo chiamano gli endpoint `/v1/routes` e
-`/v1/route-options`. In assenza di dati Valhalla il calcolo si ferma
-con un messaggio esplicito. **Il backend Render non cambia**; soltanto
-l'APK di questo branch evita il routing del gateway.
+Branch sperimentale `valhalla`. Non modificare `signal`, `main`,
+`NoOta` o il servizio Render fino al collaudo su telefono e ESP32.
 
-## Primo test sul telefono
+## Routing Valhalla (mai OSRM)
 
-1. Installa l'APK Android del branch `valhalla`.
-2. Apri **Gestione Mappe Offline → Routing Valhalla offline**.
-3. Premi **Aggiorna regioni**, scegli un'area e **Scarica routing**.
-   Per la Lombardia scegli **Italia Nord-Ovest** (include anche Piemonte,
-   Liguria e Valle d'Aosta). Gli archivi possono pesare centinaia di MB.
-4. Una volta installato il grafo, **disattiva Wi-Fi e rete dati**.
-5. Per scegliere una destinazione offline usa una **pressione prolungata
-   sulla mappa** (la ricerca testuale dei luoghi è ancora online).
-6. Controlla il percorso sull'app e sull'ESP32, poi prova una deviazione
-   per attivare il ricalcolo locale.
+Ogni operazione (anteprima, avvio e ricalcolo del percorso) usa:
+1. **Valhalla locale (JNI)** se `valhalla_tiles.tar` è installato e il
+   motore riesce a calcolare il percorso richiesto.
+2. **Valhalla online**, quando il grafo locale non esiste o non fornisce
+   un percorso. Viene chiamato direttamente
+   `https://valhalla1.openstreetmap.de/route` via POST JSON.
+3. Se entrambi falliscono, l'app mostra il motivo del mancato routing;
+   non invia richieste ai vecchi endpoint OSRM.
 
-## Origine e formato
+La UI mostra **Percorso Valhalla offline** oppure **Percorso Valhalla
+online**, e distingue il motore effettivo anche dopo l'avvio.
+Il ricalcolo utilizza, quando disponibile, il bearing GPS recente,
+non la bussola del dispositivo. Le geometrie e le istruzioni di
+entrambi i motori passano dallo stesso `ValhallaRouteAdapter` e
+raggiungono l'ESP32 nel formato BLE esistente.
 
-L'app interroga il catalogo dei pacchetti `.tar` delle release di
-[Librescoot Valhalla Tiles](https://github.com/librescoot/valhalla-tiles/releases/tag/latest).
-Sono grafi stradali derivati da OpenStreetMap; non sono file `.osm.pbf`,
-`.motomap` o archivi compressi `.tar.zst`.
+**Il server FOSSGIS è pubblico e dimostrativo, non un backend
+affidabile per produzione.** Il suo uso è soggetto a fair use,
+disponibilità e possibili limitazioni; prima del rilascio su vasta scala
+prevedere un servizio Valhalla dedicato e concordare l'uso della demo.
+Il client usa un header identificativo `X-Client-Id`.
 
-Il download avviene in streaming dentro un file provvisorio; dimensione
-e SHA-256 sono confrontati con le informazioni pubblicate dalla release,
-e si controlla che il tar contenga almeno un file graph tile `.gph`.
-Solo dopo tutte le verifiche la nuova versione sostituisce quella precedente.
-Se manca spazio, il trasferimento è interrotto, viene annullato o il checksum
-non coincide, il vecchio grafo rimane disponibile.
+## Ricerca destinazioni senza Render
 
-Percorso dell'archivio:
+L'app interroga `https://photon.komoot.io/api/` direttamente tramite
+una singola richiesta alla pressione del pulsante Cerca.
+- Risposte Photon GeoJSON e coordinate WGS84 (ordine GeoJSON: lon, lat).
+- Massimo otto risultati, lingua italiana, priorità alla posizione GPS
+  se disponibile, validazione degli intervalli di latitudine e longitudine.
+- Nessun autocomplete continuo per non sovraccaricare il server demo.
+
+Photon è online: offline si può comunque scegliere una destinazione
+tramite pressione prolungata sulla mappa, mentre l'indice locale
+degli indirizzi resta un lavoro futuro. Anche Photon demo può limitare
+o rifiutare richieste: per produzione usare una propria istanza o
+un fornitore con condizioni compatibili.
+
+## Archivi di routing locali
+
+**Gestione Mappe Offline → Routing Valhalla offline → Aggiorna regioni →
+Scarica routing.** Il catalogo di prova proviene da
+[Librescoot](https://github.com/librescoot/valhalla-tiles/releases/tag/latest).
+L'archivio `.tar` viene verificato tramite dimensione, SHA-256 e
+presenza di tile `.gph`. Percorso:
 ```
 Android/data/com.motogps.android/files/routing/valhalla_tiles.tar
 ```
 
-## Limitazioni della fase di prova
+Il grafo di routing non è una cache di strade `.motomap`.
+Con la versione attuale è possibile installare un solo grafo alla volta.
+Un percorso che esce dalla zona scaricata può essere richiesto al servizio
+Valhalla online; offline non è possibile navigare fuori copertura.
 
-- **Un solo archivio alla volta.** Scaricare una nuova regione sostituisce la precedente.
-- Non sostituire o eliminare il grafo durante la navigazione: i controlli
-  nell'app bloccano queste azioni.
-- Il routing funziona soltanto per percorsi coperti dalle tile scaricate.
-- La **ricerca indirizzi** e il caricamento delle **mappe di visualizzazione**
-  possono ancora accedere alla rete. Solo **il calcolo del percorso** è
-  esclusivamente offline.
-- Non sono ancora disponibili download persistenti in background, unione
-  di regioni né ricerca luoghi offline.
-- La compatibilità delle tile di Librescoot con la versione nativa di
-  Valhalla Mobile richiede ancora una prova reale: un tar integro non
-  certifica la compatibilità binaria del grafo con la libreria.
-- ESP32, formato BLE, `main`, `signal`, `NoOta` e Render non sono modificati.
+## Stato della dipendenza da Render
 
-Dati: © OpenStreetMap contributors (ODbL); archivi della community Librescoot.
+Il **calcolo itinerari**, **ricalcolo** e **ricerca testuale** non
+dipendono più da Render. Il gateway è però ancora usato per
+l'**aggiornamento automatico delle mappe stradali .motomap e del
+contesto stradale inviato all'ESP32**, e per i vecchi download delle
+mappe vettoriali gestiti da `HybridMapRepository`. OSMDroid visualizza
+invece le tile raster OSM tramite la propria sorgente. Quindi **Render
+non è ancora eliminabile** senza una sostituzione di quelle API.
+
+## Test consigliati
+
+1. Senza archivi e con rete attiva, cercare una città con Photon e
+   verificare l'etichetta **Valhalla online**.
+2. Scaricare e installare le tile, disattivare i dati, selezionare una
+   destinazione nella stessa regione con pressione lunga: deve apparire
+   **Valhalla offline** e funzionare il ricalcolo.
+3. Riprovare senza dati e senza archivio: mostrare errore esplicito.
+4. Con archivi limitati e rete attiva, chiedere un percorso fuori
+   copertura locale: tentare Valhalla online.
+5. Verificare l'assenza di regressioni BLE, geometrie e manovre con
+   dispositivo fisico.
+
+I test automatici coprono conversione dei percorsi, richiesta JSON,
+coordinate GeoJSON e parsing Photon. Non equivalgono a test dal vero
+su rete pubblica o su grafo nativo installato.
+
+Dati: © OpenStreetMap contributors (ODbL). Valhalla demo:
+FOSSGIS e.V.; Photon demo: komoot; tile di esempio: community Librescoot.

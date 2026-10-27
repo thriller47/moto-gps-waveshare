@@ -12,8 +12,8 @@ import kotlin.math.roundToLong
  * Offline routing prototype. A Valhalla graph extract is NOT the same as a
  * .motomap (display tile) file. The native actor is retained between requests.
  *
- * No network calls are made from this class. Until a graph is installed, the
- * existing gateway can continue providing routes during migration.
+ * No network calls are made by the native router. A separate optional online
+ * Valhalla client handles routes outside the installed graph.
  */
 internal object OfflineValhallaRouter {
     private var engine: Valhalla? = null
@@ -115,6 +115,7 @@ internal object ValhallaRouteAdapter {
         originLon: Double,
         destinationLat: Double,
         destinationLon: Double,
+        provider: String = "valhalla-local",
     ): JSONObject {
         val trip = response.getJSONObject("trip")
         val legs = trip.getJSONArray("legs")
@@ -168,7 +169,7 @@ internal object ValhallaRouteAdapter {
         }
         val route = JSONObject()
             .put("route_id", "valhalla-${System.currentTimeMillis()}")
-            .put("provider", "valhalla-local")
+            .put("provider", provider)
             .put("total_distance_m", distanceMeters)
             .put("estimated_duration_s", durationSeconds)
             .put("geometry_gcj02", routePoints)

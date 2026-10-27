@@ -139,6 +139,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             val errorMessage = viewModel.errorMessage.collectAsState().value
             val routePreview = viewModel.routePreview.collectAsState().value
             val routeOptions = viewModel.routeOptions.collectAsState().value
+            val routingSource = viewModel.routingSource.collectAsState().value
             val selectedRouteIndex = viewModel.selectedRouteIndex.collectAsState().value
             val isNavigating = viewModel.isNavigating.collectAsState().value
             val currentLocation = viewModel.currentLocation.collectAsState().value
@@ -173,7 +174,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                         viewModel.configureMapGateway(newGateway)
                     },
                     onSearch = { query ->
-                        viewModel.searchDestination(query, getGatewayToUse())
+                        viewModel.searchDestination(query)
                     },
                     onConnectRequest = {
                         checkPermissionsAndScan()
@@ -183,6 +184,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     searchResults = searchResults,
                     routePreview = routePreview,
                     routeOptions = routeOptions,
+                    routingSource = routingSource,
                     selectedRouteIndex = selectedRouteIndex,
                     isNavigating = isNavigating,
                     currentLocation = currentLocation,
@@ -191,7 +193,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                         viewModel.selectRouteOption(index)
                     },
                     onRouteSelected = { place ->
-                        viewModel.previewRoute(place, getGatewayToUse())
+                        viewModel.previewRoute(place)
                     },
                     onStartNavigation = { place ->
                         viewModel.startNavigation(place, getGatewayToUse())

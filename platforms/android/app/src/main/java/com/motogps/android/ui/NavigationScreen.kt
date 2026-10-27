@@ -432,6 +432,7 @@ fun NavigationScreen(
     routePreview: PlaceSearchResult?,
     routeOptions: List<RouteOption>,
     selectedRouteIndex: Int,
+    routingSource: String? = null,
     isNavigating: Boolean = false,
     currentLocation: Pair<Double, Double>? = null,
     savedMaps: List<SavedMapInfo> = emptyList(),
@@ -558,7 +559,7 @@ fun NavigationScreen(
                             Icon(Icons.Default.Place, contentDescription = "Mappe Offline")
                         }
                         IconButton(onClick = { showGatewayDialog = true }) {
-                            Icon(Icons.Default.Settings, contentDescription = "Impostazioni Gateway")
+                            Icon(Icons.Default.Settings, contentDescription = "Gateway cartografia motomap")
                         }
                     }
                 )
@@ -598,7 +599,7 @@ fun NavigationScreen(
                     }
 
                     Text(
-                        text = "Percorso Valhalla (offline)",
+                        text = routingSource ?: "Calcolo percorso Valhalla",
                         style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.padding(16.dp)
                     )
@@ -685,7 +686,7 @@ fun NavigationScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 8.dp),
-                    placeholder = { Text("Cerca destinazione") },
+                    placeholder = { Text("Cerca su Photon (online)") },
                     leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                     trailingIcon = {
                         IconButton(onClick = {
@@ -707,6 +708,11 @@ fun NavigationScreen(
                     })
                 )
 
+                Text(
+                    "Ricerca indirizzi: Photon · Routing: Valhalla. Tieni premuto sulla mappa per scegliere un punto.",
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                )
                 ListItem(
                     headlineContent = { Text("Il mio display") },
                     supportingContent = { Text(connectionState) },
