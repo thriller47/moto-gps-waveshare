@@ -214,12 +214,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                     fetchRouteOptions(place)
                 }
                 _routeOptions.value = options
-                _routingSource.value = options.firstOrNull()?.rawRouteJson
-                    ?.optString("provider")?.let {
-                        if (it == "valhalla-local") "Valhalla offline"
-                        else if (it == "valhalla-online") "Valhalla online"
-                        else null
-                    }
+                _routingSource.value = if (options.isNotEmpty()) "Valhalla" else null
             } catch (e: Exception) {
                 _routePreviewError.value = e.message ?: "Impossibile calcolare il percorso Valhalla"
                 _errorMessage.value = "Impossibile recuperare opzioni percorso: ${e.message}"
@@ -249,7 +244,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
             return
         }
         if (_routeOptions.value.isEmpty()) {
-            _errorMessage.value = "Nessun percorso stradale calcolato. Installa il grafo Valhalla offline o riprova con rete attiva."
+            _errorMessage.value = "Nessun percorso stradale calcolato. Installa un grafo Valhalla o verifica la connessione."
             return
         }
         if (_isLoading.value || _isNavigating.value) return
@@ -824,7 +819,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                         { valhallaCancel.get() || _isNavigating.value })
                 }
                 _valhallaInstalledBytes.value = OfflineValhallaRouter.tileFile(appContext).length()
-                _valhallaStatus.value = "Grafo Valhalla installato: prova il routing offline."
+                _valhallaStatus.value = "Grafo Valhalla installato. Ora puoi calcolare un percorso."
             } catch (e: Exception) {
                 _valhallaStatus.value = "Download fallito: " + e.message
             } finally {
@@ -879,7 +874,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                     }
                 }
                 _downloadProgress.value = 1f
-                _downloadStatus.value = "Pacchetto OSM importato: $tiles tile disponibili offline"
+                _downloadStatus.value = "Pacchetto OSM importato: $tiles tile disponibili"
                 refreshSavedMaps(context)
                 val (lat, lon) = currentLocation.value
                 if (hasFirstFix) updateSpeedLimitAndMapScene(lat, lon, context.applicationContext)
@@ -1161,7 +1156,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
             throw e
         } catch (e: Exception) {
             throw IllegalStateException(
-                "Valhalla offline: $localError; Valhalla online: ${e.message}. " +
+                "Grafo locale: $localError; servizio di routing: ${e.message}. " +
                     "Controlla connessione o scarica la regione.", e)
         }
     }
@@ -1176,10 +1171,9 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         val instructions = (0 until (maneuvers?.length() ?: 0)).map { i ->
             maneuvers!!.getJSONObject(i).optString("instruction", "")
         }.filter { it.isNotBlank() }
-        val offline = route.optString("provider") == "valhalla-local"
         return listOf(RouteOption(
             "valhalla-0",
-            if (offline) "Percorso Valhalla offline" else "Percorso Valhalla online",
+            "Percorso Valhalla",
             route.getLong("total_distance_m"), route.getLong("estimated_duration_s"),
             instructions, route))
     }
@@ -1194,11 +1188,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
             SystemClock.elapsedRealtime() - lastReliableGpsBearingMs in 0L..5_000L)
             lastReliableGpsBearing else null
         val result = resolveRoute(originLat, originLon, place, isReroute, bearing)
-        lastRoutingProvider = when (result.getJSONObject("route").optString("provider")) {
-            "valhalla-local" -> "Valhalla offline"
-            "valhalla-online" -> "Valhalla online"
-            else -> "Valhalla"
-        }
+        lastRoutingProvider = "Valhalla"
         return parseMotoRouteResponse(result, originLat, originLon, place)
     }
 
