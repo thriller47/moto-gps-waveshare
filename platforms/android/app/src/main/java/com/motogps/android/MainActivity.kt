@@ -98,6 +98,8 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             }
         }
 
+        viewModel.loadRoutePreferences(this)
+
         // BLE must exist before the foreground GPS service can initialize the
         // ViewModel through its first location callback on an already-running app.
         val callback: (Location) -> Unit = { location ->
@@ -138,6 +140,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             val routeOptions = viewModel.routeOptions.collectAsState().value
             val routingSource = viewModel.routingSource.collectAsState().value
             val routePreviewError = viewModel.routePreviewError.collectAsState().value
+            val routePreferences = viewModel.routePreferences.collectAsState().value
             val selectedRouteIndex = viewModel.selectedRouteIndex.collectAsState().value
             val isNavigating = viewModel.isNavigating.collectAsState().value
             val currentLocation = viewModel.currentLocation.collectAsState().value
@@ -179,6 +182,10 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     routeOptions = routeOptions,
                     routingSource = routingSource,
                     routePreviewError = routePreviewError,
+                    routePreferences = routePreferences,
+                    onRoutePreferencesChange = {
+                        viewModel.updateRoutePreferences(this@MainActivity, it)
+                    },
                     selectedRouteIndex = selectedRouteIndex,
                     isNavigating = isNavigating,
                     currentLocation = currentLocation,

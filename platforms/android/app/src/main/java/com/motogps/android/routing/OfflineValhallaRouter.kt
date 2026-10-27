@@ -35,6 +35,7 @@ internal object OfflineValhallaRouter {
         destinationLon: Double,
         isReroute: Boolean = false,
         travelBearingDegrees: Float? = null,
+        preferences: RoutePreferences = RoutePreferences(),
     ): JSONObject? {
         val tiles = tileFile(context)
         if (!tiles.isFile || tiles.length() == 0L) return null
@@ -63,6 +64,7 @@ internal object OfflineValhallaRouter {
             .put("costing", "auto")
             .put("shape_format", "polyline6")
             .put("directions_options", JSONObject().put("units", "kilometers").put("language", "it-IT"))
+        preferences.applyTo(request)
         val raw = requireNotNull(engine).routeRaw(request.toString())
         return ValhallaRouteAdapter.toMotoRoute(
             JSONObject(raw), originLat, originLon, destinationLat, destinationLon)

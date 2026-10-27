@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.motogps.android.map.SavedMapInfo
 import com.motogps.android.routing.ValhallaRegion
+import com.motogps.android.routing.RoutePreferences
 import com.motogps.android.viewmodel.PlaceSearchResult
 import com.motogps.android.viewmodel.RouteOption
 import org.json.JSONArray
@@ -423,6 +424,8 @@ fun NavigationScreen(
     selectedRouteIndex: Int,
     routingSource: String? = null,
     routePreviewError: String? = null,
+    routePreferences: RoutePreferences = RoutePreferences(),
+    onRoutePreferencesChange: (RoutePreferences) -> Unit = {},
     isNavigating: Boolean = false,
     currentLocation: Pair<Double, Double>? = null,
     savedMaps: List<SavedMapInfo> = emptyList(),
@@ -452,6 +455,7 @@ fun NavigationScreen(
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var showOfflineDialog by remember { mutableStateOf(false) }
+    var showRoutePreferencesDialog by remember { mutableStateOf(false) }
 
     var centerOnLocationTrigger by remember { mutableStateOf(0) }
     var activeMapView by remember { mutableStateOf<MapView?>(null) }
@@ -466,6 +470,14 @@ fun NavigationScreen(
             onRefreshMaps()
             onRefreshValhallaCatalog()
         }
+    }
+
+    if (routePreview != null && !isNavigating && showRoutePreferencesDialog) {
+        RoutePreferencesDialog(
+            preferences = routePreferences,
+            onChange = onRoutePreferencesChange,
+            onDismiss = { showRoutePreferencesDialog = false }
+        )
     }
 
     if (showOfflineDialog) {
@@ -553,6 +565,18 @@ fun NavigationScreen(
                             downloadProgress = downloadProgress,
                             onCancelDownload = onCancelDownload
                         )
+                    }
+
+                    OutlinedButton(
+                        onClick = { showRoutePreferencesDialog = true },
+                        enabled = !isNavigating,
+                        modifier = Modifier.fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp)
+                            .heightIn(min = 48.dp)
+                    ) {
+                        Icon(Icons.Default.Settings, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Opzioni percorso")
                     }
 
                     Text(

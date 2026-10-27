@@ -175,3 +175,20 @@ Nessun pacchetto regionale precompilato è incluso nell'APK.
 La disponibilità delle strade offline dipende dall'avvenuta
 **conversione e importazione** del pacchetto; non basta installare
 l'app senza scaricare dati.
+
+## Opzioni di percorso
+
+Nella schermata **Percorso** si apre **Opzioni percorso** per selezionare
+**Rapido**, **Breve** o **Strade secondarie**. I profili usano il modello di costo
+`auto`: Rapido mantiene le impostazioni precedenti, Breve imposta `shortest`
+e Strade secondarie riduce la preferenza per autostrade e sterrati.
+Sono disponibili anche le opzioni **Evita autostrade**, **Evita pedaggi**,
+**Evita traghetti**. Valhalla può comunque attraversarli se necessario:
+non si tratta di esclusioni assolute.
+
+Nel profilo Breve, Valhalla ignora le penalizzazioni: i controlli Evita sono
+temporaneamente disattivati. Le impostazioni sono persistenti sul telefono e
+vengono usate nella preview, nel calcolo iniziale e nei ricalcoli del percorso.
+Cambiare un'opzione ricalcola la rotta senza doverla cercare nuovamente,
+annullando il precedente tentativo. Il motore continua a scegliere prima
+Valhalla con grafo locale, poi quello di rete.

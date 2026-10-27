@@ -16,7 +16,8 @@ internal object OnlineValhallaRouter {
 
     fun request(
         fromLat: Double, fromLon: Double, toLat: Double, toLon: Double,
-        rerouting: Boolean = false, gpsBearing: Float? = null
+        rerouting: Boolean = false, gpsBearing: Float? = null,
+        preferences: RoutePreferences = RoutePreferences()
     ): JSONObject {
         require(fromLat in -90.0..90.0 && toLat in -90.0..90.0 &&
             fromLon in -180.0..180.0 && toLon in -180.0..180.0) {
@@ -29,20 +30,21 @@ internal object OnlineValhallaRouter {
             origin.put("heading", gpsBearing.toDouble())
             origin.put("heading_tolerance", 45)
         }
-        return JSONObject()
+        return preferences.applyTo(JSONObject()
             .put("locations", JSONArray().put(origin).put(
                 JSONObject().put("lat", toLat).put("lon", toLon).put("type", "break")))
             .put("costing", "auto")
             .put("units", "km")
             .put("language", "it-IT")
-            .put("shape_format", "polyline6")
+            .put("shape_format", "polyline6"))
     }
 
     fun route(
         fromLat: Double, fromLon: Double, toLat: Double, toLon: Double,
-        rerouting: Boolean = false, gpsBearing: Float? = null
+        rerouting: Boolean = false, gpsBearing: Float? = null,
+        preferences: RoutePreferences = RoutePreferences()
     ): JSONObject {
-        val requestJson = request(fromLat, fromLon, toLat, toLon, rerouting, gpsBearing)
+        val requestJson = request(fromLat, fromLon, toLat, toLon, rerouting, gpsBearing, preferences)
         val conn = (URL(ENDPOINT).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             connectTimeout = 10_000

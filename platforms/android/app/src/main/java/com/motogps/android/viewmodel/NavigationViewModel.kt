@@ -23,6 +23,8 @@ import com.motogps.android.routing.OnlineValhallaRouter
 import com.motogps.android.routing.ValhallaTileDownloads
 import com.motogps.android.routing.ValhallaGraphImporter
 import com.motogps.android.routing.ValhallaRegion
+import com.motogps.android.routing.RoutePreferences
+import com.motogps.android.routing.RouteStyle
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -75,6 +77,37 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
 
     private val _routePreview = MutableStateFlow<PlaceSearchResult?>(null)
     val routePreview: StateFlow<PlaceSearchResult?> = _routePreview
+
+    private val _routePreferences = MutableStateFlow(RoutePreferences())
+    val routePreferences: StateFlow<RoutePreferences> = _routePreferences
+    private var routePreviewJob: Job? = null
+
+    fun loadRoutePreferences(context: Context) {
+        val saved = context.applicationContext.getSharedPreferences(
+            "moto_route_preferences", Context.MODE_PRIVATE)
+        val style = RouteStyle.entries.firstOrNull {
+            it.name == saved.getString("style", RouteStyle.FASTEST.name)
+        } ?: RouteStyle.FASTEST
+        _routePreferences.value = RoutePreferences(
+            style,
+            saved.getBoolean("avoid_highways", false),
+            saved.getBoolean("avoid_tolls", false),
+            saved.getBoolean("avoid_ferries", false)
+        )
+    }
+
+    fun updateRoutePreferences(context: Context, preferences: RoutePreferences) {
+        if (_isNavigating.value || _routePreferences.value == preferences) return
+        _routePreferences.value = preferences
+        context.applicationContext.getSharedPreferences(
+            "moto_route_preferences", Context.MODE_PRIVATE).edit()
+            .putString("style", preferences.style.name)
+            .putBoolean("avoid_highways", preferences.avoidHighways)
+            .putBoolean("avoid_tolls", preferences.avoidTolls)
+            .putBoolean("avoid_ferries", preferences.avoidFerries)
+            .apply()
+        _routePreview.value?.let { previewRoute(it) }
+    }
 
     private val _routeOptions = MutableStateFlow<List<RouteOption>>(emptyList())
     val routeOptions: StateFlow<List<RouteOption>> = _routeOptions
@@ -201,6 +234,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     }
 
     fun previewRoute(place: PlaceSearchResult) {
+        routePreviewJob?.cancel()
         _routePreview.value = place
         _routeOptions.value = emptyList()
         _selectedRouteIndex.value = 0
@@ -208,7 +242,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         _routePreviewError.value = null
         _errorMessage.value = null
 
-        viewModelScope.launch {
+        routePreviewJob = viewModelScope.launch {
             _isLoading.value = true
             try {
                 val options = withContext(Dispatchers.IO) {
@@ -216,6 +250,8 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                 }
                 _routeOptions.value = options
                 _routingSource.value = if (options.isNotEmpty()) "Valhalla" else null
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _routePreviewError.value = e.message ?: "Impossibile calcolare il percorso Valhalla"
                 _errorMessage.value = "Impossibile recuperare opzioni percorso: ${e.message}"
@@ -232,6 +268,8 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     }
 
     fun clearRoutePreview() {
+        routePreviewJob?.cancel()
+        routePreviewJob = null
         _routePreview.value = null
         _routeOptions.value = emptyList()
         _selectedRouteIndex.value = 0
@@ -1031,7 +1069,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
             try {
                 val result = OfflineValhallaRouter.route(
                     context, originLat, originLon, place.latitude, place.longitude,
-                    isReroute, bearing)
+                    isReroute, bearing, _routePreferences.value)
                 if (result != null) {
                     Log.i("NavigationVM", "Routing: Valhalla offline")
                     return result
@@ -1046,7 +1084,8 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         }
         return try {
             val result = OnlineValhallaRouter.route(
-                originLat, originLon, place.latitude, place.longitude, isReroute, bearing)
+                originLat, originLon, place.latitude, place.longitude, isReroute, bearing,
+                _routePreferences.value)
             Log.i("NavigationVM", "Routing: Valhalla online (local: $localError)")
             result
         } catch (e: CancellationException) {
