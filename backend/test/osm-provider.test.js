@@ -174,3 +174,60 @@ test("osm-provider planRoute cycles OSRM endpoints until one succeeds", async ()
   assert.ok(requestedEndpoints[0].includes("routing.openstreetmap.de/routed-car"));
   assert.ok(requestedEndpoints[1].includes("router.project-osrm.org"));
 });
+
+
+test("reroute uses fresh GPS bearing and falls back after OSRM rejects it", async () => {
+  const urls = [];
+  globalThis.fetch = async (url) => {
+    urls.push(String(url));
+    if (String(url).includes("bearings=")) return { ok: false, status: 400 };
+    return {
+      ok: true,
+      json: async () => ({
+        code: "Ok",
+        routes: [{
+          distance: 400, duration: 60,
+          geometry: { coordinates: [[12.0, 45.0], [12.01, 45.01]] },
+          legs: [{ steps: [] }],
+        }],
+      }),
+    };
+  };
+  const provider = createOsmProvider({ osrmBaseUrl: "https://example.org/route/v1/driving" });
+  const route = await provider.planRoute({
+    is_reroute: true,
+    origin_bearing_deg: 92,
+    origin: { longitude_deg: 12, latitude_deg: 45 },
+    destination: { longitude_deg: 12.01, latitude_deg: 45.01 },
+  });
+  assert.equal(route.total_distance_m, 400);
+  assert.equal(urls.length, 2);
+  assert.ok(urls[0].includes("bearings=92,45;"));
+  assert.ok(!urls[1].includes("bearings="));
+});
+
+test("initial routing does not constrain OSRM by bearing", async () => {
+  let url = "";
+  globalThis.fetch = async (request) => {
+    url = String(request);
+    return {
+      ok: true,
+      json: async () => ({
+        code: "Ok",
+        routes: [{
+          distance: 100, duration: 20,
+          geometry: { coordinates: [[12, 45], [12.001, 45.001]] },
+          legs: [{ steps: [] }],
+        }],
+      }),
+    };
+  };
+  const provider = createOsmProvider({ osrmBaseUrl: "https://example.org/route/v1/driving" });
+  await provider.planRoute({
+    is_reroute: false,
+    origin_bearing_deg: 92,
+    origin: { longitude_deg: 12, latitude_deg: 45 },
+    destination: { longitude_deg: 12.001, latitude_deg: 45.001 },
+  });
+  assert.ok(!url.includes("bearings="));
+});
