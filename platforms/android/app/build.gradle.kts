@@ -65,4 +65,7 @@ dependencies {
     implementation("org.json:json:20231013")
     implementation("org.osmdroid:osmdroid-android:6.1.18")
     implementation("io.github.rallista:valhalla-mobile:0.6.4")
+    implementation("io.github.rallista:valhalla-models:0.5.2")
+    implementation("io.github.rallista:valhalla-models-config:0.5.2")
+    implementation("com.stadiamaps:osrm-openapi:0.0.10")
 }
