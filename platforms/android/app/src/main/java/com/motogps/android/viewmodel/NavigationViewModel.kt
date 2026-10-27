@@ -295,10 +295,19 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                         }
                     }
 
-                    if (loopCount % 9 == 0) { // ~3.15s interval
+                    // Keep the proven ~3.15s BLE cadence on open roads. On
+                    // consecutive tight bends refresh at ~1.4s, so the moving
+                    // window tracks the rider without increasing its point cap.
+                    if (loopCount % 4 == 0 || loopCount % 9 == 0) {
                         val activeGeom = currentGeometry ?: geometry
                         if (activeGeom != null) {
-                            sendNearbyRouteGeometry(activeGeom)
+                            val winding = loopCount % 4 == 0 &&
+                                RouteGeometryWindow.isWinding(
+                                    RouteGeometryWindow.around(activeGeom, lat, lon)
+                                )
+                            if (winding || loopCount % 9 == 0) {
+                                sendNearbyRouteGeometry(activeGeom)
+                            }
                         }
                     }
                 }
