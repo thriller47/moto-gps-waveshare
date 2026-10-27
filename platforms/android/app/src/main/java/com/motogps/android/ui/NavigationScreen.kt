@@ -707,7 +707,7 @@ fun NavigationScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 8.dp),
-                    placeholder = { Text("Cerca su Photon (online)") },
+                    placeholder = { Text("Indirizzo online o coordinate GPS offline") },
                     leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                     trailingIcon = {
                         IconButton(onClick = {
@@ -730,7 +730,7 @@ fun NavigationScreen(
                 )
 
                 Text(
-                    "Ricerca indirizzi: Photon · Routing: Valhalla. Tieni premuto sulla mappa per scegliere un punto.",
+                    "Indirizzi: Photon (online). Offline: tieni premuto sulla mappa o digita coordinate, ad esempio 45.4642, 9.1900. Serve un grafo Valhalla .tar per calcolare la rotta.",
                     style = MaterialTheme.typography.labelSmall,
                     modifier = Modifier.padding(horizontal = 16.dp)
                 )
