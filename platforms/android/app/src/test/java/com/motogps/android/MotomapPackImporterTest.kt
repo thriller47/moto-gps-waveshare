@@ -12,5 +12,7 @@ class MotomapPackImporterTest {
         assertFalse(MotomapPackImporter.safeName("folder/tile_15_17190_11752.motomap"))
         assertFalse(MotomapPackImporter.safeName("tile_14_17190_11752.motomap"))
         assertFalse(MotomapPackImporter.safeName("tile_15_17190_11752.txt"))
+        assertFalse(MotomapPackImporter.safeName("tile_15_17190_11752.motomap/evil"))
+        assertFalse(MotomapPackImporter.safeName("tile_15_17190_11752.motomap\\\\evil"))
     }
 }
