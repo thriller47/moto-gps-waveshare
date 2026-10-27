@@ -12,8 +12,8 @@
 #include "esp_timer.h"
 #ifdef ESP_PLATFORM
 #include "esp_heap_caps.h"
-#endif
 #include "sdkconfig.h"
+#endif
 #include "moto_nav_ui.h"
 
 namespace {
