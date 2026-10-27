@@ -2,6 +2,8 @@ package com.motogps.android.viewmodel
 
 import com.motogps.android.jni.GeoPointE6
 import com.motogps.android.jni.MotoBLERouteGeometry
+import kotlin.math.abs
+import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.roundToInt
@@ -124,6 +126,36 @@ internal object RouteGeometryWindow {
             viewOrigin = GeoPointE6((latitude * 1e6).roundToInt(), (longitude * 1e6).roundToInt()),
             points = points
         )
+    }
+
+    /**
+     * Detect tight consecutive bends in the same BLE window. Only the
+     * transmission cadence changes; the 24-point limit remains unchanged.
+     */
+    fun isWinding(window: MotoBLERouteGeometry): Boolean {
+        val points = window.points
+        if (points.size < 4) return false
+        val latitude = window.viewOrigin.latitudeE6 / 1e6
+        val longitudeScale = cos(Math.toRadians(latitude))
+        var sharpBends = 0
+        var previousBearing: Double? = null
+        for (i in 1 until points.size) {
+            val north = (points[i].latitudeE6 - points[i - 1].latitudeE6).toDouble()
+            val east = (points[i].longitudeE6 - points[i - 1].longitudeE6) * longitudeScale
+            if (north * north + east * east < 1.0) continue
+            val bearing = atan2(east, north)
+            val previous = previousBearing
+            if (previous != null) {
+                val delta = abs(atan2(kotlin.math.sin(bearing - previous),
+                    cos(bearing - previous)))
+                if (delta >= Math.toRadians(55.0)) {
+                    sharpBends++
+                    if (sharpBends >= 2) return true
+                }
+            }
+            previousBearing = bearing
+        }
+        return false
     }
 
     private fun interpolate(a: GeoPointE6, b: GeoPointE6, fraction: Double): GeoPointE6 {
