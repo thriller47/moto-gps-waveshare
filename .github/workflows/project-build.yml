@@ -58,11 +58,18 @@ jobs:
       esp32: ${{ steps.filter.outputs.esp32 }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          # dorny/paths-filter needs the prior commit on this same branch.
+          fetch-depth: 0
+          persist-credentials: false
 
       - name: Detect relevant changes
         uses: dorny/paths-filter@v4
         id: filter
         with:
+          # On push, compare against the preceding commit on signal (not main).
+          # On PR, compare against the destination branch.
+          base: ${{ github.event_name == 'push' && github.ref_name || github.event.pull_request.base.ref }}
           filters: |
             native:
               - 'CMakeLists.txt'
