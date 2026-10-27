@@ -25,9 +25,15 @@ class HybridValhallaAndPhotonTest {
     @Test fun photonSearchBiasAndEncodingAreCorrect() {
         val link = PhotonPlaceSearch.endpoint("passo dello stelvio", 45.62 to 8.85)
         assertTrue(link.startsWith("https://photon.komoot.io/api/?q=passo+dello+stelvio"))
-        assertTrue(link.contains("limit=8&lang=it"))
+        // The Photon demo does not accept forced Italian response language.
+        // Queries in Italian must work without sending lang=it.
+        assertTrue(link.contains("limit=8"))
+        assertFalse(link.contains("lang="))
         assertTrue(link.contains("&lat=45.62&lon=8.85"))
         assertFalse(PhotonPlaceSearch.endpoint("Roma", null).contains("&lat="))
+        val roman = PhotonPlaceSearch.endpoint("San Giovanni d'Asso", null)
+        assertTrue(roman.contains("q=San+Giovanni+d%27Asso"))
+        assertFalse(roman.contains("lang="))
     }
 
     @Test fun photonGeoJsonCoordinatesAreLongitudeLatitudeAndInvalidFeaturesSkipped() {

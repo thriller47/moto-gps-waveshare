@@ -16,7 +16,10 @@ internal object PhotonPlaceSearch {
     fun endpoint(query: String, gpsLocation: Pair<Double, Double>?): String {
         val parameters = StringBuilder("?q=")
             .append(URLEncoder.encode(query.trim(), "UTF-8"))
-            .append("&limit=8&lang=it")
+            // The public photon.komoot.io instance does not guarantee Italian
+            // as a response language and rejects unsupported values with HTTP 400.
+            // Without lang Photon uses its default/local OSM place names.
+            .append("&limit=8")
         if (gpsLocation != null) {
             val (lat, lon) = gpsLocation
             if (lat.isFinite() && lon.isFinite() &&
@@ -72,7 +75,18 @@ internal object PhotonPlaceSearch {
         }
         return try {
             val code = conn.responseCode
-            if (code !in 200..299) throw IOException("Photon HTTP $code")
+            if (code !in 200..299) {
+                val responseMessage = conn.errorStream?.bufferedReader()?.use {
+                    it.readText().take(400)
+                }?.let { body ->
+                    runCatching { JSONObject(body).optString("message").trim() }
+                        .getOrNull()?.takeIf { it.isNotBlank() }
+                        ?: body.replace('\n', ' ').replace('\r', ' ').trim()
+                }?.take(180)
+                val message = if (responseMessage.isNullOrBlank()) "Photon HTTP $code"
+                    else "Photon HTTP $code: $responseMessage"
+                throw IOException(message)
+            }
             val response = conn.inputStream.bufferedReader().use { it.readText() }
             parse(JSONObject(response))
         } finally {

@@ -32,8 +32,13 @@ Il client usa un header identificativo `X-Client-Id`.
 L'app interroga `https://photon.komoot.io/api/` direttamente tramite
 una singola richiesta alla pressione del pulsante Cerca.
 - Risposte Photon GeoJSON e coordinate WGS84 (ordine GeoJSON: lon, lat).
-- Massimo otto risultati, lingua italiana, priorità alla posizione GPS
-  se disponibile, validazione degli intervalli di latitudine e longitudine.
+- Massimo otto risultati, priorità alla posizione GPS se disponibile,
+  validazione degli intervalli di latitudine e longitudine.
+- Nessun parametro `lang=it`: l'istanza pubblica Photon può rifiutare
+  con HTTP 400 lingue non disponibili. La ricerca accetta comunque nomi
+  italiani e i risultati usano i nomi OSM locali/di default.
+- Su errori HTTP l'app mostra anche il messaggio restituito da Photon,
+  se presente (ad esempio la lingua rifiutata).
 - Nessun autocomplete continuo per non sovraccaricare il server demo.
 
 Photon è online: offline si può comunque scegliere una destinazione
