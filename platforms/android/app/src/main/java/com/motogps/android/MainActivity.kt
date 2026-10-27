@@ -70,6 +70,12 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         if (uri != null) viewModel.importOsmRoadPack(this, uri)
     }
 
+    private val importValhallaGraphLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) viewModel.importValhallaGraph(this, uri)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -210,6 +216,11 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     valhallaStatus = valhallaStatus,
                     onRefreshValhallaCatalog = { viewModel.refreshValhallaCatalog() },
                     onDownloadValhalla = { id -> viewModel.downloadValhallaRegion(this@MainActivity, id) },
+                    onImportValhalla = {
+                        importValhallaGraphLauncher.launch(
+                            arrayOf("application/zstd", "application/x-zstd", "application/x-tar", "application/octet-stream", "*/*")
+                        )
+                    },
                     onCancelValhalla = { viewModel.cancelValhallaDownload() },
                     onDeleteValhalla = { viewModel.deleteValhallaGraph(this@MainActivity) },
                     onCancelDownload = {

@@ -19,6 +19,7 @@ fun ValhallaRoutingSection(
     isNavigating: Boolean,
     onRefreshCatalog: () -> Unit,
     onDownload: (String) -> Unit,
+    onImport: () -> Unit,
     onCancel: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -112,15 +113,27 @@ fun ValhallaRoutingSection(
                 )
             }
 
+            OutlinedButton(
+                onClick = onImport,
+                enabled = !isDownloading && !isNavigating,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
+            ) {
+                Text("Importa grafo TAR / ZST")
+            }
+
             if (isDownloading) {
-                LinearProgressIndicator(
-                    progress = { progress.coerceIn(0f, 1f) },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Text(
-                    "Download grafo · ${(progress.coerceIn(0f, 1f) * 100).toInt()}%",
-                    style = MaterialTheme.typography.labelMedium
-                )
+                if (status?.startsWith("Importazione grafo") == true) {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                } else {
+                    LinearProgressIndicator(
+                        progress = { progress.coerceIn(0f, 1f) },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Text(
+                        "Download grafo · ${(progress.coerceIn(0f, 1f) * 100).toInt()}%",
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                }
                 OutlinedButton(
                     onClick = onCancel,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)

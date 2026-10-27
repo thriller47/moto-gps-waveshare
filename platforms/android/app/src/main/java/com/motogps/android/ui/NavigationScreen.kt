@@ -305,6 +305,7 @@ fun OfflineMapsDialog(
     isNavigating: Boolean,
     onRefreshValhallaCatalog: () -> Unit,
     onDownloadValhalla: (String) -> Unit,
+    onImportValhalla: () -> Unit,
     onCancelValhalla: () -> Unit,
     onDeleteValhalla: () -> Unit,
     onDeleteMap: (String) -> Unit,
@@ -371,6 +372,7 @@ fun OfflineMapsDialog(
                     isNavigating = isNavigating,
                     onRefreshCatalog = onRefreshValhallaCatalog,
                     onDownload = onDownloadValhalla,
+                    onImport = onImportValhalla,
                     onCancel = onCancelValhalla,
                     onDelete = onDeleteValhalla
                 )
@@ -432,6 +434,7 @@ fun NavigationScreen(
     valhallaStatus: String? = null,
     onRefreshValhallaCatalog: () -> Unit = {},
     onDownloadValhalla: (String) -> Unit = {},
+    onImportValhalla: () -> Unit = {},
     onCancelValhalla: () -> Unit = {},
     onDeleteValhalla: () -> Unit = {},
     onRouteOptionSelect: (Int) -> Unit,
@@ -477,6 +480,7 @@ fun NavigationScreen(
             isNavigating = isNavigating,
             onRefreshValhallaCatalog = onRefreshValhallaCatalog,
             onDownloadValhalla = onDownloadValhalla,
+            onImportValhalla = onImportValhalla,
             onCancelValhalla = onCancelValhalla,
             onDeleteValhalla = onDeleteValhalla,
             onDeleteMap = onDeleteMap,

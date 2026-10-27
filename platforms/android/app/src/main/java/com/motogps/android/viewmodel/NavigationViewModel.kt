@@ -21,6 +21,7 @@ import com.motogps.android.location.LocationFixFilter
 import com.motogps.android.routing.OfflineValhallaRouter
 import com.motogps.android.routing.OnlineValhallaRouter
 import com.motogps.android.routing.ValhallaTileDownloads
+import com.motogps.android.routing.ValhallaGraphImporter
 import com.motogps.android.routing.ValhallaRegion
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
@@ -822,6 +823,33 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                 _valhallaStatus.value = "Grafo Valhalla installato. Ora puoi calcolare un percorso."
             } catch (e: Exception) {
                 _valhallaStatus.value = "Download fallito: " + e.message
+            } finally {
+                _valhallaDownloading.value = false
+                valhallaJob = null
+            }
+        }
+    }
+
+    fun importValhallaGraph(context: Context, uri: Uri) {
+        if (_valhallaDownloading.value || _isNavigating.value) return
+        val appContext = context.applicationContext
+        valhallaCancel.set(false)
+        valhallaJob = viewModelScope.launch {
+            _valhallaDownloading.value = true
+            _valhallaProgress.value = 0f
+            _valhallaStatus.value = "Importazione grafo: lettura archivio..."
+            try {
+                withContext(Dispatchers.IO) {
+                    ValhallaGraphImporter.install(appContext, uri, { bytes ->
+                        _valhallaStatus.value =
+                            "Importazione grafo: " + (bytes / 1_000_000L) + " MB elaborati"
+                    }, { valhallaCancel.get() || _isNavigating.value })
+                }
+                _valhallaInstalledBytes.value =
+                    OfflineValhallaRouter.tileFile(appContext).length()
+                _valhallaStatus.value = "Grafo Valhalla importato. Puoi provare la navigazione."
+            } catch (e: Exception) {
+                _valhallaStatus.value = "Importazione grafo fallita: " + e.message
             } finally {
                 _valhallaDownloading.value = false
                 valhallaJob = null

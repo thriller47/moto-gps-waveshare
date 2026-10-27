@@ -52,6 +52,26 @@ il motivo dell'errore rimane visibile e Avvia navigazione è disabilitato. Anche
 o rifiutare richieste: per produzione usare una propria istanza o
 un fornitore con condizioni compatibili.
 
+## Importazione di grafi esterni
+
+Nel menu **Gestione mappe → Grafi Valhalla → Importa grafo TAR / ZST**
+è possibile scegliere un archivio scaricato da un fornitore esterno,
+ad esempio `Italy.tar.zst` da routing.earth, oppure un normale `.tar`.
+L'app espande Zstandard in streaming nel file TAR usato dal motore
+Valhalla (non occorre decomprimere sul PC). L'archivio deve contenere
+le tile di routing `.gph`. La copia precedente rimane disponibile
+durante la validazione e viene sostituita solo dopo la verifica del TAR.
+Non importare mentre la navigazione è attiva.
+
+Prima dell'operazione verificare **molto spazio libero** sul telefono:
+l'archivio compresso resta nella cartella Download e l'app crea una
+copia TAR non compressa prima di sostituire il grafo installato.
+I file di routing sono molto grandi; l'app limita a 20 GiB il TAR
+espanso e controlla periodicamente lo spazio residuo. La validazione
+dell'archivio non garantisce la compatibilità del suo formato binario
+con la versione Valhalla integrata: testare il calcolo di una rotta
+dopo l'installazione.
+
 ## Archivi di routing locali
 
 **Gestione mappe → Grafi Valhalla → Aggiorna elenco regioni →

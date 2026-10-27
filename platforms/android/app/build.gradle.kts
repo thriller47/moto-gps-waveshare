@@ -72,4 +72,7 @@ dependencies {
     implementation("io.github.rallista:valhalla-models:0.5.2")
     implementation("io.github.rallista:valhalla-models-config:0.5.2")
     implementation("com.stadiamaps:osrm-openapi:0.0.10")
+    // Android AAR includes ARM64 Zstandard decoder used by imported .tar.zst.
+    implementation("com.github.luben:zstd-jni:1.5.7-24@aar")
+    testImplementation("com.github.luben:zstd-jni:1.5.7-24")
 }
