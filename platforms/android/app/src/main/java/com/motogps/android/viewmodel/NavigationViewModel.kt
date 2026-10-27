@@ -1014,11 +1014,6 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         connection.doOutput = true
 
         val (originLat, originLon) = currentLocation.value
-        // Only GPS travel bearing (never device compass orientation) can constrain OSRM.
-        val rerouteBearing = if (isReroute && lastGpsSpeedMs >= 3f &&
-            SystemClock.elapsedRealtime() - lastReliableGpsBearingMs in 0..5_000L)
-            lastReliableGpsBearing else null
-
         val jsonPayload = JSONObject().apply {
             put("protocol_version", 1)
             put("request_id", System.currentTimeMillis().rem(Int.MAX_VALUE).toInt())
@@ -1107,6 +1102,10 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         connection.doOutput = true
 
         val (originLat, originLon) = currentLocation.value
+        // Only the recent GPS travel bearing (never compass orientation) constrains a reroute.
+        val rerouteBearing = if (isReroute && lastGpsSpeedMs >= 3f &&
+            SystemClock.elapsedRealtime() - lastReliableGpsBearingMs in 0L..5_000L)
+            lastReliableGpsBearing else null
 
         val jsonPayload = JSONObject().apply {
             put("protocol_version", 1)
