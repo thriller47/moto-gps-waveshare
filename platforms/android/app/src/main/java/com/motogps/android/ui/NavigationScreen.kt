@@ -341,7 +341,6 @@ fun OfflineMapsDialog(
     onCancelValhalla: () -> Unit,
     onDeleteValhalla: () -> Unit,
     onDeleteMap: (String) -> Unit,
-    onDownloadArea: () -> Unit,
     onImportOsmPack: () -> Unit,
     onDownloadRegion: (String) -> Unit,
     downloadStatus: String? = null,
@@ -350,13 +349,52 @@ fun OfflineMapsDialog(
     onCancelDownload: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
-
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Gestione Mappe Offline") },
+        title = { Text("Gestione mappe") },
         text = {
-            Column(modifier = Modifier.fillMaxWidth().heightIn(max = 560.dp)
-                .verticalScroll(rememberScrollState())) {
+            Column(
+                modifier = Modifier.fillMaxWidth().heightIn(max = 560.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text("Mappe stradali", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            "Importa un pacchetto .motomap.zip preparato sul PC. Le strade saranno disponibili sul display ESP32.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        FilledTonalButton(
+                            onClick = onImportOsmPack,
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                            enabled = !isDownloadingMap && !valhallaDownloading && !isNavigating
+                        ) {
+                            Icon(Icons.Default.Place, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Importa mappa ZIP")
+                        }
+                        if (isDownloadingMap) {
+                            MapDownloadProgressBox(
+                                downloadStatus = downloadStatus,
+                                downloadProgress = downloadProgress,
+                                onCancelDownload = onCancelDownload
+                            )
+                        } else if (!downloadStatus.isNullOrBlank()) {
+                            Text(downloadStatus, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+
                 ValhallaRoutingSection(
                     regions = valhallaRegions,
                     loadingCatalog = valhallaCatalogLoading,
@@ -370,82 +408,39 @@ fun OfflineMapsDialog(
                     onCancel = onCancelValhalla,
                     onDelete = onDeleteValhalla
                 )
-                Text("Mappe .motomap salvate:", style = MaterialTheme.typography.titleSmall)
-                Spacer(modifier = Modifier.height(8.dp))
 
-                if (savedMaps.isEmpty()) {
-                    Text("Nessuna mappa offline salvata.", style = MaterialTheme.typography.bodyMedium)
-                } else {
-                    LazyColumn(modifier = Modifier.heightIn(max = 160.dp).fillMaxWidth()) {
-                        items(savedMaps) { mapInfo ->
-                            val mbStr = String.format("%.2f MB", mapInfo.sizeBytes / (1024.0 * 1024.0))
-                            Row(
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(mapInfo.fileName, style = MaterialTheme.typography.bodyMedium)
-                                    Text(mbStr, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                                IconButton(onClick = { onDeleteMap(mapInfo.fileName) }) {
-                                    Icon(Icons.Default.Delete, contentDescription = "Elimina")
-                                }
+                if (savedMaps.isNotEmpty()) {
+                    Text("File mappa singoli", style = MaterialTheme.typography.titleSmall)
+                    savedMaps.forEach { mapInfo ->
+                        val mbStr = String.format("%.2f MB", mapInfo.sizeBytes / (1024.0 * 1024.0))
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(mapInfo.fileName, style = MaterialTheme.typography.bodySmall)
+                                Text(
+                                    mbStr,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
-                            HorizontalDivider()
+                            IconButton(onClick = { onDeleteMap(mapInfo.fileName) }) {
+                                Icon(Icons.Default.Delete, contentDescription = "Elimina mappa")
+                            }
                         }
+                        HorizontalDivider()
                     }
                 }
-
-                Spacer(modifier = Modifier.height(16.dp))
-                HorizontalDivider()
-                Spacer(modifier = Modifier.height(16.dp))
-
-                if (isDownloadingMap) {
-                    MapDownloadProgressBox(
-                        downloadStatus = downloadStatus,
-                        downloadProgress = downloadProgress,
-                        onCancelDownload = onCancelDownload
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
-
-                Button(
-                    onClick = onImportOsmPack,
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = !isDownloadingMap
-                ) {
-                    Text("Importa pacchetto strade OSM (.zip)")
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-                Button(
-                    onClick = onDownloadArea,
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = !isDownloadingMap
-                ) {
-                    Icon(Icons.Default.Place, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Scarica strade vicine (~8 km)")
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Text(
-                    "Le strade provengono direttamente da OpenStreetMap (Overpass) e vengono salvate per l'uso offline. " +
-                        "Il corridoio si scarica dalla schermata percorso. " +
-                        "Le regioni complete richiedono archivi dedicati e non sono disponibili con questo metodo.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Chiudi")
-            }
+            TextButton(onClick = onDismiss) { Text("Chiudi") }
         }
     )
 }
+
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -478,7 +473,6 @@ fun NavigationScreen(
     onStartNavigation: (PlaceSearchResult) -> Unit,
     onStopNavigation: () -> Unit = {},
     onBackToSearch: () -> Unit,
-    onDownloadArea: () -> Unit = {},
     onImportOsmPack: () -> Unit = {},
     onDownloadCorridor: (List<Pair<Double, Double>>) -> Unit = {},
     onDownloadRegion: (String) -> Unit = {},
@@ -522,7 +516,6 @@ fun NavigationScreen(
             onCancelValhalla = onCancelValhalla,
             onDeleteValhalla = onDeleteValhalla,
             onDeleteMap = onDeleteMap,
-            onDownloadArea = onDownloadArea,
             onImportOsmPack = onImportOsmPack,
             onDownloadRegion = onDownloadRegion,
             downloadStatus = downloadStatus,
@@ -554,7 +547,7 @@ fun NavigationScreen(
                     title = { Text("MOTO GPS") },
                     actions = {
                         IconButton(onClick = { showOfflineDialog = true }) {
-                            Icon(Icons.Default.Place, contentDescription = "Mappe Offline")
+                            Icon(Icons.Default.Place, contentDescription = "Gestione mappe")
                         }
                     }
                 )
@@ -636,7 +629,7 @@ fun NavigationScreen(
                         ) {
                             Text(
                                 routePreviewError ?: if (valhallaInstalledBytes == 0L)
-                                    "Nessun grafo Valhalla offline installato. Il pacchetto .motomap.zip mostra le strade sull'ESP32, ma non calcola itinerari."
+                                    "Nessun grafo Valhalla installato. Il pacchetto .motomap.zip mostra le strade sull'ESP32, ma non calcola itinerari."
                                 else "Nessun percorso stradale calcolato. Controlla che la destinazione sia coperta dal grafo Valhalla.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.error
@@ -647,7 +640,7 @@ fun NavigationScreen(
                             )
                             if (valhallaInstalledBytes == 0L) {
                                 OutlinedButton(onClick = { showOfflineDialog = true }) {
-                                    Text("Installa grafo Valhalla offline")
+                                    Text("Installa grafo Valhalla")
                                 }
                             }
                             OutlinedButton(onClick = { onRouteSelected(routePreview) }) {
@@ -707,7 +700,7 @@ fun NavigationScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 8.dp),
-                    placeholder = { Text("Indirizzo online o coordinate GPS offline") },
+                    placeholder = { Text("Cerca indirizzo o inserisci coordinate GPS") },
                     leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                     trailingIcon = {
                         IconButton(onClick = {
@@ -730,7 +723,7 @@ fun NavigationScreen(
                 )
 
                 Text(
-                    "Indirizzi: Photon (online). Offline: tieni premuto sulla mappa o digita coordinate, ad esempio 45.4642, 9.1900. Serve un grafo Valhalla .tar per calcolare la rotta.",
+                    "Cerca un indirizzo oppure tieni premuto sulla mappa. Puoi anche inserire coordinate GPS, ad esempio 45.4642, 9.1900.",
                     style = MaterialTheme.typography.labelSmall,
                     modifier = Modifier.padding(horizontal = 16.dp)
                 )
@@ -772,7 +765,7 @@ fun NavigationScreen(
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Gestione Mappe Offline", style = MaterialTheme.typography.labelSmall)
+                        Text("Gestione mappe", style = MaterialTheme.typography.labelSmall)
                     }
                 }
 
