@@ -5,7 +5,7 @@ import java.util.Locale
 /** Optional destination entry that works with the network completely disabled. */
 internal object OfflineCoordinateSearch {
     private val pairPattern = Regex(
-        """^\\s*([+-]?\\d+(?:\\.\\d+)?)\\s*[,;]\\s*([+-]?\\d+(?:\\.\\d+)?)\\s*$"""
+        """^\s*([+-]?\d+(?:\.\d+)?)\s*[,;]\s*([+-]?\d+(?:\.\d+)?)\s*$"""
     )
 
     fun parse(input: String): PlaceSearchResult? {
