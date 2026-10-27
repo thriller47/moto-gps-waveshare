@@ -83,7 +83,7 @@ internal object RouteCurvatureSelector {
                 val mag = sqrt((x1*x1+y1*y1)*(x2*x2+y2*y2))
                 if (mag <= 0.0) continue
                 val degrees = acos(((x1*x2+y1*y2)/mag).coerceIn(-1.0,1.0)) * 180.0 / PI
-                if (degrees in 12.0..100.0) turns += min(degrees, 65.0)
+                if (degrees in 12.0..145.0) turns += min(degrees, 65.0)
             }
         }
         return turns / distanceKm
