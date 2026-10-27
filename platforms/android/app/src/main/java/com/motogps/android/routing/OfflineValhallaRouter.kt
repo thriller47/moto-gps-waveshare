@@ -67,7 +67,8 @@ internal object OfflineValhallaRouter {
         preferences.applyTo(request)
         val raw = requireNotNull(engine).routeRaw(request.toString())
         return ValhallaRouteAdapter.toMotoRoute(
-            JSONObject(raw), originLat, originLon, destinationLat, destinationLon)
+            RouteCurvatureSelector.select(JSONObject(raw), preferences),
+            originLat, originLon, destinationLat, destinationLon)
     }
 
     @Synchronized

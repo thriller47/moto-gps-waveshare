@@ -65,7 +65,8 @@ internal object OnlineValhallaRouter {
             }
             val body = conn.inputStream.bufferedReader().use { it.readText() }
             return ValhallaRouteAdapter.toMotoRoute(
-                JSONObject(body), fromLat, fromLon, toLat, toLon, "valhalla-online")
+                RouteCurvatureSelector.select(JSONObject(body), preferences),
+                fromLat, fromLon, toLat, toLon, "valhalla-online")
         } finally {
             conn.disconnect()
         }

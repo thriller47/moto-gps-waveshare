@@ -24,6 +24,29 @@ class RoutePreferencesTest {
         assertFalse(options.has("use_ferry"))
     }
 
+    @Test fun touringAvoidsUnpavedAndPrefersSecondaryAsphalt() {
+        val settings = RoutePreferences(
+            style = RouteStyle.TOURING, curveLevel = 2,
+            avoidTolls = true
+        )
+        val request = OnlineValhallaRouter.request(
+            45.5, 9.0, 44.5, 10.0, preferences = settings)
+        assertEquals("auto", request.getString("costing"))
+        assertEquals(2, request.getInt("alternates"))
+        val auto = request.getJSONObject("costing_options").getJSONObject("auto")
+        assertEquals(0.15, auto.getDouble("use_highways"), 0.0001)
+        assertEquals(0.0, auto.getDouble("use_tracks"), 0.0)
+        assertTrue(auto.getBoolean("exclude_unpaved"))
+        assertEquals(0.0, auto.getDouble("use_tolls"), 0.0)
+    }
+
+    @Test fun noExtraAlternatesOutsideTouringOrWhenCurvesDisabled() {
+        val secondary = RoutePreferences(style = RouteStyle.SECONDARY, curveLevel = 3)
+        assertFalse(secondary.applyTo(JSONObject()).has("alternates"))
+        val touring = RoutePreferences(style = RouteStyle.TOURING, curveLevel = 0)
+        assertFalse(touring.applyTo(JSONObject()).has("alternates"))
+    }
+
     @Test fun secondaryRoadsPenalizeHighwaysAndTracks() {
         val options = RoutePreferences(RouteStyle.SECONDARY)
             .applyTo(JSONObject()).getJSONObject("costing_options").getJSONObject("auto")

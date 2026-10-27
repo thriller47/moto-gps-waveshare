@@ -192,3 +192,28 @@ vengono usate nella preview, nel calcolo iniziale e nei ricalcoli del percorso.
 Cambiare un'opzione ricalcola la rotta senza doverla cercare nuovamente,
 annullando il precedente tentativo. Il motore continua a scegliere prima
 Valhalla con grafo locale, poi quello di rete.
+
+## Touring stradale e preferenza curve (prima versione)
+
+Il profilo **Touring moto** usa ancora il modello Valhalla `auto`, compatibile
+con il grafo Italia gia verificato: riduce la preferenza per autostrade
+(`use_highways=0.15`), evita tracce sterrate (`use_tracks=0`) e imposta
+`exclude_unpaved=true`. Le altre preferenze (pedaggi, traghetti, autostrade)
+continuano ad applicarsi. Non e un profilo off-road e non promette una strada
+interamente asfaltata se gli attributi OSM sono incompleti.
+
+La nuova regolazione **Preferisci curve** (No, Leggero, Medio, Alto) chiede
+fino a due alternative **nella stessa singola richiesta Valhalla** soltanto nel
+profilo Touring e quando il valore e maggiore di zero. Il selettore
+`RouteCurvatureSelector` misura la tortuosita effettiva delle geometrie
+Valhalla `polyline6` e confronta eventuali alternative solo se rispettano
+limiti di allungamento su tempo e distanza, piu permissivi con intensita alta.
+Se il motore non propone alternative valide, rimane il percorso normale;
+non vengono inventate strade, eseguite richieste aggiuntive o caricate mappe
+panoramiche. L'opzione non e un algoritmo panoramico: per laghi, punti di vista
+e paesaggi servira una futura analisi geografica.
+
+La finestra delle opzioni ora e un **pannello inferiore** di altezza massima
+320 dp, scorrevole, con profili su una riga orizzontale per **lasciare visibile
+la mappa** nella parte alta. Il valore curve e salvato insieme agli altri
+parametri, applicato alle anteprime e alle rotture/ricalcoli di percorso.

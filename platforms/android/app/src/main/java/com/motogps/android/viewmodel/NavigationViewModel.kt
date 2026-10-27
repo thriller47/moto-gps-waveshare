@@ -92,7 +92,8 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
             style,
             saved.getBoolean("avoid_highways", false),
             saved.getBoolean("avoid_tolls", false),
-            saved.getBoolean("avoid_ferries", false)
+            saved.getBoolean("avoid_ferries", false),
+            saved.getInt("curve_level", 0).coerceIn(0, 3)
         )
     }
 
@@ -105,6 +106,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
             .putBoolean("avoid_highways", preferences.avoidHighways)
             .putBoolean("avoid_tolls", preferences.avoidTolls)
             .putBoolean("avoid_ferries", preferences.avoidFerries)
+            .putInt("curve_level", preferences.curveLevel)
             .apply()
         _routePreview.value?.let { previewRoute(it) }
     }
