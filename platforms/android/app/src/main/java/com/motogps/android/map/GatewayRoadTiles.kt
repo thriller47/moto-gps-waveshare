@@ -1,6 +1,5 @@
 package com.motogps.android.map
 
-import android.util.Log
 import org.json.JSONObject
 import java.io.BufferedWriter
 import java.io.IOException
@@ -70,70 +69,90 @@ internal object GatewayRoadTiles {
         return visited.toList()
     }
 
-    /** Writes only verified, provider-supplied coordinates; 0 is valid for an empty tile. */
-    fun writeTile(gatewayBaseUrl: String, tile: Tile, writer: BufferedWriter): Int {
-        val base = gatewayBaseUrl.trimEnd('/')
-        if (!base.startsWith("https://")) throw IOException("Gateway mappe non configurato (HTTPS richiesto)")
-        var conn: HttpURLConnection? = null
+    /**
+     * Overpass QL is used only for small, explicit OSM bbox requests.
+     * Coordinates originate exclusively from the server's real OSM ways.
+     * No Render endpoint is ever consulted.
+     */
+    fun query(tile: Tile): String {
+        val west = tile.x.toDouble() / GRID * 360.0 - 180.0
+        val east = (tile.x + 1).toDouble() / GRID * 360.0 - 180.0
+        fun latitude(y: Int): Double = Math.toDegrees(
+            kotlin.math.atan(kotlin.math.sinh(PI * (1 - 2.0 * y / GRID))))
+        val north = latitude(tile.y)
+        val south = latitude(tile.y + 1)
+        val bbox = "${south},${west},${north},${east}"
+        return "[out:json][timeout:12];way[highway~\"^(motorway|trunk|primary|secondary|tertiary|residential|unclassified|service|motorway_link|trunk_link|primary_link|secondary_link)$\"]($bbox);out geom($bbox);"
+    }
+
+    fun writeTile(tile: Tile, writer: BufferedWriter): Int {
+        val endpoint = URL("https://overpass-api.de/api/interpreter")
+        val conn = (endpoint.openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            connectTimeout = 8_000
+            readTimeout = 18_000
+            doOutput = true
+            setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=utf-8")
+            setRequestProperty("Accept", "application/json")
+            setRequestProperty("User-Agent", "MotoGPS-Android/0.3 (OSM road context)")
+        }
         try {
-            conn = URL("$base/v1/map/tiles/$ZOOM/${tile.x}/${tile.y}")
-                .openConnection() as HttpURLConnection
-            conn.requestMethod = "GET"
-            conn.connectTimeout = 4000
-            conn.readTimeout = 8500
-            conn.setRequestProperty("Accept", "application/json")
-            conn.setRequestProperty("User-Agent", "MotoGPS/1.0 (Android vector map)")
-            val status = conn.responseCode
-            if (status !in 200..299) {
-                val error = try {
-                    JSONObject(conn.errorStream?.bufferedReader()?.use { it.readText() } ?: "{}")
-                        .optJSONObject("error")?.optString("code").orEmpty()
-                } catch (_: Exception) { "" }
-                throw IOException("Gateway tile HTTP $status ${error}".trim())
+            val payload = "data=" + java.net.URLEncoder.encode(query(tile), "UTF-8")
+            conn.outputStream.use { it.write(payload.toByteArray(Charsets.UTF_8)) }
+            if (conn.responseCode !in 200..299)
+                throw IOException("OSM Overpass HTTP ${conn.responseCode}")
+            val response = JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
+            return writeOsmWays(response, writer)
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    /** Converts an actual Overpass 'out geom' response to the existing BLE map cache. */
+    fun writeOsmWays(response: JSONObject, writer: BufferedWriter): Int {
+        if (response.optJSONArray("elements") == null)
+            throw IOException("Risposta Overpass priva di geometrie OSM")
+        val ways = response.getJSONArray("elements")
+        var written = 0
+        for (i in 0 until ways.length()) {
+            val way = ways.optJSONObject(i) ?: continue
+            if (way.optString("type") != "way") continue
+            val tags = way.optJSONObject("tags") ?: continue
+            val roadClass = when (tags.optString("highway")) {
+                "motorway", "motorway_link", "trunk", "trunk_link" -> 0
+                "primary", "primary_link" -> 1
+                "secondary", "secondary_link", "tertiary" -> 2
+                "residential", "unclassified", "service" -> 3
+                else -> continue
             }
-            val data = JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
-            if (data.optInt("schema_version") != 1 || !data.has("roads")) {
-                throw IOException("Risposta gateway mappe non valida")
+            val geometry = way.optJSONArray("geometry") ?: continue
+            if (geometry.length() < 2) continue
+            val points = ArrayList<Pair<Int, Int>>(geometry.length())
+            for (j in 0 until geometry.length()) {
+                val node = geometry.optJSONObject(j) ?: continue
+                val lat = node.optDouble("lat", Double.NaN)
+                val lon = node.optDouble("lon", Double.NaN)
+                if (!lat.isFinite() || !lon.isFinite() || lat !in -90.0..90.0 ||
+                    lon !in -180.0..180.0) continue
+                val point = (lat * 1e6).toInt() to (lon * 1e6).toInt()
+                if (points.lastOrNull() != point) points.add(point)
             }
-            val roads = data.optJSONArray("roads") ?: throw IOException("Elenco strade mancante")
-            var written = 0
-            for (i in 0 until roads.length()) {
-                val road = roads.optJSONObject(i) ?: continue
-                val roadClass = when (road.optString("class")) {
-                    "motorway" -> 0
-                    "primary" -> 1
-                    "secondary" -> 2
-                    "residential" -> 3
-                    // Access streets are legitimate context around a rider's home.
-                    "service" -> 3
-                    else -> 5
+            if (points.size < 2) continue
+            // Cap output size; roads longer than a tile remain represented by
+            // consecutive smaller segments rather than silently being dropped.
+            val speed = tags.optString("maxspeed").substringBefore(" ")
+                .toIntOrNull()?.takeIf { it in 5..140 } ?: when (roadClass) {
+                    0 -> 110; 1 -> 90; 2 -> 70; else -> 50
                 }
-                if (roadClass !in 0..3) continue
-                val vertices = road.optJSONArray("points_e6") ?: continue
-                if (vertices.length() !in 2..2048) continue
-                val points = ArrayList<Pair<Int, Int>>(vertices.length())
-                for (j in 0 until vertices.length()) {
-                    val pair = vertices.optJSONArray(j) ?: continue
-                    if (pair.length() != 2) continue
-                    val latE6 = pair.optInt(0, Int.MAX_VALUE)
-                    val lonE6 = pair.optInt(1, Int.MAX_VALUE)
-                    if (latE6 in -90_000_000..90_000_000 && lonE6 in -180_000_000..180_000_000) {
-                        points.add(latE6 to lonE6)
-                    }
-                }
-                if (points.size < 2) continue
-                val speed = when (roadClass) { 0 -> 130; 1 -> 90; 2 -> 70; else -> 50 }
-                writer.write("$roadClass,$speed|${points.minOf { it.first }},${points.minOf { it.second }},${points.maxOf { it.first }},${points.maxOf { it.second }}|")
-                writer.write(points.joinToString(";") { "${it.first},${it.second}" })
+            for (offset in 0 until points.lastIndex step 2047) {
+                val slice = points.subList(offset, minOf(offset + 2048, points.size))
+                if (slice.size < 2) continue
+                writer.write("$roadClass,$speed|${slice.minOf { it.first }},${slice.minOf { it.second }},${slice.maxOf { it.first }},${slice.maxOf { it.second }}|")
+                writer.write(slice.joinToString(";") { "${it.first},${it.second}" })
                 writer.newLine()
                 written++
             }
-            return written
-        } catch (e: Exception) {
-            Log.w("GatewayRoadTiles", "Tile ${tile.key}: ${e.message}")
-            throw e
-        } finally {
-            conn?.disconnect()
         }
+        return written
     }
 }

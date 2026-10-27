@@ -117,21 +117,6 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             }
         })
 
-        val sharedPrefs = getSharedPreferences("MotoGpsPrefs", Context.MODE_PRIVATE)
-        val defaultGateway = "https://moto-gps-waveshare.onrender.com"
-        val rawSavedGateway = sharedPrefs.getString("gateway_address", null)
-        if (!rawSavedGateway.isNullOrBlank() && !rawSavedGateway.startsWith(defaultGateway)) {
-            sharedPrefs.edit().remove("gateway_address").apply()
-        }
-
-        fun getGatewayToUse(): String {
-            val saved = sharedPrefs.getString("gateway_address", null)
-            return if (!saved.isNullOrBlank() && saved.startsWith(defaultGateway)) saved else defaultGateway
-        }
-
-        val initialGateway = getGatewayToUse()
-        viewModel.configureMapGateway(initialGateway)
-
         setContent {
             val connectionState = viewModel.connectionState.collectAsState().value
             val isLoading = viewModel.isLoading.collectAsState().value
@@ -168,11 +153,6 @@ class MainActivity : ComponentActivity(), SensorEventListener {
 
             MaterialTheme(colorScheme = lightColorScheme()) {
                 NavigationScreen(
-                    initialGateway = initialGateway,
-                    onGatewaySave = { newGateway ->
-                        sharedPrefs.edit().putString("gateway_address", newGateway).apply()
-                        viewModel.configureMapGateway(newGateway)
-                    },
                     onSearch = { query ->
                         viewModel.searchDestination(query)
                     },
@@ -196,7 +176,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                         viewModel.previewRoute(place)
                     },
                     onStartNavigation = { place ->
-                        viewModel.startNavigation(place, getGatewayToUse())
+                        viewModel.startNavigation(place)
                     },
                     onStopNavigation = {
                         viewModel.stopNavigation()

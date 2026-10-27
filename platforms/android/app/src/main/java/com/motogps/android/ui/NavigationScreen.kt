@@ -403,7 +403,7 @@ fun OfflineMapsDialog(
                 Spacer(modifier = Modifier.height(8.dp))
 
                 Text(
-                    "Le mappe provengono dal gateway vettoriale e vengono salvate per l'uso offline. " +
+                    "Le strade provengono direttamente da OpenStreetMap (Overpass) e vengono salvate per l'uso offline. " +
                         "Il corridoio si scarica dalla schermata percorso. " +
                         "Le regioni complete richiedono archivi dedicati e non sono disponibili con questo metodo.",
                     style = MaterialTheme.typography.bodySmall,
@@ -422,8 +422,6 @@ fun OfflineMapsDialog(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NavigationScreen(
-    initialGateway: String,
-    onGatewaySave: (String) -> Unit,
     onSearch: (String) -> Unit,
     onConnectRequest: () -> Unit,
     connectionState: String,
@@ -462,10 +460,7 @@ fun NavigationScreen(
     onRefreshMaps: () -> Unit = {}
 ) {
     var searchQuery by remember { mutableStateOf("") }
-    var currentGateway by remember { mutableStateOf(initialGateway) }
-    var showGatewayDialog by remember { mutableStateOf(initialGateway.isBlank()) }
     var showOfflineDialog by remember { mutableStateOf(false) }
-    var tempGateway by remember { mutableStateOf(initialGateway) }
 
     var centerOnLocationTrigger by remember { mutableStateOf(0) }
     var activeMapView by remember { mutableStateOf<MapView?>(null) }
@@ -474,34 +469,6 @@ fun NavigationScreen(
     val focusManager = LocalFocusManager.current
     val context = LocalContext.current
 
-    if (showGatewayDialog) {
-        AlertDialog(
-            onDismissRequest = {
-                if (currentGateway.isNotBlank()) showGatewayDialog = false
-            },
-            title = { Text("Configurazione Gateway") },
-            text = {
-                OutlinedTextField(
-                    value = tempGateway,
-                    onValueChange = { tempGateway = it },
-                    label = { Text("Indirizzo Gateway") }
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        if (tempGateway.isNotBlank()) {
-                            onGatewaySave(tempGateway)
-                            currentGateway = tempGateway
-                            showGatewayDialog = false
-                        }
-                    }
-                ) {
-                    Text("Salva")
-                }
-            }
-        )
-    }
 
     LaunchedEffect(showOfflineDialog) {
         if (showOfflineDialog) {
@@ -557,9 +524,6 @@ fun NavigationScreen(
                     actions = {
                         IconButton(onClick = { showOfflineDialog = true }) {
                             Icon(Icons.Default.Place, contentDescription = "Mappe Offline")
-                        }
-                        IconButton(onClick = { showGatewayDialog = true }) {
-                            Icon(Icons.Default.Settings, contentDescription = "Gateway cartografia motomap")
                         }
                     }
                 )

@@ -43,10 +43,9 @@ data class BoundingBox(
     val maxLon: Double
 )
 
-/** Offline road cache backed exclusively by real vector tiles from our gateway. */
+/** Offline road cache backed by real OSM ways fetched from Overpass, never Render. */
 class HybridMapRepository(
-    private val context: Context,
-    private val gatewayBaseUrl: String? = null
+    private val context: Context
 ) {
     companion object {
         private val offlineDownloadMutex = Mutex()
@@ -84,13 +83,8 @@ class HybridMapRepository(
 
     /** Fetch a small nearby road window without blocking the navigation loop. */
     fun ensureOnlineTile(lat: Double, lon: Double): Boolean {
-        val gateway = gatewayBaseUrl
-        if (gateway.isNullOrBlank()) {
-            Log.w("HybridMapRepository", "Gateway mappe non configurato")
-            return false
-        }
         val center = GatewayRoadTiles.tileFor(lat, lon)
-        val file = File(mapsDir, "gateway_near_${center.key}.motomap")
+        val file = File(mapsDir, "osm_near_${center.key}.motomap")
         if (file.exists() && file.length() > 0L &&
             System.currentTimeMillis() - file.lastModified() < 7L * 24L * 60L * 60L * 1000L) {
             return true
@@ -100,9 +94,9 @@ class HybridMapRepository(
         var failures = 0
         try {
             temp.bufferedWriter().use { writer ->
-                for (tile in GatewayRoadTiles.around(lat, lon, 1)) {
+                for (tile in listOf(center)) {
                     try {
-                        count += GatewayRoadTiles.writeTile(gateway, tile, writer)
+                        count += GatewayRoadTiles.writeTile(tile, writer)
                         failures = 0
                     } catch (_: Exception) {
                         failures++
@@ -116,7 +110,7 @@ class HybridMapRepository(
             }
             if (file.exists() && !file.delete()) return false
             if (!temp.renameTo(file)) return false
-            Log.i("HybridMapRepository", "Gateway OSM nearby cache: $count roads")
+            Log.i("HybridMapRepository", "OSM nearby cache: $count roads")
             return true
         } finally {
             temp.delete()
@@ -273,10 +267,6 @@ class HybridMapRepository(
         label: String,
         onProgress: ((Int, Int, String) -> Unit)?
     ): DownloadResult {
-        val gateway = gatewayBaseUrl
-        if (gateway.isNullOrBlank()) {
-            throw IOException("Gateway mappe non configurato. Configura l'indirizzo del server nell'app.")
-        }
         if (tiles.isEmpty()) throw IOException("Nessuna tile richiesta")
         offlineDownloadMutex.lock()
         try {
@@ -311,8 +301,8 @@ class HybridMapRepository(
                 val temp = File(partsDir, part.name + ".tmp")
                 try {
                     val count = temp.bufferedWriter().use { writer ->
-                        writer.write("# Gateway vector tile ${tile.key}\n")
-                        GatewayRoadTiles.writeTile(gateway, tile, writer)
+                        writer.write("# OSM Overpass vector tile ${tile.key}\n")
+                        GatewayRoadTiles.writeTile(tile, writer)
                     }
                     if (!temp.renameTo(part)) throw IOException("Impossibile salvare tile ${tile.key}")
                     completed++
@@ -329,13 +319,13 @@ class HybridMapRepository(
                     Log.w("HybridMapRepository", "$label: tile ${tile.key} non disponibile: ${e.message}")
                 }
                 onProgress?.invoke(index + 1, tiles.size, "$label: $completed/${tiles.size} tile")
-                // Avoid bursts towards Render/PMTiles, including at block edges.
-                if (index < tiles.lastIndex) delay(if (consecutiveFailures > 0) 1_000 else 350)
+                // Back off between requests to the public Overpass API.
+                if (index < tiles.lastIndex) delay(if (consecutiveFailures > 0) 5_000 else 2_000)
             }
 
             if (totalSegments == 0) {
                 throw IOException(
-                    "Nessuna strada scaricata. Gateway vettoriale: ${lastGatewayError ?: "nessuna strada nelle tile disponibili"}.")
+                    "Nessuna strada OSM scaricata: ${lastGatewayError ?: "nessuna strada nelle tile disponibili"}.")
             }
 
             val complete = completed == tiles.size

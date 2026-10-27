@@ -63,15 +63,37 @@ Con la versione attuale è possibile installare un solo grafo alla volta.
 Un percorso che esce dalla zona scaricata può essere richiesto al servizio
 Valhalla online; offline non è possibile navigare fuori copertura.
 
-## Stato della dipendenza da Render
+## Cartografia stradale indipendente da Render
 
-Il **calcolo itinerari**, **ricalcolo** e **ricerca testuale** non
-dipendono più da Render. Il gateway è però ancora usato per
-l'**aggiornamento automatico delle mappe stradali .motomap e del
-contesto stradale inviato all'ESP32**, e per i vecchi download delle
-mappe vettoriali gestiti da `HybridMapRepository`. OSMDroid visualizza
-invece le tile raster OSM tramite la propria sorgente. Quindi **Render
-non è ancora eliminabile** senza una sostituzione di quelle API.
+Anche il contesto stradale dell'ESP32 viene ora acquisito da dati OSM
+**direttamente tramite Overpass**. L'endpoint
+`https://overpass-api.de/api/interpreter` restituisce vere geometrie
+OSM per piccole bounding box intorno al GPS. Il convertitore preserva
+il formato `.motomap` e il protocollo BLE esistente; nessuna richiesta
+dell'APK raggiunge Render.
+
+- La posizione corrente provoca una richiesta di **una sola tile**
+  zoom 15 quando il contesto in cache è insufficiente. Il risultato
+  viene conservato in `files/maps/osm_near_*.motomap` per 7 giorni.
+- Il caricamento automatico di *tutto* il corridoio di un itinerario è
+  disabilitato: interrogherebbe centinaia di tile del server pubblico.
+- I download espliciti della zona e del corridoio restano disponibili,
+  eseguono richieste distanziate e mantengono checkpoint locali.
+  Non sono una soluzione per scaricare intere regioni: per quella
+  occorre un archivio OSM regionalizzato.
+- Le velocità dei tratti non sono fornite da Valhalla: si usa il tag
+  OSM `maxspeed` numerico, ove presente, o il valore indicativo per
+  classe di strada. **Non va interpretato come limite legale certo**.
+- Dati già in cache `.motomap` rimangono leggibili.
+- Photon e Valhalla online rimangono servizi distinti e indipendenti
+  da Render; la visualizzazione raster OSMDroid usa la propria fonte.
+
+**Limite importante:** il server Overpass pubblico è condiviso,
+soggetto a code, rallentamenti e quote; questa integrazione è
+sperimentale. Per offrire il caricamento automatico su larga scala
+occorrono tile regionali offline o un servizio OSM/PMTiles dedicato.
+Le richieste non garantiscono che tutte le strade vengano mostrate
+immediatamente. Il sistema BLE e l'ESP32 non sono stati modificati.
 
 ## Test consigliati
 

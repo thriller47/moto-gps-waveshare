@@ -152,12 +152,6 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     private var lastOnlineTileAttemptLon: Double = Double.NaN
     private var lastMapSceneRevision: Long = 0L
     private var navigationMapsContext: Context? = null
-    private var mapGatewayUrl: String = ""
-
-    fun configureMapGateway(url: String) {
-        mapGatewayUrl = url.trim()
-    }
-    private var automaticCorridorJob: Job? = null
 
     init {
         bleManager.onDeviceCommandReceived = { cmd ->
@@ -230,14 +224,13 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         _selectedRouteIndex.value = 0
     }
 
-    fun startNavigation(place: PlaceSearchResult, gatewayUrl: String) {
+    fun startNavigation(place: PlaceSearchResult) {
         if (!hasFirstFix) {
             _errorMessage.value = "Attendi un segnale GPS valido prima di navigare"
             return
         }
 
         activeDestination = place
-        activeGatewayUrl = gatewayUrl
         _isNavigating.value = true
         _currentDevicePage.value = 0 // Reset to navigation page on start
 
@@ -255,29 +248,9 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                 currentGeometry = geometry
                 // Keep the source of the ACTUAL navigation route visible.
                 _routingSource.value = lastRoutingProvider
-                // Prepare the existing corridor cache automatically for a new
-                // route. Online tiles continue to provide immediate context.
-                val mapContext = navigationMapsContext
-                if (mapContext != null && geometry != null && geometry.points.size >= 2) {
-                    automaticCorridorJob?.cancel()
-                    val routePoints = geometry.points.map { point ->
-                        Pair(point.latitudeE6 / 1e6, point.longitudeE6 / 1e6)
-                    }
-                    automaticCorridorJob = viewModelScope.launch(Dispatchers.IO) {
-                        try {
-                            val repo = getOrCreateRepo(mapContext)
-                            // A completed corridor may belong to an older route.
-                            // Tile checkpoints are geographically keyed, so each
-                            // new route fills only its missing vector tiles.
-                            repo.downloadRouteCorridor(routePoints)
-                            val (currentLat, currentLon) = currentLocation.value
-                            updateSpeedLimitAndMapScene(currentLat, currentLon, mapContext)
-                        } catch (e: Exception) {
-                            Log.w("NavigationVM", "Automatic corridor unavailable: ${e.message}")
-                        }
-                    }
-                }
-
+                // Public Overpass is not suitable for downloading a complete
+                // route in the background. A small GPS-local area is fetched
+                // on demand and retained in the .motomap cache instead.
                 if (geometry != null) {
                     sendNearbyRouteGeometry(geometry)
                 }
@@ -358,8 +331,6 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         _isNavigating.value = false
         navigationJob?.cancel()
         navigationJob = null
-        automaticCorridorJob?.cancel()
-        automaticCorridorJob = null
         activeDestination = null
         _routingSource.value = null
         currentSnapshot = null
@@ -405,7 +376,6 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
 
     private var hasFirstFix = false
     private var activeDestination: PlaceSearchResult? = null
-    private var activeGatewayUrl: String = ""
     @Volatile private var lastRoutingProvider: String? = null
     private var lastRecalculationTime: Long = 0
     private var offRouteFixCount = 0
@@ -859,10 +829,8 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         _downloadStatus.value = "Download annullato"
     }
 
-    private fun getOrCreateRepo(context: Context): HybridMapRepository {
-        val gateway = mapGatewayUrl.ifBlank { activeGatewayUrl }
-        return HybridMapRepository(context.applicationContext, gateway)
-    }
+    private fun getOrCreateRepo(context: Context): HybridMapRepository =
+        HybridMapRepository(context.applicationContext)
 
     fun refreshSavedMaps(context: Context) {
         _valhallaInstalledBytes.value = OfflineValhallaRouter.tileFile(context)
@@ -872,7 +840,6 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     }
 
     fun downloadCurrentArea(context: Context) {
-        automaticCorridorJob?.cancel()
         mapDownloadJob?.cancel()
         mapDownloadJob = viewModelScope.launch {
             _isDownloadingMap.value = true
@@ -918,7 +885,6 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
 
     fun downloadRouteCorridor(context: Context, rawRoutePoints: List<Pair<Double, Double>>) {
         if (rawRoutePoints.isEmpty()) return
-        automaticCorridorJob?.cancel()
         mapDownloadJob?.cancel()
         mapDownloadJob = viewModelScope.launch {
             _isDownloadingMap.value = true
@@ -959,7 +925,6 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     }
 
     fun downloadRegion(context: Context, regionName: String) {
-        automaticCorridorJob?.cancel()
         mapDownloadJob?.cancel()
         mapDownloadJob = viewModelScope.launch {
             _isDownloadingMap.value = true
