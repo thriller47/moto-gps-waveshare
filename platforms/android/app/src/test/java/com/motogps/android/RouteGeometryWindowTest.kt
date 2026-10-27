@@ -69,4 +69,28 @@ class RouteGeometryWindowTest {
         assertEquals(view.points.size, view.totalPointCount)
         assertEquals(1, view.chunkCount)
     }
+    @Test
+    fun tightConsecutiveHairpinsTriggerFasterWindowRefresh() {
+        val points = listOf(
+            GeoPointE6(45_000_000, 8_000_000),
+            GeoPointE6(45_000_180, 8_000_000),
+            GeoPointE6(45_000_180, 8_000_300),
+            GeoPointE6(45_000_350, 8_000_300),
+            GeoPointE6(45_000_350, 8_000_050),
+            GeoPointE6(45_000_500, 8_000_050)
+        )
+        val window = RouteGeometryWindow.around(route(points), 45.0, 8.0)
+        assertTrue(RouteGeometryWindow.isWinding(window))
+        assertTrue(window.points.size <= 24)
+    }
+
+    @Test
+    fun straightRoadRetainsNormalBleRefreshCadence() {
+        val points = (0..60).map {
+            GeoPointE6(45_000_000 + it * 45, 8_000_000)
+        }
+        val window = RouteGeometryWindow.around(route(points), 45.0, 8.0)
+        assertTrue(!RouteGeometryWindow.isWinding(window))
+    }
+
 }
