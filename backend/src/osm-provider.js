@@ -190,11 +190,19 @@ export function createOsmProvider({
 
       for (const baseEndpoint of endpointsToUse) {
         const cleanEndpoint = baseEndpoint.endsWith("/") ? baseEndpoint : `${baseEndpoint}/`;
-        const url = `${cleanEndpoint}${coords}?overview=full&geometries=geojson&steps=true`;
+        const heading = body.is_reroute && Number.isFinite(body.origin_bearing_deg)
+          ? `&bearings=${Math.round(body.origin_bearing_deg)},45;`
+          : "";
+        const url = `${cleanEndpoint}${coords}?overview=full&geometries=geojson&steps=true${heading}`;
 
         try {
-          const resData = await fetchJsonWithTimeout(url, {}, 12000);
-          if (resData && (resData.code === "Ok" || (resData.routes && resData.routes.length > 0))) {
+          let resData = await fetchJsonWithTimeout(url, {}, 12000);
+          // GPS heading can disagree with the snapped road, e.g. near hairpins.
+          // Retry the same endpoint unconstrained before choosing another server.
+          if (heading && (resData?.code !== "Ok" || !resData?.routes?.length)) {
+            resData = await fetchJsonWithTimeout(url.replace(heading, ""), {}, 12000);
+          }
+          if (resData && resData.routes && resData.routes.length > 0) {
             data = resData;
             break;
           }
