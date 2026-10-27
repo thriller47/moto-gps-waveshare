@@ -6,6 +6,7 @@ on:
       - main
       - master
       - signal
+      - valhalla
     paths-ignore:
       - '**.md'
       - 'docs/**'
@@ -16,6 +17,7 @@ on:
       - main
       - master
       - signal
+      - valhalla
     paths-ignore:
       - '**.md'
       - 'docs/**'
