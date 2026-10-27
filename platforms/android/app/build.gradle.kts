@@ -1,5 +1,23 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
+// The CI run number is monotonically increasing across builds in this repo.
+// Keep the applicationId unchanged so Android sees a regular app update.
+val motoVersionCode = System.getenv("MOTO_GPS_VERSION_CODE")
+    ?.toIntOrNull()?.takeIf { it > 0 } ?: 2
+
+// For updateable APKs, configure a persistent signing key in GitHub Secrets.
+// No private keys or passwords are stored in source control.
+val signingStorePath = System.getenv("MOTO_GPS_KEYSTORE_PATH")
+val signingStorePassword = System.getenv("MOTO_GPS_KEYSTORE_PASSWORD")
+val signingKeyAlias = System.getenv("MOTO_GPS_KEY_ALIAS")
+val signingKeyPassword = System.getenv("MOTO_GPS_KEY_PASSWORD")
+val persistentSigning = listOf(
+    signingStorePath, signingStorePassword, signingKeyAlias, signingKeyPassword
+).all { !it.isNullOrBlank() }
+if (!signingStorePath.isNullOrBlank() && !persistentSigning) {
+    error("Firma Android incompleta: configurare tutte le credenziali del keystore")
+}
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -14,8 +32,8 @@ android {
         applicationId = "com.motogps.android"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = motoVersionCode
+        versionName = "1.0.$motoVersionCode"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         externalNativeBuild {
@@ -29,10 +47,31 @@ android {
         compose = true
     }
 
+    signingConfigs {
+        if (persistentSigning) {
+            create("motoGpsPersistent") {
+                storeFile = file(requireNotNull(signingStorePath))
+                storePassword = signingStorePassword
+                keyAlias = signingKeyAlias
+                keyPassword = signingKeyPassword
+            }
+        }
+    }
+
     buildTypes {
+        getByName("debug") {
+            // Keep using the familiar debug artifact, but sign it with the
+            // same private key on every CI run once the secrets are configured.
+            if (persistentSigning) {
+                signingConfig = signingConfigs.getByName("motoGpsPersistent")
+            }
+        }
         release {
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            if (persistentSigning) {
+                signingConfig = signingConfigs.getByName("motoGpsPersistent")
+            }
         }
     }
 
