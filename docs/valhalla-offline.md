@@ -141,9 +141,11 @@ Scaricare il `.osm.pbf` della regione desiderata dal catalogo
 [Geofabrik](https://download.geofabrik.de/europe/italy.html).
 Copiare il `.motomap.zip` sul telefono, aprire **Gestione Mappe Offline**
 e premere **Importa pacchetto strade OSM (.zip)**.
-Selezionare il file dal selettore Android: le tile vengono conservate
-in `files/maps/.osm_import_parts` e lette dall'indice stradale
-esistente. Il contenuto è destinato al **contesto stradale ESP32**,
+Selezionare il file dal selettore Android: gli archivi vengono conservati
+senza estrazione in `files/maps/.osm_packages` e le singole tile sono lette
+direttamente dallo ZIP in base alla posizione GPS. Archivi con nomi diversi
+possono coesistere; importare nuovamente lo stesso nome lo sostituisce.
+Le vecchie tile estratte in `files/maps/.osm_import_parts` restano leggibili. Il contenuto è destinato al **contesto stradale ESP32**,
 non sostituisce il grafo Valhalla `.tar` usato per il routing.
 
 **Attenzione alle dimensioni.** Questa prima versione usa un convertitore
@@ -151,9 +153,11 @@ Python in memoria; su estratti PBF grandi (per esempio un'intera
 macroregione) richiede molta RAM. Partire con un estratto locale piccolo
 prima di tentare regioni complete. Una versione successiva dovrà
 generare le tile con indicizzazione su disco e offrire il download di
-pacchetti precompilati. L'importazione Android limita ZIP, numero di
-file e dimensioni estratte, e protegge i dati già installati durante
-l'aggiornamento.
+pacchetti precompilati. L'importazione Android accetta fino a 500.000 tile per ZIP, con limite di
+8 GiB per archivio e somma delle dimensioni estratte, e protegge il
+precedente archivio con lo stesso nome durante l'aggiornamento.
+Il pacchetto Italia da 278.028 tile rientra nel limite del numero di file;
+restano da verificare spazio sul telefono, dimensioni e test reali.
 
 Nessun pacchetto regionale precompilato è incluso nell'APK.
 La disponibilità delle strade offline dipende dall'avvenuta
