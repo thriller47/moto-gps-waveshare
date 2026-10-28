@@ -376,3 +376,7 @@ Test di rendering nativo aggiunti per ordine dei livelli, settore
 Per ridurre il costo dello scorrimento su ESP32, il widget ad arco
 invalida soltanto la fascia superiore del display (134 unità del
 canvas 360, adattate a 466 pixel), non l'intera superficie 466×466.
+
+Il timer del nome scorrevole viene inoltre eliminato esplicitamente
+prima di ricreare il display e nelle schermate di avvio/spegnimento:
+non deve mai aggiornare oggetti LVGL già distrutti.

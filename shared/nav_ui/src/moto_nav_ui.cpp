@@ -202,6 +202,15 @@ struct Ui {
 
 } ui;
 
+// Scrolling text owns a timer independent from its LVGL widget. Always
+// dispose it before cleaning a screen or resetting the retained UI state.
+void delete_street_scroll_timer() {
+    if(ui.nav_street_scroll_timer != nullptr) {
+        lv_timer_delete(ui.nav_street_scroll_timer);
+        ui.nav_street_scroll_timer = nullptr;
+    }
+}
+
 void reset_ui_state() {
     static_assert(std::is_trivially_copyable_v<Ui>,
                   "Ui must remain safe to reset without a stack temporary");
@@ -2074,6 +2083,7 @@ void set_boot_content_opacity(void *object, int32_t opacity) {
 }  // namespace
 
 extern "C" void moto_nav_ui_show_boot_screen(void) {
+    delete_street_scroll_timer();
     /* This entry point is also used while the full UI is live. Delete every
        timer that retains widget pointers before reset_ui_state() and
        lv_obj_clean() invalidate the tree. */
@@ -2155,6 +2165,7 @@ extern "C" void moto_nav_ui_show_boot_screen(void) {
 
 extern "C" void moto_nav_ui_show_power_off_screen(void) {
     if(ui.screen == nullptr) return;
+    delete_street_scroll_timer();
     if(ui.page_dots_timer != nullptr) {
         lv_timer_delete(ui.page_dots_timer);
         ui.page_dots_timer = nullptr;
@@ -2193,6 +2204,9 @@ extern "C" void moto_nav_ui_show_power_off_screen(void) {
 }
 
 extern "C" void moto_nav_ui_create(void) {
+    // Native renderer tests can recreate the page without a boot screen.
+    // A previous marquee must never run on already-deleted widgets.
+    delete_street_scroll_timer();
     reset_ui_state();
     ui.screen = lv_screen_active();
     lv_obj_clean(ui.screen);

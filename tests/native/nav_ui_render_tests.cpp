@@ -574,6 +574,15 @@ int main(int argc, char **argv) {
   test_diagonal_map_pixels_are_independent_of_partial_buffer_height();
 
   // Terminal screens run last: they tear the full UI down.
+  // Keep a long-name ticker active while transitioning to boot: if its
+  // timer is not deleted before lv_obj_clean, the next pump dereferences a
+  // destroyed ArcLabel. This is a real device restart/shutdown scenario.
+  moto_nav_ui_set_reduce_motion(0);
+  moto_ui_state_t live_marquee = base_state();
+  live_marquee.next_road_name =
+      "Strada Provinciale lunga fra Montagna e Valle delle Colline";
+  fill_route(live_marquee, 12);
+  moto_nav_ui_set_state(&live_marquee);
   moto_nav_ui_show_boot_screen();
   pump(260);
   const Frame boot_again = capture();
