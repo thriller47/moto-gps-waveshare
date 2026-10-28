@@ -110,6 +110,7 @@ moto_ui_state_t base_state() {
   state.maneuver = MOTO_MANEUVER_RIGHT;
   state.traffic = MOTO_TRAFFIC_SLOW;
   state.distance_to_maneuver_m = 120;
+  state.has_next_maneuver = 1;
   state.remaining_distance_m = 1'500;
   state.remaining_time_s = 200;
   state.route_progress_percent = 40;
@@ -243,6 +244,44 @@ void test_turn_arrows_and_turn_distance_do_not_move_arrival_distance() {
   state.distance_to_maneuver_m = 0;
   moto_nav_ui_set_state(&state);
   CHECK(capture().hash != farther.hash);
+}
+
+void test_no_turn_suppresses_false_arrow_without_losing_destination_distance() {
+  moto_nav_ui_set_reduce_motion(1);
+  moto_nav_ui_set_phone_connection(MOTO_UI_PHONE_ONLINE);
+  moto_ui_state_t state = base_state();
+  fill_route(state, 12);
+  state.maneuver = MOTO_MANEUVER_RIGHT;
+  state.has_next_maneuver = 1;
+  state.distance_to_maneuver_m = 75;
+  state.remaining_distance_m = 2'400;
+  moto_nav_ui_set_state(&state);
+  pump(260);
+  const Frame with_turn = capture();
+
+  state.maneuver = MOTO_MANEUVER_STRAIGHT;
+  state.has_next_maneuver = 0;
+  state.distance_to_maneuver_m = 0;
+  moto_nav_ui_set_state(&state);
+  const Frame no_turn = capture();
+  CHECK(no_turn.hash != with_turn.hash);
+
+  // The lower distance-to-destination area must not be modified by the
+  // disappearance of the turn arrow and its 28-point meter counter.
+  const int bottom_y = (245 * kWidth + 180) / 360;
+  const std::size_t first_bottom = static_cast<std::size_t>(bottom_y) *
+                                   kWidth * (LV_COLOR_DEPTH / 8);
+  CHECK(std::equal(with_turn.bytes.begin() + first_bottom,
+                   with_turn.bytes.end(),
+                   no_turn.bytes.begin() + first_bottom));
+
+  // The arrived mode must display the finish flag even if there is no
+  // next maneuver in the Valhalla route.
+  state.mode = MOTO_UI_ARRIVED;
+  state.maneuver = MOTO_MANEUVER_ARRIVE;
+  state.remaining_distance_m = 0;
+  moto_nav_ui_set_state(&state);
+  CHECK(capture().hash != no_turn.hash);
 }
 
 void test_phone_lifecycle_renders_deterministically() {
@@ -457,6 +496,7 @@ int main(int argc, char **argv) {
   test_frames_are_deterministic();
   test_clearing_geometry_leaves_no_residue();
   test_turn_arrows_and_turn_distance_do_not_move_arrival_distance();
+  test_no_turn_suppresses_false_arrow_without_losing_destination_distance();
   test_phone_lifecycle_renders_deterministically();
   test_removed_music_page_ignores_disconnect_media_state();
   test_demo_mode_visual_contract();

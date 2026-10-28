@@ -323,3 +323,26 @@ Le manovre sono aggiornate all'avvio e dopo un ricalcolo di rotta;
 non cambia il formato BLE. I display senza una rotta nascondono
 freccia e distanza alla svolta. Test nativi e test Kotlin
 aggiunti, da eseguire alla prossima build manuale.
+
+## Frecce di svolta Valhalla su ESP32 (ripristino)
+
+Con OSRM le frecce erano state disattivate per via di manovre poco
+precise. Il renderer LVGL disegna già frecce e **distanza alla svolta
+centrata in Montserrat 28** sotto il nome strada ad arco. La distanza
+alla **destinazione finale** resta distinta nella posizione originale
+(y=250 nel layout 360px, ridimensionato a 466px).
+
+Il JNI Android ora imposta i flag BLE `NavigationHasNextManeuver` per
+una manovra Valhalla utilizzabile e `NavigationHasRouteView` per la
+geometria della rotta attiva. Il nome strada e l'istruzione vengono
+separati correttamente nei due campi del protocollo BLE.
+
+Quando Valhalla non fornisce una prossima manovra, la vecchia stima
+di svolta su tre vertici viene disabilitata (niente frecce inventate);
+l'ESP32 nasconde freccia e distanza alla svolta, mantenendo la distanza
+all'arrivo. Il flag di arrivo a scacchi compare comunque al termine.
+
+L'aggiornamento richiede **nuova APK e nuovo firmware ESP32** per il
+comportamento di visibilità dei simboli, ma il protocollo BLE non cambia.
+I test di regressione sono stati aggiornati; questo commit non esegue
+build né test compilati (`[skip ci]`).

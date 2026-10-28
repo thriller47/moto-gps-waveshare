@@ -113,6 +113,7 @@ typedef struct {
     moto_maneuver_t maneuver;
     moto_traffic_t traffic;
     uint32_t distance_to_maneuver_m;
+    uint8_t has_next_maneuver;
     uint32_t remaining_distance_m;
     uint32_t remaining_time_s;
     uint8_t route_progress_percent;

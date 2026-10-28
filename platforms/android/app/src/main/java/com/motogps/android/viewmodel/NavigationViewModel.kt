@@ -919,54 +919,15 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
             )
         }
 
-        // Geometry-based maneuver fallback
-        val geom = currentGeometry ?: return null
-        if (geom.points.size < 3) return null
-
-        var closestIdx = 0
-        var minDist = Double.MAX_VALUE
-        for (i in geom.points.indices) {
-            val pt = geom.points[i]
-            val d = calculateDistanceMeters(lat, lon, pt.latitudeE6 / 1e6, pt.longitudeE6 / 1e6)
-            if (d < minDist) {
-                minDist = d
-                closestIdx = i
-            }
-        }
-
-        if (closestIdx >= geom.points.size - 1) {
-            return snapshot.copy(
-                maneuverName = "arrive",
-                distanceToManeuverM = minDist.toLong(),
-                instructionText = "Arrivo a destinazione"
-            )
-        }
-
-        val targetIdx = (closestIdx + 2).coerceAtMost(geom.points.size - 1)
-        val p1 = geom.points[closestIdx]
-        val p2 = geom.points[(closestIdx + 1).coerceAtMost(geom.points.size - 1)]
-        val p3 = geom.points[targetIdx]
-
-        val b1 = calculateBearingDeg(p1.latitudeE6 / 1e6, p1.longitudeE6 / 1e6, p2.latitudeE6 / 1e6, p2.longitudeE6 / 1e6)
-        val b2 = calculateBearingDeg(p2.latitudeE6 / 1e6, p2.longitudeE6 / 1e6, p3.latitudeE6 / 1e6, p3.longitudeE6 / 1e6)
-
-        var deltaAngle = b2 - b1
-        while (deltaAngle > 180f) deltaAngle -= 360f
-        while (deltaAngle < -180f) deltaAngle += 360f
-
-        val calculatedManeuver = when {
-            deltaAngle < -45f -> "turn_left"
-            deltaAngle in -45f..-20f -> "keep_left"
-            deltaAngle in 20f..45f -> "keep_right"
-            deltaAngle > 45f -> "turn_right"
-            Math.abs(deltaAngle) > 135f -> "u_turn"
-            else -> "continue"
-        }
-
-        val distToTurn = calculateDistanceMeters(lat, lon, p2.latitudeE6 / 1e6, p2.longitudeE6 / 1e6)
+        // No actionable Valhalla maneuver remains. Do NOT resurrect the
+        // deprecated three-vertex bearing heuristic from the OSRM era: it
+        // invented turns at road bends and caused inaccurate ESP32 arrows.
+        // The destination distance remains updated independently.
         return snapshot.copy(
-            maneuverName = calculatedManeuver,
-            distanceToManeuverM = distToTurn.toLong()
+            maneuverName = "continue",
+            maneuverID = 0L,
+            distanceToManeuverM = 0L,
+            instructionText = ""
         )
     }
 

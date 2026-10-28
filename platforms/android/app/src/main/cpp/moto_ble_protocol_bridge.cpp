@@ -130,6 +130,23 @@ NavigationSnapshot ConvertNavigationSnapshot(JNIEnv *env, jobject jSnapshot) {
     s.route_progress_m = env->GetLongField(jSnapshot, env->GetFieldID(cls, "routeProgressM", "J"));
     s.total_distance_m = env->GetLongField(jSnapshot, env->GetFieldID(cls, "totalDistanceM", "J"));
 
+    // These two bits were left unset after the old OSRM guidance was disabled.
+    // Without NavigationHasNextManeuver, ESP32 deliberately ignores the turn
+    // type and distance; without NavigationHasRouteView, a matching route
+    // geometry is never promoted from the BLE staging buffer to the display.
+    const bool active_route = hasDestination &&
+        (s.state == NavigationState::Navigating ||
+         s.state == NavigationState::Rerouting ||
+         s.state == NavigationState::Arrived) &&
+        s.route_token != 0 && s.route_generation != 0;
+    if (active_route) {
+        s.flags |= NavigationHasRouteView;
+        if (s.maneuver != Maneuver::Continue &&
+            s.maneuver != Maneuver::Unknown) {
+            s.flags |= NavigationHasNextManeuver;
+        }
+    }
+
     s.speed_deci_kph = env->GetIntField(jSnapshot, env->GetFieldID(cls, "speedDeciKPH", "I"));
     s.speed_limit_kph = env->GetIntField(jSnapshot, env->GetFieldID(cls, "speedLimitKPH", "I"));
     s.heading_cdeg = env->GetIntField(jSnapshot, env->GetFieldID(cls, "headingCentiDegrees", "I"));
@@ -137,8 +154,17 @@ NavigationSnapshot ConvertNavigationSnapshot(JNIEnv *env, jobject jSnapshot) {
     s.cross_track_dm = env->GetIntField(jSnapshot, env->GetFieldID(cls, "crossTrackDecimeters", "I"));
     s.roundabout_exit = env->GetIntField(jSnapshot, env->GetFieldID(cls, "roundaboutExit", "I"));
 
-    std::string inst = GetStringField(env, jSnapshot, cls, "instructionText");
-    s.instruction = inst;
+    // Android separates the Valhalla street name from the instruction with
+    // one newline. The BLE protocol has two independent UTF-8 string fields.
+    // Keeping them together made the ESP32 lose its curved street label.
+    const std::string text = GetStringField(env, jSnapshot, cls, "instructionText");
+    const std::size_t separator = text.find('\n');
+    if (separator != std::string::npos) {
+        s.road_name = text.substr(0, separator);
+        s.instruction = text.substr(separator + 1);
+    } else {
+        s.instruction = text;
+    }
 
     env->DeleteLocalRef(cls);
     return s;

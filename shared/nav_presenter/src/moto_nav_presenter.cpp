@@ -326,6 +326,8 @@ void NavPresenter::update(const NavSnapshot& snapshot) {
           : (snapshot.state == NavState::Arrived ? MOTO_MANEUVER_ARRIVE
                                                  : MOTO_MANEUVER_STRAIGHT);
   ui_state_.traffic = map_traffic(snapshot.traffic_ahead);
+  ui_state_.has_next_maneuver =
+      snapshot.has_next_maneuver ? 1 : 0;
   ui_state_.distance_to_maneuver_m =
       rounded_saturated<std::uint32_t>(
           snapshot.distance_to_next_maneuver_m);

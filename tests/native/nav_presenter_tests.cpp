@@ -133,6 +133,14 @@ void test_all_maneuvers() {
   snapshot.state = NavState::Arrived;
   presenter.update(snapshot);
   CHECK(presenter.ui_state().maneuver == MOTO_MANEUVER_ARRIVE);
+  CHECK(presenter.ui_state().has_next_maneuver == 0);
+
+  snapshot.state = NavState::Navigating;
+  snapshot.has_next_maneuver = true;
+  snapshot.next_maneuver.type = ManeuverType::Left;
+  presenter.update(snapshot);
+  CHECK(presenter.ui_state().has_next_maneuver == 1);
+  CHECK(presenter.ui_state().maneuver == MOTO_MANEUVER_LEFT);
 }
 
 void test_all_traffic_levels() {

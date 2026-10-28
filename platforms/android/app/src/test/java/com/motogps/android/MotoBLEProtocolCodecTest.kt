@@ -177,6 +177,25 @@ class MotoBLEProtocolCodecTest {
         val navPayload = codec.nativeEncodeNavigationPayloadForGoldenCheck(handle, navSnapshot)
         assertNotNull(navPayload)
         assertEquals(expectedNavHex, hexString(navPayload!!))
+        // Payload offset 6 contains the navigation flags. A real turn plus
+        // a valid route must set both HasNextManeuver (0x10) and
+        // HasRouteView (0x80); these were previously omitted by JNI.
+        assertEquals(0x93, navPayload[6].toInt() and 0xFF)
+        val noTurn = navSnapshot.copy(
+            maneuverName = "continue",
+            distanceToManeuverM = 0L,
+            instructionText = "Prosegui"
+        )
+        val noTurnPayload = codec.nativeEncodeNavigationPayloadForGoldenCheck(
+            handle, noTurn)!!
+        assertEquals(0x83, noTurnPayload[6].toInt() and 0xFF)
+        val idle = navSnapshot.copy(
+            stateName = "idle", hasDestination = false,
+            maneuverName = "none", routeToken = 0L,
+            routeGeneration = 0L
+        )
+        val idlePayload = codec.nativeEncodeNavigationPayloadForGoldenCheck(handle, idle)!!
+        assertEquals(0x02, idlePayload[6].toInt() and 0xFF)
 
         val routeGeometry = MotoBLERouteGeometry(
             coordinateSystem = 2,
