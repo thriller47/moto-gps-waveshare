@@ -346,3 +346,29 @@ L'aggiornamento richiede **nuova APK e nuovo firmware ESP32** per il
 comportamento di visibilità dei simboli, ma il protocollo BLE non cambia.
 I test di regressione sono stati aggiornati; questo commit non esegue
 build né test compilati (`[skip ci]`).
+
+## Leggibilità display ESP32: testo sempre sopra alla rotta
+
+La navigazione LVGL ha un livello HUD trasparente esplicito, creato dopo
+mappe, strade e linea verde della rotta. **Nome strada, distanza alla
+svolta, freccia, distanza alla destinazione e indicazioni di stato sono
+sempre sovrapposti alla geometria**, anche durante gli aggiornamenti
+rapidi della bussola/posizione. L'overlay di connessione rimane davanti
+all'HUD solo quando è effettivamente attivo.
+
+Il **nome strada ad arco usa Montserrat 28**, raggio 165 nel canvas
+di riferimento 360 e settore da **ore 10 (210°) a ore 2 (330°)**.
+I nomi brevi restano fissi e centrati; quelli troppo lunghi scorrono
+progressivamente per carattere nel settore di 120°, usando il ritaglio
+LVGL `ARCLABEL_OVERFLOW_CLIP` e rispettando i confini UTF-8 per nomi
+accentati. Lo scorrimento non riparte a ogni messaggio BLE e può
+fermarsi con la modalità «riduci movimento». La distanza alla svolta
+resta centrata con font 28 sotto il nome; la **distanza all'arrivo
+mantiene l'originale posizione y=250**, senza alterazioni.
+Il ticker ha un timer leggero di 320ms, attivo solo per nomi lunghi.
+Il vecchio testo di stato è ora sotto la riga distanza alla svolta
+per non sovrapporsi al nome ad arco.
+
+Test di rendering nativo aggiunti per ordine dei livelli, settore
+10–2, font 28, nomi fissi e scorrimento. Commit pubblicato con
+`[skip ci]`: nessuna build o suite compilata eseguita.

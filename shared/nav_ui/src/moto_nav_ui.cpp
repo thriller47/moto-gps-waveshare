@@ -40,6 +40,17 @@ constexpr std::uint16_t MOTO_UI_ROAD_LINE_WIDGET_LIMIT = 40;
 constexpr std::uint32_t kRouteMotionFrameMs = 25;
 constexpr std::uint32_t kConnectionSuccessHoldMs = 920;
 
+// On a clock face 10 o'clock = 210 degrees, 12 = 270, 2 = 330.
+// LVGL measures clockwise from 3 o'clock.
+#if LV_USE_ARCLABEL
+constexpr int kStreetArcStartDeg = 210;
+constexpr int kStreetArcSpanDeg = 120;
+constexpr int kStreetArcRadius = 165;
+constexpr std::uint32_t kStreetScrollStepMs = 320;
+constexpr std::uint8_t kStreetScrollStartHold = 4;
+constexpr std::uint8_t kStreetScrollEndHold = 6;
+#endif
+
 enum class LifecycleVisual : std::uint8_t {
     Hidden = 0,
     PhoneOffline,
@@ -76,6 +87,9 @@ struct Ui {
     bool page_dots_visible = true;
 
     lv_obj_t *nav_map = nullptr;
+    // Dedicated transparent HUD, explicitly above the map route and roads.
+    // The temporary phone/connection lifecycle sits above the HUD.
+    lv_obj_t *nav_hud = nullptr;
     lv_obj_t *nav_buildings[MOTO_UI_BUILDING_FOOTPRINT_CAPACITY]{};
     MapPolyline nav_building_lines[MOTO_UI_BUILDING_FOOTPRINT_CAPACITY]{};
     lv_point_precise_t nav_building_points[
@@ -119,7 +133,12 @@ struct Ui {
     lv_obj_t *nav_marker = nullptr;
     lv_obj_t *nav_status = nullptr;
     lv_obj_t *nav_street_arc = nullptr;
-    char nav_street_text[96]{};
+    char nav_street_text[192]{};
+    lv_timer_t *nav_street_scroll_timer = nullptr;
+    std::uint16_t nav_street_scroll_byte = 0;
+    std::uint16_t nav_street_scroll_last_byte = 0;
+    std::uint8_t nav_street_scroll_hold = 0;
+    bool nav_street_scrolling = false;
     lv_obj_t *nav_distance = nullptr;
     lv_obj_t *nav_unit = nullptr;
     lv_obj_t *nav_turn_distance = nullptr;
@@ -1381,6 +1400,73 @@ void update_nav_status(const moto_ui_state_t *state) {
     lv_obj_set_style_text_color(ui.nav_status, color, 0);
 }
 
+#if LV_USE_ARCLABEL
+// Advance by one whole UTF-8 code point, including accented street names.
+// The BLE road name is UTF-8; never scroll or truncate in the middle of a glyph.
+std::size_t next_street_utf8_byte(const char *text, std::size_t offset) {
+    const auto lead = static_cast<unsigned char>(text[offset]);
+    if(lead == 0U) return offset;
+    std::size_t bytes = 1;
+    if((lead & 0xE0U) == 0xC0U) bytes = 2;
+    else if((lead & 0xF0U) == 0xE0U) bytes = 3;
+    else if((lead & 0xF8U) == 0xF0U) bytes = 4;
+    for(std::size_t i = 1; i < bytes; ++i) {
+        const auto part = static_cast<unsigned char>(text[offset + i]);
+        if(part == 0U || (part & 0xC0U) != 0x80U) return offset + 1;
+    }
+    return offset + bytes;
+}
+
+void copy_street_utf8(char *dst, std::size_t capacity, const char *src) {
+    std::size_t src_pos = 0;
+    std::size_t dst_pos = 0;
+    if(capacity == 0) return;
+    while(src[src_pos] != '\0' && src[src_pos] != '\n' &&
+          src[src_pos] != '\r') {
+        const std::size_t next = next_street_utf8_byte(src, src_pos);
+        if(next <= src_pos || dst_pos + next - src_pos >= capacity) break;
+        std::memcpy(dst + dst_pos, src + src_pos, next - src_pos);
+        dst_pos += next - src_pos;
+        src_pos = next;
+    }
+    dst[dst_pos] = '\0';
+}
+
+int street_text_width(const char *text) {
+    lv_point_t size{};
+    lv_text_get_size(&size, text, &lv_font_montserrat_28,
+                     0, 0, LV_COORD_MAX, LV_TEXT_FLAG_EXPAND);
+    return size.x;
+}
+
+// Marquee in the fixed 10–2 arc. The arc label's CLIP mode bounds every
+// frame to 120 degrees; the timer moves through UTF-8 code points without
+// allocating or mutating the string on each 350-ms BLE navigation snapshot.
+void street_arc_scroll_tick(lv_timer_t *) {
+    if(ui.nav_street_arc == nullptr || !ui.nav_street_scrolling ||
+       ui.reduce_motion) return;
+    if(ui.nav_street_scroll_hold != 0U) {
+        --ui.nav_street_scroll_hold;
+        return;
+    }
+    if(ui.nav_street_scroll_byte < ui.nav_street_scroll_last_byte) {
+        const std::size_t next =
+            next_street_utf8_byte(ui.nav_street_text, ui.nav_street_scroll_byte);
+        ui.nav_street_scroll_byte = static_cast<std::uint16_t>(
+            std::min(next, static_cast<std::size_t>(ui.nav_street_scroll_last_byte)));
+        if(ui.nav_street_scroll_byte == ui.nav_street_scroll_last_byte)
+            ui.nav_street_scroll_hold = kStreetScrollEndHold;
+    } else {
+        ui.nav_street_scroll_byte = 0;
+        ui.nav_street_scroll_hold = kStreetScrollStartHold;
+    }
+    // The buffer belongs to the persistent UI state. Static text avoids a
+    // heap alloc/free for every character on a memory-constrained ESP32.
+    lv_arclabel_set_text_static(
+        ui.nav_street_arc, ui.nav_street_text + ui.nav_street_scroll_byte);
+}
+#endif
+
 void update_street_arc(const moto_ui_state_t *state) {
 #if LV_USE_ARCLABEL
     if(ui.nav_street_arc == nullptr) return;
@@ -1389,14 +1475,49 @@ void update_street_arc(const moto_ui_state_t *state) {
     if(name == nullptr || name[0] == '\0') {
         lv_obj_add_flag(ui.nav_street_arc, LV_OBJ_FLAG_HIDDEN);
         ui.nav_street_text[0] = '\0';
+        ui.nav_street_scrolling = false;
+        ui.nav_street_scroll_byte = 0;
+        if(ui.nav_street_scroll_timer != nullptr)
+            lv_timer_pause(ui.nav_street_scroll_timer);
         return;
     }
-    // Keep updates cheap: the navigation snapshot arrives several times per second.
+
+    // The navigation snapshot arrives several times per second. Only a
+    // changed name may restart the marquee; don't jump back on each fix.
     char limited[sizeof(ui.nav_street_text)]{};
-    std::snprintf(limited, sizeof(limited), "%.60s", name);
+    copy_street_utf8(limited, sizeof(limited), name);
     if(std::strcmp(ui.nav_street_text, limited) != 0) {
         std::strcpy(ui.nav_street_text, limited);
-        lv_arclabel_set_text(ui.nav_street_arc, ui.nav_street_text);
+        ui.nav_street_scroll_byte = 0;
+        ui.nav_street_scroll_last_byte = 0;
+        ui.nav_street_scroll_hold = kStreetScrollStartHold;
+        const int arc_capacity = static_cast<int>(
+            px(kStreetArcRadius) * kStreetArcSpanDeg * kPi / 180.0) - px(12);
+        if(street_text_width(ui.nav_street_text) > arc_capacity) {
+            // Stop at the earliest suffix that fits entirely on the arc.
+            // Unlike marching all the way to the final byte, the ending
+            // remains readable rather than displaying a lone last letter.
+            std::size_t start = 0;
+            while(ui.nav_street_text[start] != '\0' &&
+                  street_text_width(ui.nav_street_text + start) > arc_capacity) {
+                start = next_street_utf8_byte(ui.nav_street_text, start);
+            }
+            ui.nav_street_scroll_last_byte = static_cast<std::uint16_t>(start);
+        }
+        ui.nav_street_scrolling = ui.nav_street_scroll_last_byte > 0;
+        lv_arclabel_set_text_horizontal_align(
+            ui.nav_street_arc, ui.nav_street_scrolling
+                ? LV_ARCLABEL_TEXT_ALIGN_LEADING
+                : LV_ARCLABEL_TEXT_ALIGN_CENTER);
+        lv_arclabel_set_text_static(ui.nav_street_arc, ui.nav_street_text);
+        if(ui.nav_street_scroll_timer != nullptr) {
+            if(ui.nav_street_scrolling && !ui.reduce_motion) {
+                lv_timer_reset(ui.nav_street_scroll_timer);
+                lv_timer_resume(ui.nav_street_scroll_timer);
+            } else {
+                lv_timer_pause(ui.nav_street_scroll_timer);
+            }
+        }
     }
     lv_obj_remove_flag(ui.nav_street_arc, LV_OBJ_FLAG_HIDDEN);
 #else
@@ -1640,35 +1761,50 @@ void create_navigation_page() {
     lv_obj_add_event_cb(ui.nav_marker, draw_vehicle_marker,
                         LV_EVENT_DRAW_MAIN_END, nullptr);
 
+    // Create the instrument HUD AFTER all map geometry and route widgets.
+    // Labels, street arc and maneuver arrow are its children, so the green
+    // route line can never overpaint text, even in high-rate motion frames.
+    ui.nav_hud = make_layer(page);
+    lv_obj_remove_flag(ui.nav_hud, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(ui.nav_hud, LV_OBJ_FLAG_EVENT_BUBBLE);
+    lv_obj_add_flag(ui.nav_hud, LV_OBJ_FLAG_GESTURE_BUBBLE);
+
 #if LV_USE_ARCLABEL
     // Street name follows the upper circular bezel; the route/map, arrow and
     // distance retain their existing positions.
-    ui.nav_street_arc = lv_arclabel_create(page);
+    ui.nav_street_arc = lv_arclabel_create(ui.nav_hud);
     lv_obj_set_size(ui.nav_street_arc, MOTO_UI_CANVAS_WIDTH, MOTO_UI_CANVAS_WIDTH);
     lv_obj_center(ui.nav_street_arc);
     lv_obj_set_style_bg_opa(ui.nav_street_arc, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(ui.nav_street_arc, 0, 0);
     lv_obj_set_style_text_color(ui.nav_street_arc, kWhite, 0);
-    lv_obj_set_style_text_font(ui.nav_street_arc, &lv_font_montserrat_16, 0);
-    lv_arclabel_set_radius(ui.nav_street_arc, px(165));
-    lv_arclabel_set_angle_start(ui.nav_street_arc, 200);
-    lv_arclabel_set_angle_size(ui.nav_street_arc, 140);
+    lv_obj_set_style_text_font(ui.nav_street_arc, &lv_font_montserrat_28, 0);
+    lv_arclabel_set_radius(ui.nav_street_arc, px(kStreetArcRadius));
+    lv_arclabel_set_angle_start(ui.nav_street_arc, kStreetArcStartDeg);
+    lv_arclabel_set_angle_size(ui.nav_street_arc, kStreetArcSpanDeg);
+    lv_arclabel_set_overflow(ui.nav_street_arc, LV_ARCLABEL_OVERFLOW_CLIP);
+    lv_arclabel_set_end_overlap(ui.nav_street_arc, false);
     lv_arclabel_set_text_horizontal_align(ui.nav_street_arc, LV_ARCLABEL_TEXT_ALIGN_CENTER);
     lv_arclabel_set_dir(ui.nav_street_arc, LV_ARCLABEL_DIR_CLOCKWISE);
-    lv_arclabel_set_text(ui.nav_street_arc, "");
+    lv_arclabel_set_text_static(ui.nav_street_arc, ui.nav_street_text);
+    ui.nav_street_scroll_timer = lv_timer_create(
+        street_arc_scroll_tick, kStreetScrollStepMs, nullptr);
+    lv_timer_pause(ui.nav_street_scroll_timer);
     lv_obj_add_flag(ui.nav_street_arc, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(ui.nav_street_arc, LV_OBJ_FLAG_CLICKABLE);
 #endif
 
-    ui.nav_status = make_label(page, &lv_font_montserrat_16, kAmber, "");
+    ui.nav_status = make_label(ui.nav_hud, &lv_font_montserrat_16, kAmber, "");
     lv_obj_set_width(ui.nav_status, px(220));
     lv_obj_set_style_text_align(ui.nav_status, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(ui.nav_status, LV_ALIGN_TOP_MID, 0, px(16));
+    // At 28pt the 12 o'clock street name occupies the top centre.
+    // Keep transient status messages below it and the turn-distance row.
+    lv_obj_align(ui.nav_status, LV_ALIGN_TOP_MID, 0, px(104));
 
     // Next-turn guidance overlays the left of the map, away from the
     // rider marker at (180,196) design coordinates. The glyph renderer was
     // already implemented but never had an LVGL object to draw into.
-    ui.nav_maneuver = lv_obj_create(page);
+    ui.nav_maneuver = lv_obj_create(ui.nav_hud);
     lv_obj_remove_style_all(ui.nav_maneuver);
     lv_obj_set_size(ui.nav_maneuver, px(116), px(116));
     lv_obj_set_pos(ui.nav_maneuver, px(22), px(103));
@@ -1679,7 +1815,7 @@ void create_navigation_page() {
     // 28pt distance to the next turn, centered directly below the road name
     // on the upper bezel. No independent unit widget, so centering is exact.
     ui.nav_turn_distance = make_label(
-        page, &lv_font_montserrat_28, kWhite, "");
+        ui.nav_hud, &lv_font_montserrat_28, kWhite, "");
     lv_obj_set_width(ui.nav_turn_distance, px(266));
     lv_obj_set_style_text_align(ui.nav_turn_distance, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(ui.nav_turn_distance, LV_ALIGN_TOP_MID, 0, px(67));
@@ -1687,10 +1823,10 @@ void create_navigation_page() {
 
     // The destination distance and its unit retain their original position
     // (y=250 on the design canvas), not repurposed for maneuver guidance.
-    ui.nav_distance = make_label(page, &lv_font_montserrat_48, kWhite, "300");
-    ui.nav_unit = make_label(page, &lv_font_montserrat_20, kQuiet, "m");
+    ui.nav_distance = make_label(ui.nav_hud, &lv_font_montserrat_48, kWhite, "300");
+    ui.nav_unit = make_label(ui.nav_hud, &lv_font_montserrat_20, kQuiet, "m");
 
-    ui.nav_limit = lv_obj_create(page);
+    ui.nav_limit = lv_obj_create(ui.nav_hud);
     lv_obj_set_size(ui.nav_limit, px(61), px(61));
     // Keep the optional demo/SDK-provided value inside the circular safe area.
     // Real AMap Web-Service snapshots use zero and remain hidden because that
@@ -1706,7 +1842,7 @@ void create_navigation_page() {
     ui.nav_limit_value = make_label(ui.nav_limit, &lv_font_montserrat_28, kBlack, "70");
     lv_obj_center(ui.nav_limit_value);
 
-    ui.nav_progress = lv_arc_create(page);
+    ui.nav_progress = lv_arc_create(ui.nav_hud);
     lv_obj_set_size(ui.nav_progress, px(316), px(316));
     lv_obj_center(ui.nav_progress);
     lv_arc_set_rotation(ui.nav_progress, 48);
@@ -2143,6 +2279,20 @@ extern "C" void moto_nav_ui_set_reduce_motion(uint8_t reduce_motion) {
             lv_timer_pause(ui.nav_lifecycle_timer);
         } else {
             lv_timer_resume(ui.nav_lifecycle_timer);
+        }
+    }
+    if(ui.nav_street_scroll_timer != nullptr) {
+        if(ui.reduce_motion || !ui.nav_street_scrolling) {
+            lv_timer_pause(ui.nav_street_scroll_timer);
+            // Re-display the beginning for a stationary, readable label.
+            if(ui.nav_street_scroll_byte != 0 && ui.nav_street_arc != nullptr) {
+                ui.nav_street_scroll_byte = 0;
+                lv_arclabel_set_text_static(
+                    ui.nav_street_arc, ui.nav_street_text);
+            }
+        } else {
+            lv_timer_reset(ui.nav_street_scroll_timer);
+            lv_timer_resume(ui.nav_street_scroll_timer);
         }
     }
     refresh_lifecycle();
