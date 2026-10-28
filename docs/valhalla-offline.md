@@ -401,3 +401,43 @@ Ora entrambe le implementazioni hanno lo stesso contratto:
 Il test verifica le maschere `0x93` (svolta), `0x83` (prosegui),
 `0x03` (rotta non ancora attiva/incompleta) e `0x02` (idle).
 La stringa binaria di riferimento delle manovre reali resta invariata.
+
+
+## ESP32: versione di recupero dopo display nero / BLE non rilevabile
+
+Dopo il test su scheda, l'HUD grafico separato e il timer di scorrimento
+ad arco introdotti nei commit `58bfcf7`, `8d1324c` e `e2b39a6`
+sono stati **ritirati temporaneamente** dal firmware: il dispositivo
+non mostrava neppure l'animazione iniziale e non pubblicizzava il BLE.
+Questo commit ripristina esattamente `shared/nav_ui/src/moto_nav_ui.cpp`
+e `tests/native/nav_ui_render_tests.cpp` dalla revisione
+`49eba5aa3c02499ab3dcd8defe9dd2a2798bcec2`, conservando il
+routing Valhalla, le frecce ripristinate e il codec BLE Android corretto.
+La dimensione strada resta temporaneamente al valore precedente di
+16 pt; **lo scorrimento 28 pt da ore 10 a ore 2 è sospeso** in attesa
+di confermare il ripristino dell'avvio reale. Anche il problema del
+testo coperto dalla linea di navigazione andrà affrontato con una
+modifica meno onerosa e verificata su hardware.
+
+La pubblicità BLE è subordinata al successo dell'inizializzazione
+grafica per evitare l'arrivo di payload prima che gli oggetti LVGL
+esistano. Per questo un blocco grafico fa anche scomparire il dispositivo
+dall'elenco BLE. La causa fisica non è ancora confermata senza log seriali.
+
+`platforms/esp32/main/app_main.cpp` ora stampa marcatori
+`BOOT_DIAG` per: inizio app e motivo reset, BLE, inizializzazione
+display, schermata iniziale, creazione UI, renderer, richiesta
+pubblicità BLE. Stampa inoltre heap interno libero e blocco
+contiguo massimo; queste misure permettono di riconoscere un eventuale
+esaurimento della memoria interna durante LVGL/BLE. Se un marcatore
+`*_start` compare senza il corrispondente `*_done`/`*_ready`,
+l'ultimo passaggio individua lo stallo.
+
+Per una prova su Windows con ESP-IDF attivato, connettere la USB dati,
+identificare la porta COM e avviare `idf.py -C platforms/esp32 -p COMx
+monitor`, quindi premere RESET. Usare `Ctrl+]` per uscire. Non
+cancellare la flash/NVS durante la diagnosi. La scheda si trova tramite
+USB Serial/JTAG; se il monitor non riceve nemmeno i log ROM/ESP-IDF,
+verificare alimentazione, porta USB dati e offset del firmware.
+La build CI produce firmware valido sintatticamente, non prova
+l'avvio fisico; nessuna build è stata lanciata da questo intervento.

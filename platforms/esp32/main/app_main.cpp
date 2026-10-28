@@ -3,6 +3,7 @@
 #include "ble_nav_transport_nimble.h"
 #include "board_port.h"
 #include "esp_err.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_sleep.h"
 #include "esp_timer.h"
@@ -176,6 +177,10 @@ extern "C" void app_main(void) {
 
   ESP_LOGI(kTag, "starting %dx%d RGB565 firmware target",
            MOTO_DISPLAY_WIDTH, MOTO_DISPLAY_HEIGHT);
+  ESP_LOGI(kTag, "BOOT_DIAG stage=app_main reset_reason=%d free_internal=%lu largest_internal=%lu",
+           static_cast<int>(esp_reset_reason()),
+           static_cast<unsigned long>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+           static_cast<unsigned long>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)));
 
   MOTO_PSRAM_BSS static moto::nav::NavPresenter presenter;
   MOTO_PSRAM_BSS static PhoneNavBridge phone_bridge(presenter);
@@ -186,7 +191,11 @@ extern "C" void app_main(void) {
   phone_bridge.set_sender(BleNavTransport::send_from_bridge, &transport);
   transport.set_callbacks(receive_phone_message, update_phone_link,
                           &phone_bridge);
+  ESP_LOGI(kTag, "BOOT_DIAG stage=ble_init_start");
   const esp_err_t ble_result = transport.start();
+  ESP_LOGI(kTag, "BOOT_DIAG stage=ble_init_done err=%s internal=%lu",
+           esp_err_to_name(ble_result),
+           static_cast<unsigned long>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)));
   if (ble_result != ESP_OK) {
     ESP_LOGE(kTag, "BLE startup failed; display remains in offline mode: %s",
              esp_err_to_name(ble_result));
@@ -208,7 +217,13 @@ extern "C" void app_main(void) {
   vTaskDelay(pdMS_TO_TICKS(100));
 
   // 2. ONLY NOW start the CO5300 display, CST9217 touch, and LVGL rendering task!
+  ESP_LOGI(kTag, "BOOT_DIAG stage=display_init_start internal=%lu largest=%lu",
+           static_cast<unsigned long>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+           static_cast<unsigned long>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)));
   const esp_err_t init_result = board_port_init();
+  ESP_LOGI(kTag, "BOOT_DIAG stage=display_init_done err=%s internal=%lu",
+           esp_err_to_name(init_result),
+           static_cast<unsigned long>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)));
   if (init_result != ESP_OK) {
     ESP_LOGE(kTag, "board initialization stopped before shared UI startup: %s",
              esp_err_to_name(init_result));
@@ -238,12 +253,16 @@ extern "C" void app_main(void) {
     return;
   }
 
+  ESP_LOGI(kTag, "BOOT_DIAG stage=splash_create_start");
   moto_nav_ui_show_boot_screen();
+  ESP_LOGI(kTag, "BOOT_DIAG stage=splash_created");
   // Commit the deliberately black first animation frame while the physical
   // panel is still hidden, then reveal it. This removes the white frame that
   // used to leak from LVGL's default startup screen.
   lv_refr_now(display);
   const esp_err_t reveal_result = board_port_reveal_display();
+  ESP_LOGI(kTag, "BOOT_DIAG stage=display_revealed err=%s",
+           esp_err_to_name(reveal_result));
   if (reveal_result != ESP_OK) {
     ESP_LOGE(kTag, "could not reveal boot animation: %s",
              esp_err_to_name(reveal_result));
@@ -260,12 +279,16 @@ extern "C" void app_main(void) {
     return;
   }
 
-  ESP_LOGI(kTag, "Begin navigation UI");
+  ESP_LOGI(kTag, "BOOT_DIAG stage=navigation_ui_create_start internal=%lu largest=%lu",
+           static_cast<unsigned long>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+           static_cast<unsigned long>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)));
   moto_nav_ui_create();
 #ifdef MOTO_SIGNAL_MODE_SWITCH
   add_radio_entry();
 #endif
-  ESP_LOGI(kTag, "Navigation UI ready");
+  ESP_LOGI(kTag, "BOOT_DIAG stage=navigation_ui_ready internal=%lu largest=%lu",
+           static_cast<unsigned long>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+           static_cast<unsigned long>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)));
   // NavSnapshot contains the complete bounded roads/buildings window and is
   // several kilobytes. A temporary here inflates app_main's stack frame for
   // the entire display/BSP startup call chain, which can trip the FreeRTOS
@@ -278,10 +301,11 @@ extern "C" void app_main(void) {
   board_port_unlock();
 
   if (!phone_bridge.start_renderer()) {
-    ESP_LOGE(kTag, "UI renderer startup failed");
+    ESP_LOGE(kTag, "BOOT_DIAG stage=renderer_failed");
     vTaskDelete(nullptr);
     return;
   }
+  ESP_LOGI(kTag, "BOOT_DIAG stage=renderer_ready");
 
   // The NimBLE host/PHY must start before the panel to avoid interrupting
   // display DMA during initialization. However, the GATT peripheral must NOT
@@ -289,7 +313,9 @@ extern "C" void app_main(void) {
   // already scanning during cold boot otherwise streams navigation/map frames
   // while the UI is still being constructed.
   if (ble_result == ESP_OK) {
+    ESP_LOGI(kTag, "BOOT_DIAG stage=ble_advertising_start");
     transport.enable_advertising();
+    ESP_LOGI(kTag, "BOOT_DIAG stage=ble_advertising_requested");
   }
 
   // Demo generation fills the retained snapshot in place, but geometry and

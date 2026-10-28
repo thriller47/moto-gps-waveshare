@@ -284,74 +284,6 @@ void test_no_turn_suppresses_false_arrow_without_losing_destination_distance() {
   CHECK(capture().hash != no_turn.hash);
 }
 
-void test_foreground_street_arc_and_long_name_scrolling() {
-  moto_nav_ui_create();
-  moto_nav_ui_set_phone_connection(MOTO_UI_PHONE_ONLINE);
-  moto_nav_ui_set_reduce_motion(1);
-  lv_obj_t *page = lv_obj_get_child(lv_screen_active(), 0);
-  CHECK(page != nullptr);
-  if(page == nullptr) return;
-  // In ascending draw order: map, transparent HUD, lifecycle overlay.
-  CHECK(lv_obj_get_child_count(page) == 3);
-  lv_obj_t *map = lv_obj_get_child(page, 0);
-  lv_obj_t *hud = lv_obj_get_child(page, 1);
-  lv_obj_t *lifecycle = lv_obj_get_child(page, 2);
-  CHECK(map != nullptr && hud != nullptr && lifecycle != nullptr);
-  if(hud == nullptr) return;
-  lv_obj_t *arc = lv_obj_get_child_by_type(hud, 0, &lv_arclabel_class);
-  CHECK(arc != nullptr);
-  if(arc == nullptr) return;
-  CHECK(lv_arclabel_get_angle_start(arc) == 210); // 10 o'clock
-  CHECK(lv_arclabel_get_angle_size(arc) == 120); // until 2 o'clock
-  CHECK(lv_arclabel_get_overflow(arc) == LV_ARCLABEL_OVERFLOW_CLIP);
-  CHECK(lv_obj_get_style_text_font(arc, LV_PART_MAIN) == &lv_font_montserrat_28);
-  CHECK(lv_obj_get_height(arc) < kHeight / 2); // only top band refreshes
-
-  moto_ui_state_t state = base_state();
-  fill_route(state, 12);
-  state.road_name = "Via Roma";
-  state.next_road_name = "Via Roma";
-  moto_nav_ui_set_state(&state);
-  pump(260);
-  const Frame short_name = capture();
-  pump(500);
-  CHECK(capture().hash == short_name.hash); // short names never marquee
-
-  // A UTF-8 accented street name should advance one complete character at
-  // a time; the route itself remains unchanged throughout the ticker.
-  moto_nav_ui_set_reduce_motion(0);
-  state.next_road_name =
-      "Strada Provinciale della Citta di Sant'Agata verso Valle d'Aosta";
-  moto_nav_ui_set_state(&state);
-  const Frame beginning = capture();
-  pump(650); // enough for the initial hold plus several 320 ms ticks
-  const Frame advanced = capture();
-  CHECK(beginning.hash != advanced.hash);
-
-  // Changing the road name must never redraw/cover the destination
-  // distance in the lower portion of the dashboard.
-  const int bottom_y = (245 * kWidth + 180) / 360;
-  const std::size_t bottom = static_cast<std::size_t>(bottom_y) *
-                             kWidth * (LV_COLOR_DEPTH / 8);
-  CHECK(std::equal(short_name.bytes.begin() + bottom, short_name.bytes.end(),
-                   advanced.bytes.begin() + bottom));
-
-  // Re-sending the same BLE street name must not rewind the marquee.
-  moto_nav_ui_set_state(&state);
-  const Frame repeated = capture();
-  CHECK(advanced.hash != short_name.hash);
-  CHECK(repeated.hash != short_name.hash);
-
-  // Reduced-motion mode freezes the visible text, and a new short name
-  // resets the timer so subsequent native tests remain deterministic.
-  moto_nav_ui_set_reduce_motion(1);
-  state.next_road_name = "Via Citta";
-  moto_nav_ui_set_state(&state);
-  const Frame new_short = capture();
-  pump(500);
-  CHECK(capture().hash == new_short.hash);
-}
-
 void test_phone_lifecycle_renders_deterministically() {
   // The connection lifecycle is a full-screen overlay for the empty
   // navigation page; cycle it there and require visually distinct terminal
@@ -565,7 +497,6 @@ int main(int argc, char **argv) {
   test_clearing_geometry_leaves_no_residue();
   test_turn_arrows_and_turn_distance_do_not_move_arrival_distance();
   test_no_turn_suppresses_false_arrow_without_losing_destination_distance();
-  test_foreground_street_arc_and_long_name_scrolling();
   test_phone_lifecycle_renders_deterministically();
   test_removed_music_page_ignores_disconnect_media_state();
   test_demo_mode_visual_contract();
@@ -574,15 +505,6 @@ int main(int argc, char **argv) {
   test_diagonal_map_pixels_are_independent_of_partial_buffer_height();
 
   // Terminal screens run last: they tear the full UI down.
-  // Keep a long-name ticker active while transitioning to boot: if its
-  // timer is not deleted before lv_obj_clean, the next pump dereferences a
-  // destroyed ArcLabel. This is a real device restart/shutdown scenario.
-  moto_nav_ui_set_reduce_motion(0);
-  moto_ui_state_t live_marquee = base_state();
-  live_marquee.next_road_name =
-      "Strada Provinciale lunga fra Montagna e Valle delle Colline";
-  fill_route(live_marquee, 12);
-  moto_nav_ui_set_state(&live_marquee);
   moto_nav_ui_show_boot_screen();
   pump(260);
   const Frame boot_again = capture();
