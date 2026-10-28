@@ -1773,8 +1773,13 @@ void create_navigation_page() {
     // Street name follows the upper circular bezel; the route/map, arrow and
     // distance retain their existing positions.
     ui.nav_street_arc = lv_arclabel_create(ui.nav_hud);
-    lv_obj_set_size(ui.nav_street_arc, MOTO_UI_CANVAS_WIDTH, MOTO_UI_CANVAS_WIDTH);
-    lv_obj_center(ui.nav_street_arc);
+    // Only the upper 134 design-pixel band needs refreshing for the
+    // marquee. Do not invalidate the whole 466x466 screen at 3 Hz.
+    // Restore the circle centre to (180,180) through a positive offset.
+    lv_obj_set_size(ui.nav_street_arc, MOTO_UI_CANVAS_WIDTH, px(134));
+    lv_obj_align(ui.nav_street_arc, LV_ALIGN_TOP_MID, 0, 0);
+    lv_arclabel_set_center_offset_y(
+        ui.nav_street_arc, (MOTO_UI_CANVAS_HEIGHT - px(134)) / 2);
     lv_obj_set_style_bg_opa(ui.nav_street_arc, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(ui.nav_street_arc, 0, 0);
     lv_obj_set_style_text_color(ui.nav_street_arc, kWhite, 0);
@@ -2281,6 +2286,7 @@ extern "C" void moto_nav_ui_set_reduce_motion(uint8_t reduce_motion) {
             lv_timer_resume(ui.nav_lifecycle_timer);
         }
     }
+#if LV_USE_ARCLABEL
     if(ui.nav_street_scroll_timer != nullptr) {
         if(ui.reduce_motion || !ui.nav_street_scrolling) {
             lv_timer_pause(ui.nav_street_scroll_timer);
@@ -2295,6 +2301,7 @@ extern "C" void moto_nav_ui_set_reduce_motion(uint8_t reduce_motion) {
             lv_timer_resume(ui.nav_street_scroll_timer);
         }
     }
+#endif
     refresh_lifecycle();
 }
 

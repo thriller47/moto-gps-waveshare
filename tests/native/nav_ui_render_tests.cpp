@@ -305,6 +305,7 @@ void test_foreground_street_arc_and_long_name_scrolling() {
   CHECK(lv_arclabel_get_angle_size(arc) == 120); // until 2 o'clock
   CHECK(lv_arclabel_get_overflow(arc) == LV_ARCLABEL_OVERFLOW_CLIP);
   CHECK(lv_obj_get_style_text_font(arc, LV_PART_MAIN) == &lv_font_montserrat_28);
+  CHECK(lv_obj_get_height(arc) < kHeight / 2); // only top band refreshes
 
   moto_ui_state_t state = base_state();
   fill_route(state, 12);
@@ -326,6 +327,14 @@ void test_foreground_street_arc_and_long_name_scrolling() {
   pump(650); // enough for the initial hold plus several 320 ms ticks
   const Frame advanced = capture();
   CHECK(beginning.hash != advanced.hash);
+
+  // Changing the road name must never redraw/cover the destination
+  // distance in the lower portion of the dashboard.
+  const int bottom_y = (245 * kWidth + 180) / 360;
+  const std::size_t bottom = static_cast<std::size_t>(bottom_y) *
+                             kWidth * (LV_COLOR_DEPTH / 8);
+  CHECK(std::equal(short_name.bytes.begin() + bottom, short_name.bytes.end(),
+                   advanced.bytes.begin() + bottom));
 
   // Re-sending the same BLE street name must not rewind the marquee.
   moto_nav_ui_set_state(&state);

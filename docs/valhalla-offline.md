@@ -372,3 +372,7 @@ per non sovrapporsi al nome ad arco.
 Test di rendering nativo aggiunti per ordine dei livelli, settore
 10–2, font 28, nomi fissi e scorrimento. Commit pubblicato con
 `[skip ci]`: nessuna build o suite compilata eseguita.
+
+Per ridurre il costo dello scorrimento su ESP32, il widget ad arco
+invalida soltanto la fascia superiore del display (134 unità del
+canvas 360, adattate a 466 pixel), non l'intera superficie 466×466.
