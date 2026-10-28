@@ -2,7 +2,7 @@ package com.motogps.android
 
 import com.github.luben.zstd.ZstdOutputStream
 import com.motogps.android.routing.ValhallaGraphImporter
-import com.motogps.android.routing.ValhallaTileDownloads
+import com.motogps.android.routing.ValhallaTarValidator
 import org.junit.Assert.*
 import org.junit.Test
 import java.io.ByteArrayInputStream
@@ -40,7 +40,7 @@ class ValhallaGraphImporterTest {
         val result = File.createTempFile("valhalla-zstd", ".tar")
         try {
             result.writeBytes(expanded.toByteArray())
-            assertTrue(ValhallaTileDownloads.validateTar(result))
+            assertTrue(ValhallaTarValidator.validateTar(result))
         } finally {
             result.delete()
         }

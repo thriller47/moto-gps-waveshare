@@ -26,7 +26,6 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.motogps.android.R
 import androidx.core.content.ContextCompat
 import com.motogps.android.map.SavedMapInfo
-import com.motogps.android.routing.ValhallaRegion
 import com.motogps.android.routing.RoutePreferences
 import com.motogps.android.viewmodel.PlaceSearchResult
 import com.motogps.android.viewmodel.RouteOption
@@ -322,15 +321,10 @@ fun MapDownloadProgressBox(
 @Composable
 fun OfflineMapsDialog(
     savedMaps: List<SavedMapInfo>,
-    valhallaRegions: List<ValhallaRegion>,
-    valhallaCatalogLoading: Boolean,
     valhallaInstalledBytes: Long,
-    valhallaDownloading: Boolean,
-    valhallaProgress: Float,
+    valhallaImporting: Boolean,
     valhallaStatus: String?,
     isNavigating: Boolean,
-    onRefreshValhallaCatalog: () -> Unit,
-    onDownloadValhalla: (String) -> Unit,
     onImportValhalla: () -> Unit,
     onCancelValhalla: () -> Unit,
     onDeleteValhalla: () -> Unit,
@@ -370,7 +364,7 @@ fun OfflineMapsDialog(
                         FilledTonalButton(
                             onClick = onImportOsmPack,
                             modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
-                            enabled = !isDownloadingMap && !valhallaDownloading && !isNavigating
+                            enabled = !isDownloadingMap && !valhallaImporting && !isNavigating
                         ) {
                             Icon(Icons.Default.Place, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(8.dp))
@@ -389,17 +383,12 @@ fun OfflineMapsDialog(
                 }
 
                 ValhallaRoutingSection(
-                    regions = valhallaRegions,
-                    loadingCatalog = valhallaCatalogLoading,
                     installedBytes = valhallaInstalledBytes,
-                    isDownloading = valhallaDownloading,
-                    progress = valhallaProgress,
+                    isImporting = valhallaImporting,
                     status = valhallaStatus,
                     isNavigating = isNavigating,
-                    onRefreshCatalog = onRefreshValhallaCatalog,
-                    onDownload = onDownloadValhalla,
                     onImport = onImportValhalla,
-                    onCancel = onCancelValhalla,
+                    onCancelImport = onCancelValhalla,
                     onDelete = onDeleteValhalla
                 )
 
@@ -423,7 +412,7 @@ fun OfflineMapsDialog(
                             }
                             IconButton(
                                 onClick = { onDeleteMap(mapInfo.fileName) },
-                                enabled = !isNavigating && !isDownloadingMap && !valhallaDownloading
+                                enabled = !isNavigating && !isDownloadingMap && !valhallaImporting
                             ) {
                                 Icon(Icons.Default.Delete, contentDescription = "Elimina mappa")
                             }
@@ -467,14 +456,9 @@ fun NavigationScreen(
     hasArrived: Boolean = false,
     currentLocation: Pair<Double, Double>? = null,
     savedMaps: List<SavedMapInfo> = emptyList(),
-    valhallaRegions: List<ValhallaRegion> = emptyList(),
-    valhallaCatalogLoading: Boolean = false,
     valhallaInstalledBytes: Long = 0L,
-    valhallaDownloading: Boolean = false,
-    valhallaProgress: Float = 0f,
+    valhallaImporting: Boolean = false,
     valhallaStatus: String? = null,
-    onRefreshValhallaCatalog: () -> Unit = {},
-    onDownloadValhalla: (String) -> Unit = {},
     onImportValhalla: () -> Unit = {},
     onCancelValhalla: () -> Unit = {},
     onDeleteValhalla: () -> Unit = {},
@@ -507,7 +491,6 @@ fun NavigationScreen(
     LaunchedEffect(showOfflineDialog) {
         if (showOfflineDialog) {
             onRefreshMaps()
-            onRefreshValhallaCatalog()
         }
     }
 
@@ -536,15 +519,10 @@ fun NavigationScreen(
     if (showOfflineDialog) {
         OfflineMapsDialog(
             savedMaps = savedMaps,
-            valhallaRegions = valhallaRegions,
-            valhallaCatalogLoading = valhallaCatalogLoading,
             valhallaInstalledBytes = valhallaInstalledBytes,
-            valhallaDownloading = valhallaDownloading,
-            valhallaProgress = valhallaProgress,
+            valhallaImporting = valhallaImporting,
             valhallaStatus = valhallaStatus,
             isNavigating = isNavigating,
-            onRefreshValhallaCatalog = onRefreshValhallaCatalog,
-            onDownloadValhalla = onDownloadValhalla,
             onImportValhalla = onImportValhalla,
             onCancelValhalla = onCancelValhalla,
             onDeleteValhalla = onDeleteValhalla,

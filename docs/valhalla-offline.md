@@ -72,16 +72,14 @@ dell'archivio non garantisce la compatibilità del suo formato binario
 con la versione Valhalla integrata: testare il calcolo di una rotta
 dopo l'installazione.
 
-## Archivi di routing locali
+## Grafo di routing installato
 
-**Gestione mappe → Grafi Valhalla → Aggiorna elenco regioni →
-Scarica grafo.** Il catalogo di prova proviene da
-[Librescoot](https://github.com/librescoot/valhalla-tiles/releases/latest).
-Il catalogo Android interroga la release piu recente tramite
-`/releases/latest`, evitando il tag storico `/releases/tags/latest` che
-non seguiva i nuovi rilasci mensili.
-L'archivio `.tar` viene verificato tramite dimensione, SHA-256 e
-presenza di tile `.gph`. Percorso:
+**Gestione mappe → Grafo Valhalla → Importa grafo TAR / ZST.**
+Il grafo deve essere stato scaricato sul telefono da una sorgente esterna.
+L'app importa un file `.tar` o `.tar.zst`, decomprime quando necessario,
+controlla la struttura TAR e cerca le tile `.gph`.
+La vecchia lista delle regioni e il download diretto dal catalogo
+sono stati rimossi. Percorso del grafo locale:
 ```
 Android/data/com.motogps.android/files/routing/valhalla_tiles.tar
 ```
@@ -97,8 +95,8 @@ Le strade mostrate sull'ESP32 provengono dagli archivi `.motomap.zip` importati
 nell'app. Le tile vengono lette direttamente dagli ZIP in base alla posizione GPS
 e inviate tramite il protocollo BLE esistente, senza estrarre l'intero archivio.
 
-La schermata **Gestione mappe** offre solo **Importa mappa ZIP** per le strade e
-il download dei **Grafi Valhalla** per il routing. Il comando **Scarica strade del
+La schermata **Gestione mappe** offre **Importa mappa ZIP** per le strade e
+**Importa grafo TAR / ZST** per il routing; non scarica grafi per regione. Il comando **Scarica strade del
 percorso** e i precedenti download manuali della zona vicina (~8 km) e della
 regione sono stati eliminati insieme ai relativi metodi di acquisizione.
 Una mappa stradale .motomap e un grafo Valhalla .tar restano file distinti:
@@ -115,8 +113,8 @@ non è una garanzia del limite legale vigente.
 
 1. Senza archivi e con rete attiva, cercare una città con Photon e
    verificare l'etichetta **Valhalla online**.
-2. Scaricare e installare le tile, disattivare i dati, selezionare una
-   destinazione nella stessa regione con pressione lunga: deve apparire
+2. Importare un grafo TAR / ZST, disattivare i dati, selezionare una
+   destinazione nella zona coperta con pressione lunga: deve apparire
    **Valhalla offline** e funzionare il ricalcolo.
 3. Riprovare senza dati e senza archivio: mostrare errore esplicito.
 4. Con archivi limitati e rete attiva, chiedere un percorso fuori
@@ -292,3 +290,13 @@ conservare sempre una copia del pacchetto ZIP originale esterna
 all'app, ad esempio nella cartella Download del telefono.
 
 La correzione e pubblicata con `[skip ci]`, senza avviare alcuna build.
+
+## Interfaccia senza download di grafi regionali
+
+La sezione **Grafo Valhalla** mostra soltanto lo stato del grafo locale,
+il comando **Importa grafo TAR / ZST**, l'eventuale avanzamento/
+annullamento dell'importazione e **Rimuovi grafo installato**. Non chiama
+più l'API del catalogo Librescoot né scarica archivi regionali.
+La validazione TAR resta disponibile nel componente indipendente
+`ValhallaTarValidator`, usato dall'importatore manuale.
+Questa modifica non cancella o altera il grafo `Italy.tar.zst` già importato.

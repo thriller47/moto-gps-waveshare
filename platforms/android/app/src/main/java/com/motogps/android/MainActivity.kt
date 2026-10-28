@@ -152,11 +152,8 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             val downloadStatus = viewModel.downloadStatus.collectAsState().value
             val downloadProgress = viewModel.downloadProgress.collectAsState().value
             val isDownloadingMap = viewModel.isDownloadingMap.collectAsState().value
-            val valhallaRegions = viewModel.valhallaRegions.collectAsState().value
-            val valhallaCatalogLoading = viewModel.valhallaCatalogLoading.collectAsState().value
             val valhallaInstalledBytes = viewModel.valhallaInstalledBytes.collectAsState().value
-            val valhallaDownloading = viewModel.valhallaDownloading.collectAsState().value
-            val valhallaProgress = viewModel.valhallaProgress.collectAsState().value
+            val valhallaImporting = viewModel.valhallaImporting.collectAsState().value
             val valhallaStatus = viewModel.valhallaStatus.collectAsState().value
 
             var mapsUpdateTrigger by remember { mutableStateOf(0) }
@@ -231,20 +228,15 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     downloadStatus = downloadStatus,
                     downloadProgress = downloadProgress,
                     isDownloadingMap = isDownloadingMap,
-                    valhallaRegions = valhallaRegions,
-                    valhallaCatalogLoading = valhallaCatalogLoading,
                     valhallaInstalledBytes = valhallaInstalledBytes,
-                    valhallaDownloading = valhallaDownloading,
-                    valhallaProgress = valhallaProgress,
+                    valhallaImporting = valhallaImporting,
                     valhallaStatus = valhallaStatus,
-                    onRefreshValhallaCatalog = { viewModel.refreshValhallaCatalog() },
-                    onDownloadValhalla = { id -> viewModel.downloadValhallaRegion(this@MainActivity, id) },
                     onImportValhalla = {
                         importValhallaGraphLauncher.launch(
                             arrayOf("application/zstd", "application/x-zstd", "application/x-tar", "application/octet-stream", "*/*")
                         )
                     },
-                    onCancelValhalla = { viewModel.cancelValhallaDownload() },
+                    onCancelValhalla = { viewModel.cancelValhallaImport() },
                     onDeleteValhalla = { viewModel.deleteValhallaGraph(this@MainActivity) },
                     onCancelDownload = {
                         viewModel.cancelMapDownload()

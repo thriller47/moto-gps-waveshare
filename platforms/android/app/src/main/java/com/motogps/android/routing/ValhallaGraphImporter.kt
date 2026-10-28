@@ -111,7 +111,7 @@ internal object ValhallaGraphImporter {
                         { dir.usableSpace })
                 }
             }
-            if (!ValhallaTileDownloads.validateTar(incoming))
+            if (!ValhallaTarValidator.validateTar(incoming))
                 throw IOException("Archivio TAR non valido: mancano tile Valhalla .gph")
             if (cancelled()) throw IOException("Importazione annullata")
             OfflineValhallaRouter.close()

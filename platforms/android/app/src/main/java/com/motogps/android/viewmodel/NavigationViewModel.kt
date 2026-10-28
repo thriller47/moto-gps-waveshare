@@ -20,9 +20,7 @@ import com.motogps.android.map.SavedMapInfo
 import com.motogps.android.location.LocationFixFilter
 import com.motogps.android.routing.OfflineValhallaRouter
 import com.motogps.android.routing.OnlineValhallaRouter
-import com.motogps.android.routing.ValhallaTileDownloads
 import com.motogps.android.routing.ValhallaGraphImporter
-import com.motogps.android.routing.ValhallaRegion
 import com.motogps.android.routing.RoutePreferences
 import com.motogps.android.routing.RouteStyle
 import com.motogps.android.routing.ValhallaRouteLocations
@@ -227,16 +225,10 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     val isDownloadingMap: StateFlow<Boolean> = _isDownloadingMap
 
     private var mapDownloadJob: Job? = null
-    private val _valhallaRegions = MutableStateFlow<List<ValhallaRegion>>(emptyList())
-    val valhallaRegions: StateFlow<List<ValhallaRegion>> = _valhallaRegions
-    private val _valhallaCatalogLoading = MutableStateFlow(false)
-    val valhallaCatalogLoading: StateFlow<Boolean> = _valhallaCatalogLoading
     private val _valhallaInstalledBytes = MutableStateFlow(0L)
     val valhallaInstalledBytes: StateFlow<Long> = _valhallaInstalledBytes
-    private val _valhallaDownloading = MutableStateFlow(false)
-    val valhallaDownloading: StateFlow<Boolean> = _valhallaDownloading
-    private val _valhallaProgress = MutableStateFlow(0f)
-    val valhallaProgress: StateFlow<Float> = _valhallaProgress
+    private val _valhallaImporting = MutableStateFlow(false)
+    val valhallaImporting: StateFlow<Boolean> = _valhallaImporting
     private val _valhallaStatus = MutableStateFlow<String?>(null)
     val valhallaStatus: StateFlow<String?> = _valhallaStatus
     private val valhallaCancel = AtomicBoolean(false)
@@ -982,57 +974,12 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         )
     }
 
-    fun refreshValhallaCatalog() {
-        if (_valhallaCatalogLoading.value) return
-        viewModelScope.launch {
-            _valhallaCatalogLoading.value = true
-            try {
-                _valhallaRegions.value = withContext(Dispatchers.IO) {
-                    ValhallaTileDownloads.fetchCatalog()
-                }
-                if (_valhallaRegions.value.isEmpty())
-                    _valhallaStatus.value = "Nessuna regione .tar disponibile nel catalogo"
-            } catch (e: Exception) {
-                _valhallaStatus.value = "Catalogo non disponibile: " + e.message
-            } finally {
-                _valhallaCatalogLoading.value = false
-            }
-        }
-    }
-
-    fun downloadValhallaRegion(context: Context, id: String) {
-        if (_valhallaDownloading.value || _isNavigating.value) return
-        val region = _valhallaRegions.value.find { it.id == id } ?: return
-        val appContext = context.applicationContext
-        valhallaCancel.set(false)
-        valhallaJob = viewModelScope.launch {
-            _valhallaDownloading.value = true
-            _valhallaProgress.value = 0f
-            _valhallaStatus.value = "Scaricamento " + region.label
-            try {
-                withContext(Dispatchers.IO) {
-                    ValhallaTileDownloads.install(appContext, region,
-                        { value -> _valhallaProgress.value = value },
-                        { valhallaCancel.get() || _isNavigating.value })
-                }
-                _valhallaInstalledBytes.value = OfflineValhallaRouter.tileFile(appContext).length()
-                _valhallaStatus.value = "Grafo Valhalla installato. Ora puoi calcolare un percorso."
-            } catch (e: Exception) {
-                _valhallaStatus.value = "Download fallito: " + e.message
-            } finally {
-                _valhallaDownloading.value = false
-                valhallaJob = null
-            }
-        }
-    }
-
     fun importValhallaGraph(context: Context, uri: Uri) {
-        if (_valhallaDownloading.value || _isNavigating.value) return
+        if (_valhallaImporting.value || _isNavigating.value) return
         val appContext = context.applicationContext
         valhallaCancel.set(false)
         valhallaJob = viewModelScope.launch {
-            _valhallaDownloading.value = true
-            _valhallaProgress.value = 0f
+            _valhallaImporting.value = true
             _valhallaStatus.value = "Importazione grafo: lettura archivio..."
             try {
                 withContext(Dispatchers.IO) {
@@ -1047,19 +994,19 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
             } catch (e: Exception) {
                 _valhallaStatus.value = "Importazione grafo fallita: " + e.message
             } finally {
-                _valhallaDownloading.value = false
+                _valhallaImporting.value = false
                 valhallaJob = null
             }
         }
     }
 
-    fun cancelValhallaDownload() {
+    fun cancelValhallaImport() {
         valhallaCancel.set(true)
         _valhallaStatus.value = "Annullamento richiesto..."
     }
 
     fun deleteValhallaGraph(context: Context) {
-        if (_isNavigating.value || _valhallaDownloading.value) return
+        if (_isNavigating.value || _valhallaImporting.value) return
         viewModelScope.launch(Dispatchers.IO) {
             OfflineValhallaRouter.close()
             val file = OfflineValhallaRouter.tileFile(context.applicationContext)
