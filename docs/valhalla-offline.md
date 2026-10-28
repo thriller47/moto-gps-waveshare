@@ -380,3 +380,24 @@ canvas 360, adattate a 466 pixel), non l'intera superficie 466×466.
 Il timer del nome scorrevole viene inoltre eliminato esplicitamente
 prima di ricreare il display e nelle schermate di avvio/spegnimento:
 non deve mai aggiornare oggetti LVGL già distrutti.
+
+## Allineamento codec BLE Kotlin e JNI (Android)
+
+In fase di test Android una regressione introdotta con il ripristino
+delle frecce Valhalla causava un fallimento in
+`MotoBLEProtocolCodecTest.testGoldenNavigationAndGeometryPayloads`:
+il codec in **Kotlin** impostava il flag `NavigationHasNextManeuver`
+in base al testo dell'istruzione, perciò persino `continue / Prosegui`
+attivava la freccia. Il bridge **JNI C++** era già stato corretto,
+ma l'app usa realmente il codec Kotlin nelle trasmissioni BLE.
+
+Ora entrambe le implementazioni hanno lo stesso contratto:
+- `NavigationHasNextManeuver` (bit 4) solo per una manovra reale
+  e una rotta attiva e identificata;
+- `NavigationHasRouteView` (bit 7) solo durante navigazione,
+  ricalcolo o arrivo con token e generazione della rotta validi;
+- il testo di istruzione e il nome strada **non** modificano questi flag.
+
+Il test verifica le maschere `0x93` (svolta), `0x83` (prosegui),
+`0x03` (rotta non ancora attiva/incompleta) e `0x02` (idle).
+La stringa binaria di riferimento delle manovre reali resta invariata.

@@ -403,10 +403,23 @@ class MotoBLEProtocolCodec {
         if (snapshot.hasFix) flags = flags or 2
         if (snapshot.gnssStale) flags = flags or 4
         if (snapshot.offRoute) flags = flags or 8
-        if (snapshot.instructionText.isNotBlank()) flags = flags or 16
         if (snapshot.routeRequestInFlight) flags = flags or 32
         if (snapshot.trafficRequestInFlight) flags = flags or 64
-        if (snapshot.hasDestination && snapshot.routeToken != 0L) flags = flags or 128
+
+        // Match the shared C++ BLE protocol and the ESP32 bridge. An
+        // instruction such as "Prosegui" is NOT an actionable maneuver:
+        // setting HasNextManeuver merely because its text is nonempty makes
+        // the ESP32 render a bogus straight arrow and a "0 m" turn.
+        // RouteView also requires a complete, active route identity.
+        val activeRoute = snapshot.hasDestination &&
+            state in 3..5 && // navigating, rerouting or arrived
+            snapshot.routeToken != 0L && snapshot.routeGeneration != 0L
+        if (activeRoute) {
+            flags = flags or 128 // NavigationHasRouteView
+            if (maneuver != 0 && maneuver != 1) {
+                flags = flags or 16 // NavigationHasNextManeuver
+            }
+        }
 
         var roadName = ""
         var instruction = snapshot.instructionText

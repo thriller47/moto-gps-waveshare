@@ -189,6 +189,24 @@ class MotoBLEProtocolCodecTest {
         val noTurnPayload = codec.nativeEncodeNavigationPayloadForGoldenCheck(
             handle, noTurn)!!
         assertEquals(0x83, noTurnPayload[6].toInt() and 0xFF)
+        // A road name or instruction must not make an otherwise invalid
+        // "continue" maneuver actionable again.
+        val namedContinuePayload = codec.nativeEncodeNavigationPayloadForGoldenCheck(
+            handle, noTurn.copy(instructionText = "Via Roma\nProsegui"))!!
+        assertEquals(0x83, namedContinuePayload[6].toInt() and 0xFF)
+
+        // Before the route is active, or when the generation is missing,
+        // the ESP32 must not interpret stale geometry/turn data as valid.
+        val planningPayload = codec.nativeEncodeNavigationPayloadForGoldenCheck(
+            handle, navSnapshot.copy(stateName = "planning"))!!
+        assertEquals(0x03, planningPayload[6].toInt() and 0xFF)
+        val incompleteRoutePayload = codec.nativeEncodeNavigationPayloadForGoldenCheck(
+            handle, navSnapshot.copy(routeGeneration = 0L))!!
+        assertEquals(0x03, incompleteRoutePayload[6].toInt() and 0xFF)
+        val arrivedPayload = codec.nativeEncodeNavigationPayloadForGoldenCheck(
+            handle, navSnapshot.copy(stateName = "arrived", maneuverName = "arrive"))!!
+        assertEquals(0x93, arrivedPayload[6].toInt() and 0xFF)
+
         val idle = navSnapshot.copy(
             stateName = "idle", hasDestination = false,
             maneuverName = "none", routeToken = 0L,
