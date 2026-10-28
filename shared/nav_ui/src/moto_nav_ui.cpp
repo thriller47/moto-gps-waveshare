@@ -1421,11 +1421,17 @@ void update_navigation(const moto_ui_state_t *state) {
     ui.navigation_route_request_in_flight =
         state->route_request_in_flight != 0;
     set_navigation_guidance_visible(has_guidance);
-    // A straight arrow with '0 m' must not be synthesized when Valhalla has
-    // no valid upcoming turn. The checkered finish flag is the one exception.
-    const bool has_maneuver_guidance = has_guidance &&
-        (state->has_next_maneuver != 0 || state->mode == MOTO_UI_ARRIVED);
-    if(!has_maneuver_guidance) {
+    // Only show turn instructions within 100 m of the actual maneuver.
+    // On long straight stretches the map stays visible without an early arrow.
+    // Close successive turns appear continuously because their distance is
+    // already <= 100 m as soon as the previous maneuver is completed.
+    // Arrival retains its finish flag independently of the threshold.
+    constexpr uint32_t kTurnGuidanceDistanceM = 100U;
+    const bool show_turn = has_guidance &&
+        (state->mode == MOTO_UI_ARRIVED ||
+         (state->has_next_maneuver != 0 &&
+          state->distance_to_maneuver_m <= kTurnGuidanceDistanceM));
+    if(!show_turn) {
         lv_obj_add_flag(ui.nav_maneuver, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(ui.nav_turn_distance, LV_OBJ_FLAG_HIDDEN);
     }

@@ -212,7 +212,7 @@ void test_turn_arrows_and_turn_distance_do_not_move_arrival_distance() {
   moto_ui_state_t state = base_state();
   fill_route(state, 12);
   state.maneuver = MOTO_MANEUVER_RIGHT;
-  state.distance_to_maneuver_m = 120;
+  state.distance_to_maneuver_m = 80;
   state.remaining_distance_m = 2'400;
   moto_nav_ui_set_state(&state);
   pump(260);
@@ -223,7 +223,7 @@ void test_turn_arrows_and_turn_distance_do_not_move_arrival_distance() {
   const Frame left = capture();
   CHECK(left.hash != right.hash); // Direction really draws a different arrow.
 
-  state.distance_to_maneuver_m = 380;
+  state.distance_to_maneuver_m = 40;
   moto_nav_ui_set_state(&state);
   const Frame farther = capture();
   CHECK(farther.hash != left.hash); // 28pt label changes with turn distance.
@@ -244,6 +244,47 @@ void test_turn_arrows_and_turn_distance_do_not_move_arrival_distance() {
   state.distance_to_maneuver_m = 0;
   moto_nav_ui_set_state(&state);
   CHECK(capture().hash != farther.hash);
+}
+
+void test_turn_guidance_appears_only_within_100_meters() {
+  moto_nav_ui_set_reduce_motion(1);
+  moto_nav_ui_set_phone_connection(MOTO_UI_PHONE_ONLINE);
+  moto_ui_state_t state = base_state();
+  fill_route(state, 12);
+  state.remaining_distance_m = 2'400;
+  state.distance_to_maneuver_m = 101;
+  moto_nav_ui_set_state(&state);
+  pump(260);
+  const Frame before_window = capture();
+
+  // A different maneuver must not alter the display before the 100 m window.
+  state.maneuver = MOTO_MANEUVER_LEFT;
+  moto_nav_ui_set_state(&state);
+  CHECK(capture().hash == before_window.hash);
+
+  state.distance_to_maneuver_m = 100;
+  moto_nav_ui_set_state(&state);
+  const Frame at_window = capture();
+  CHECK(at_window.hash != before_window.hash);
+
+  // At 100 m a second nearby turn is immediately eligible for display.
+  state.distance_to_maneuver_m = 35;
+  state.maneuver = MOTO_MANEUVER_RIGHT;
+  moto_nav_ui_set_state(&state);
+  const Frame close_turn = capture();
+  CHECK(close_turn.hash != at_window.hash);
+
+  state.distance_to_maneuver_m = 105;
+  moto_nav_ui_set_state(&state);
+  CHECK(capture().hash == before_window.hash);
+
+  // The finish flag remains visible even without a future maneuver.
+  state.mode = MOTO_UI_ARRIVED;
+  state.has_next_maneuver = 0;
+  state.maneuver = MOTO_MANEUVER_ARRIVE;
+  state.remaining_distance_m = 0;
+  moto_nav_ui_set_state(&state);
+  CHECK(capture().hash != before_window.hash);
 }
 
 void test_no_turn_suppresses_false_arrow_without_losing_destination_distance() {
@@ -496,6 +537,7 @@ int main(int argc, char **argv) {
   test_frames_are_deterministic();
   test_clearing_geometry_leaves_no_residue();
   test_turn_arrows_and_turn_distance_do_not_move_arrival_distance();
+  test_turn_guidance_appears_only_within_100_meters();
   test_no_turn_suppresses_false_arrow_without_losing_destination_distance();
   test_phone_lifecycle_renders_deterministically();
   test_removed_music_page_ignores_disconnect_media_state();
