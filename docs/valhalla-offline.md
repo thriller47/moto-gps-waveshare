@@ -441,3 +441,35 @@ USB Serial/JTAG; se il monitor non riceve nemmeno i log ROM/ESP-IDF,
 verificare alimentazione, porta USB dati e offset del firmware.
 La build CI produce firmware valido sintatticamente, non prova
 l'avvio fisico; nessuna build è stata lanciata da questo intervento.
+
+## ESP32: schermo nero e pubblicità BLE assente — causa confermata dal log
+
+Il log dell'avvio mostra **BLE host e UI inizializzati**, ma il driver SPI
+fallisce con `setup_dma_priv_buffer: Failed to allocate priv TX buffer`
+e `ESP_ERR_NO_MEM`. Il controller BLE rifiuta l'advertising con
+`BLE_ERR_MEM_CAPACITY` (rc=519). La RAM interna scende a 7 KiB,
+nonostante circa 4 MiB di PSRAM libera.
+
+Radice della pressione memoria nel progetto: il codice dichiara le
+strutture persistenti NavPresenter, PhoneNavBridge e BleNavTransport
+con `EXT_RAM_BSS_ATTR`, **ma** `CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY`
+era disabilitato; in ESP-IDF 5.5 quindi l'attributo è vuoto e i grandi
+buffer rimangono in DRAM interna. Inoltre il NimBLE *host* usava
+`CONFIG_BT_NIMBLE_MEM_ALLOC_MODE_INTERNAL=y`.
+
+La correzione abilita `CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=y`
+e `CONFIG_BT_NIMBLE_MEM_ALLOC_MODE_EXTERNAL=y`, sia in
+`sdkconfig.defaults` sia nel `sdkconfig` tracciato. Il controller radio
+e i buffer DMA continuano a riservare la RAM interna di cui necessitano.
+Nel `app_main.cpp` una verifica di compilazione impedisce di ignorare
+silenziosamente queste due condizioni. I marcatori `BOOT_DIAG`
+`ble_init_dma`, `display_init_dma` e `ble_advertising_start`
+ora includono la disponibilità della RAM DMA e il blocco contiguo massimo.
+
+Queste modifiche non alterano i pacchetti BLE, le rotte Valhalla, il
+nome strada o le distanze. La loro efficacia sul dispositivo fisico
+rimane da verificare con un nuovo firmware compilato e flashato senza
+cancellare la NVS. Qualora la build venga lanciata da una cartella
+locale con `sdkconfig` precedente, applicare la configurazione nuova
+tramite `idf.py reconfigure` (oppure rigenerare `sdkconfig` dai
+`sdkconfig.defaults`, conservando eventuali opzioni personalizzate).
