@@ -175,8 +175,10 @@ internal object ValhallaRouteAdapter {
 
     private fun maneuverType(type: Int): String = when (type) {
         4, 5, 6 -> "arrive"
-        9, 10, 11, 18, 20, 23 -> "turn_right"
-        14, 15, 16, 19, 21, 24 -> "turn_left"
+        9, 23 -> "keep_right"
+        16, 24 -> "keep_left"
+        10, 11, 18, 20, 37 -> "turn_right"
+        14, 15, 19, 21, 38 -> "turn_left"
         12, 13 -> "u_turn"
         26, 27 -> "roundabout"
         else -> "continue"

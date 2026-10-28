@@ -300,3 +300,26 @@ più l'API del catalogo Librescoot né scarica archivi regionali.
 La validazione TAR resta disponibile nel componente indipendente
 `ValhallaTarValidator`, usato dall'importatore manuale.
 Questa modifica non cancella o altera il grafo `Italy.tar.zst` già importato.
+
+## Frecce di svolta e metri alla manovra (ESP32)
+
+La vista navigazione del display 466×466 ripristina il simbolo di
+direzione per svolta a sinistra/destra, deviazione leggera, inversione,
+rotonda e bandiera a scacchi all'arrivo. Il codice delle frecce era
+gia' presente ma non veniva mai associato a un oggetto LVGL.
+
+Una nuova etichetta **Montserrat 28** in posizione centrata, appena
+sotto il nome strada arcuato lungo il bordo superiore, mostra
+`N m` oppure `N.N km` alla **prossima manovra**. La freccia
+resta nella parte sinistra della mappa, lontana dal segnalino moto.
+Il valore della **distanza residua alla destinazione** resta
+invariato nell'area inferiore (y=250 in coordinate di progetto,
+etichetta Montserrat 48 + unità).
+
+Android ricava la prossima svolta dalla lista manovre Valhalla e
+dai vertici reali `route_point_index`, misurando la distanza
+**lungo la geometria**, anziché stimare l'angolo fra tre punti GPS.
+Le manovre sono aggiornate all'avvio e dopo un ricalcolo di rotta;
+non cambia il formato BLE. I display senza una rotta nascondono
+freccia e distanza alla svolta. Test nativi e test Kotlin
+aggiunti, da eseguire alla prossima build manuale.

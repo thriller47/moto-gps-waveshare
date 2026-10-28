@@ -23,6 +23,7 @@ import com.motogps.android.routing.OnlineValhallaRouter
 import com.motogps.android.routing.ValhallaGraphImporter
 import com.motogps.android.routing.RoutePreferences
 import com.motogps.android.routing.RouteStyle
+import com.motogps.android.routing.ValhallaTurnGuidance
 import com.motogps.android.routing.ValhallaRouteLocations
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
@@ -51,14 +52,6 @@ data class RouteOption(
     val durationSeconds: Long,
     val steps: List<String>,
     val rawRouteJson: JSONObject
-)
-
-data class RouteManeuverStep(
-    val latitude: Double,
-    val longitude: Double,
-    val maneuverName: String,
-    val instruction: String,
-    val roadName: String
 )
 
 class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() {
@@ -255,8 +248,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         } ?: -1
         Log.i("NavigationVM", "Route BLE window: ${window.points.size}/${route.points.size} points origin=$lat,$lon destinationPointDistance=${endMeters}m")
     }
-    private var routeManeuverSteps: List<RouteManeuverStep> = emptyList()
-    private var activeStepIndex: Int = 0
+    private var turnPlan = ValhallaTurnGuidance.Plan(0.0, emptyList())
     private var lastSpeedLimitKph = 0
 
     private val locationFixFilter = LocationFixFilter()
@@ -365,6 +357,12 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         _routePreviewError.value = null
     }
 
+    private data class PlannedNavigation(
+        val snapshot: MotoBLENavigationSnapshot,
+        val geometry: MotoBLERouteGeometry?,
+        val turnPlan: ValhallaTurnGuidance.Plan
+    )
+
     fun startNavigation(place: PlaceSearchResult) {
         if (!hasFirstFix) {
             _errorMessage.value = "Attendi un segnale GPS valido prima di navigare"
@@ -386,7 +384,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
             _errorMessage.value = null
 
             try {
-                val (snapshot, geometry) = withContext(Dispatchers.IO) {
+                val (snapshot, geometry, guidance) = withContext(Dispatchers.IO) {
                     performRoutingWithGeometry(place)
                 }
 
@@ -397,6 +395,10 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                 _currentDevicePage.value = 0 // Reset to navigation page on start
                 currentSnapshot = snapshot
                 currentGeometry = geometry
+                turnPlan = guidance
+                val (startLat, startLon) = currentLocation.value
+                currentSnapshot = updateManeuverAndDistance(startLat, startLon)
+                    ?: snapshot
                 // Keep the source of the ACTUAL navigation route visible.
                 _routingSource.value = lastRoutingProvider
                 // Public Overpass is not suitable for downloading a complete
@@ -405,7 +407,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                 if (geometry != null) {
                     sendNearbyRouteGeometry(geometry)
                 }
-                bleManager.sendNavigationSnapshot(snapshot)
+                bleManager.sendNavigationSnapshot(requireNotNull(currentSnapshot))
 
                 _isLoading.value = false
 
@@ -506,6 +508,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         _routingSource.value = null
         currentSnapshot = null
         currentGeometry = null
+        turnPlan = ValhallaTurnGuidance.Plan(0.0, emptyList())
 
         val stopSnapshot = MotoBLENavigationSnapshot(
             stateName = "idle",
@@ -899,28 +902,21 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         }
         val snapshot = baseSnapshot.copy(remainingDistanceM = remainingMeters)
 
-        if (routeManeuverSteps.isNotEmpty() && activeStepIndex in routeManeuverSteps.indices) {
-            val step = routeManeuverSteps[activeStepIndex]
-            val distToStep = calculateDistanceMeters(lat, lon, step.latitude, step.longitude)
-
-            if (distToStep < 15.0 && activeStepIndex < routeManeuverSteps.size - 1) {
-                activeStepIndex++
-                val nextStep = routeManeuverSteps[activeStepIndex]
-                val newDist = calculateDistanceMeters(lat, lon, nextStep.latitude, nextStep.longitude)
-                val instrText = if (nextStep.roadName.isNotBlank()) "${nextStep.roadName}\n${nextStep.instruction}" else nextStep.instruction
-                return snapshot.copy(
-                    maneuverName = nextStep.maneuverName,
-                    distanceToManeuverM = newDist.toLong(),
-                    instructionText = instrText
-                )
-            } else {
-                val instrText = if (step.roadName.isNotBlank()) "${step.roadName}\n${step.instruction}" else step.instruction
-                return snapshot.copy(
-                    maneuverName = step.maneuverName,
-                    distanceToManeuverM = distToStep.toLong(),
-                    instructionText = instrText
-                )
-            }
+        // The next maneuver comes from Valhalla's explicit road geometry.
+        // Its distance is measured along the same polyline used for the
+        // existing destination-distance calculation, never as a straight
+        // GPS-to-intersection shortcut.
+        val upcoming = turnPlan.next(remainingMeters)
+        if (upcoming != null) {
+            val step = upcoming.action
+            val instrText = if (step.roadName.isNotBlank())
+                "${step.roadName}\\n${step.instruction}" else step.instruction
+            return snapshot.copy(
+                maneuverName = step.type,
+                maneuverID = step.index,
+                distanceToManeuverM = upcoming.meters,
+                instructionText = instrText
+            )
         }
 
         // Geometry-based maneuver fallback
@@ -1125,7 +1121,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         rerouteInProgress = true
         viewModelScope.launch {
             try {
-                val (snapshot, geometry) = withContext(Dispatchers.IO) {
+                val (snapshot, geometry, guidance) = withContext(Dispatchers.IO) {
                     performRoutingWithGeometry(dest, isReroute = true)
                 }
                 // The rider may reach the finish while a reroute was calculating.
@@ -1133,9 +1129,13 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                 if (_hasArrived.value || !_isNavigating.value) return@launch
                 currentSnapshot = snapshot
                 currentGeometry = geometry
+                turnPlan = guidance
+                val refreshed = updateManeuverAndDistance(latitude, longitude)
+                    ?: snapshot
+                currentSnapshot = refreshed
                 _routingSource.value = lastRoutingProvider
                 if (geometry != null) sendNearbyRouteGeometry(geometry)
-                bleManager.sendNavigationSnapshot(snapshot)
+                bleManager.sendNavigationSnapshot(refreshed)
             } catch (e: Exception) {
                 Log.w("NavigationVM", "Route recalculation failed: ${e.message}")
             } finally {
@@ -1226,7 +1226,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
 
     private fun performRoutingWithGeometry(
         place: PlaceSearchResult, isReroute: Boolean = false
-    ): Pair<MotoBLENavigationSnapshot, MotoBLERouteGeometry?> {
+    ): PlannedNavigation {
         if (!hasFirstFix)
             throw IllegalStateException("Fix GPS assente: impossibile navigare")
         val (originLat, originLon) = currentLocation.value
@@ -1237,7 +1237,11 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
             else _routeWaypoints.value
         val result = resolveRoute(originLat, originLon, place, isReroute, bearing, pending)
         lastRoutingProvider = "Valhalla"
-        return parseMotoRouteResponse(result, originLat, originLon, place)
+        val (snapshot, geometry) = parseMotoRouteResponse(
+            result, originLat, originLon, place)
+        return PlannedNavigation(
+            snapshot, geometry,
+            ValhallaTurnGuidance.fromRoute(result.getJSONObject("route")))
     }
 
     private fun parseMotoRouteResponse(

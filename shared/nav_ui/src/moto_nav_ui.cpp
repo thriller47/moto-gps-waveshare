@@ -122,6 +122,7 @@ struct Ui {
     char nav_street_text[96]{};
     lv_obj_t *nav_distance = nullptr;
     lv_obj_t *nav_unit = nullptr;
+    lv_obj_t *nav_turn_distance = nullptr;
     lv_obj_t *nav_maneuver = nullptr;
     moto_maneuver_t nav_maneuver_type = MOTO_MANEUVER_STRAIGHT;
     lv_obj_t *nav_limit = nullptr;
@@ -1339,6 +1340,8 @@ void set_navigation_guidance_visible(bool visible) {
     lv_obj_t *objects[] = {
         ui.nav_distance,
         ui.nav_unit,
+        ui.nav_turn_distance,
+        ui.nav_maneuver,
         ui.nav_progress,
     };
     for(lv_obj_t *object : objects) {
@@ -1434,10 +1437,26 @@ void update_navigation(const moto_ui_state_t *state) {
     if(state->mode == MOTO_UI_ARRIVED) std::snprintf(value, sizeof(value), "0");
     lv_label_set_text(ui.nav_distance, value);
     lv_label_set_text(ui.nav_unit, unit);
-    // Always display remaining route distance to destination.
+    // Keep the arrival distance in its existing position, independently of
+    // the new turn-distance line beneath the curved street name.
     lv_obj_align(ui.nav_distance, LV_ALIGN_TOP_MID, 0, px(250));
     lv_obj_align_to(ui.nav_unit, ui.nav_distance, LV_ALIGN_OUT_RIGHT_BOTTOM,
                 px(6), px(-7));
+
+    // Next maneuver distance: always centered beneath the street-name arc.
+    // Keep it a single 28pt label (including the unit) to avoid shifting the
+    // number horizontally as the measurement changes.
+    char next_turn[32];
+    if(state->mode == MOTO_UI_ARRIVED) {
+        std::snprintf(next_turn, sizeof(next_turn), "ARRIVO");
+    } else if(state->distance_to_maneuver_m >= 1000U) {
+        std::snprintf(next_turn, sizeof(next_turn), "%.1f km",
+                      state->distance_to_maneuver_m / 1000.0);
+    } else {
+        std::snprintf(next_turn, sizeof(next_turn), "%u m",
+                      static_cast<unsigned>(state->distance_to_maneuver_m));
+    }
+    lv_label_set_text(ui.nav_turn_distance, next_turn);
 
     lv_arc_set_value(ui.nav_progress,
                      std::min<int>(100, state->route_progress_percent));
@@ -1638,10 +1657,28 @@ void create_navigation_page() {
     lv_obj_set_style_text_align(ui.nav_status, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(ui.nav_status, LV_ALIGN_TOP_MID, 0, px(16));
 
-    // The next action is the navigation page's single visual hero. The short
-    // road window above is deliberately quieter and contains no fake side
-    // streets; this standard symbol must be understood in one glance.
+    // Next-turn guidance overlays the left of the map, away from the
+    // rider marker at (180,196) design coordinates. The glyph renderer was
+    // already implemented but never had an LVGL object to draw into.
+    ui.nav_maneuver = lv_obj_create(page);
+    lv_obj_remove_style_all(ui.nav_maneuver);
+    lv_obj_set_size(ui.nav_maneuver, px(116), px(116));
+    lv_obj_set_pos(ui.nav_maneuver, px(22), px(103));
+    lv_obj_clear_flag(ui.nav_maneuver, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(ui.nav_maneuver, draw_maneuver_icon,
+                        LV_EVENT_DRAW_MAIN_END, nullptr);
 
+    // 28pt distance to the next turn, centered directly below the road name
+    // on the upper bezel. No independent unit widget, so centering is exact.
+    ui.nav_turn_distance = make_label(
+        page, &lv_font_montserrat_28, kWhite, "");
+    lv_obj_set_width(ui.nav_turn_distance, px(266));
+    lv_obj_set_style_text_align(ui.nav_turn_distance, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(ui.nav_turn_distance, LV_ALIGN_TOP_MID, 0, px(67));
+    lv_obj_clear_flag(ui.nav_turn_distance, LV_OBJ_FLAG_CLICKABLE);
+
+    // The destination distance and its unit retain their original position
+    // (y=250 on the design canvas), not repurposed for maneuver guidance.
     ui.nav_distance = make_label(page, &lv_font_montserrat_48, kWhite, "300");
     ui.nav_unit = make_label(page, &lv_font_montserrat_20, kQuiet, "m");
 

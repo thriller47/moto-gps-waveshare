@@ -205,6 +205,46 @@ void test_clearing_geometry_leaves_no_residue() {
   CHECK(redrawn.hash == route_frame.hash);
 }
 
+void test_turn_arrows_and_turn_distance_do_not_move_arrival_distance() {
+  moto_nav_ui_set_reduce_motion(1);
+  moto_nav_ui_set_phone_connection(MOTO_UI_PHONE_ONLINE);
+  moto_ui_state_t state = base_state();
+  fill_route(state, 12);
+  state.maneuver = MOTO_MANEUVER_RIGHT;
+  state.distance_to_maneuver_m = 120;
+  state.remaining_distance_m = 2'400;
+  moto_nav_ui_set_state(&state);
+  pump(260);
+  const Frame right = capture();
+
+  state.maneuver = MOTO_MANEUVER_LEFT;
+  moto_nav_ui_set_state(&state);
+  const Frame left = capture();
+  CHECK(left.hash != right.hash); // Direction really draws a different arrow.
+
+  state.distance_to_maneuver_m = 380;
+  moto_nav_ui_set_state(&state);
+  const Frame farther = capture();
+  CHECK(farther.hash != left.hash); // 28pt label changes with turn distance.
+
+  // The arrival-distance line at design y=250 and below is untouched when
+  // changing the next maneuver and its distance.
+  const int bottom_y = (245 * kWidth + 180) / 360;
+  const std::size_t first_bottom = static_cast<std::size_t>(bottom_y) *
+                                   kWidth * (LV_COLOR_DEPTH / 8);
+  CHECK(std::equal(right.bytes.begin() + first_bottom, right.bytes.end(),
+                   left.bytes.begin() + first_bottom));
+  CHECK(std::equal(left.bytes.begin() + first_bottom, left.bytes.end(),
+                   farther.bytes.begin() + first_bottom));
+
+  state.mode = MOTO_UI_ARRIVED;
+  state.maneuver = MOTO_MANEUVER_ARRIVE;
+  state.remaining_distance_m = 0;
+  state.distance_to_maneuver_m = 0;
+  moto_nav_ui_set_state(&state);
+  CHECK(capture().hash != farther.hash);
+}
+
 void test_phone_lifecycle_renders_deterministically() {
   // The connection lifecycle is a full-screen overlay for the empty
   // navigation page; cycle it there and require visually distinct terminal
@@ -416,6 +456,7 @@ int main(int argc, char **argv) {
 
   test_frames_are_deterministic();
   test_clearing_geometry_leaves_no_residue();
+  test_turn_arrows_and_turn_distance_do_not_move_arrival_distance();
   test_phone_lifecycle_renders_deterministically();
   test_removed_music_page_ignores_disconnect_media_state();
   test_demo_mode_visual_contract();
