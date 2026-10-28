@@ -17,34 +17,28 @@ internal object OnlineValhallaRouter {
     fun request(
         fromLat: Double, fromLon: Double, toLat: Double, toLon: Double,
         rerouting: Boolean = false, gpsBearing: Float? = null,
-        preferences: RoutePreferences = RoutePreferences()
+        preferences: RoutePreferences = RoutePreferences(),
+        waypoints: List<Pair<Double, Double>> = emptyList()
     ): JSONObject {
-        require(fromLat in -90.0..90.0 && toLat in -90.0..90.0 &&
-            fromLon in -180.0..180.0 && toLon in -180.0..180.0) {
-            "Coordinate GPS non valide"
-        }
-        val origin = JSONObject().put("lat", fromLat).put("lon", fromLon)
-            .put("type", "break")
-        if (rerouting && gpsBearing != null && gpsBearing.isFinite() &&
-            gpsBearing in 0f..359.999f) {
-            origin.put("heading", gpsBearing.toDouble())
-            origin.put("heading_tolerance", 45)
-        }
-        return preferences.applyTo(JSONObject()
-            .put("locations", JSONArray().put(origin).put(
-                JSONObject().put("lat", toLat).put("lon", toLon).put("type", "break")))
+        val request = JSONObject()
+            .put("locations", ValhallaRouteLocations.build(
+                fromLat, fromLon, toLat, toLon, waypoints, rerouting, gpsBearing))
             .put("costing", "auto")
             .put("units", "km")
             .put("language", "it-IT")
-            .put("shape_format", "polyline6"))
+            .put("shape_format", "polyline6")
+        return ValhallaRouteLocations.suppressUnsupportedAlternates(
+            preferences.applyTo(request))
     }
 
     fun route(
         fromLat: Double, fromLon: Double, toLat: Double, toLon: Double,
         rerouting: Boolean = false, gpsBearing: Float? = null,
-        preferences: RoutePreferences = RoutePreferences()
+        preferences: RoutePreferences = RoutePreferences(),
+        waypoints: List<Pair<Double, Double>> = emptyList()
     ): JSONObject {
-        val requestJson = request(fromLat, fromLon, toLat, toLon, rerouting, gpsBearing, preferences)
+        val requestJson = request(
+            fromLat, fromLon, toLat, toLon, rerouting, gpsBearing, preferences, waypoints)
         val conn = (URL(ENDPOINT).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             connectTimeout = 10_000

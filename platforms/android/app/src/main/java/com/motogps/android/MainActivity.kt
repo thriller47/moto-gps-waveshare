@@ -138,6 +138,10 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             val errorMessage = viewModel.errorMessage.collectAsState().value
             val routePreview = viewModel.routePreview.collectAsState().value
             val routeOptions = viewModel.routeOptions.collectAsState().value
+            val routeWaypoints = viewModel.routeWaypoints.collectAsState().value
+            val waypointSearchResults = viewModel.waypointSearchResults.collectAsState().value
+            val waypointSearching = viewModel.waypointSearching.collectAsState().value
+            val waypointSearchError = viewModel.waypointSearchError.collectAsState().value
             val routingSource = viewModel.routingSource.collectAsState().value
             val routePreviewError = viewModel.routePreviewError.collectAsState().value
             val routePreferences = viewModel.routePreferences.collectAsState().value
@@ -180,6 +184,16 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     searchResults = searchResults,
                     routePreview = routePreview,
                     routeOptions = routeOptions,
+                    routeWaypoints = routeWaypoints,
+                    waypointSearchResults = waypointSearchResults,
+                    waypointSearching = waypointSearching,
+                    waypointSearchError = waypointSearchError,
+                    onSearchWaypoint = { viewModel.searchWaypoint(it) },
+                    onAddWaypoint = { viewModel.addRouteWaypoint(it) },
+                    onRemoveWaypoint = { viewModel.removeRouteWaypoint(it) },
+                    onMoveWaypoint = { index, offset ->
+                        viewModel.moveRouteWaypoint(index, offset)
+                    },
                     routingSource = routingSource,
                     routePreviewError = routePreviewError,
                     routePreferences = routePreferences,

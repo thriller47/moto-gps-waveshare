@@ -217,3 +217,30 @@ La finestra delle opzioni ora e un **pannello inferiore** di altezza massima
 320 dp, scorrevole, con profili su una riga orizzontale per **lasciare visibile
 la mappa** nella parte alta. Il valore curve e salvato insieme agli altri
 parametri, applicato alle anteprime e alle rotture/ricalcoli di percorso.
+
+## Tappe intermedie ordinate
+
+La schermata **Percorso → Tappe intermedie** mostra un pannello basso,
+scorrevole (max 370dp) che lascia visibile la mappa. Si possono aggiungere
+fino a otto tappe cercandole online con Photon, inserendo coordinate GPS
+oppure premendo a lungo sulla mappa dell'anteprima. Le tappe possono
+essere spostate su/giu o eliminate; le modifiche ricalcolano la rotta.
+
+Il motore Valhalla locale (o l'eventuale fallback online) riceve
+`locations` nell'ordine: origine GPS, tappe `type=break`, destinazione.
+Le tappe `break` producono `legs` e istruzioni di arrivo e partenza:
+il convertitore BLE esistente aggrega gia tutte le tratte, mantenendo
+svolte e geometria stradale reale senza alcuna linea sintetica.
+
+Durante la navigazione una tappa viene considerata raggiunta su una
+posizione GPS filtrata entro 60 metri, una per aggiornamento. Quando
+il navigatore ricalcola fuori percorso, invia soltanto le tappe non
+ancora raggiunte e la destinazione. Tappe lontane non vengono
+saltate automaticamente. Le tappe non sono riordinate dall'app.
+
+Per itinerari multi-punto Valhalla non supporta il campo `alternates`:
+si disabilita la ricerca delle due varianti in Touring, mantenendo
+tutte le preferenze stradali attive. L'importazione del grafo,
+il protocollo BLE e il firmware ESP32 non vengono toccati.
+
+Il commit usa `[skip ci]` per non avviare alcuna build.

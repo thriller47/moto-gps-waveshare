@@ -36,6 +36,7 @@ internal object OfflineValhallaRouter {
         isReroute: Boolean = false,
         travelBearingDegrees: Float? = null,
         preferences: RoutePreferences = RoutePreferences(),
+        waypoints: List<Pair<Double, Double>> = emptyList(),
     ): JSONObject? {
         val tiles = tileFile(context)
         if (!tiles.isFile || tiles.length() == 0L) return null
@@ -47,24 +48,14 @@ internal object OfflineValhallaRouter {
             engine = Valhalla(context.applicationContext, config)
             loadedTilePath = path
         }
-        val departure = JSONObject()
-            .put("lat", originLat)
-            .put("lon", originLon)
-            .put("type", "break")
-        // Only a fresh GPS course is supplied by the caller; compass heading
-        // is not a reliable travel bearing. Valhalla otherwise snaps freely.
-        if (isReroute && travelBearingDegrees != null &&
-            travelBearingDegrees.isFinite() && travelBearingDegrees in 0f..359.999f) {
-            departure.put("heading", travelBearingDegrees.toDouble())
-            departure.put("heading_tolerance", 45)
-        }
         val request = JSONObject()
-            .put("locations", JSONArray().put(departure).put(
-                JSONObject().put("lat", destinationLat).put("lon", destinationLon).put("type", "break")))
+            .put("locations", ValhallaRouteLocations.build(
+                originLat, originLon, destinationLat, destinationLon,
+                waypoints, isReroute, travelBearingDegrees))
             .put("costing", "auto")
             .put("shape_format", "polyline6")
             .put("directions_options", JSONObject().put("units", "kilometers").put("language", "it-IT"))
-        preferences.applyTo(request)
+        ValhallaRouteLocations.suppressUnsupportedAlternates(preferences.applyTo(request))
         val raw = requireNotNull(engine).routeRaw(request.toString())
         return ValhallaRouteAdapter.toMotoRoute(
             RouteCurvatureSelector.select(JSONObject(raw), preferences),

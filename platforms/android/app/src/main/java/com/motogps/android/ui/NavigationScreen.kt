@@ -44,6 +44,8 @@ fun RouteMapView(
     geoPoints: List<GeoPoint>,
     currentLocation: Pair<Double, Double>? = null,
     destinationLocation: Pair<Double, Double>? = null,
+    waypoints: List<PlaceSearchResult> = emptyList(),
+    onWaypointLongPress: ((Double, Double) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     AndroidView(
@@ -56,6 +58,16 @@ fun RouteMapView(
         },
         update = { mapView ->
             mapView.overlays.clear()
+            if (onWaypointLongPress != null) {
+                mapView.overlays.add(MapEventsOverlay(object : MapEventsReceiver {
+                    override fun singleTapConfirmedHelper(p: GeoPoint?): Boolean = false
+                    override fun longPressHelper(p: GeoPoint?): Boolean {
+                        if (p == null) return false
+                        onWaypointLongPress(p.latitude, p.longitude)
+                        return true
+                    }
+                }))
+            }
             val viewPoints = mutableListOf<GeoPoint>()
             if (geoPoints.size >= 2) {
                 mapView.overlays.add(Polyline().apply {
@@ -74,6 +86,15 @@ fun RouteMapView(
                     setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
                 })
                 if (geoPoints.size < 2) viewPoints.add(here)
+            }
+            waypoints.forEachIndexed { index, stop ->
+                val via = GeoPoint(stop.latitude, stop.longitude)
+                mapView.overlays.add(Marker(mapView).apply {
+                    position = via
+                    title = "Tappa ${index + 1}: ${stop.name}"
+                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                })
+                if (geoPoints.size < 2) viewPoints.add(via)
             }
             if (destinationLocation != null && destinationLocation.first in -90.0..90.0 &&
                 destinationLocation.second in -180.0..180.0) {
@@ -421,6 +442,14 @@ fun NavigationScreen(
     searchResults: List<PlaceSearchResult>,
     routePreview: PlaceSearchResult?,
     routeOptions: List<RouteOption>,
+    routeWaypoints: List<PlaceSearchResult> = emptyList(),
+    waypointSearchResults: List<PlaceSearchResult> = emptyList(),
+    waypointSearching: Boolean = false,
+    waypointSearchError: String? = null,
+    onSearchWaypoint: (String) -> Unit = {},
+    onAddWaypoint: (PlaceSearchResult) -> Unit = {},
+    onRemoveWaypoint: (Int) -> Unit = {},
+    onMoveWaypoint: (Int, Int) -> Unit = { _, _ -> },
     selectedRouteIndex: Int,
     routingSource: String? = null,
     routePreviewError: String? = null,
@@ -456,6 +485,7 @@ fun NavigationScreen(
     var searchQuery by remember { mutableStateOf("") }
     var showOfflineDialog by remember { mutableStateOf(false) }
     var showRoutePreferencesDialog by remember { mutableStateOf(false) }
+    var showWaypointsSheet by remember { mutableStateOf(false) }
 
     var centerOnLocationTrigger by remember { mutableStateOf(0) }
     var activeMapView by remember { mutableStateOf<MapView?>(null) }
@@ -470,6 +500,20 @@ fun NavigationScreen(
             onRefreshMaps()
             onRefreshValhallaCatalog()
         }
+    }
+
+    if (routePreview != null && !isNavigating && showWaypointsSheet) {
+        RouteWaypointsSheet(
+            waypoints = routeWaypoints,
+            searchResults = waypointSearchResults,
+            searching = waypointSearching,
+            error = waypointSearchError,
+            onSearch = onSearchWaypoint,
+            onAdd = onAddWaypoint,
+            onRemove = onRemoveWaypoint,
+            onMove = onMoveWaypoint,
+            onDismiss = { showWaypointsSheet = false }
+        )
     }
 
     if (routePreview != null && !isNavigating && showRoutePreferencesDialog) {
@@ -552,6 +596,13 @@ fun NavigationScreen(
                         geoPoints = geoPoints,
                         currentLocation = currentLocation,
                         destinationLocation = Pair(routePreview.latitude, routePreview.longitude),
+                        waypoints = routeWaypoints,
+                        onWaypointLongPress = if (!isNavigating) { lat, lon ->
+                            onAddWaypoint(PlaceSearchResult(
+                                "Tappa sulla mappa",
+                                String.format("Lat: %.4f, Lon: %.4f", lat, lon),
+                                "Mappa", lat, lon))
+                        } else null,
                         modifier = Modifier.fillMaxSize()
                     )
                 }
@@ -565,6 +616,18 @@ fun NavigationScreen(
                             downloadProgress = downloadProgress,
                             onCancelDownload = onCancelDownload
                         )
+                    }
+
+                    OutlinedButton(
+                        onClick = { showWaypointsSheet = true },
+                        enabled = !isNavigating,
+                        modifier = Modifier.fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 2.dp)
+                            .heightIn(min = 44.dp)
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Tappe intermedie (${routeWaypoints.size})")
                     }
 
                     OutlinedButton(

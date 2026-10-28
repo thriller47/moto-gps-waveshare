@@ -25,6 +25,7 @@ import com.motogps.android.routing.ValhallaGraphImporter
 import com.motogps.android.routing.ValhallaRegion
 import com.motogps.android.routing.RoutePreferences
 import com.motogps.android.routing.RouteStyle
+import com.motogps.android.routing.ValhallaRouteLocations
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -77,6 +78,88 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
 
     private val _routePreview = MutableStateFlow<PlaceSearchResult?>(null)
     val routePreview: StateFlow<PlaceSearchResult?> = _routePreview
+
+    private val _routeWaypoints = MutableStateFlow<List<PlaceSearchResult>>(emptyList())
+    val routeWaypoints: StateFlow<List<PlaceSearchResult>> = _routeWaypoints
+    private val _waypointSearchResults = MutableStateFlow<List<PlaceSearchResult>>(emptyList())
+    val waypointSearchResults: StateFlow<List<PlaceSearchResult>> = _waypointSearchResults
+    private val _waypointSearching = MutableStateFlow(false)
+    val waypointSearching: StateFlow<Boolean> = _waypointSearching
+    private val _waypointSearchError = MutableStateFlow<String?>(null)
+    val waypointSearchError: StateFlow<String?> = _waypointSearchError
+    private var waypointSearchJob: Job? = null
+    private var activeWaypoints: List<PlaceSearchResult> = emptyList()
+    private var nextWaypointIndex = 0
+
+    fun searchWaypoint(query: String) {
+        waypointSearchJob?.cancel()
+        _waypointSearchResults.value = emptyList()
+        _waypointSearchError.value = null
+        if (query.isBlank()) {
+            _waypointSearching.value = false
+            return
+        }
+        OfflineCoordinateSearch.parse(query)?.let { place ->
+            _waypointSearchResults.value = listOf(place)
+            _waypointSearching.value = false
+            return
+        }
+        waypointSearchJob = viewModelScope.launch {
+            _waypointSearching.value = true
+            try {
+                val results = withContext(Dispatchers.IO) {
+                    PhotonPlaceSearch.search(query,
+                        if (hasFirstFix) currentLocation.value else null)
+                }
+                _waypointSearchResults.value = results
+                if (results.isEmpty()) _waypointSearchError.value = "Nessun luogo trovato"
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _waypointSearchError.value = "Ricerca tappa fallita: ${e.message}"
+            } finally {
+                _waypointSearching.value = false
+            }
+        }
+    }
+
+    fun addRouteWaypoint(place: PlaceSearchResult) {
+        val destination = _routePreview.value ?: return
+        if (_isNavigating.value) return
+        if (_routeWaypoints.value.size >= ValhallaRouteLocations.MAX_STOPS) {
+            _errorMessage.value = "Puoi inserire al massimo 8 tappe"
+            return
+        }
+        fun same(a: PlaceSearchResult, b: PlaceSearchResult): Boolean =
+            kotlin.math.abs(a.latitude - b.latitude) < 0.00001 &&
+                kotlin.math.abs(a.longitude - b.longitude) < 0.00001
+        if (same(destination, place) || _routeWaypoints.value.any { same(it, place) }) {
+            _errorMessage.value = "La tappa è già presente nel percorso"
+            return
+        }
+        _routeWaypoints.value = _routeWaypoints.value + place
+        _waypointSearchResults.value = emptyList()
+        _waypointSearchError.value = null
+        previewRoute(destination)
+    }
+
+    fun removeRouteWaypoint(index: Int) {
+        val destination = _routePreview.value ?: return
+        if (_isNavigating.value || index !in _routeWaypoints.value.indices) return
+        _routeWaypoints.value = _routeWaypoints.value.filterIndexed { i, _ -> i != index }
+        previewRoute(destination)
+    }
+
+    fun moveRouteWaypoint(index: Int, direction: Int) {
+        val destination = _routePreview.value ?: return
+        if (_isNavigating.value || direction !in listOf(-1, 1)) return
+        val list = _routeWaypoints.value.toMutableList()
+        if (index !in list.indices || index + direction !in list.indices) return
+        java.util.Collections.swap(list, index, index + direction)
+        _routeWaypoints.value = list
+        previewRoute(destination)
+    }
+
 
     private val _routePreferences = MutableStateFlow(RoutePreferences())
     val routePreferences: StateFlow<RoutePreferences> = _routePreferences
@@ -271,6 +354,11 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
 
     fun clearRoutePreview() {
         routePreviewJob?.cancel()
+        waypointSearchJob?.cancel()
+        _routeWaypoints.value = emptyList()
+        _waypointSearchResults.value = emptyList()
+        _waypointSearching.value = false
+        _waypointSearchError.value = null
         routePreviewJob = null
         _routePreview.value = null
         _routeOptions.value = emptyList()
@@ -303,6 +391,8 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                 }
 
                 activeDestination = place
+                activeWaypoints = _routeWaypoints.value.toList()
+                nextWaypointIndex = 0
                 _isNavigating.value = true
                 _currentDevicePage.value = 0 // Reset to navigation page on start
                 currentSnapshot = snapshot
@@ -394,6 +484,9 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         navigationJob?.cancel()
         navigationJob = null
         activeDestination = null
+        activeWaypoints = emptyList()
+        nextWaypointIndex = 0
+        _routeWaypoints.value = emptyList()
         _routingSource.value = null
         currentSnapshot = null
         currentGeometry = null
@@ -539,6 +632,13 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         }
 
         if (_isNavigating.value && activeDestination != null) {
+            val reachedIndex = ValhallaRouteLocations.nextIndex(
+                nextWaypointIndex, activeWaypoints.map { it.latitude to it.longitude },
+                latitude, longitude)
+            if (reachedIndex != nextWaypointIndex) {
+                nextWaypointIndex = reachedIndex
+                Log.i("NavigationVM", "Tappa completata: $nextWaypointIndex/${activeWaypoints.size}")
+            }
             checkOffRouteAndRecalculate(latitude, longitude)
         }
     }
@@ -1063,7 +1163,8 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
      */
     private fun resolveRoute(
         originLat: Double, originLon: Double, place: PlaceSearchResult,
-        isReroute: Boolean = false, bearing: Float? = null
+        isReroute: Boolean = false, bearing: Float? = null,
+        waypoints: List<PlaceSearchResult> = _routeWaypoints.value
     ): JSONObject {
         var localError = "nessuna regione Valhalla installata"
         val context = navigationMapsContext
@@ -1071,7 +1172,8 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
             try {
                 val result = OfflineValhallaRouter.route(
                     context, originLat, originLon, place.latitude, place.longitude,
-                    isReroute, bearing, _routePreferences.value)
+                    isReroute, bearing, _routePreferences.value,
+                    waypoints.map { it.latitude to it.longitude })
                 if (result != null) {
                     Log.i("NavigationVM", "Routing: Valhalla offline")
                     return result
@@ -1087,7 +1189,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         return try {
             val result = OnlineValhallaRouter.route(
                 originLat, originLon, place.latitude, place.longitude, isReroute, bearing,
-                _routePreferences.value)
+                _routePreferences.value, waypoints.map { it.latitude to it.longitude })
             Log.i("NavigationVM", "Routing: Valhalla online (local: $localError)")
             result
         } catch (e: CancellationException) {
@@ -1125,7 +1227,9 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         val bearing = if (isReroute && lastGpsSpeedMs >= 3f &&
             SystemClock.elapsedRealtime() - lastReliableGpsBearingMs in 0L..5_000L)
             lastReliableGpsBearing else null
-        val result = resolveRoute(originLat, originLon, place, isReroute, bearing)
+        val pending = if (isReroute) activeWaypoints.drop(nextWaypointIndex)
+            else _routeWaypoints.value
+        val result = resolveRoute(originLat, originLon, place, isReroute, bearing, pending)
         lastRoutingProvider = "Valhalla"
         return parseMotoRouteResponse(result, originLat, originLon, place)
     }
