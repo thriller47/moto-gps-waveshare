@@ -15,11 +15,45 @@ constexpr double kUiScale =
     static_cast<double>(MOTO_UI_CANVAS_WIDTH) / kLegacyCanvasSize;
 constexpr double kVehicleX = MOTO_UI_CANVAS_WIDTH / 2.0;
 constexpr double kVehicleY = 196.0 * kUiScale;
-// A navigation minimap is a spatial frame of reference, so it must not jump
-// between zoom levels as a maneuver counter crosses an arbitrary threshold.
-// This fixed street-scale view shows roughly 400 m ahead on the 466 px round
-// display and is shared by the selected route and all context roads.
+// Normal map scale: route, surrounding MotoMap roads and buildings share
+// exactly the same transform. Zoom is continuous, not a discrete level switch.
 constexpr double kMapPixelsPerMeter = 0.44 * kUiScale;
+constexpr double kManeuverZoomStartM = 100.0;
+constexpr double kMaximumManeuverZoom = 2.15;
+
+bool maneuver_zoom_available(const NavSnapshot& snapshot) {
+  if (snapshot.state != NavState::Navigating ||
+      !snapshot.has_next_maneuver ||
+      !snapshot.has_route_view || snapshot.route_view_point_count < 2 ||
+      !snapshot.has_road_context || snapshot.road_context_point_count < 2 ||
+      !std::isfinite(snapshot.distance_to_next_maneuver_m) ||
+      snapshot.distance_to_next_maneuver_m < 0.0 ||
+      snapshot.distance_to_next_maneuver_m > kManeuverZoomStartM) {
+    return false;
+  }
+  // Valhalla retains roundabouts through their exit vertex. Arrivals,
+  // straight instructions and unknown types must never trigger a map zoom.
+  switch (snapshot.next_maneuver.type) {
+    case ManeuverType::Unknown:
+    case ManeuverType::Continue:
+    case ManeuverType::Arrive:
+      return false;
+    default:
+      return true;
+  }
+}
+
+double map_pixels_per_meter(const NavSnapshot& snapshot) {
+  if (!maneuver_zoom_available(snapshot)) return kMapPixelsPerMeter;
+  const double fraction = std::clamp(
+      (kManeuverZoomStartM - snapshot.distance_to_next_maneuver_m) /
+          kManeuverZoomStartM,
+      0.0, 1.0);
+  // Continuous scale: no jumps at 100 m or while crossing a roundabout.
+  // Keep the entire nearby road context recognizable on the circular map.
+  return kMapPixelsPerMeter *
+      (1.0 + (kMaximumManeuverZoom - 1.0) * fraction);
+}
 
 double radians(double degrees) { return degrees * kPi / 180.0; }
 
@@ -158,6 +192,7 @@ struct MapTransform {
   double origin_latitude_deg = 0.0;
   double origin_longitude_deg = 0.0;
   double longitude_pixels_per_degree = 1.0;
+  double latitude_pixels_per_degree = 1.0;
   float sin_heading = 0.0F;
   float cos_heading = 1.0F;
 };
@@ -166,11 +201,14 @@ MapTransform map_transform(const NavSnapshot& snapshot) {
   const double finite_heading =
       std::isfinite(snapshot.heading_deg) ? snapshot.heading_deg : 0.0;
   const double heading = radians(finite_heading);
+  const double latitude_pixels_per_degree =
+      (kPi / 180.0 * kEarthRadiusM * map_pixels_per_meter(snapshot));
   return {
       snapshot.route_view_origin.latitude_deg,
       snapshot.route_view_origin.longitude_deg,
       std::cos(radians(snapshot.route_view_origin.latitude_deg)) *
-          (kPi / 180.0 * kEarthRadiusM * kMapPixelsPerMeter),
+          latitude_pixels_per_degree,
+      latitude_pixels_per_degree,
       static_cast<float>(std::sin(heading)),
       static_cast<float>(std::cos(heading)),
   };
@@ -187,7 +225,7 @@ moto_ui_point_t project_map_point(const Gcj02Point& point,
       transform.longitude_pixels_per_degree);
   const float north = static_cast<float>(
       (point.latitude_deg - transform.origin_latitude_deg) *
-      (kPi / 180.0 * kEarthRadiusM * kMapPixelsPerMeter));
+      transform.latitude_pixels_per_degree);
 
   // Heading-up transform: the rider remains fixed and every real street
   // translates/rotates together under it, as on an automotive minimap.
@@ -355,6 +393,8 @@ void NavPresenter::update(const NavSnapshot& snapshot) {
   ui_state_.route_identity = route_identity(snapshot.route_id);
   ui_state_.route_generation = snapshot.route_generation;
   ui_state_.map_scene_revision = snapshot.map_scene_revision;
+  ui_state_.maneuver_map_zoom_active =
+      maneuver_zoom_available(snapshot) ? 1U : 0U;
   ui_state_.speed_kph = rounded_saturated<std::uint16_t>(
       static_cast<double>(snapshot.speed_mps) * 3.6);
   ui_state_.speed_limit_kph = snapshot.speed_limit_kph;

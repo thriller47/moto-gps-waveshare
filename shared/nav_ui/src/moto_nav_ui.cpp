@@ -1431,8 +1431,13 @@ void update_navigation(const moto_ui_state_t *state) {
         (state->mode == MOTO_UI_ARRIVED ||
          (state->has_next_maneuver != 0 &&
           state->distance_to_maneuver_m <= kTurnGuidanceDistanceM));
-    if(!show_turn) {
+    // The zoomed real route and gray exits replace the unreliable generic
+    // turn arrow. Keep the distance line visible; if map context is absent,
+    // fall back to the original maneuver icon instead.
+    if(!show_turn || state->maneuver_map_zoom_active != 0) {
         lv_obj_add_flag(ui.nav_maneuver, LV_OBJ_FLAG_HIDDEN);
+    }
+    if(!show_turn) {
         lv_obj_add_flag(ui.nav_turn_distance, LV_OBJ_FLAG_HIDDEN);
     }
     refresh_lifecycle();

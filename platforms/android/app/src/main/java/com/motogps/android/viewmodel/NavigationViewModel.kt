@@ -412,8 +412,16 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                 _isLoading.value = false
 
                 var loopCount = 0
+                var lastGeometryTransmissionMs = SystemClock.elapsedRealtime()
                 while (_isNavigating.value) {
-                    delay(350)
+                    // A small navigation snapshot is replaceable in the BLE queue.
+                    // Request 5 Hz near a turn, 3.3 Hz on open roads to avoid
+                    // flooding GATT with fragmented route/map geometry.
+                    val turnImminent = currentSnapshot?.let {
+                        it.maneuverName !in setOf("continue", "none", "arrive") &&
+                            it.distanceToManeuverM <= 100L
+                    } ?: false
+                    delay(if (turnImminent) 200L else 300L)
                     if (!_isNavigating.value) break
                     loopCount++
 
@@ -450,7 +458,8 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                     // A stationary GPS provider may stop emitting fixes. Keep
                     // offline map lookup / online tile retry alive independently
                     // of location callbacks during an active route.
-                    if (loopCount == 1 || loopCount % 86 == 0) { // start and ~30s
+                    if (loopCount == 1 ||
+                        System.currentTimeMillis() - lastMapSceneSendTimeMs >= 30_000L) {
                         val mapContext = navigationMapsContext
                         if (mapContext != null) {
                             val now = System.currentTimeMillis()
@@ -463,19 +472,24 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                         }
                     }
 
-                    // Keep the proven ~3.15s BLE cadence on open roads. On
-                    // consecutive tight bends refresh at ~1.4s, so the moving
-                    // window tracks the rider without increasing its point cap.
-                    if (!_hasArrived.value &&
-                        (loopCount % 4 == 0 || loopCount % 9 == 0)) {
+                    // Route windows are much larger than navigation snapshots.
+                    // Update their GPS origin once per second around junctions;
+                    // keep the former sparse cadence elsewhere for BLE headroom.
+                    if (!_hasArrived.value) {
                         val activeGeom = currentGeometry ?: geometry
-                        if (activeGeom != null) {
-                            val winding = loopCount % 4 == 0 &&
+                        val now = SystemClock.elapsedRealtime()
+                        val elapsed = now - lastGeometryTransmissionMs
+                        if (activeGeom != null && elapsed >= 900L) {
+                            val nearTurn = activeSnap.maneuverName !in
+                                setOf("continue", "none", "arrive") &&
+                                activeSnap.distanceToManeuverM <= 100L
+                            val winding = !nearTurn && elapsed >= 1_400L &&
                                 RouteGeometryWindow.isWinding(
                                     RouteGeometryWindow.around(activeGeom, lat, lon)
                                 )
-                            if (winding || loopCount % 9 == 0) {
+                            if (nearTurn || winding || elapsed >= 3_000L) {
                                 sendNearbyRouteGeometry(activeGeom)
+                                lastGeometryTransmissionMs = now
                             }
                         }
                     }
@@ -638,11 +652,17 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
 
         if (context != null) {
             val distFromLastScene = calculateDistanceMeters(lastMapSceneLat, lastMapSceneLon, latitude, longitude)
-            // Refresh context before junctions become imminent, while still
-            // throttling BLE scenes (the former 12m cadence congested GATT).
+            // Refresh the existing local MotoMap context earlier near a turn,
+            // but never at the 200 ms snapshot cadence: map scenes are large.
+            val nearTurn = currentSnapshot?.let {
+                it.maneuverName !in setOf("continue", "none", "arrive") &&
+                    it.distanceToManeuverM <= 110L
+            } ?: false
             val sinceSceneMs = now - lastMapSceneSendTimeMs
-            if (sinceSceneMs >= 6_000L &&
-                (distFromLastScene >= 60.0 || sinceSceneMs >= 25_000L)) {
+            val minimumIntervalMs = if (nearTurn) 5_000L else 6_000L
+            val movementThresholdM = if (nearTurn) 40.0 else 60.0
+            if (sinceSceneMs >= minimumIntervalMs &&
+                (distFromLastScene >= movementThresholdM || sinceSceneMs >= 25_000L)) {
                 lastMapSceneSendTimeMs = now
                 lastMapSceneLat = latitude
                 lastMapSceneLon = longitude

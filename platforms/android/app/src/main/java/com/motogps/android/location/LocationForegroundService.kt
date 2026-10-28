@@ -64,8 +64,8 @@ class LocationForegroundService : Service(), LocationListener {
             if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
                 locationManager.requestLocationUpdates(
                     LocationManager.GPS_PROVIDER,
-                    1000L,
-                    1f,
+                    gpsIntervalMs,
+                    0f,
                     this
                 )
             }
@@ -73,7 +73,7 @@ class LocationForegroundService : Service(), LocationListener {
             if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
                 locationManager.requestLocationUpdates(
                     LocationManager.NETWORK_PROVIDER,
-                    1000L,
+                    networkFallbackIntervalMs,
                     1f,
                     this
                 )

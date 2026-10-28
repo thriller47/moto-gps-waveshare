@@ -114,6 +114,8 @@ typedef struct {
     moto_traffic_t traffic;
     uint32_t distance_to_maneuver_m;
     uint8_t has_next_maneuver;
+    /* 1 when the maneuver map replaces the large turn arrow. */
+    uint8_t maneuver_map_zoom_active;
     uint32_t remaining_distance_m;
     uint32_t remaining_time_s;
     uint8_t route_progress_percent;

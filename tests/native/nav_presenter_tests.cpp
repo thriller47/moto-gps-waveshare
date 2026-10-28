@@ -415,6 +415,70 @@ void test_map_scale_does_not_jump_at_maneuver_distance_thresholds() {
   }
 }
 
+
+void test_near_turn_zooms_all_map_layers_together_and_restores_scale() {
+  NavPresenter presenter;
+  NavSnapshot snapshot;
+  snapshot.state = NavState::Navigating;
+  snapshot.has_next_maneuver = true;
+  snapshot.next_maneuver.type = ManeuverType::Roundabout;
+  snapshot.heading_deg = 0.0F;
+  snapshot.has_route_view = true;
+  snapshot.route_view_origin = {36.67, 117.13};
+  snapshot.route_view_point_count = 2;
+  snapshot.route_view_points[0] = snapshot.route_view_origin;
+  snapshot.route_view_points[1] = {36.6704, 117.13};
+  snapshot.has_road_context = true;
+  snapshot.road_context_point_count = 2;
+  snapshot.road_context_points[0] = snapshot.route_view_origin;
+  snapshot.road_context_points[1] = snapshot.route_view_points[1];
+  snapshot.road_context_polyline_count = 1;
+  snapshot.road_context_polylines[0] = {0, 2};
+  snapshot.has_building_context = true;
+  snapshot.building_context_point_count = 3;
+  snapshot.building_context_points[0] = snapshot.route_view_origin;
+  snapshot.building_context_points[1] = snapshot.route_view_points[1];
+  snapshot.building_context_points[2] = {36.6704, 117.1301};
+  snapshot.building_context_footprint_count = 1;
+  snapshot.building_context_footprints[0] = {0, 3};
+
+  snapshot.distance_to_next_maneuver_m = 101.0;
+  presenter.update(snapshot);
+  const auto far = presenter.ui_state().route_points[1];
+  CHECK(presenter.ui_state().maneuver_map_zoom_active == 0);
+  snapshot.distance_to_next_maneuver_m = 100.0;
+  presenter.update(snapshot);
+  CHECK(presenter.ui_state().route_points[1].y == far.y);
+  CHECK(presenter.ui_state().maneuver_map_zoom_active == 1);
+
+  snapshot.distance_to_next_maneuver_m = 45.0;
+  presenter.update(snapshot);
+  const auto close = presenter.ui_state();
+  CHECK(close.route_points[1].y < far.y);
+  CHECK(close.road_points[1].x == close.route_points[1].x);
+  CHECK(close.road_points[1].y == close.route_points[1].y);
+  CHECK(close.building_points[1].x == close.route_points[1].x);
+  CHECK(close.building_points[1].y == close.route_points[1].y);
+  CHECK(close.maneuver_map_zoom_active == 1);
+
+  snapshot.distance_to_next_maneuver_m = 0.0;
+  presenter.update(snapshot);
+  CHECK(presenter.ui_state().route_points[1].y < close.route_points[1].y);
+
+  // Without the surrounding gray streets, retain the arrow and normal view.
+  snapshot.has_road_context = false;
+  presenter.update(snapshot);
+  CHECK(presenter.ui_state().maneuver_map_zoom_active == 0);
+  CHECK(presenter.ui_state().route_points[1].y == far.y);
+
+  // Completing the roundabout releases zoom, even with scene data cached.
+  snapshot.has_road_context = true;
+  snapshot.has_next_maneuver = false;
+  presenter.update(snapshot);
+  CHECK(presenter.ui_state().maneuver_map_zoom_active == 0);
+  CHECK(presenter.ui_state().route_points[1].y == far.y);
+}
+
 void test_missing_or_incomplete_geometry_stays_empty() {
   NavPresenter presenter;
   NavSnapshot snapshot;
@@ -499,6 +563,7 @@ int main() {
   test_real_road_context_uses_the_same_heading_up_transform();
   test_map_scene_classes_buildings_and_capacity_share_route_transform();
   test_map_scale_does_not_jump_at_maneuver_distance_thresholds();
+  test_near_turn_zooms_all_map_layers_together_and_restores_scale();
   test_missing_or_incomplete_geometry_stays_empty();
   test_presenter_owns_road_name_storage();
 #ifdef MOTO_NAV_UI_TEST_STUB
