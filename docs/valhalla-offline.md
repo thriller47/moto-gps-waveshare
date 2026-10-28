@@ -267,3 +267,28 @@ ricalcoli dopo l'arrivo. La grafica a scacchi su ESP32 richiede
 il firmware aggiornato; il protocollo BLE resta invariato.
 
 Sorgenti pubblicati con `[skip ci]`: nessuna build eseguita.
+
+## Visibilita dei pacchetti stradali importati
+
+I file `.motomap.zip` sono conservati **compressi** sotto
+`files/maps/.osm_packages/`, mentre i vecchi file singoli
+`.motomap` e `.json` si trovano sotto `files/maps/`.
+La navigazione leggeva gia direttamente le tile negli ZIP, ma
+`listSavedMaps()` controllava soltanto `files/maps/`: i pacchetti
+venivano quindi nascosti dall'elenco, anche dopo l'importazione
+corretta e a ogni riapertura dell'app.
+
+Ora **Gestione mappe → Mappe stradali salvate** mostra entrambe
+le categorie, con dimensione in MB e indicazione **Pacchetto ZIP
+importato** o **File mappa singolo**. L'eliminazione di uno ZIP agisce
+solo sull'archivio selezionato nella sottocartella; non elimina le
+altre mappe ne i file Valhalla. I file temporanei `.part` e i
+backup `.backup` non vengono presentati come mappe installate.
+
+**Importante:** le mappe sono salvate nella memoria privata Android.
+Una disinstallazione dell'app puo cancellarle fisicamente; una
+semplice riapertura non le cancella. Prima di disinstallare,
+conservare sempre una copia del pacchetto ZIP originale esterna
+all'app, ad esempio nella cartella Download del telefono.
+
+La correzione e pubblicata con `[skip ci]`, senza avviare alcuna build.

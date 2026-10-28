@@ -35,6 +35,53 @@ class HybridMapRepositoryTest {
     val temporaryFiles = TemporaryFolder()
 
     @Test
+    fun listsImportedMotomapZipAfterRepositoryIsRecreated() {
+        val context = mock(Context::class.java)
+        `when`(context.filesDir).thenReturn(temporaryFiles.root)
+        val packages = File(temporaryFiles.root, "maps/.osm_packages")
+        assertTrue(packages.mkdirs())
+        val archive = File(packages, "italy-261026.motomap.zip")
+        archive.writeText("test archive metadata")
+        File(packages, "incomplete.motomap.zip.part").writeText("partial")
+        File(packages, "previous.motomap.zip.backup").writeText("backup")
+        val cache = File(temporaryFiles.root, "maps/osm_near_15_17190_11752.motomap")
+        cache.writeText("cached roads")
+
+        val firstList = HybridMapRepository(context).listSavedMaps()
+        val afterReopen = HybridMapRepository(context).listSavedMaps()
+        assertEquals(firstList, afterReopen)
+        assertEquals(2, afterReopen.size)
+        val imported = afterReopen.single { it.isPackage }
+        assertEquals("italy-261026.motomap.zip", imported.fileName)
+        assertEquals(archive.length(), imported.sizeBytes)
+        assertTrue(afterReopen.any { !it.isPackage && it.fileName == cache.name })
+    }
+
+    @Test
+    fun deletesOnlyChosenCompressedPackageNotOtherMaps() {
+        val context = mock(Context::class.java)
+        `when`(context.filesDir).thenReturn(temporaryFiles.root)
+        val maps = File(temporaryFiles.root, "maps")
+        val packages = File(maps, ".osm_packages")
+        assertTrue(packages.mkdirs())
+        val italy = File(packages, "italy-261026.motomap.zip")
+        val another = File(packages, "france.motomap.zip")
+        val cache = File(maps, "osm_near_15_17190_11752.motomap")
+        italy.writeText("zip1")
+        another.writeText("zip2")
+        cache.writeText("cache")
+        val repository = HybridMapRepository(context)
+        assertTrue(repository.deleteSavedMap(italy.name))
+        assertTrue(!italy.exists())
+        assertTrue(another.isFile)
+        assertTrue(cache.isFile)
+        assertTrue(!repository.deleteSavedMap("../" + another.name))
+        assertTrue(!repository.deleteSavedMap("nonexistent.motomap.zip"))
+        assertEquals(listOf("france.motomap.zip"),
+            repository.listSavedMaps().filter { it.isPackage }.map { it.fileName })
+    }
+
+    @Test
     fun readsLegacyCheckpointTilesWithoutNewDownloads() {
         val context = mock(Context::class.java)
         `when`(context.filesDir).thenReturn(temporaryFiles.root)

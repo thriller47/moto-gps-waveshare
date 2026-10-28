@@ -10,7 +10,9 @@ import java.util.Locale
 data class SavedMapInfo(
     val fileName: String,
     val sizeBytes: Long,
-    val lastModifiedMs: Long
+    val lastModifiedMs: Long,
+    /** true for a compressed, imported .motomap.zip (not an individual tile). */
+    val isPackage: Boolean = false
 )
 
 data class MapRoadSegment(
@@ -46,19 +48,42 @@ class HybridMapRepository(
     private val mapsDir: File by lazy { getSharedMapsDir(context) }
 
     fun listSavedMaps(): List<SavedMapInfo> {
-        val files = mapsDir.listFiles { _, name ->
-            name.endsWith(".motomap") || name.endsWith(".json")
-        } ?: return emptyList()
-        return files.map { file ->
+        // Legacy individual tiles/cache are stored directly under maps/.
+        val individual = mapsDir.listFiles { file ->
+            file.isFile && (file.name.endsWith(".motomap", ignoreCase = true) ||
+                file.name.endsWith(".json", ignoreCase = true))
+        }?.map { file ->
             SavedMapInfo(file.name, file.length(), file.lastModified())
-        }.sortedByDescending { it.lastModifiedMs }
+        }.orEmpty()
+
+        // Imported regional/national ZIPs are *not* extracted: see the
+        // compressed tile reader in loadFromRegionalFiles(). They live in a
+        // hidden subfolder and were previously omitted from this list.
+        val packages = MotomapPackImporter.packagesDir(context)
+            .listFiles { file ->
+                file.isFile && file.name.endsWith(".motomap.zip", ignoreCase = true)
+            }?.map { file ->
+                SavedMapInfo(file.name, file.length(), file.lastModified(),
+                    isPackage = true)
+            }.orEmpty()
+        return (packages + individual).sortedByDescending { it.lastModifiedMs }
     }
 
     fun deleteSavedMap(fileName: String): Boolean {
-        val file = File(mapsDir, fileName)
-        if (!file.exists() || file.parentFile?.canonicalFile != mapsDir.canonicalFile) return false
+        // Only accept a displayed basename; never allow a path supplied by a
+        // caller to traverse maps/ or .osm_packages/.
+        if (fileName.isBlank() || fileName != File(fileName).name ||
+            fileName.contains('\\') || fileName == "." || fileName == "..") return false
+
+        val isPackage = fileName.endsWith(".motomap.zip", ignoreCase = true)
+        val dir = if (isPackage) MotomapPackImporter.packagesDir(context) else mapsDir
+        val file = File(dir, fileName)
+        if (!file.isFile || file.canonicalFile.parentFile != dir.canonicalFile) return false
+        if (!isPackage && !(fileName.endsWith(".motomap", ignoreCase = true) ||
+                fileName.endsWith(".json", ignoreCase = true))) return false
+
         val deleted = file.delete()
-        if (deleted && fileName.endsWith(".motomap")) {
+        if (deleted && fileName.endsWith(".motomap", ignoreCase = true)) {
             val base = fileName.removeSuffix("_parziale.motomap").removeSuffix(".motomap")
             File(mapsDir, ".${base}_parts").deleteRecursively()
         }

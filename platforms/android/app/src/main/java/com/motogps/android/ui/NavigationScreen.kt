@@ -404,7 +404,7 @@ fun OfflineMapsDialog(
                 )
 
                 if (savedMaps.isNotEmpty()) {
-                    Text("File mappa singoli", style = MaterialTheme.typography.titleSmall)
+                    Text("Mappe stradali salvate", style = MaterialTheme.typography.titleSmall)
                     savedMaps.forEach { mapInfo ->
                         val mbStr = String.format("%.2f MB", mapInfo.sizeBytes / (1024.0 * 1024.0))
                         Row(
@@ -415,12 +415,16 @@ fun OfflineMapsDialog(
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(mapInfo.fileName, style = MaterialTheme.typography.bodySmall)
                                 Text(
-                                    mbStr,
+                                    (if (mapInfo.isPackage) "Pacchetto ZIP importato" else "File mappa singolo") +
+                                        " · " + mbStr,
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
-                            IconButton(onClick = { onDeleteMap(mapInfo.fileName) }) {
+                            IconButton(
+                                onClick = { onDeleteMap(mapInfo.fileName) },
+                                enabled = !isNavigating && !isDownloadingMap && !valhallaDownloading
+                            ) {
                                 Icon(Icons.Default.Delete, contentDescription = "Elimina mappa")
                             }
                         }
