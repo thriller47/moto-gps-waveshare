@@ -3,7 +3,6 @@ package com.motogps.android.routing
 import org.json.JSONObject
 import kotlin.math.cos
 import kotlin.math.asin
-import kotlin.math.min
 import kotlin.math.sqrt
 
 /**

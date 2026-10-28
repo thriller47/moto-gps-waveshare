@@ -910,7 +910,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         if (upcoming != null) {
             val step = upcoming.action
             val instrText = if (step.roadName.isNotBlank())
-                "${step.roadName}\\n${step.instruction}" else step.instruction
+                "${step.roadName}\n${step.instruction}" else step.instruction
             return snapshot.copy(
                 maneuverName = step.type,
                 maneuverID = step.index,
