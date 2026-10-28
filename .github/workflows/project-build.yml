@@ -3,8 +3,6 @@ name: Project Build
 on:
   push:
     branches:
-      - main
-      - master
       - signal
       - valhalla
     paths-ignore:
@@ -14,8 +12,6 @@ on:
       - 'LICENSE'
   pull_request:
     branches:
-      - main
-      - master
       - signal
       - valhalla
     paths-ignore:
