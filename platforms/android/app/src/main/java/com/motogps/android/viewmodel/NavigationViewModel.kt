@@ -472,7 +472,8 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                     // Keep the proven ~3.15s BLE cadence on open roads. On
                     // consecutive tight bends refresh at ~1.4s, so the moving
                     // window tracks the rider without increasing its point cap.
-                    if (loopCount % 4 == 0 || loopCount % 9 == 0) {
+                    if (!_hasArrived.value &&
+                        (loopCount % 4 == 0 || loopCount % 9 == 0)) {
                         val activeGeom = currentGeometry ?: geometry
                         if (activeGeom != null) {
                             val winding = loopCount % 4 == 0 &&
@@ -1180,6 +1181,9 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                 val (snapshot, geometry) = withContext(Dispatchers.IO) {
                     performRoutingWithGeometry(dest, isReroute = true)
                 }
+                // The rider may reach the finish while a reroute was calculating.
+                // Never replace an 'arrived' snapshot with stale guidance.
+                if (_hasArrived.value || !_isNavigating.value) return@launch
                 currentSnapshot = snapshot
                 currentGeometry = geometry
                 _routingSource.value = lastRoutingProvider
