@@ -21,7 +21,10 @@ class LocationForegroundService : Service(), LocationListener {
         var onLocationUpdate: ((Location) -> Unit)? = null
     }
 
-    // Request high-rate real GNSS fixes; Android may deliver fewer if the chip cannot.\n    private val gpsIntervalMs = 200L\n    private val networkFallbackIntervalMs = 1000L\n    private lateinit var locationManager: LocationManager
+    // Request high-rate real GNSS fixes; Android may deliver fewer if the chip cannot.
+    private val gpsIntervalMs = 200L
+    private val networkFallbackIntervalMs = 1000L
+    private lateinit var locationManager: LocationManager
 
     override fun onCreate() {
         super.onCreate()
