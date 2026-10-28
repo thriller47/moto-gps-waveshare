@@ -932,23 +932,26 @@ void draw_maneuver_icon(lv_event_t *event) {
                        static_cast<lv_value_precise_t>(area.y1 + px(17))};
             lv_draw_line(layer, &pole);
 
-            lv_draw_triangle_dsc_t flag;
-            lv_draw_triangle_dsc_init(&flag);
-            flag.color = kWhite;
-            flag.opa = LV_OPA_COVER;
-            flag.p[0] = {
-                static_cast<lv_value_precise_t>(area.x1 + px(46)),
-                static_cast<lv_value_precise_t>(area.y1 + px(20)),
-            };
-            flag.p[1] = {
-                static_cast<lv_value_precise_t>(area.x1 + px(102)),
-                static_cast<lv_value_precise_t>(area.y1 + px(39)),
-            };
-            flag.p[2] = {
-                static_cast<lv_value_precise_t>(area.x1 + px(46)),
-                static_cast<lv_value_precise_t>(area.y1 + px(58)),
-            };
-            lv_draw_triangle(layer, &flag);
+            // A real checkered finish flag, drawn with rectangles instead
+            // of an unsupported emoji/font glyph on the AMOLED firmware.
+            // 4 columns x 3 rows, outlined by the adjacent white pole.
+            for(int row = 0; row < 3; ++row) {
+                for(int col = 0; col < 4; ++col) {
+                    lv_draw_rect_dsc_t square;
+                    lv_draw_rect_dsc_init(&square);
+                    square.radius = 0;
+                    square.bg_color = ((row + col) % 2 == 0) ? kWhite : kGraphite;
+                    square.bg_opa = LV_OPA_COVER;
+                    square.border_opa = LV_OPA_TRANSP;
+                    const lv_area_t square_area = {
+                        area.x1 + px(46 + col * 14),
+                        area.y1 + px(19 + row * 13),
+                        area.x1 + px(60 + col * 14) - 1,
+                        area.y1 + px(32 + row * 13) - 1,
+                    };
+                    lv_draw_rect(layer, &square, &square_area);
+                }
+            }
             return;
         }
         case MOTO_MANEUVER_STRAIGHT:

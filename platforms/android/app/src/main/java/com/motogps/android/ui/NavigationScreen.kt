@@ -23,6 +23,8 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.motogps.android.R
+import androidx.core.content.ContextCompat
 import com.motogps.android.map.SavedMapInfo
 import com.motogps.android.routing.ValhallaRegion
 import com.motogps.android.routing.RoutePreferences
@@ -101,8 +103,9 @@ fun RouteMapView(
                 val target = GeoPoint(destinationLocation.first, destinationLocation.second)
                 mapView.overlays.add(Marker(mapView).apply {
                     position = target
-                    title = "Destinazione selezionata"
-                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                    title = "🏁 Arrivo"
+                    icon = ContextCompat.getDrawable(mapView.context, R.drawable.ic_finish_flag)
+                    setAnchor(9f / 48f, 45f / 48f)
                 })
                 if (geoPoints.size < 2) viewPoints.add(target)
             }
@@ -187,8 +190,9 @@ fun MainMapView(
             if (destinationLocation != null) {
                 val destMarker = Marker(mapView).apply {
                     position = GeoPoint(destinationLocation.first, destinationLocation.second)
-                    title = "Destinazione"
-                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                    title = "🏁 Destinazione finale"
+                    icon = ContextCompat.getDrawable(mapView.context, R.drawable.ic_finish_flag)
+                    setAnchor(9f / 48f, 45f / 48f)
                 }
                 mapView.overlays.add(destMarker)
             }
@@ -456,6 +460,7 @@ fun NavigationScreen(
     routePreferences: RoutePreferences = RoutePreferences(),
     onRoutePreferencesChange: (RoutePreferences) -> Unit = {},
     isNavigating: Boolean = false,
+    hasArrived: Boolean = false,
     currentLocation: Pair<Double, Double>? = null,
     savedMaps: List<SavedMapInfo> = emptyList(),
     valhallaRegions: List<ValhallaRegion> = emptyList(),
@@ -592,6 +597,7 @@ fun NavigationScreen(
                         .padding(8.dp)
                         .clipToBounds()
                 ) {
+                    Box(modifier = Modifier.fillMaxSize()) {
                     RouteMapView(
                         geoPoints = geoPoints,
                         currentLocation = currentLocation,
@@ -605,6 +611,23 @@ fun NavigationScreen(
                         } else null,
                         modifier = Modifier.fillMaxSize()
                     )
+                    if (hasArrived) {
+                        Surface(
+                            modifier = Modifier.align(Alignment.TopCenter)
+                                .padding(top = 12.dp, start = 12.dp, end = 12.dp),
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            tonalElevation = 4.dp
+                        ) {
+                            Text(
+                                "🏁 Destinazione raggiunta",
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+                    }
+                    }
                 }
 
                 HorizontalDivider()
@@ -715,7 +738,9 @@ fun NavigationScreen(
                                 .padding(horizontal = 16.dp, vertical = 8.dp)
                                 .height(56.dp)
                         ) {
-                            Text("Termina Navigazione", style = MaterialTheme.typography.titleMedium)
+                            Text(if (hasArrived) "Concludi percorso"
+                                else "Termina Navigazione",
+                                style = MaterialTheme.typography.titleMedium)
                         }
                     } else {
                         Button(

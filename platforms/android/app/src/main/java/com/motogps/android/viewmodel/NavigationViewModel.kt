@@ -207,6 +207,10 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     private val _isNavigating = MutableStateFlow(false)
     val isNavigating: StateFlow<Boolean> = _isNavigating
 
+    private val _hasArrived = MutableStateFlow(false)
+    val hasArrived: StateFlow<Boolean> = _hasArrived
+    private val arrivalDetector = RouteArrivalDetector()
+
     private val _currentDevicePage = MutableStateFlow(0)
     val currentDevicePage: StateFlow<Int> = _currentDevicePage
 
@@ -353,6 +357,8 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     }
 
     fun clearRoutePreview() {
+        _hasArrived.value = false
+        arrivalDetector.reset()
         routePreviewJob?.cancel()
         waypointSearchJob?.cancel()
         _routeWaypoints.value = emptyList()
@@ -379,6 +385,8 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         if (_isLoading.value || _isNavigating.value) return
 
         _routePreviewError.value = null
+        _hasArrived.value = false
+        arrivalDetector.reset()
 
         navigationJob?.cancel()
         navigationJob = viewModelScope.launch {
@@ -422,9 +430,20 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                     val pageName = "navigation"
 
                     val (lat, lon) = currentLocation.value
-                    val updatedSnap = updateManeuverAndDistance(lat, lon) ?: currentSnapshot?.copy() ?: snapshot.copy()
+                    val updatedSnap = if (_hasArrived.value)
+                        (currentSnapshot?.copy() ?: snapshot.copy())
+                    else updateManeuverAndDistance(lat, lon)
+                        ?: currentSnapshot?.copy() ?: snapshot.copy()
 
                     val activeSnap = updatedSnap.copy(
+                        stateName = if (_hasArrived.value) "arrived" else "navigating",
+                        maneuverName = if (_hasArrived.value) "arrive" else updatedSnap.maneuverName,
+                        distanceToManeuverM = if (_hasArrived.value) 0L else updatedSnap.distanceToManeuverM,
+                        remainingDistanceM = if (_hasArrived.value) 0L else updatedSnap.remainingDistanceM,
+                        remainingDurationS = if (_hasArrived.value) 0L else updatedSnap.remainingDurationS,
+                        routeProgressM = if (_hasArrived.value) updatedSnap.totalDistanceM else updatedSnap.routeProgressM,
+                        instructionText = if (_hasArrived.value) "Destinazione raggiunta"
+                            else updatedSnap.instructionText,
                         displayPageName = pageName,
                         speedLimitKPH = lastSpeedLimitKph,
                         speedDeciKPH = currentSpeedDeciKph,
@@ -470,6 +489,8 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                 throw e
             } catch (e: Exception) {
                 _isNavigating.value = false
+                _hasArrived.value = false
+                arrivalDetector.reset()
                 activeDestination = null
                 _routePreviewError.value = e.message ?: "Navigazione Valhalla non disponibile"
                 _errorMessage.value = "Errore durante la navigazione: ${e.message}"
@@ -480,6 +501,8 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     }
 
     fun stopNavigation() {
+        _hasArrived.value = false
+        arrivalDetector.reset()
         _isNavigating.value = false
         navigationJob?.cancel()
         navigationJob = null
@@ -631,7 +654,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
             }
         }
 
-        if (_isNavigating.value && activeDestination != null) {
+        if (_isNavigating.value && !_hasArrived.value && activeDestination != null) {
             val reachedIndex = ValhallaRouteLocations.nextIndex(
                 nextWaypointIndex, activeWaypoints.map { it.latitude to it.longitude },
                 latitude, longitude)
@@ -639,7 +662,39 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                 nextWaypointIndex = reachedIndex
                 Log.i("NavigationVM", "Tappa completata: $nextWaypointIndex/${activeWaypoints.size}")
             }
-            checkOffRouteAndRecalculate(latitude, longitude)
+            val destination = requireNotNull(activeDestination)
+            val distanceToEnd = calculateDistanceMeters(
+                latitude, longitude, destination.latitude, destination.longitude)
+            // Avoid recomputing the entire remaining geometry while far away.
+            val remainingRoadMeters = if (distanceToEnd <= 50.0 &&
+                nextWaypointIndex >= activeWaypoints.size) {
+                updateManeuverAndDistance(latitude, longitude)?.remainingDistanceM
+                    ?: Long.MAX_VALUE
+            } else Long.MAX_VALUE
+            if (arrivalDetector.update(
+                    distanceToEnd, remainingRoadMeters,
+                    activeWaypoints.size - nextWaypointIndex,
+                    SystemClock.elapsedRealtime())) {
+                _hasArrived.value = true
+                offRouteFixCount = 0
+                rerouteInProgress = false
+                val arrived = currentSnapshot?.copy(
+                    stateName = "arrived",
+                    maneuverName = "arrive",
+                    remainingDistanceM = 0L,
+                    remainingDurationS = 0L,
+                    distanceToManeuverM = 0L,
+                    routeProgressM = currentSnapshot?.totalDistanceM ?: 0L,
+                    instructionText = "Destinazione raggiunta"
+                )
+                if (arrived != null) {
+                    currentSnapshot = arrived
+                    bleManager.sendNavigationSnapshot(arrived)
+                }
+                Log.i("NavigationVM", "Final destination reached")
+            } else {
+                checkOffRouteAndRecalculate(latitude, longitude)
+            }
         }
     }
 

@@ -147,6 +147,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             val routePreferences = viewModel.routePreferences.collectAsState().value
             val selectedRouteIndex = viewModel.selectedRouteIndex.collectAsState().value
             val isNavigating = viewModel.isNavigating.collectAsState().value
+            val hasArrived = viewModel.hasArrived.collectAsState().value
             val currentLocation = viewModel.currentLocation.collectAsState().value
             val downloadStatus = viewModel.downloadStatus.collectAsState().value
             val downloadProgress = viewModel.downloadProgress.collectAsState().value
@@ -202,6 +203,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     },
                     selectedRouteIndex = selectedRouteIndex,
                     isNavigating = isNavigating,
+                    hasArrived = hasArrived,
                     currentLocation = currentLocation,
                     savedMaps = savedMaps,
                     onRouteOptionSelect = { index ->

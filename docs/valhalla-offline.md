@@ -244,3 +244,26 @@ tutte le preferenze stradali attive. L'importazione del grafo,
 il protocollo BLE e il firmware ESP32 non vengono toccati.
 
 Il commit usa `[skip ci]` per non avviare alcuna build.
+
+## Arrivo al punto finale (bandierina a scacchi)
+
+Nella mappa Android la **destinazione finale** ha un indicatore
+a scacchi distinto dalle tappe intermedie. Le tappe restano marcatori
+di passaggio senza simbolo di fine viaggio.
+
+Il nuovo `RouteArrivalDetector` accetta soltanto fix GPS gia filtrati,
+a massimo 40m dalla destinazione, con distanza stradale residua non
+superiore a 125m e senza tappe intermedie pendenti. Sono necessari
+almeno due fix validi a distanza di 1,2 secondi; gli allontanamenti
+e le interruzioni prolungate azzerano la conferma.
+
+All'arrivo, Android mantiene aperta la navigazione e segnala
+**Destinazione raggiunta** nella mappa; l'ESP32 riceve lo stato BLE
+`arrived`, manovra `arrive`, zero metri residui e indicatore
+d'arrivo a scacchi (rendering in LVGL). Il pulsante diventa
+**Concludi percorso**. Il completamento non scatta sulle tappe
+intermedie, non elimina automaticamente la rotta e non provoca
+ricalcoli dopo l'arrivo. La grafica a scacchi su ESP32 richiede
+il firmware aggiornato; il protocollo BLE resta invariato.
+
+Sorgenti pubblicati con `[skip ci]`: nessuna build eseguita.

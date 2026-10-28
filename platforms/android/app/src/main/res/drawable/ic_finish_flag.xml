@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <!-- Flagpole's lower tip is the exact route destination. -->
+    <path
+        android:pathData="M9,4L9,45"
+        android:strokeColor="#243247"
+        android:strokeWidth="3"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M12,7L40,7L40,31L12,31Z"
+        android:fillColor="#1D2939"
+        android:strokeColor="#243247"
+        android:strokeWidth="1" />
+    <!-- Four columns by four rows; alternating white and dark squares. -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M12,7h7v6h-7z M26,7h7v6h-7z M19,13h7v6h-7z M33,13h7v6h-7z M12,19h7v6h-7z M26,19h7v6h-7z M19,25h7v6h-7z M33,25h7v6h-7z" />
+</vector>
