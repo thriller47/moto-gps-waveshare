@@ -39,6 +39,23 @@ class ValhallaTurnGuidanceTest {
         assertEquals(3L, afterFirstTurn.action.index)
     }
 
+    @Test fun roundaboutRemainsActiveUntilExitAndKeepsExitNumber() {
+        val route = route()
+        val maneuvers = route.getJSONArray("maneuvers")
+        maneuvers.getJSONObject(1).put("type", "roundabout")
+            .put("roundabout_exit", 1)
+            .put("roundabout_end_point_index", 3)
+        val plan = ValhallaTurnGuidance.fromRoute(route)
+        val inside = plan.next((plan.totalShapeMeters -
+            (plan.actions[0].shapeMeters + plan.actions[1].shapeMeters) / 2).toLong())!!
+        assertEquals("roundabout", inside.action.type)
+        assertEquals(1, inside.action.roundaboutExit)
+        assertEquals(0L, inside.meters)
+        val passedExit = plan.next((plan.totalShapeMeters -
+            plan.actions[0].releaseMeters - 20).toLong())!!
+        assertEquals("turn_right", passedExit.action.type)
+    }
+
     @Test fun finalArrivalIsNotPrematureAndDistanceClampsToZero() {
         val plan = ValhallaTurnGuidance.fromRoute(route())
         val nearFinish = plan.next(5L)!!

@@ -16,7 +16,9 @@ internal object ValhallaTurnGuidance {
         val shapeMeters: Double,
         val type: String,
         val roadName: String,
-        val instruction: String
+        val instruction: String,
+        val roundaboutExit: Int = 0,
+        val releaseMeters: Double = shapeMeters
     )
 
     data class Plan(val totalShapeMeters: Double, val actions: List<Action>) {
@@ -26,7 +28,7 @@ internal object ValhallaTurnGuidance {
             val progress = (totalShapeMeters - remainingMeters).coerceIn(0.0, totalShapeMeters)
             // Move to the next maneuver only after the current one has passed
             // by at least 15m. Avoid flicker at the GPS snap-to-road boundary.
-            val action = actions.firstOrNull { it.shapeMeters + 15.0 >= progress }
+            val action = actions.firstOrNull { it.releaseMeters + 15.0 >= progress }
                 ?: return null
             return Next(action, (action.shapeMeters - progress)
                 .coerceAtLeast(0.0).toLong())
@@ -66,12 +68,19 @@ internal object ValhallaTurnGuidance {
             if (!actionable) continue
             val index = m.optInt("route_point_index", -1)
             if(index !in points.indices) continue
+            // Keep a roundabout maneuver on screen until the EXIT vertex,
+            // not just until the entrance has been crossed.
+            val releaseIndex = if (type == "roundabout")
+                m.optInt("roundabout_end_point_index", index).coerceIn(index, points.lastIndex)
+                else index
             actions.add(Action(
                 m.optLong("id", (i + 1).toLong()),
                 cumulative[index],
                 type,
                 m.optString("road_name", ""),
-                m.optString("instruction", "")
+                m.optString("instruction", ""),
+                m.optInt("roundabout_exit", 0),
+                cumulative[releaseIndex]
             ))
         }
         return Plan(cumulative.last(), actions.sortedBy { it.shapeMeters })

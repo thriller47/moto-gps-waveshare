@@ -915,6 +915,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                 maneuverName = step.type,
                 maneuverID = step.index,
                 distanceToManeuverM = upcoming.meters,
+                roundaboutExit = step.roundaboutExit,
                 instructionText = instrText
             )
         }
@@ -927,6 +928,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
             maneuverName = "continue",
             maneuverID = 0L,
             distanceToManeuverM = 0L,
+            roundaboutExit = 0,
             instructionText = ""
         )
     }

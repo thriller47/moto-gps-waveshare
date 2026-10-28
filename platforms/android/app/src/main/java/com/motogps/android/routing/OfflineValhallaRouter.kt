@@ -149,7 +149,11 @@ internal object ValhallaRouteAdapter {
                         (maneuver.optDouble("length", 0.0) * 1000).roundToLong())
                     .put("road_name", roadName)
                     .put("instruction", maneuver.optString("instruction", "Prosegui"))
-                    .put("roundabout_exit", maneuver.optInt("roundabout_exit_count", 0)))
+                    .put("roundabout_exit", maneuver.optInt("roundabout_exit_count", 0))
+                    .put("roundabout_end_point_index",
+                        (legStart + maneuver.optInt("end_shape_index",
+                            maneuver.optInt("begin_shape_index", 0)))
+                            .coerceIn(0, routePoints.length() - 1)))
             }
             pointOffset = routePoints.length() - 1
             distanceBeforeLegM += (leg.optJSONObject("summary")

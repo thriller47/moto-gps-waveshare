@@ -51,7 +51,7 @@ moto_ui_page_t map_page(DisplayPage page) {
   return MOTO_UI_PAGE_NAVIGATION;
 }
 
-moto_maneuver_t map_maneuver(ManeuverType maneuver) {
+moto_maneuver_t map_maneuver(ManeuverType maneuver, std::uint8_t roundabout_exit) {
   switch (maneuver) {
     case ManeuverType::SlightLeft:
       return MOTO_MANEUVER_SLIGHT_LEFT;
@@ -68,7 +68,15 @@ moto_maneuver_t map_maneuver(ManeuverType maneuver) {
     case ManeuverType::UTurnRight:
       return MOTO_MANEUVER_UTURN;
     case ManeuverType::Roundabout:
-      return MOTO_MANEUVER_ROUNDABOUT;
+      // Italian traffic circulates counter-clockwise. Show the exit direction,
+      // not a fixed clockwise circle regardless of which exit is requested.
+      switch (roundabout_exit) {
+        case 1: return MOTO_MANEUVER_RIGHT;
+        case 2: return MOTO_MANEUVER_STRAIGHT;
+        case 3: return MOTO_MANEUVER_LEFT;
+        case 4: return MOTO_MANEUVER_UTURN;
+        default: return MOTO_MANEUVER_ROUNDABOUT;
+      }
     case ManeuverType::Arrive:
       return MOTO_MANEUVER_ARRIVE;
     case ManeuverType::Unknown:
@@ -322,7 +330,8 @@ void NavPresenter::update(const NavSnapshot& snapshot) {
   ui_state_.mode = map_mode(snapshot);
   ui_state_.maneuver =
       snapshot.has_next_maneuver
-          ? map_maneuver(snapshot.next_maneuver.type)
+          ? map_maneuver(snapshot.next_maneuver.type,
+                          snapshot.next_maneuver.roundabout_exit)
           : (snapshot.state == NavState::Arrived ? MOTO_MANEUVER_ARRIVE
                                                  : MOTO_MANEUVER_STRAIGHT);
   ui_state_.traffic = map_traffic(snapshot.traffic_ahead);
