@@ -69,6 +69,9 @@ class MotoBLEManager(private val context: Context) {
 
     // Synchronized FIFO Write Queue for GATT Characteristic Writes
     private val writeQueue = ArrayDeque<ByteArray>()
+    private val mapSceneAck = MapSceneAckPolicy()
+    private var pendingSceneFrames: Array<ByteArray>? = null
+    private val sceneAckTimeout = Runnable { retryUnacknowledgedScene() }
     private var writeInProgress = false
     // Protect the remaining fragments of a message whose START frame was sent.
     private var activeWriteFrame: ByteArray? = null
@@ -136,8 +139,37 @@ class MotoBLEManager(private val context: Context) {
         if (bluetoothGatt == null || handshakeState != HandshakeState.COMPLETED) return
         if (codecPtr != 0L) {
             val frames = bleCodec.nativeEncodeMapScene(codecPtr, scene)
-            enqueueLatestFramesTask(frames, MotoBLEProtocolCodec.MSG_MAP_SCENE)
+            if (frames.isNotEmpty()) {
+                val sequence = sequenceOf(frames.first())
+                if (mapSceneAck.confirmedRevision == scene.sceneRevision ||
+                    (mapSceneAck.revision == scene.sceneRevision && mapSceneAck.sequence != null)) return
+                mainHandler.removeCallbacks(sceneAckTimeout)
+                mapSceneAck.begin(scene.sceneRevision, sequence)
+                pendingSceneFrames = frames
+                enqueueLatestFramesTask(frames, MotoBLEProtocolCodec.MSG_MAP_SCENE)
+                mainHandler.postDelayed(sceneAckTimeout, 2_000L)
+            }
         }
+    }
+
+    private fun retryUnacknowledgedScene() {
+        if (bluetoothGatt == null || handshakeState != HandshakeState.COMPLETED) return
+        val frames = pendingSceneFrames ?: return
+        if (!mapSceneAck.retry()) {
+            Log.w("MotoBLEManager", "Map scene ACK missing after three transmissions, revision=${mapSceneAck.revision}")
+            pendingSceneFrames = null
+            return
+        }
+        // Never interrupt a sequence already transmitting. The queue's existing
+        // coalescing protects the in-flight sequence and removes stale unsent ones.
+        enqueueLatestFramesTask(frames, MotoBLEProtocolCodec.MSG_MAP_SCENE)
+        mainHandler.postDelayed(sceneAckTimeout, 2_000L)
+    }
+
+    private fun clearSceneDelivery() {
+        mainHandler.removeCallbacks(sceneAckTimeout)
+        pendingSceneFrames = null
+        mapSceneAck.reset()
     }
 
     // Geometry and road context represent replaceable snapshots. Drop older
@@ -252,6 +284,7 @@ class MotoBLEManager(private val context: Context) {
             }
             when (newState) {
                 BluetoothProfile.STATE_CONNECTED -> {
+                    clearSceneDelivery()
                     connectedDevice = gatt.device
                     handshakeState = HandshakeState.IDLE
                     operationQueue.clear()
@@ -269,6 +302,7 @@ class MotoBLEManager(private val context: Context) {
                     }, 300)
                 }
                 BluetoothProfile.STATE_DISCONNECTED -> {
+                    clearSceneDelivery()
                     val retryInitialConnect =
                         status == 19 && handshakeState != HandshakeState.COMPLETED &&
                         initialConnectRetries == 0 && !closed
@@ -491,6 +525,12 @@ class MotoBLEManager(private val context: Context) {
                     mainHandler.post { onConnectionStateChange?.invoke("Connesso") }
                     startHeartbeat()
                 }
+            }
+            val receivedAck = inboundMessage.ack
+            if (receivedAck != null && mapSceneAck.acknowledge(receivedAck.acknowledgedSequence, receivedAck.status)) {
+                Log.d("MotoBLEManager", "Map scene ACK confirmed revision=${mapSceneAck.confirmedRevision}")
+                mainHandler.removeCallbacks(sceneAckTimeout)
+                pendingSceneFrames = null
             }
             val cmd = inboundMessage.command
             if (cmd != null) {

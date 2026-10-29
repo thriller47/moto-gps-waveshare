@@ -205,7 +205,7 @@ class MotoBLEProtocolCodec {
     fun nativeEncodeMapScene(ptr: Long, scene: MotoBLEMapScene): Array<ByteArray> {
         val storage = instances[ptr] ?: return emptyArray()
         val payload = buildMapScenePayload(scene) ?: return emptyArray()
-        return fragmentMessage(storage, MSG_MAP_SCENE, payload, ackRequested = false, urgent = false)
+        return fragmentMessage(storage, MSG_MAP_SCENE, payload, ackRequested = true, urgent = false)
     }
 
     fun nativeEncodeNavigationPayloadForGoldenCheck(ptr: Long, snapshot: MotoBLENavigationSnapshot): ByteArray? {
@@ -301,6 +301,11 @@ class MotoBLEProtocolCodec {
                                 connStatus = MotoBLEConnectionStatus(
                                     role, state, minVer, maxVer, capabilities, sessionId, maxFrameSize, hbInterval
                                 )
+                            }
+                        }
+                        MSG_ACK -> {
+                            if (reader.remaining() >= 5) {
+                                ack = MotoBLEAcknowledgement(reader.readU16(), reader.readU8(), reader.readU16())
                             }
                         }
                         MSG_DEVICE_COMMAND -> {
