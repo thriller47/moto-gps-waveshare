@@ -148,8 +148,14 @@ void test_navigation_and_touch_updates_are_serialized() {
   CHECK(moto::test::phone_nav_bridge_board_lock_count() == 0);
   pump(bridge);
   CHECK(moto::test::phone_nav_bridge_apply_count() == 1);
+  // Intentionally long stress-test labels are now hidden on the compact
+  // street arc, but the latest phone snapshot must still be delivered.
   const std::string final_name = moto::test::phone_nav_bridge_last_road_name();
-  CHECK(final_name.rfind("并发道路-", 0) == 0);
+  CHECK(final_name.empty());
+  CHECK(moto::test::phone_nav_bridge_last_distance_to_maneuver_m() ==
+        static_cast<std::uint32_t>(kIterations - 1));
+  CHECK(moto::test::phone_nav_bridge_last_maneuver() ==
+        MOTO_MANEUVER_RIGHT);
 }
 
 void test_ble_submission_never_waits_for_lvgl_and_retries_latest_state() {
