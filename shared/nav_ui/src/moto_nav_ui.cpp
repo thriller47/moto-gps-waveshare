@@ -1391,9 +1391,17 @@ void update_street_arc(const moto_ui_state_t *state) {
         ui.nav_street_text[0] = '\0';
         return;
     }
+    // Never clip an unbounded instruction into a UTF-8 fragment: hiding an
+    // overlong label is safer than squeezing unreadable text onto the arc.
+    if(std::strlen(name) > 56U || std::strchr(name, '\n') != nullptr ||
+       std::strchr(name, '\r') != nullptr) {
+        lv_obj_add_flag(ui.nav_street_arc, LV_OBJ_FLAG_HIDDEN);
+        ui.nav_street_text[0] = '\0';
+        return;
+    }
     // Keep updates cheap: the navigation snapshot arrives several times per second.
     char limited[sizeof(ui.nav_street_text)]{};
-    std::snprintf(limited, sizeof(limited), "%.60s", name);
+    std::snprintf(limited, sizeof(limited), "%s", name);
     if(std::strcmp(ui.nav_street_text, limited) != 0) {
         std::strcpy(ui.nav_street_text, limited);
         lv_arclabel_set_text(ui.nav_street_arc, ui.nav_street_text);

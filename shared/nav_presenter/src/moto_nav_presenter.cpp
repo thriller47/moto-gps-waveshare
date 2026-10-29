@@ -1,6 +1,7 @@
 #include "moto_nav_presenter.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -19,7 +20,7 @@ constexpr double kVehicleY = 196.0 * kUiScale;
 // exactly the same transform. Zoom is continuous, not a discrete level switch.
 constexpr double kMapPixelsPerMeter = 0.44 * kUiScale;
 constexpr double kManeuverZoomStartM = 100.0;
-constexpr double kMaximumManeuverZoom = 2.15;
+constexpr double kMaximumManeuverZoom = 2.9;
 
 bool maneuver_zoom_available(const NavSnapshot& snapshot) {
   if (snapshot.state != NavState::Navigating ||
@@ -53,6 +54,37 @@ double map_pixels_per_meter(const NavSnapshot& snapshot) {
   // Keep the entire nearby road context recognizable on the circular map.
   return kMapPixelsPerMeter *
       (1.0 + (kMaximumManeuverZoom - 1.0) * fraction);
+}
+
+// A curved 466 px street label must contain an actual road name. Valhalla
+// instructions are kept in the navigation snapshot, but must not be rendered
+// as a tiny, unreadable sentence around the bezel. Do not truncate UTF-8.
+bool readable_street_name(const std::string& name) {
+  if (name.empty() || name.size() > 56) return false;
+
+  std::size_t glyph_count = 0;
+  std::size_t spaces = 0;
+  for (const unsigned char c : name) {
+    if (c == '\n' || c == '\r' || c == '\t') return false;
+    if ((c & 0xC0U) != 0x80U) ++glyph_count;
+    if (c == ' ') ++spaces;
+  }
+  if (glyph_count > 32 || spaces > 6) return false;
+
+  std::string lower = name;
+  std::transform(lower.begin(), lower.end(), lower.begin(),
+                 [](unsigned char c) {
+                   return static_cast<char>(std::tolower(c));
+                 });
+  const char* const instruction_prefixes[] = {
+      "svolta ", "svoltare ", "gira ", "prosegui ", "procedi ",
+      "continua ", "mantieni ", "prendi ", "imbocca ", "entra ",
+      "esci ", "segui ", "alla rotonda ", "turn ", "continue ",
+      "take ", "keep ", "enter ", "exit "};
+  for (const char* prefix : instruction_prefixes) {
+    if (lower.rfind(prefix, 0) == 0) return false;
+  }
+  return true;
 }
 
 double radians(double degrees) { return degrees * kPi / 180.0; }
@@ -357,10 +389,14 @@ void NavPresenter::update(const NavSnapshot& snapshot) {
     // maneuver, but no separate current-road field. Keep two owned copies so
     // both C pointers have an explicit, stable lifetime. A future current-road
     // field can replace road_name_ without changing moto_ui_state_t.
-    road_name_ = snapshot.next_maneuver.road_name;
-    next_road_name_ = snapshot.next_maneuver.road_name.empty()
-                          ? snapshot.next_maneuver.instruction
-                          : snapshot.next_maneuver.road_name;
+    // If the routing response has no short, credible street name, leave
+    // the arc empty. In particular NEVER substitute the full maneuver
+    // instruction (e.g. "turn right ... then continue ...").
+    const auto& candidate = snapshot.next_maneuver.road_name;
+    if (readable_street_name(candidate)) {
+      road_name_ = candidate;
+      next_road_name_ = candidate;
+    }
   }
 
   ui_state_ = {};

@@ -520,13 +520,56 @@ void test_presenter_owns_road_name_storage() {
   snapshot.next_maneuver.instruction = "靠左行驶";
   presenter.update(snapshot);
   CHECK(presenter.ui_state().road_name == nullptr);
-  CHECK(presenter.ui_state().next_road_name != nullptr);
-  CHECK(std::strcmp(presenter.ui_state().next_road_name, "靠左行驶") == 0);
+  // Do not use the maneuver instruction as a road label.
+  CHECK(presenter.ui_state().next_road_name == nullptr);
 
   snapshot.has_next_maneuver = false;
   presenter.update(snapshot);
   CHECK(presenter.ui_state().road_name == nullptr);
   CHECK(presenter.ui_state().next_road_name == nullptr);
+}
+
+void test_street_arc_rejects_instructions_and_overlong_names() {
+  NavPresenter presenter;
+  NavSnapshot snapshot;
+  snapshot.state = NavState::Navigating;
+  snapshot.has_next_maneuver = true;
+  snapshot.next_maneuver.type = ManeuverType::Right;
+  snapshot.next_maneuver.instruction =
+      "Svolta a destra sulla provinciale e poi prosegui sulla statale";
+
+  // A valid name remains available, even when the instruction is long.
+  snapshot.next_maneuver.road_name = "Strada Provinciale 125";
+  presenter.update(snapshot);
+  CHECK(presenter.ui_state().next_road_name != nullptr);
+  CHECK(std::strcmp(presenter.ui_state().next_road_name,
+                    "Strada Provinciale 125") == 0);
+
+  // Empty road fields must never fall back to a spoken route sentence.
+  snapshot.next_maneuver.road_name.clear();
+  presenter.update(snapshot);
+  CHECK(presenter.ui_state().next_road_name == nullptr);
+  CHECK(presenter.ui_state().road_name == nullptr);
+
+  // Misclassified directions in the road-name field must be suppressed.
+  snapshot.next_maneuver.road_name =
+      "Svolta a destra sulla provinciale e poi prosegui";
+  presenter.update(snapshot);
+  CHECK(presenter.ui_state().next_road_name == nullptr);
+
+  snapshot.next_maneuver.road_name = "Prosegui sulla SS 125";
+  presenter.update(snapshot);
+  CHECK(presenter.ui_state().next_road_name == nullptr);
+
+  // No arbitrary truncation or UTF-8 cutting on very long names.
+  snapshot.next_maneuver.road_name = std::string(80, 'A');
+  presenter.update(snapshot);
+  CHECK(presenter.ui_state().next_road_name == nullptr);
+  snapshot.next_maneuver.road_name = "Via della Repubblica";
+  presenter.update(snapshot);
+  CHECK(presenter.ui_state().next_road_name != nullptr);
+  CHECK(std::strcmp(presenter.ui_state().next_road_name,
+                    "Via della Repubblica") == 0);
 }
 
 #ifdef MOTO_NAV_UI_TEST_STUB
@@ -566,6 +609,7 @@ int main() {
   test_near_turn_zooms_all_map_layers_together_and_restores_scale();
   test_missing_or_incomplete_geometry_stays_empty();
   test_presenter_owns_road_name_storage();
+  test_street_arc_rejects_instructions_and_overlong_names();
 #ifdef MOTO_NAV_UI_TEST_STUB
   test_apply_to_lvgl_uses_last_owned_state();
 #endif
