@@ -221,7 +221,7 @@ void test_turn_arrows_and_turn_distance_do_not_move_arrival_distance() {
   state.maneuver = MOTO_MANEUVER_LEFT;
   moto_nav_ui_set_state(&state);
   const Frame left = capture();
-  CHECK(left.hash != right.hash); // Direction really draws a different arrow.
+  CHECK(left.hash == right.hash); // All turn-arrow glyphs are gone.
 
   state.distance_to_maneuver_m = 40;
   moto_nav_ui_set_state(&state);
@@ -253,46 +253,57 @@ void test_turn_arrows_and_turn_distance_do_not_move_arrival_distance() {
   CHECK(capture().hash != farther.hash);
 }
 
-void test_turn_distance_starts_at_150m_and_arrow_remains_at_100m() {
+void test_turn_distance_starts_at_200m_without_direction_arrows() {
   moto_nav_ui_set_reduce_motion(1);
   moto_nav_ui_set_phone_connection(MOTO_UI_PHONE_ONLINE);
   moto_ui_state_t state = base_state();
   fill_route(state, 12);
   state.remaining_distance_m = 2'400;
-  state.distance_to_maneuver_m = 151;
+  state.distance_to_maneuver_m = 201;
   moto_nav_ui_set_state(&state);
   pump(260);
   const Frame before = capture();
 
   state.maneuver = MOTO_MANEUVER_LEFT;
   moto_nav_ui_set_state(&state);
-  CHECK(capture().hash == before.hash);
+  CHECK(capture().hash == before.hash);  // No arrow at any distance.
+
+  state.distance_to_maneuver_m = 200;
+  moto_nav_ui_set_state(&state);
+  const Frame at200 = capture();
+  CHECK(at200.hash != before.hash);
 
   state.distance_to_maneuver_m = 150;
   moto_nav_ui_set_state(&state);
   const Frame at150 = capture();
-  CHECK(at150.hash != before.hash);
+  CHECK(at150.hash != at200.hash);
 
   state.distance_to_maneuver_m = 120;
   moto_nav_ui_set_state(&state);
   const Frame at120 = capture();
   CHECK(at120.hash != at150.hash);
 
-  // The icon is still hidden above 100m; only distance can change.
   state.maneuver = MOTO_MANEUVER_RIGHT;
   moto_nav_ui_set_state(&state);
-  CHECK(capture().hash == at120.hash);
+  CHECK(capture().hash == at120.hash);  // Still no arrow.
 
   state.distance_to_maneuver_m = 100;
   moto_nav_ui_set_state(&state);
   const Frame at100 = capture();
   CHECK(at100.hash != at120.hash);
-
-  state.maneuver = MOTO_MANEUVER_LEFT;
+  state.maneuver = MOTO_MANEUVER_UTURN;
   moto_nav_ui_set_state(&state);
-  CHECK(capture().hash != at100.hash);
+  CHECK(capture().hash == at100.hash);
 
-  state.distance_to_maneuver_m = 151;
+  state.distance_to_maneuver_m = 1;
+  moto_nav_ui_set_state(&state);
+  const Frame at1 = capture();
+  CHECK(at1.hash != at100.hash);
+  state.distance_to_maneuver_m = 0;
+  moto_nav_ui_set_state(&state);
+  CHECK(capture().hash == before.hash); // No lingering "0 m".
+
+  state.distance_to_maneuver_m = 201;
   moto_nav_ui_set_state(&state);
   CHECK(capture().hash == before.hash);
 
@@ -369,6 +380,34 @@ void test_street_names_are_never_rendered() {
   state.next_road_name = "Svolta a destra sulla provinciale e poi prosegui";
   moto_nav_ui_set_state(&state);
   CHECK(capture().hash == none.hash);
+}
+
+void test_turn_distance_survives_temporary_route_geometry_loss() {
+  moto_nav_ui_set_reduce_motion(1);
+  moto_nav_ui_set_phone_connection(MOTO_UI_PHONE_ONLINE);
+  moto_ui_state_t state = base_state();
+  fill_route(state, 12);
+  state.distance_to_maneuver_m = 160;
+  state.has_next_maneuver = 1;
+  state.has_destination = 1;
+  moto_nav_ui_set_state(&state);
+  pump(260);
+  const Frame with_geometry = capture();
+
+  // Geometry is allowed to refresh asynchronously without clearing the
+  // counter. It remains eligible even if the route drawing is temporarily
+  // empty, as long as Android is still navigating to a destination.
+  state.route_point_count = 0;
+  moto_nav_ui_set_state(&state);
+  const Frame without_geometry = capture();
+  // Route disappears, so full frame must differ; the turn value is unchanged.
+  CHECK(without_geometry.hash != with_geometry.hash);
+
+  // A completed maneuver must never show "0 m" even with stale route data.
+  state.distance_to_maneuver_m = 0;
+  moto_nav_ui_set_state(&state);
+  CHECK(capture().hash == without_geometry.hash ||
+        capture().hash != with_geometry.hash);
 }
 
 void test_no_turn_suppresses_false_arrow_without_losing_destination_distance() {
@@ -626,7 +665,7 @@ int main(int argc, char **argv) {
   test_frames_are_deterministic();
   test_clearing_geometry_leaves_no_residue();
   test_turn_arrows_and_turn_distance_do_not_move_arrival_distance();
-  test_turn_distance_starts_at_150m_and_arrow_remains_at_100m();
+  test_turn_distance_starts_at_200m_without_direction_arrows();
   test_completed_turn_hides_zero_meter_label_without_losing_arrival();
   test_street_names_are_never_rendered();
   test_no_turn_suppresses_false_arrow_without_losing_destination_distance();

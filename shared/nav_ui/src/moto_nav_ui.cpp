@@ -121,8 +121,7 @@ struct Ui {
     lv_obj_t *nav_distance = nullptr;
     lv_obj_t *nav_unit = nullptr;
     lv_obj_t *nav_turn_distance = nullptr;
-    lv_obj_t *nav_maneuver = nullptr;
-    moto_maneuver_t nav_maneuver_type = MOTO_MANEUVER_STRAIGHT;
+    lv_obj_t *nav_finish_flag = nullptr;
     lv_obj_t *nav_limit = nullptr;
     lv_obj_t *nav_limit_value = nullptr;
     lv_obj_t *nav_progress = nullptr;
@@ -192,7 +191,6 @@ void reset_ui_state() {
     std::memset(&ui, 0, sizeof(ui));
     ui.page = MOTO_UI_PAGE_NAVIGATION;
     ui.page_dots_visible = true;
-    ui.nav_maneuver_type = MOTO_MANEUVER_STRAIGHT;
     ui.phone_connection = MOTO_UI_PHONE_OFFLINE;
     ui.lifecycle_visual = LifecycleVisual::Hidden;
     ui.lifecycle_target = LifecycleVisual::Hidden;
@@ -796,197 +794,44 @@ void update_route_geometry(const moto_ui_state_t *state) {
     if(snap) apply_route_geometry_frame();
 }
 
-lv_point_precise_t arrow_base(const lv_point_precise_t& previous,
-                              const lv_point_precise_t& tip,
-                              double head_length = px(24.0)) {
-    const double dx = static_cast<double>(tip.x - previous.x);
-    const double dy = static_cast<double>(tip.y - previous.y);
-    const double length = std::max(1.0, std::hypot(dx, dy));
-    const double ux = dx / length;
-    const double uy = dy / length;
-    return {
-        static_cast<lv_value_precise_t>(tip.x - ux * head_length),
-        static_cast<lv_value_precise_t>(tip.y - uy * head_length),
-    };
-}
-
-void draw_arrowhead(lv_layer_t *layer, const lv_area_t& area,
-                    const lv_point_precise_t& previous,
-                    const lv_point_precise_t& tip) {
-    const double dx = static_cast<double>(tip.x - previous.x);
-    const double dy = static_cast<double>(tip.y - previous.y);
-    const double length = std::max(1.0, std::hypot(dx, dy));
-    const double ux = dx / length;
-    const double uy = dy / length;
-    const auto base = arrow_base(previous, tip);
-    const double wing = px(18.0);
-
-    lv_draw_triangle_dsc_t triangle;
-    lv_draw_triangle_dsc_init(&triangle);
-    triangle.color = kWhite;
-    triangle.opa = LV_OPA_COVER;
-    triangle.p[0] = {
-        static_cast<lv_value_precise_t>(area.x1 + tip.x),
-        static_cast<lv_value_precise_t>(area.y1 + tip.y),
-    };
-    triangle.p[1] = {
-        static_cast<lv_value_precise_t>(area.x1 + base.x - uy * wing),
-        static_cast<lv_value_precise_t>(area.y1 + base.y + ux * wing),
-    };
-    triangle.p[2] = {
-        static_cast<lv_value_precise_t>(area.x1 + base.x + uy * wing),
-        static_cast<lv_value_precise_t>(area.y1 + base.y - ux * wing),
-    };
-    lv_draw_triangle(layer, &triangle);
-}
-
-void draw_maneuver_icon(lv_event_t *event) {
+// This is the ONLY maneuver-related glyph left in the ESP32 UI.
+// Turn arrows were removed; the selected route and gray context show the turn.
+void draw_finish_flag(lv_event_t *event) {
     lv_obj_t *object = lv_event_get_target_obj(event);
     lv_area_t area;
     lv_obj_get_coords(object, &area);
     lv_layer_t *layer = lv_event_get_layer(event);
 
-    lv_point_precise_t points[8]{};
-    int count = 0;
-    switch(ui.nav_maneuver_type) {
-        case MOTO_MANEUVER_RIGHT:
-            points[0] = {px(34), px(102)};
-            points[1] = {px(34), px(63)};
-            points[2] = {px(55), px(42)};
-            points[3] = {px(105), px(42)};
-            count = 4;
-            break;
-        case MOTO_MANEUVER_LEFT:
-            points[0] = {px(82), px(102)};
-            points[1] = {px(82), px(63)};
-            points[2] = {px(61), px(42)};
-            points[3] = {px(11), px(42)};
-            count = 4;
-            break;
-        case MOTO_MANEUVER_SLIGHT_RIGHT:
-            points[0] = {px(36), px(102)};
-            points[1] = {px(36), px(72)};
-            points[2] = {px(96), px(12)};
-            count = 3;
-            break;
-        case MOTO_MANEUVER_SLIGHT_LEFT:
-            points[0] = {px(80), px(102)};
-            points[1] = {px(80), px(72)};
-            points[2] = {px(20), px(12)};
-            count = 3;
-            break;
-        case MOTO_MANEUVER_UTURN:
-            points[0] = {px(88), px(102)};
-            points[1] = {px(88), px(50)};
-            points[2] = {px(82), px(33)};
-            points[3] = {px(69), px(23)};
-            points[4] = {px(51), px(20)};
-            points[5] = {px(34), px(27)};
-            points[6] = {px(25), px(43)};
-            points[7] = {px(25), px(84)};
-            count = 8;
-            break;
-        case MOTO_MANEUVER_ROUNDABOUT: {
-            lv_draw_line_dsc_t stem;
-            lv_draw_line_dsc_init(&stem);
-            stem.color = kWhite;
-            stem.width = px(11);
-            stem.round_start = 1;
-            stem.round_end = 1;
-            stem.p1 = {static_cast<lv_value_precise_t>(area.x1 + px(58)),
-                       static_cast<lv_value_precise_t>(area.y1 + px(101))};
-            stem.p2 = {static_cast<lv_value_precise_t>(area.x1 + px(58)),
-                       static_cast<lv_value_precise_t>(area.y1 + px(79))};
-            lv_draw_line(layer, &stem);
+    lv_draw_line_dsc_t pole;
+    lv_draw_line_dsc_init(&pole);
+    pole.color = kWhite;
+    pole.width = px(11);
+    pole.round_start = 1;
+    pole.round_end = 1;
+    pole.p1 = {static_cast<lv_value_precise_t>(area.x1 + px(42)),
+               static_cast<lv_value_precise_t>(area.y1 + px(101))};
+    pole.p2 = {static_cast<lv_value_precise_t>(area.x1 + px(42)),
+               static_cast<lv_value_precise_t>(area.y1 + px(17))};
+    lv_draw_line(layer, &pole);
 
-            lv_draw_arc_dsc_t circle;
-            lv_draw_arc_dsc_init(&circle);
-            circle.color = kWhite;
-            circle.width = px(11);
-            circle.rounded = 1;
-            circle.center = {
-                static_cast<int32_t>(area.x1 + px(58)),
-                static_cast<int32_t>(area.y1 + px(53)),
+    // Explicit checkered arrival flag: no directional arrows are drawn.
+    for(int row = 0; row < 3; ++row) {
+        for(int col = 0; col < 4; ++col) {
+            lv_draw_rect_dsc_t square;
+            lv_draw_rect_dsc_init(&square);
+            square.radius = 0;
+            square.bg_color = ((row + col) % 2 == 0) ? kWhite : kGraphite;
+            square.bg_opa = LV_OPA_COVER;
+            square.border_opa = LV_OPA_TRANSP;
+            const lv_area_t square_area = {
+                area.x1 + px(46 + col * 14),
+                area.y1 + px(19 + row * 13),
+                area.x1 + px(60 + col * 14) - 1,
+                area.y1 + px(32 + row * 13) - 1,
             };
-            circle.radius = px(27);
-            circle.start_angle = 86;
-            circle.end_angle = 326;
-            lv_draw_arc(layer, &circle);
-
-            const lv_point_precise_t previous = {px(69), px(24)};
-            const lv_point_precise_t tip = {px(86), px(36)};
-            draw_arrowhead(layer, area, previous, tip);
-            return;
+            lv_draw_rect(layer, &square, &square_area);
         }
-        case MOTO_MANEUVER_ARRIVE: {
-            lv_draw_line_dsc_t pole;
-            lv_draw_line_dsc_init(&pole);
-            pole.color = kWhite;
-            pole.width = px(11);
-            pole.round_start = 1;
-            pole.round_end = 1;
-            pole.p1 = {static_cast<lv_value_precise_t>(area.x1 + px(42)),
-                       static_cast<lv_value_precise_t>(area.y1 + px(101))};
-            pole.p2 = {static_cast<lv_value_precise_t>(area.x1 + px(42)),
-                       static_cast<lv_value_precise_t>(area.y1 + px(17))};
-            lv_draw_line(layer, &pole);
-
-            // A real checkered finish flag, drawn with rectangles instead
-            // of an unsupported emoji/font glyph on the AMOLED firmware.
-            // 4 columns x 3 rows, outlined by the adjacent white pole.
-            for(int row = 0; row < 3; ++row) {
-                for(int col = 0; col < 4; ++col) {
-                    lv_draw_rect_dsc_t square;
-                    lv_draw_rect_dsc_init(&square);
-                    square.radius = 0;
-                    square.bg_color = ((row + col) % 2 == 0) ? kWhite : kGraphite;
-                    square.bg_opa = LV_OPA_COVER;
-                    square.border_opa = LV_OPA_TRANSP;
-                    const lv_area_t square_area = {
-                        area.x1 + px(46 + col * 14),
-                        area.y1 + px(19 + row * 13),
-                        area.x1 + px(60 + col * 14) - 1,
-                        area.y1 + px(32 + row * 13) - 1,
-                    };
-                    lv_draw_rect(layer, &square, &square_area);
-                }
-            }
-            return;
-        }
-        case MOTO_MANEUVER_STRAIGHT:
-        default:
-            points[0] = {px(58), px(103)};
-            points[1] = {px(58), px(10)};
-            count = 2;
-            break;
     }
-
-    lv_point_precise_t absolute[8]{};
-    const lv_point_precise_t base = arrow_base(points[count - 2],
-                                                points[count - 1]);
-    for(int i = 0; i < count; ++i) {
-        const lv_point_precise_t point = i == count - 1 ? base : points[i];
-        absolute[i] = {
-            static_cast<lv_value_precise_t>(area.x1 + point.x),
-            static_cast<lv_value_precise_t>(area.y1 + point.y),
-        };
-    }
-    lv_draw_line_dsc_t line;
-    lv_draw_line_dsc_init(&line);
-    line.color = kWhite;
-    line.width = px(12);
-    line.round_start = 1;
-    line.round_end = 1;
-    line.points = absolute;
-    line.point_cnt = count;
-    lv_draw_line(layer, &line);
-    draw_arrowhead(layer, area, points[count - 2], points[count - 1]);
-}
-
-void update_maneuver(moto_maneuver_t maneuver) {
-    if(ui.nav_maneuver_type == maneuver) return;
-    ui.nav_maneuver_type = maneuver;
-    if (ui.nav_maneuver != nullptr) lv_obj_invalidate(ui.nav_maneuver);
 }
 
 void draw_segment(lv_layer_t *layer, lv_color_t color, int width,
@@ -1338,8 +1183,6 @@ void set_navigation_guidance_visible(bool visible) {
     lv_obj_t *objects[] = {
         ui.nav_distance,
         ui.nav_unit,
-        ui.nav_turn_distance,
-        ui.nav_maneuver,
         ui.nav_progress,
     };
     for(lv_obj_t *object : objects) {
@@ -1383,7 +1226,6 @@ void update_navigation(const moto_ui_state_t *state) {
     update_building_geometry(state);
     update_road_geometry(state);
     update_route_geometry(state);
-    update_maneuver(state->maneuver);
     update_nav_status(state);
 
     // Never suggest "go straight for 0 m" while there is no route. Waiting is
@@ -1395,27 +1237,41 @@ void update_navigation(const moto_ui_state_t *state) {
     ui.navigation_route_request_in_flight =
         state->route_request_in_flight != 0;
     set_navigation_guidance_visible(has_guidance);
-    // Show the counter from 150 m. The optional generic icon and the
-    // map zoom keep their previous 100 m range. Once Valhalla reports 0 m,
-    // suppress the stale turn until the next one becomes active.
-    constexpr uint32_t kTurnDistanceThresholdM = 150U;
-    constexpr uint32_t kTurnIconThresholdM = 100U;
+    // Numeric counter remains independent from the availability of the
+    // current BLE route window. A temporary geometry refresh must not hide
+    // the next-turn distance while the phone still has valid guidance.
+    constexpr uint32_t kTurnDistanceThresholdM = 200U;
     const bool arrival = state->mode == MOTO_UI_ARRIVED;
-    const bool pending_turn = has_guidance &&
-        state->has_next_maneuver != 0 &&
-        state->distance_to_maneuver_m > 0U;
-    const bool show_turn_distance = has_guidance &&
-        (arrival || (pending_turn &&
-         state->distance_to_maneuver_m <= kTurnDistanceThresholdM));
-    const bool show_turn_icon = has_guidance &&
-        (arrival || (pending_turn &&
-         state->distance_to_maneuver_m <= kTurnIconThresholdM));
-    if(!show_turn_icon || state->maneuver_map_zoom_active != 0) {
-        lv_obj_add_flag(ui.nav_maneuver, LV_OBJ_FLAG_HIDDEN);
-    }
-    if(!show_turn_distance) {
+    const bool navigating = state->mode == MOTO_UI_NAVIGATING ||
+                            state->mode == MOTO_UI_OFFLINE ||
+                            state->mode == MOTO_UI_REROUTING;
+    const bool pending_turn = navigating && state->has_next_maneuver != 0 &&
+                              state->distance_to_maneuver_m > 0U &&
+                              state->distance_to_maneuver_m <= kTurnDistanceThresholdM &&
+                              (has_guidance || state->has_destination != 0);
+    // 0 m means the maneuver has been reached: keep it hidden while
+    // Valhalla releases the maneuver after the junction or roundabout.
+    if(arrival || pending_turn) {
+        lv_obj_remove_flag(ui.nav_turn_distance, LV_OBJ_FLAG_HIDDEN);
+    } else {
         lv_obj_add_flag(ui.nav_turn_distance, LV_OBJ_FLAG_HIDDEN);
     }
+    // The only remaining icon is the checkered arrival flag. Never allow
+    // any normal turn or transient zoom state to display a direction arrow.
+    if(arrival) {
+        lv_obj_remove_flag(ui.nav_finish_flag, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(ui.nav_finish_flag, LV_OBJ_FLAG_HIDDEN);
+    }
+    char next_turn[32];
+    if(arrival) {
+        std::snprintf(next_turn, sizeof(next_turn), "ARRIVO");
+    } else {
+        std::snprintf(next_turn, sizeof(next_turn), "%u m",
+                      static_cast<unsigned>(state->distance_to_maneuver_m));
+    }
+    lv_label_set_text(ui.nav_turn_distance, next_turn);
+
     refresh_lifecycle();
     if(!has_guidance) return;
 
@@ -1437,20 +1293,6 @@ void update_navigation(const moto_ui_state_t *state) {
     lv_obj_align(ui.nav_distance, LV_ALIGN_TOP_MID, 0, px(250));
     lv_obj_align_to(ui.nav_unit, ui.nav_distance, LV_ALIGN_OUT_RIGHT_BOTTOM,
                 px(6), px(-7));
-
-    // Turn distance at 8 o'clock, centered as a single 28pt text label
-    // (including the unit).
-    char next_turn[32];
-    if(state->mode == MOTO_UI_ARRIVED) {
-        std::snprintf(next_turn, sizeof(next_turn), "ARRIVO");
-    } else if(state->distance_to_maneuver_m >= 1000U) {
-        std::snprintf(next_turn, sizeof(next_turn), "%.1f km",
-                      state->distance_to_maneuver_m / 1000.0);
-    } else {
-        std::snprintf(next_turn, sizeof(next_turn), "%u m",
-                      static_cast<unsigned>(state->distance_to_maneuver_m));
-    }
-    lv_label_set_text(ui.nav_turn_distance, next_turn);
 
     lv_arc_set_value(ui.nav_progress,
                      std::min<int>(100, state->route_progress_percent));
@@ -1631,16 +1473,16 @@ void create_navigation_page() {
     lv_obj_set_style_text_align(ui.nav_status, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(ui.nav_status, LV_ALIGN_TOP_MID, 0, px(16));
 
-    // Next-turn guidance overlays the left of the map, away from the
-    // rider marker at (180,196) design coordinates. The glyph renderer was
-    // already implemented but never had an LVGL object to draw into.
-    ui.nav_maneuver = lv_obj_create(page);
-    lv_obj_remove_style_all(ui.nav_maneuver);
-    lv_obj_set_size(ui.nav_maneuver, px(116), px(116));
-    lv_obj_set_pos(ui.nav_maneuver, px(22), px(103));
-    lv_obj_clear_flag(ui.nav_maneuver, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(ui.nav_maneuver, draw_maneuver_icon,
+    // Arrival is signalled by a separate checkered flag. No turn arrow
+    // widgets or callbacks exist: the map geometry is the turn indicator.
+    ui.nav_finish_flag = lv_obj_create(page);
+    lv_obj_remove_style_all(ui.nav_finish_flag);
+    lv_obj_set_size(ui.nav_finish_flag, px(116), px(116));
+    lv_obj_set_pos(ui.nav_finish_flag, px(22), px(103));
+    lv_obj_clear_flag(ui.nav_finish_flag, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(ui.nav_finish_flag, draw_finish_flag,
                         LV_EVENT_DRAW_MAIN_END, nullptr);
+    lv_obj_add_flag(ui.nav_finish_flag, LV_OBJ_FLAG_HIDDEN);
 
     // 28pt turn distance at 8 o'clock: separate from the central
     // distance-to-destination and the speed-limit badge.
