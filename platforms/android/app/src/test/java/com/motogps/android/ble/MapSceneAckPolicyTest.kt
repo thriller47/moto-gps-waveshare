@@ -19,7 +19,7 @@ class MapSceneAckPolicyTest {
         tracker.begin(41L, 150)
         tracker.begin(42L, 151)
         assertFalse(tracker.acknowledge(150, 0))
-        assertTrue(tracker.acknowledge(151, 1)) // duplicate is already delivered
+        assertTrue(tracker.acknowledge(151, 4)) // duplicate is already delivered
         assertEquals(42L, tracker.confirmedRevision)
     }
 

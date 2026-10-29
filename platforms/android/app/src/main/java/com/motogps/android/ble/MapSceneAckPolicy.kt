@@ -28,7 +28,7 @@ internal class MapSceneAckPolicy {
     }
 
     fun acknowledge(sequence: Int, status: Int): Boolean {
-        if (this.sequence != sequence || status !in 0..1) return false
+        if (this.sequence != sequence || status != 0 && status != 4) return false
         confirmedRevision = revision
         this.sequence = null
         return true
