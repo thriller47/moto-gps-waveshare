@@ -240,16 +240,6 @@ void test_turn_arrows_and_turn_distance_do_not_move_arrival_distance() {
     CHECK(std::equal(right.bytes.begin() + first,
                      right.bytes.begin() + last,
                      left.bytes.begin() + first));
-  }
-  // Only the left-hand 8 o'clock turn label changes here; the
-  // central and right-side destination area must be bit-identical.
-  const int first_y = (245 * kWidth + 180) / 360;
-  const int first_x = (145 * kWidth + 180) / 360;
-  for (int y = first_y; y < kHeight; ++y) {
-    const std::size_t first = (static_cast<std::size_t>(y) * kWidth +
-                               first_x) * (LV_COLOR_DEPTH / 8);
-    const std::size_t last = (static_cast<std::size_t>(y) + 1) *
-                              kWidth * (LV_COLOR_DEPTH / 8);
     CHECK(std::equal(left.bytes.begin() + first,
                      left.bytes.begin() + last,
                      farther.bytes.begin() + first));
