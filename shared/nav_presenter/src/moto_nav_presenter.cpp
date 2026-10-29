@@ -20,7 +20,7 @@ constexpr double kVehicleY = 196.0 * kUiScale;
 // exactly the same transform. Zoom is continuous, not a discrete level switch.
 constexpr double kMapPixelsPerMeter = 0.44 * kUiScale;
 constexpr double kManeuverZoomStartM = 100.0;
-constexpr double kMaximumManeuverZoom = 2.9;
+constexpr double kMaximumManeuverZoom = 3.4;
 
 bool maneuver_zoom_available(const NavSnapshot& snapshot) {
   if (snapshot.state != NavState::Navigating ||

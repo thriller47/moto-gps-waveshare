@@ -463,7 +463,13 @@ void test_near_turn_zooms_all_map_layers_together_and_restores_scale() {
 
   snapshot.distance_to_next_maneuver_m = 0.0;
   presenter.update(snapshot);
-  CHECK(presenter.ui_state().route_points[1].y < close.route_points[1].y);
+  const auto at_max_zoom = presenter.ui_state().route_points[1];
+  CHECK(at_max_zoom.y < close.route_points[1].y);
+  // All map layers use the same precise maximum scale: 3.4x.
+  constexpr double rider_y = 196.0 * MOTO_UI_CANVAS_HEIGHT / 360.0;
+  const double baseline_offset = rider_y - far.y;
+  const double zoom_offset = rider_y - at_max_zoom.y;
+  CHECK(std::abs(zoom_offset - 3.4 * baseline_offset) <= 4.0);
 
   // Without the surrounding gray streets, retain the arrow and normal view.
   snapshot.has_road_context = false;

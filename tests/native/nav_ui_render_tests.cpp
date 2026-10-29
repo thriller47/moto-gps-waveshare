@@ -228,15 +228,32 @@ void test_turn_arrows_and_turn_distance_do_not_move_arrival_distance() {
   const Frame farther = capture();
   CHECK(farther.hash != left.hash); // 28pt label changes with turn distance.
 
-  // The arrival-distance line at design y=250 and below is untouched when
-  // changing the next maneuver and its distance.
-  const int bottom_y = (245 * kWidth + 180) / 360;
-  const std::size_t first_bottom = static_cast<std::size_t>(bottom_y) *
-                                   kWidth * (LV_COLOR_DEPTH / 8);
-  CHECK(std::equal(right.bytes.begin() + first_bottom, right.bytes.end(),
-                   left.bytes.begin() + first_bottom));
-  CHECK(std::equal(left.bytes.begin() + first_bottom, left.bytes.end(),
-                   farther.bytes.begin() + first_bottom));
+  // Only the left-hand 8 o'clock turn label changes here; the
+  // central and right-side destination area must be bit-identical.
+  const int first_y = (245 * kWidth + 180) / 360;
+  const int first_x = (145 * kWidth + 180) / 360;
+  for (int y = first_y; y < kHeight; ++y) {
+    const std::size_t first = (static_cast<std::size_t>(y) * kWidth +
+                               first_x) * (LV_COLOR_DEPTH / 8);
+    const std::size_t last = (static_cast<std::size_t>(y) + 1) *
+                              kWidth * (LV_COLOR_DEPTH / 8);
+    CHECK(std::equal(right.bytes.begin() + first,
+                     right.bytes.begin() + last,
+                     left.bytes.begin() + first));
+  }
+  // Only the left-hand 8 o'clock turn label changes here; the
+  // central and right-side destination area must be bit-identical.
+  const int first_y = (245 * kWidth + 180) / 360;
+  const int first_x = (145 * kWidth + 180) / 360;
+  for (int y = first_y; y < kHeight; ++y) {
+    const std::size_t first = (static_cast<std::size_t>(y) * kWidth +
+                               first_x) * (LV_COLOR_DEPTH / 8);
+    const std::size_t last = (static_cast<std::size_t>(y) + 1) *
+                              kWidth * (LV_COLOR_DEPTH / 8);
+    CHECK(std::equal(left.bytes.begin() + first,
+                     left.bytes.begin() + last,
+                     farther.bytes.begin() + first));
+  }
 
   state.mode = MOTO_UI_ARRIVED;
   state.maneuver = MOTO_MANEUVER_ARRIVE;
@@ -246,45 +263,56 @@ void test_turn_arrows_and_turn_distance_do_not_move_arrival_distance() {
   CHECK(capture().hash != farther.hash);
 }
 
-void test_turn_guidance_appears_only_within_100_meters() {
+void test_turn_distance_starts_at_150m_and_arrow_remains_at_100m() {
   moto_nav_ui_set_reduce_motion(1);
   moto_nav_ui_set_phone_connection(MOTO_UI_PHONE_ONLINE);
   moto_ui_state_t state = base_state();
   fill_route(state, 12);
   state.remaining_distance_m = 2'400;
-  state.distance_to_maneuver_m = 101;
+  state.distance_to_maneuver_m = 151;
   moto_nav_ui_set_state(&state);
   pump(260);
-  const Frame before_window = capture();
+  const Frame before = capture();
 
-  // A different maneuver must not alter the display before the 100 m window.
   state.maneuver = MOTO_MANEUVER_LEFT;
   moto_nav_ui_set_state(&state);
-  CHECK(capture().hash == before_window.hash);
+  CHECK(capture().hash == before.hash);
+
+  state.distance_to_maneuver_m = 150;
+  moto_nav_ui_set_state(&state);
+  const Frame at150 = capture();
+  CHECK(at150.hash != before.hash);
+
+  state.distance_to_maneuver_m = 120;
+  moto_nav_ui_set_state(&state);
+  const Frame at120 = capture();
+  CHECK(at120.hash != at150.hash);
+
+  // The icon is still hidden above 100m; only distance can change.
+  state.maneuver = MOTO_MANEUVER_RIGHT;
+  moto_nav_ui_set_state(&state);
+  CHECK(capture().hash == at120.hash);
 
   state.distance_to_maneuver_m = 100;
   moto_nav_ui_set_state(&state);
-  const Frame at_window = capture();
-  CHECK(at_window.hash != before_window.hash);
+  const Frame at100 = capture();
+  CHECK(at100.hash != at120.hash);
 
-  // At 100 m a second nearby turn is immediately eligible for display.
-  state.distance_to_maneuver_m = 35;
-  state.maneuver = MOTO_MANEUVER_RIGHT;
+  state.maneuver = MOTO_MANEUVER_LEFT;
   moto_nav_ui_set_state(&state);
-  const Frame close_turn = capture();
-  CHECK(close_turn.hash != at_window.hash);
+  CHECK(capture().hash != at100.hash);
 
-  state.distance_to_maneuver_m = 105;
+  state.distance_to_maneuver_m = 151;
   moto_nav_ui_set_state(&state);
-  CHECK(capture().hash == before_window.hash);
+  CHECK(capture().hash == before.hash);
 
-  // The finish flag remains visible even without a future maneuver.
+  // The arrival flag remains available even without a next turn.
   state.mode = MOTO_UI_ARRIVED;
   state.has_next_maneuver = 0;
   state.maneuver = MOTO_MANEUVER_ARRIVE;
   state.remaining_distance_m = 0;
   moto_nav_ui_set_state(&state);
-  CHECK(capture().hash != before_window.hash);
+  CHECK(capture().hash != before.hash);
 }
 
 void test_completed_turn_hides_zero_meter_label_without_losing_arrival() {
@@ -331,6 +359,28 @@ void test_completed_turn_hides_zero_meter_label_without_losing_arrival() {
   CHECK(capture().hash != zero_meter.hash);
 }
 
+void test_street_names_are_never_rendered() {
+  moto_nav_ui_set_reduce_motion(1);
+  moto_nav_ui_set_phone_connection(MOTO_UI_PHONE_ONLINE);
+  moto_ui_state_t state = base_state();
+  fill_route(state, 12);
+  state.distance_to_maneuver_m = 151;
+  state.road_name = nullptr;
+  state.next_road_name = nullptr;
+  moto_nav_ui_set_state(&state);
+  pump(260);
+  const Frame none = capture();
+
+  state.road_name = "Via Roma";
+  state.next_road_name = "Strada Provinciale 125";
+  moto_nav_ui_set_state(&state);
+  CHECK(capture().hash == none.hash);
+
+  state.next_road_name = "Svolta a destra sulla provinciale e poi prosegui";
+  moto_nav_ui_set_state(&state);
+  CHECK(capture().hash == none.hash);
+}
+
 void test_no_turn_suppresses_false_arrow_without_losing_destination_distance() {
   moto_nav_ui_set_reduce_motion(1);
   moto_nav_ui_set_phone_connection(MOTO_UI_PHONE_ONLINE);
@@ -351,14 +401,19 @@ void test_no_turn_suppresses_false_arrow_without_losing_destination_distance() {
   const Frame no_turn = capture();
   CHECK(no_turn.hash != with_turn.hash);
 
-  // The lower distance-to-destination area must not be modified by the
-  // disappearance of the turn arrow and its 28-point meter counter.
-  const int bottom_y = (245 * kWidth + 180) / 360;
-  const std::size_t first_bottom = static_cast<std::size_t>(bottom_y) *
-                                   kWidth * (LV_COLOR_DEPTH / 8);
-  CHECK(std::equal(with_turn.bytes.begin() + first_bottom,
-                   with_turn.bytes.end(),
-                   no_turn.bytes.begin() + first_bottom));
+  // Only the left-hand 8 o'clock turn label changes here; the
+  // central and right-side destination area must be bit-identical.
+  const int first_y = (245 * kWidth + 180) / 360;
+  const int first_x = (145 * kWidth + 180) / 360;
+  for (int y = first_y; y < kHeight; ++y) {
+    const std::size_t first = (static_cast<std::size_t>(y) * kWidth +
+                               first_x) * (LV_COLOR_DEPTH / 8);
+    const std::size_t last = (static_cast<std::size_t>(y) + 1) *
+                              kWidth * (LV_COLOR_DEPTH / 8);
+    CHECK(std::equal(with_turn.bytes.begin() + first,
+                     with_turn.bytes.begin() + last,
+                     no_turn.bytes.begin() + first));
+  }
 
   // The arrived mode must display the finish flag even if there is no
   // next maneuver in the Valhalla route.
@@ -581,8 +636,9 @@ int main(int argc, char **argv) {
   test_frames_are_deterministic();
   test_clearing_geometry_leaves_no_residue();
   test_turn_arrows_and_turn_distance_do_not_move_arrival_distance();
-  test_turn_guidance_appears_only_within_100_meters();
+  test_turn_distance_starts_at_150m_and_arrow_remains_at_100m();
   test_completed_turn_hides_zero_meter_label_without_losing_arrival();
+  test_street_names_are_never_rendered();
   test_no_turn_suppresses_false_arrow_without_losing_destination_distance();
   test_phone_lifecycle_renders_deterministically();
   test_removed_music_page_ignores_disconnect_media_state();

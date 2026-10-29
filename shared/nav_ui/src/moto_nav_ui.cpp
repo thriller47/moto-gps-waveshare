@@ -118,8 +118,6 @@ struct Ui {
     lv_timer_t *nav_route_motion_timer = nullptr;
     lv_obj_t *nav_marker = nullptr;
     lv_obj_t *nav_status = nullptr;
-    lv_obj_t *nav_street_arc = nullptr;
-    char nav_street_text[96]{};
     lv_obj_t *nav_distance = nullptr;
     lv_obj_t *nav_unit = nullptr;
     lv_obj_t *nav_turn_distance = nullptr;
@@ -1381,39 +1379,7 @@ void update_nav_status(const moto_ui_state_t *state) {
     lv_obj_set_style_text_color(ui.nav_status, color, 0);
 }
 
-void update_street_arc(const moto_ui_state_t *state) {
-#if LV_USE_ARCLABEL
-    if(ui.nav_street_arc == nullptr) return;
-    const char *name = state->next_road_name;
-    if(name == nullptr || name[0] == '\0') name = state->road_name;
-    if(name == nullptr || name[0] == '\0') {
-        lv_obj_add_flag(ui.nav_street_arc, LV_OBJ_FLAG_HIDDEN);
-        ui.nav_street_text[0] = '\0';
-        return;
-    }
-    // Never clip an unbounded instruction into a UTF-8 fragment: hiding an
-    // overlong label is safer than squeezing unreadable text onto the arc.
-    if(std::strlen(name) > 56U || std::strchr(name, '\n') != nullptr ||
-       std::strchr(name, '\r') != nullptr) {
-        lv_obj_add_flag(ui.nav_street_arc, LV_OBJ_FLAG_HIDDEN);
-        ui.nav_street_text[0] = '\0';
-        return;
-    }
-    // Keep updates cheap: the navigation snapshot arrives several times per second.
-    char limited[sizeof(ui.nav_street_text)]{};
-    std::snprintf(limited, sizeof(limited), "%s", name);
-    if(std::strcmp(ui.nav_street_text, limited) != 0) {
-        std::strcpy(ui.nav_street_text, limited);
-        lv_arclabel_set_text(ui.nav_street_arc, ui.nav_street_text);
-    }
-    lv_obj_remove_flag(ui.nav_street_arc, LV_OBJ_FLAG_HIDDEN);
-#else
-    (void)state;
-#endif
-}
-
 void update_navigation(const moto_ui_state_t *state) {
-    update_street_arc(state);
     update_building_geometry(state);
     update_road_geometry(state);
     update_route_geometry(state);
@@ -1429,29 +1395,24 @@ void update_navigation(const moto_ui_state_t *state) {
     ui.navigation_route_request_in_flight =
         state->route_request_in_flight != 0;
     set_navigation_guidance_visible(has_guidance);
-    // Only show turn instructions within 100 m of the actual maneuver.
-    // On long straight stretches the map stays visible without an early arrow.
-    // Close successive turns appear continuously because their distance is
-    // already <= 100 m as soon as the previous maneuver is completed.
-    // Arrival retains its finish flag independently of the threshold.
-    constexpr uint32_t kTurnGuidanceDistanceM = 100U;
-    const bool show_turn = has_guidance &&
-        (state->mode == MOTO_UI_ARRIVED ||
-         (state->has_next_maneuver != 0 &&
-          state->distance_to_maneuver_m <= kTurnGuidanceDistanceM));
-    // The zoomed real route and gray exits replace the unreliable generic
-    // turn arrow. Keep the distance line visible; if map context is absent,
-    // fall back to the original maneuver icon instead.
-    if(!show_turn || state->maneuver_map_zoom_active != 0) {
+    // Show the counter from 150 m. The optional generic icon and the
+    // map zoom keep their previous 100 m range. Once Valhalla reports 0 m,
+    // suppress the stale turn until the next one becomes active.
+    constexpr uint32_t kTurnDistanceThresholdM = 150U;
+    constexpr uint32_t kTurnIconThresholdM = 100U;
+    const bool arrival = state->mode == MOTO_UI_ARRIVED;
+    const bool pending_turn = has_guidance &&
+        state->has_next_maneuver != 0 &&
+        state->distance_to_maneuver_m > 0U;
+    const bool show_turn_distance = has_guidance &&
+        (arrival || (pending_turn &&
+         state->distance_to_maneuver_m <= kTurnDistanceThresholdM));
+    const bool show_turn_icon = has_guidance &&
+        (arrival || (pending_turn &&
+         state->distance_to_maneuver_m <= kTurnIconThresholdM));
+    if(!show_turn_icon || state->maneuver_map_zoom_active != 0) {
         lv_obj_add_flag(ui.nav_maneuver, LV_OBJ_FLAG_HIDDEN);
     }
-    // Valhalla intentionally holds the completed maneuver briefly (and
-    // holds roundabouts until their exit) before releasing the next one.
-    // During that overlap its distance can be zero: never leave "0 m"
-    // stuck on screen. Arrival is separate and still displays "ARRIVO".
-    const bool show_turn_distance = show_turn &&
-        (state->mode == MOTO_UI_ARRIVED ||
-         state->distance_to_maneuver_m > 0U);
     if(!show_turn_distance) {
         lv_obj_add_flag(ui.nav_turn_distance, LV_OBJ_FLAG_HIDDEN);
     }
@@ -1471,15 +1432,14 @@ void update_navigation(const moto_ui_state_t *state) {
     if(state->mode == MOTO_UI_ARRIVED) std::snprintf(value, sizeof(value), "0");
     lv_label_set_text(ui.nav_distance, value);
     lv_label_set_text(ui.nav_unit, unit);
-    // Keep the arrival distance in its existing position, independently of
-    // the new turn-distance line beneath the curved street name.
+    // Keep arrival distance in its original central position,
+    // independent of the turn counter at 8 o'clock.
     lv_obj_align(ui.nav_distance, LV_ALIGN_TOP_MID, 0, px(250));
     lv_obj_align_to(ui.nav_unit, ui.nav_distance, LV_ALIGN_OUT_RIGHT_BOTTOM,
                 px(6), px(-7));
 
-    // Next maneuver distance: always centered beneath the street-name arc.
-    // Keep it a single 28pt label (including the unit) to avoid shifting the
-    // number horizontally as the measurement changes.
+    // Turn distance at 8 o'clock, centered as a single 28pt text label
+    // (including the unit).
     char next_turn[32];
     if(state->mode == MOTO_UI_ARRIVED) {
         std::snprintf(next_turn, sizeof(next_turn), "ARRIVO");
@@ -1666,26 +1626,6 @@ void create_navigation_page() {
     lv_obj_add_event_cb(ui.nav_marker, draw_vehicle_marker,
                         LV_EVENT_DRAW_MAIN_END, nullptr);
 
-#if LV_USE_ARCLABEL
-    // Street name follows the upper circular bezel; the route/map, arrow and
-    // distance retain their existing positions.
-    ui.nav_street_arc = lv_arclabel_create(page);
-    lv_obj_set_size(ui.nav_street_arc, MOTO_UI_CANVAS_WIDTH, MOTO_UI_CANVAS_WIDTH);
-    lv_obj_center(ui.nav_street_arc);
-    lv_obj_set_style_bg_opa(ui.nav_street_arc, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(ui.nav_street_arc, 0, 0);
-    lv_obj_set_style_text_color(ui.nav_street_arc, kWhite, 0);
-    lv_obj_set_style_text_font(ui.nav_street_arc, &lv_font_montserrat_16, 0);
-    lv_arclabel_set_radius(ui.nav_street_arc, px(165));
-    lv_arclabel_set_angle_start(ui.nav_street_arc, 200);
-    lv_arclabel_set_angle_size(ui.nav_street_arc, 140);
-    lv_arclabel_set_text_horizontal_align(ui.nav_street_arc, LV_ARCLABEL_TEXT_ALIGN_CENTER);
-    lv_arclabel_set_dir(ui.nav_street_arc, LV_ARCLABEL_DIR_CLOCKWISE);
-    lv_arclabel_set_text(ui.nav_street_arc, "");
-    lv_obj_add_flag(ui.nav_street_arc, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_clear_flag(ui.nav_street_arc, LV_OBJ_FLAG_CLICKABLE);
-#endif
-
     ui.nav_status = make_label(page, &lv_font_montserrat_16, kAmber, "");
     lv_obj_set_width(ui.nav_status, px(220));
     lv_obj_set_style_text_align(ui.nav_status, LV_TEXT_ALIGN_CENTER, 0);
@@ -1702,13 +1642,13 @@ void create_navigation_page() {
     lv_obj_add_event_cb(ui.nav_maneuver, draw_maneuver_icon,
                         LV_EVENT_DRAW_MAIN_END, nullptr);
 
-    // 28pt distance to the next turn, centered directly below the road name
-    // on the upper bezel. No independent unit widget, so centering is exact.
+    // 28pt turn distance at 8 o'clock: separate from the central
+    // distance-to-destination and the speed-limit badge.
     ui.nav_turn_distance = make_label(
         page, &lv_font_montserrat_28, kWhite, "");
-    lv_obj_set_width(ui.nav_turn_distance, px(266));
+    lv_obj_set_width(ui.nav_turn_distance, px(110));
     lv_obj_set_style_text_align(ui.nav_turn_distance, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(ui.nav_turn_distance, LV_ALIGN_TOP_MID, 0, px(67));
+    lv_obj_align(ui.nav_turn_distance, LV_ALIGN_TOP_LEFT, px(18), px(250));
     lv_obj_clear_flag(ui.nav_turn_distance, LV_OBJ_FLAG_CLICKABLE);
 
     // The destination distance and its unit retain their original position
