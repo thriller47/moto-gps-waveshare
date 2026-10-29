@@ -287,6 +287,50 @@ void test_turn_guidance_appears_only_within_100_meters() {
   CHECK(capture().hash != before_window.hash);
 }
 
+void test_completed_turn_hides_zero_meter_label_without_losing_arrival() {
+  moto_nav_ui_set_reduce_motion(1);
+  moto_nav_ui_set_phone_connection(MOTO_UI_PHONE_ONLINE);
+  moto_ui_state_t state = base_state();
+  fill_route(state, 12);
+  state.remaining_distance_m = 2'400;
+  state.maneuver_map_zoom_active = 1; // Real geometry replaces the arrow.
+  state.has_next_maneuver = 1;
+  state.distance_to_maneuver_m = 1;
+  moto_nav_ui_set_state(&state);
+  pump(260);
+  const Frame one_meter = capture();
+
+  // The phone still reports this maneuver during its post-turn release
+  // buffer, but the completed turn must not leave "0 m" on the screen.
+  state.distance_to_maneuver_m = 0;
+  moto_nav_ui_set_state(&state);
+  const Frame zero_meter = capture();
+  CHECK(zero_meter.hash != one_meter.hash);
+
+  // The zero-meter screen is equivalent to having no imminent maneuver:
+  // no leftover distance label persists while the route remains visible.
+  state.has_next_maneuver = 0;
+  moto_nav_ui_set_state(&state);
+  const Frame no_turn = capture();
+  CHECK(no_turn.hash == zero_meter.hash);
+
+  // A new nearby turn becomes visible immediately, without a stale "0 m".
+  state.has_next_maneuver = 1;
+  state.distance_to_maneuver_m = 25;
+  moto_nav_ui_set_state(&state);
+  CHECK(capture().hash != zero_meter.hash);
+
+  // ARRIVO is a distinct lifecycle indication, not a turn-distance label.
+  state.mode = MOTO_UI_ARRIVED;
+  state.has_next_maneuver = 0;
+  state.maneuver_map_zoom_active = 0;
+  state.maneuver = MOTO_MANEUVER_ARRIVE;
+  state.remaining_distance_m = 0;
+  state.distance_to_maneuver_m = 0;
+  moto_nav_ui_set_state(&state);
+  CHECK(capture().hash != zero_meter.hash);
+}
+
 void test_no_turn_suppresses_false_arrow_without_losing_destination_distance() {
   moto_nav_ui_set_reduce_motion(1);
   moto_nav_ui_set_phone_connection(MOTO_UI_PHONE_ONLINE);
@@ -538,6 +582,7 @@ int main(int argc, char **argv) {
   test_clearing_geometry_leaves_no_residue();
   test_turn_arrows_and_turn_distance_do_not_move_arrival_distance();
   test_turn_guidance_appears_only_within_100_meters();
+  test_completed_turn_hides_zero_meter_label_without_losing_arrival();
   test_no_turn_suppresses_false_arrow_without_losing_destination_distance();
   test_phone_lifecycle_renders_deterministically();
   test_removed_music_page_ignores_disconnect_media_state();

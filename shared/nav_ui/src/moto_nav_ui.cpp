@@ -1445,7 +1445,14 @@ void update_navigation(const moto_ui_state_t *state) {
     if(!show_turn || state->maneuver_map_zoom_active != 0) {
         lv_obj_add_flag(ui.nav_maneuver, LV_OBJ_FLAG_HIDDEN);
     }
-    if(!show_turn) {
+    // Valhalla intentionally holds the completed maneuver briefly (and
+    // holds roundabouts until their exit) before releasing the next one.
+    // During that overlap its distance can be zero: never leave "0 m"
+    // stuck on screen. Arrival is separate and still displays "ARRIVO".
+    const bool show_turn_distance = show_turn &&
+        (state->mode == MOTO_UI_ARRIVED ||
+         state->distance_to_maneuver_m > 0U);
+    if(!show_turn_distance) {
         lv_obj_add_flag(ui.nav_turn_distance, LV_OBJ_FLAG_HIDDEN);
     }
     refresh_lifecycle();
