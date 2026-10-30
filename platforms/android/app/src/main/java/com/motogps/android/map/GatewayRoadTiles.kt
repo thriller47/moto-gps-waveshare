@@ -1,6 +1,7 @@
 package com.motogps.android.map
 
 import org.json.JSONObject
+import com.motogps.android.diagnostics.DiagnosticLog
 import java.io.BufferedWriter
 import java.io.IOException
 import java.net.HttpURLConnection
@@ -70,8 +71,9 @@ internal object GatewayRoadTiles {
     // Public instances can be temporarily unavailable or rate limited.
     // Only one small tile is attempted per GPS position; never fan out requests.
     private val ENDPOINTS = listOf(
-        "https://overpass-api.de/api/interpreter",
-        "https://overpass.kumi.systems/api/interpreter"
+        // Kumi's current, officially documented Overpass endpoint.
+        "https://overpass.private.coffee/api/interpreter",
+        "https://overpass-api.de/api/interpreter"
     )
 
     fun writeTile(tile: Tile, writer: BufferedWriter): Int {
@@ -103,9 +105,13 @@ internal object GatewayRoadTiles {
             } catch (e: IOException) {
                 lastError = e
                 android.util.Log.w("GatewayRoadTiles", "OSM ${tile.key}: ${e.message}")
+                DiagnosticLog.event("OVERPASS_ENDPOINT_ERROR",
+                    "host=${URL(endpoint).host} reason=${e.javaClass.simpleName}: ${e.message.orEmpty().take(120)}")
             } catch (e: org.json.JSONException) {
                 lastError = IOException("Risposta Overpass non valida da $endpoint", e)
                 android.util.Log.w("GatewayRoadTiles", lastError?.message ?: "Risposta Overpass non valida")
+                DiagnosticLog.event("OVERPASS_ENDPOINT_ERROR",
+                    "host=${URL(endpoint).host} invalid_json")
             } finally {
                 conn.disconnect()
             }

@@ -588,11 +588,22 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
 
     fun updateDeviceHeading(headingDeg: Float) {
         isCompassSensorActive = true
-        val normalized = (headingDeg % 360f + 360f) % 360f
-        currentHeadingCentiDeg = (normalized * 100f).toInt().coerceIn(0, 35999)
+        // A phone lying on a car seat is not aligned with the direction of
+        // travel. After the first accepted GPS fix, never let its magnetic
+        // azimuth overwrite the course used to rotate the ESP32 route.
+        val applySensor = NavigationHeadingPolicy.usePhoneSensor(
+            hasFirstFix = hasFirstFix, isNavigating = _isNavigating.value)
+        val normalized = NavigationHeadingPolicy.normalized(headingDeg)
+        if (applySensor && normalized != null) {
+            currentHeadingCentiDeg = (normalized * 100f).toInt().coerceIn(0, 35999)
+        }
         val now = System.currentTimeMillis()
         if (now - lastDiagnosticHeadingMs >= 3000L) {
-            DiagnosticLog.event("PHONE_SENSOR_HEADING", "heading_cdeg=$currentHeadingCentiDeg")
+            DiagnosticLog.event(
+                if (applySensor) "PHONE_SENSOR_HEADING" else "PHONE_SENSOR_IGNORED",
+                "sensor_cdeg=${normalized?.times(100f)?.toInt() ?: -1} " +
+                    "selected_cdeg=$currentHeadingCentiDeg"
+            )
             lastDiagnosticHeadingMs = now
         }
     }
@@ -639,12 +650,6 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         _currentLocation.value = Pair(latitude, longitude)
         val now = System.currentTimeMillis()
         lastLocationTimeMs = now
-        if (now - lastDiagnosticFixMs >= 1000L) {
-            DiagnosticLog.event("GPS_FIX",
-                "provider_course=${gpsBearingDeg ?: "none"} speed_mps=$speedMs " +
-                "heading_cdeg=$currentHeadingCentiDeg")
-            lastDiagnosticFixMs = now
-        }
 
         lastGpsSpeedMs = speedMs
         if (gpsBearingDeg != null && gpsBearingDeg.isFinite() && speedMs >= 3f) {
@@ -658,18 +663,24 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
             currentSpeedDeciKph = (speedMs * 36f).toInt().coerceAtLeast(0)
         }
 
-        if (gpsBearingDeg != null && speedMs > 1.5f) {
-            val normalized = (gpsBearingDeg % 360f + 360f) % 360f
-            currentHeadingCentiDeg = (normalized * 100f).toInt().coerceIn(0, 35999)
-        } else if (speedMs >= 1.5f && prevLat != null && prevLon != null) {
-            // Prefer the real displacement bearing when a moving GNSS fix
-            // lacks course, even if Android's compass sensor is active.
-            val distMeters = calculateDistanceMeters(prevLat!!, prevLon!!, latitude, longitude)
-            if (distMeters >= 4.0) {
-                val calcBearing = calculateBearingDeg(prevLat!!, prevLon!!, latitude, longitude)
-                val normalized = (calcBearing % 360f + 360f) % 360f
-                currentHeadingCentiDeg = (normalized * 100f).toInt().coerceIn(0, 35999)
-            }
+        val displacementM = if (prevLat != null && prevLon != null)
+            calculateDistanceMeters(prevLat!!, prevLon!!, latitude, longitude)
+        else 0.0
+        val displacementCourse = if (displacementM >= 4.0)
+            calculateBearingDeg(prevLat!!, prevLon!!, latitude, longitude)
+        else null
+        val travelCourse = NavigationHeadingPolicy.movingHeading(
+            speedMs, gpsBearingDeg, displacementM, displacementCourse)
+        if (travelCourse != null) {
+            currentHeadingCentiDeg = (travelCourse * 100f).toInt().coerceIn(0, 35999)
+        }
+        // Log the course AFTER arbitration, not the previously selected
+        // compass heading from before this GPS callback.
+        if (now - lastDiagnosticFixMs >= 1000L) {
+            DiagnosticLog.event("GPS_FIX",
+                "provider_course=${gpsBearingDeg ?: "none"} speed_mps=$speedMs " +
+                    "heading_cdeg=$currentHeadingCentiDeg source=${if (travelCourse != null) "movement" else "hold"}")
+            lastDiagnosticFixMs = now
         }
 
         prevLat = latitude
