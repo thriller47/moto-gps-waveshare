@@ -8,6 +8,8 @@
 
 # MOTO GPS · Waveshare Edition
 
+> **Moto GPS Android + ESP32 / branch valhalla:** [Manuale operativo Windows (COM3, Git, flash, MotoMap, grafi, log e radio)](docs/MANUALE_OPERATIVO.md). Le sezioni seguenti del README descrivono in parte il progetto upstream originale.
+
 [Glimpse 官网](https://maler.top/) · [2026-09-16 近期更新](docs/UPDATES_2026-09-16.md) · [Web 调试入口](https://maler.top/moto-gps/ride.html)
 
 ![MOTO GPS 圆屏摩托车导航终端](assets/brand/moto-gps-cover.png)

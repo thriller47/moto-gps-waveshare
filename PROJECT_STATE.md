@@ -147,3 +147,11 @@ Earlier Android and native navigation tests covered `RouteDistanceGuard`, headin
 2. **If stable:** document the A/B outcome, keep logger off, and develop the v2 RAM/BLE design **on a test branch**, with no writes to SPI flash during navigation.
 3. **If still frozen:** instrument the *LVGL worker, QSPI DMA/flush progress and TE gating* with nonintrusive sampling, then isolate by controlled changes. Avoid layering several unrelated fixes into one road test.
 4. **In every session:** inspect the current branch/SHA, applicable `AGENTS.md`, pertinent files and CI; update this document with **what changed, exact tests actually run, remaining hardware verification and next step**.
+
+
+## Operational handbook — 2026-10-30 (documentation only)
+
+- Added **docs/MANUALE_OPERATIVO.md** with reproducible Windows CMD instructions for clone/update of the **valhalla** branch, downloading unmodified **ESP32-Firmware** GitHub Actions artifacts, flashing with the original directory structure at **COM3** (0x0/0x8000/0x20000), converting Geofabrik OSM PBF into MotoMap ZIP, building/importing Valhalla TAR using the official scripted Docker image, reading and decoding legacy flash logs at 0xC20000, and the exact serial-radio commands (including **wifi set SSID|PASSWORD**).
+- Linked the manual visibly from the root README while warning that older README text is upstream/iPhone-oriented.
+- Explicitly marked **ESP32 flash logging disabled** in current builds and **PSRAM→BLE diagnostics v2 not yet implemented**. No firmware/application code was changed and no CI/hardware checks were run for this docs-only update.
+- Next concrete action remains the road A/B test of ESP32 firmware **4c363b8f** without flash diagnostics; revise the manual when the new diagnostics is genuinely implemented and validated.
