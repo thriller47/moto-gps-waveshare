@@ -252,6 +252,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     private var lastSpeedLimitKph = 0
 
     private val locationFixFilter = LocationFixFilter()
+    private val routeDistanceGuard = RouteDistanceGuard()
     private var lastLocationTimeMs: Long = 0L
     private var lastMapSceneSendTimeMs: Long = 0L
     private var lastMapSceneLat: Double = 0.0
@@ -396,6 +397,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                 currentSnapshot = snapshot
                 currentGeometry = geometry
                 turnPlan = guidance
+                routeDistanceGuard.reset()
                 val (startLat, startLon) = currentLocation.value
                 currentSnapshot = updateManeuverAndDistance(startLat, startLon)
                     ?: snapshot
@@ -459,11 +461,11 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                     // offline map lookup / online tile retry alive independently
                     // of location callbacks during an active route.
                     if (loopCount == 1 ||
-                        System.currentTimeMillis() - lastMapSceneSendTimeMs >= 30_000L) {
+                        System.currentTimeMillis() - lastMapSceneSendTimeMs >= 20_000L) {
                         val mapContext = navigationMapsContext
                         if (mapContext != null) {
                             val now = System.currentTimeMillis()
-                            if (loopCount == 1 || now - lastMapSceneSendTimeMs >= 20_000L) {
+                            if (loopCount == 1 || now - lastMapSceneSendTimeMs >= 15_000L) {
                                 lastMapSceneSendTimeMs = now
                                 lastMapSceneLat = lat
                                 lastMapSceneLon = lon
@@ -523,6 +525,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         currentSnapshot = null
         currentGeometry = null
         turnPlan = ValhallaTurnGuidance.Plan(0.0, emptyList())
+        routeDistanceGuard.reset()
 
         val stopSnapshot = MotoBLENavigationSnapshot(
             stateName = "idle",
@@ -638,9 +641,11 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         if (gpsBearingDeg != null && speedMs > 1.5f) {
             val normalized = (gpsBearingDeg % 360f + 360f) % 360f
             currentHeadingCentiDeg = (normalized * 100f).toInt().coerceIn(0, 35999)
-        } else if (!isCompassSensorActive && prevLat != null && prevLon != null) {
+        } else if (speedMs >= 1.5f && prevLat != null && prevLon != null) {
+            // Prefer the real displacement bearing when a moving GNSS fix
+            // lacks course, even if Android's compass sensor is active.
             val distMeters = calculateDistanceMeters(prevLat!!, prevLon!!, latitude, longitude)
-            if (distMeters >= 3.0) {
+            if (distMeters >= 4.0) {
                 val calcBearing = calculateBearingDeg(prevLat!!, prevLon!!, latitude, longitude)
                 val normalized = (calcBearing % 360f + 360f) % 360f
                 currentHeadingCentiDeg = (normalized * 100f).toInt().coerceIn(0, 35999)
@@ -850,7 +855,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         val moved = lastOnlineTileAttemptLat.isNaN() ||
             calculateDistanceMeters(lat, lon, lastOnlineTileAttemptLat, lastOnlineTileAttemptLon) >= 400.0
         if (onlineTileJob?.isActive == true ||
-            (!moved && now - lastOnlineTileAttemptMs < 60_000L)) return
+            (!moved && now - lastOnlineTileAttemptMs < 35_000L)) return
         lastOnlineTileAttemptMs = now
         lastOnlineTileAttemptLat = lat
         lastOnlineTileAttemptLon = lon
@@ -920,6 +925,9 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                 ).toLong()
             }
         }
+        // Do not let a nearest-segment snap at an intersection consume
+        // 20-30m instantaneously and make the next turn disappear early.
+        remainingMeters = routeDistanceGuard.stabilize(remainingMeters, lat, lon)
         val snapshot = baseSnapshot.copy(remainingDistanceM = remainingMeters)
 
         // The next maneuver comes from Valhalla's explicit road geometry.
@@ -1080,10 +1088,10 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                 distanceToSegmentMeters(latitude, longitude, points[i - 1], points[i]))
         }
         val now = System.currentTimeMillis()
-        // Nearby parallel roads and short GPS jumps must not trigger rerouting.
-        // Demand four consecutive, time-separated moving fixes at least 60 m
-        // from the actual route, sustained for >= 6 seconds.
-        if (distanceFromRoute <= 60.0 || lastGpsSpeedMs < 1.5f) {
+        // Recover sooner after a missed turn without rerouting for one
+        // GNSS jump or briefly riding alongside a parallel street.
+        // Require three moving fixes >45m off route for at least 4 seconds.
+        if (distanceFromRoute <= 45.0 || lastGpsSpeedMs < 1.5f) {
             offRouteFixCount = 0
             offRouteFirstFixMs = 0L
             return
@@ -1095,9 +1103,9 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         if (offRouteFixCount == 0) offRouteFirstFixMs = now
         offRouteFixCount++
         lastOffRouteFixMs = now
-        if (offRouteFixCount < 4 || now - offRouteFirstFixMs < 6_000L) return
+        if (offRouteFixCount < 3 || now - offRouteFirstFixMs < 4_000L) return
 
-        if (now - lastRecalculationTime < 15_000L) return
+        if (now - lastRecalculationTime < 10_000L) return
         lastRecalculationTime = now
         offRouteFixCount = 0
         offRouteFirstFixMs = 0L
@@ -1113,6 +1121,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                 currentSnapshot = snapshot
                 currentGeometry = geometry
                 turnPlan = guidance
+                routeDistanceGuard.reset()
                 val refreshed = updateManeuverAndDistance(latitude, longitude)
                     ?: snapshot
                 currentSnapshot = refreshed

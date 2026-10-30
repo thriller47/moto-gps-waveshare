@@ -44,8 +44,8 @@ void test_moving_phone_course_corrects_gyro_drift_progressively() {
   MotionHeadingFusion fusion;
   fusion.anchor(10.0F, 8.0F, true);
   fusion.anchor(110.0F, 10.0F, true);
-  CHECK(fusion.heading_deg() > 70.0F);
-  CHECK(fusion.heading_deg() < 80.0F);
+  CHECK(fusion.heading_deg() > 90.0F);
+  CHECK(fusion.heading_deg() < 95.0F);
 }
 
 void test_first_phone_course_replaces_gyro_local_zero() {
@@ -61,6 +61,19 @@ void test_first_phone_course_replaces_gyro_local_zero() {
   feed_rate(fusion, -90.0F, 8, 248);
   fusion.anchor(180.0F, 12.0F, true);
   CHECK(std::abs(fusion.heading_deg() - 180.0F) < 0.01F);
+}
+
+void test_startup_heading_fast_and_stationary_hold() {
+  MotionHeadingFusion fusion;
+  fusion.anchor(20.0F, 0.0F, true);
+  fusion.anchor(110.0F, 8.0F, true);
+  CHECK(std::abs(fusion.heading_deg() - 110.0F) < 0.01F);
+  fusion.anchor(120.0F, 8.0F, true);
+  CHECK(fusion.heading_deg() > 113.0F);
+  CHECK(fusion.heading_deg() < 117.0F);
+  const float corrected = fusion.heading_deg();
+  fusion.anchor(250.0F, 0.0F, true);
+  CHECK(std::abs(fusion.heading_deg() - corrected) < 0.01F);
 }
 
 void test_unusable_course_never_anchors() {
@@ -141,6 +154,7 @@ int main() {
   test_stationary_phone_course_does_not_drag_handlebar_heading();
   test_moving_phone_course_corrects_gyro_drift_progressively();
   test_first_phone_course_replaces_gyro_local_zero();
+  test_startup_heading_fast_and_stationary_hold();
   test_unusable_course_never_anchors();
   test_forward_facing_mount_yaw_does_not_reverse_at_zero_z();
   test_large_sensor_gap_is_not_integrated();

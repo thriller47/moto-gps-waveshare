@@ -58,7 +58,9 @@ class MotionHeadingFusion {
     // Correct drift progressively to avoid a visible snap during a bend.
     if (moving_course) {
       const float error = shortest_delta(phone, heading_deg_);
-      const float correction = std::abs(error) > 80.0F ? 0.65F : 0.28F;
+      // Align faster during initial pull-away without snapping every
+      // subsequent slightly noisy GNSS course.
+      const float correction = std::abs(error) > 80.0F ? 0.82F : 0.48F;
       heading_deg_ = normalize(heading_deg_ + error * correction);
     }
   }

@@ -54,12 +54,15 @@ internal object GatewayRoadTiles {
      * No Render endpoint is ever consulted.
      */
     fun query(tile: Tile): String {
-        val west = tile.x.toDouble() / GRID * 360.0 - 180.0
-        val east = (tile.x + 1).toDouble() / GRID * 360.0 - 180.0
-        fun latitude(y: Int): Double = Math.toDegrees(
+        // One request for the whole immediate neighbourhood, not a single
+        // tile with the exits across its edges cut off.
+        val margin = 0.4
+        val west = (tile.x - margin) / GRID * 360.0 - 180.0
+        val east = (tile.x + 1.0 + margin) / GRID * 360.0 - 180.0
+        fun latitude(y: Double): Double = Math.toDegrees(
             kotlin.math.atan(kotlin.math.sinh(PI * (1 - 2.0 * y / GRID))))
-        val north = latitude(tile.y)
-        val south = latitude(tile.y + 1)
+        val north = latitude(tile.y - margin)
+        val south = latitude(tile.y + 1.0 + margin)
         val bbox = "${south},${west},${north},${east}"
         return "[out:json][timeout:12];way[highway~\"^(motorway|trunk|primary|secondary|tertiary|residential|unclassified|service|motorway_link|trunk_link|primary_link|secondary_link)$\"]($bbox);out geom($bbox);"
     }
@@ -77,8 +80,9 @@ internal object GatewayRoadTiles {
         for (endpoint in ENDPOINTS) {
             val conn = (URL(endpoint).openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
-                connectTimeout = 9_000
-                readTimeout = 23_000
+                // Keep failed public mirrors from blocking the gray map for minutes.
+                connectTimeout = 5_000
+                readTimeout = 14_000
                 doOutput = true
                 setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=utf-8")
                 setRequestProperty("Accept", "application/json")

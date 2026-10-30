@@ -45,6 +45,20 @@ class GatewayRoadTilesTest {
     }
 
     @Test
+    fun expandedRoadContextIncludesAdjacentTileSpace() {
+        val tile = GatewayRoadTiles.tileFor(45.62, 8.85)
+        val q = GatewayRoadTiles.query(tile)
+        val bbox = q.substringAfter("](").substringBefore(");out geom")
+            .split(',')
+        assertEquals(4, bbox.size)
+        val grid = (1 shl GatewayRoadTiles.ZOOM).toDouble()
+        val left = tile.x / grid * 360.0 - 180.0
+        val right = (tile.x + 1) / grid * 360.0 - 180.0
+        assertTrue(bbox[1].toDouble() < left)
+        assertTrue(bbox[3].toDouble() > right)
+    }
+
+    @Test
     fun overpassGeometryProducesMotomapRoadSegments() {
         val way = JSONObject().put("type", "way")
             .put("tags", JSONObject().put("highway", "residential").put("maxspeed", "30"))
