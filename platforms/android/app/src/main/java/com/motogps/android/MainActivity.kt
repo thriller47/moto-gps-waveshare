@@ -3,6 +3,8 @@ package com.motogps.android
 import android.Manifest
 import android.content.Context
 import android.content.Intent
+import androidx.core.content.FileProvider
+import com.motogps.android.diagnostics.DiagnosticLog
 import android.content.pm.PackageManager
 import android.hardware.Sensor
 import android.hardware.SensorEvent
@@ -49,6 +51,28 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     private var lastBackPressTime = 0L
     private var foregroundLocationCallback: ((Location) -> Unit)? = null
 
+    private fun exportDiagnostics() {
+        Thread {
+            try {
+                val file = DiagnosticLog.exportZip()
+                val uri = FileProvider.getUriForFile(this, "$packageName.diagnostics", file)
+                runOnUiThread {
+                    val send = Intent(Intent.ACTION_SEND).apply {
+                        type = "application/zip"
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    startActivity(Intent.createChooser(send, "Esporta diagnostica Moto GPS"))
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    Toast.makeText(this, "Esportazione non riuscita: ${e.message}",
+                        Toast.LENGTH_LONG).show()
+                }
+            }
+        }.start()
+    }
+
     private val viewModel: NavigationViewModel by viewModels {
         NavigationViewModelFactory(bleManager)
     }
@@ -89,9 +113,11 @@ class MainActivity : ComponentActivity(), SensorEventListener {
 
         bleManager = MotoBLEManager(this).apply {
             onConnectionStateChange = { state ->
+                DiagnosticLog.event("BLE_LINK", state)
                 viewModel.setConnectionState(state)
             }
             onConnectionError = { errorMsg ->
+                DiagnosticLog.event("BLE_ERROR", errorMsg)
                 runOnUiThread {
                     Toast.makeText(this@MainActivity, errorMsg, Toast.LENGTH_LONG).show()
                 }
@@ -171,6 +197,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
 
             MaterialTheme(colorScheme = lightColorScheme()) {
                 NavigationScreen(
+                    onExportDiagnostics = { exportDiagnostics() },
                     onSearch = { query ->
                         viewModel.searchDestination(query)
                     },

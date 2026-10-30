@@ -16,6 +16,7 @@
 #include "moto_nav_presenter.hpp"
 #include "moto_nav_ui.h"
 #include "motion_heading_sensor.h"
+#include "moto_diagnostics.h"
 #include "phone_nav_bridge.h"
 
 #ifdef MOTO_SIGNAL_AUDIO_BOOT_TEST
@@ -77,6 +78,8 @@ void demo_tick_task(void* context) {
     const auto now_ms = static_cast<std::uint64_t>(esp_timer_get_time()) /
                         1'000U;
     bridge->update_demo(now_ms);
+    // Flash writes run here, never in the BLE RX or QMI8658 callbacks.
+    moto_diag_flush();
     // Match the display and route interpolation at 40 Hz. Keeping all three
     // clocks phase-compatible avoids periodic long frame gaps.
     vTaskDelay(pdMS_TO_TICKS(25));
@@ -185,6 +188,8 @@ extern "C" void app_main(void) {
   static_assert(LV_COLOR_DEPTH == MOTO_DISPLAY_BITS_PER_PIXEL,
                 "Firmware and Web must both build the shared UI as RGB565");
 
+  moto_diag_init();
+  moto_diag_event(MotoDiagEvent::Boot, static_cast<int32_t>(esp_reset_reason()));
   ESP_LOGI(kTag, "starting %dx%d RGB565 firmware target",
            MOTO_DISPLAY_WIDTH, MOTO_DISPLAY_HEIGHT);
   ESP_LOGI(kTag, "BOOT_DIAG stage=app_main reset_reason=%d free_internal=%lu largest_internal=%lu",

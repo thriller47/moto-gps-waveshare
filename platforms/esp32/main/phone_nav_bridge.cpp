@@ -9,6 +9,9 @@
 #include "board_port.h"
 #include "demo_fixture/jinan_big_data_demo.hpp"
 #include "esp_log.h"
+#ifdef ESP_PLATFORM
+#include "moto_diagnostics.h"
+#endif
 #include "esp_timer.h"
 #ifdef ESP_PLATFORM
 #include "esp_heap_caps.h"
@@ -393,6 +396,9 @@ void PhoneNavBridge::on_link_state(bool active) {
       media_state_.track_title = "In Attesa...";
     }
   }
+#ifdef ESP_PLATFORM
+  moto_diag_event(MotoDiagEvent::Link, active ? 1 : 0);
+#endif
   // Disconnect only needs to update the navigation lifecycle. The legacy
   // music page is no longer created in SIGNAL; scheduling its media redraw
   // used to dereference missing LVGL labels and trigger task WDT on CPU0.
@@ -743,6 +749,27 @@ void PhoneNavBridge::consume_navigation(
                static_cast<unsigned>(phone_snapshot.route_view_point_count));
     }
   }
+#ifdef ESP_PLATFORM
+  // Sparse incoming BLE snapshots; record all maneuver transitions.
+  static std::uint64_t last_diag_ms = 0;
+  static std::uint32_t last_diag_id = ~std::uint32_t{0};
+  static int last_diag_type = -1;
+  const auto now = monotonic_ms();
+  if (now - last_diag_ms >= 1000 ||
+      last_diag_id != input.maneuver_id ||
+      last_diag_type != static_cast<int>(input.maneuver)) {
+    moto_diag_event(MotoDiagEvent::Snapshot,
+                    static_cast<int32_t>(input.maneuver_id),
+                    static_cast<int32_t>(input.distance_to_maneuver_m),
+                    static_cast<int32_t>(input.heading_cdeg),
+                    static_cast<int32_t>(input.speed_deci_kph),
+                    (static_cast<int32_t>(input.flags) << 8) |
+                        static_cast<int32_t>(input.maneuver));
+    last_diag_ms = now;
+    last_diag_id = input.maneuver_id;
+    last_diag_type = static_cast<int>(input.maneuver);
+  }
+#endif
   present_navigation();
 }
 
@@ -870,6 +897,13 @@ moto::ble::AckStatus PhoneNavBridge::consume_map_scene(
   for (const auto& building : input.buildings) {
     building_point_count += building.points.size();
   }
+#ifdef ESP_PLATFORM
+  moto_diag_event(MotoDiagEvent::MapScene,
+                  static_cast<int32_t>(input.scene_revision),
+                  static_cast<int32_t>(input.roads.size()),
+                  static_cast<int32_t>(road_point_count),
+                  static_cast<int32_t>(input.buildings.size()));
+#endif
   if (input.roads.size() > moto::nav::kRoadContextPolylineCapacity ||
       road_point_count > moto::nav::kRoadContextPointCapacity ||
       input.buildings.size() >
@@ -1039,6 +1073,22 @@ void PhoneNavBridge::render_pending() {
     request_render(requested);
     return;
   }
+#ifdef ESP_PLATFORM
+  if (navigation) {
+    static std::uint64_t last_render_trace_ms = 0;
+    const auto now = monotonic_ms();
+    if (now - last_render_trace_ms >= 1000U) {
+      const auto& state = presenter_.ui_state();
+      moto_diag_event(MotoDiagEvent::Render,
+                      static_cast<int32_t>(state.maneuver),
+                      static_cast<int32_t>(state.distance_to_maneuver_m),
+                      static_cast<int32_t>(state.route_point_count),
+                      static_cast<int32_t>(state.road_polyline_count),
+                      static_cast<int32_t>(state.maneuver_map_zoom_active));
+      last_render_trace_ms = now;
+    }
+  }
+#endif
   if (navigation) {
     moto_nav_ui_set_phone_connection(render_phone_connection_);
     moto_nav_ui_set_demo_active(render_demo_active_ ? 1U : 0U);

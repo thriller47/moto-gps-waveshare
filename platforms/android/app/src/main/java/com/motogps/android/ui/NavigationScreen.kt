@@ -473,7 +473,8 @@ fun NavigationScreen(
     downloadProgress: Float = 0f,
     isDownloadingMap: Boolean = false,
     onCancelDownload: () -> Unit = {},
-    onRefreshMaps: () -> Unit = {}
+    onRefreshMaps: () -> Unit = {},
+    onExportDiagnostics: () -> Unit = {}
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var showOfflineDialog by remember { mutableStateOf(false) }
@@ -547,6 +548,9 @@ fun NavigationScreen(
                         }
                     },
                     actions = {
+                        IconButton(onClick = onExportDiagnostics) {
+                            Icon(Icons.Default.Share, contentDescription = "Esporta diagnostica")
+                        }
                         TextButton(onClick = onBackToSearch) {
                             Text("Cambia", color = MaterialTheme.colorScheme.onSurface)
                         }
@@ -556,6 +560,9 @@ fun NavigationScreen(
                 TopAppBar(
                     title = { Text("MOTO GPS") },
                     actions = {
+                        IconButton(onClick = onExportDiagnostics) {
+                            Icon(Icons.Default.Share, contentDescription = "Esporta diagnostica")
+                        }
                         IconButton(onClick = { showOfflineDialog = true }) {
                             Icon(Icons.Default.Place, contentDescription = "Gestione mappe")
                         }

@@ -10,6 +10,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.motogps.android.ble.MotoBLEManager
+import com.motogps.android.diagnostics.DiagnosticLog
 import com.motogps.android.jni.GeoPointE6
 import com.motogps.android.jni.MotoBLEMapRoadPolyline
 import com.motogps.android.jni.MotoBLEMapScene
@@ -254,6 +255,8 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     private val locationFixFilter = LocationFixFilter()
     private val routeDistanceGuard = RouteDistanceGuard()
     private var lastLocationTimeMs: Long = 0L
+    private var lastDiagnosticFixMs: Long = 0L
+    private var lastDiagnosticHeadingMs: Long = 0L
     private var lastMapSceneSendTimeMs: Long = 0L
     private var lastMapSceneLat: Double = 0.0
     private var lastMapSceneLon: Double = 0.0
@@ -455,6 +458,12 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                         hasFix = hasFirstFix
                     )
                     currentSnapshot = activeSnap
+                    if (loopCount == 1 || loopCount % 4 == 0) {
+                        DiagnosticLog.event("NAV_SNAPSHOT",
+                            "maneuver=${activeSnap.maneuverName} id=${activeSnap.maneuverID} " +
+                            "turn_m=${activeSnap.distanceToManeuverM} remain_m=${activeSnap.remainingDistanceM} " +
+                            "speed_dkph=${activeSnap.speedDeciKPH} heading_cdeg=${activeSnap.headingCentiDegrees}")
+                    }
                     bleManager.sendNavigationSnapshot(activeSnap)
 
                     // A stationary GPS provider may stop emitting fixes. Keep
@@ -581,6 +590,11 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         isCompassSensorActive = true
         val normalized = (headingDeg % 360f + 360f) % 360f
         currentHeadingCentiDeg = (normalized * 100f).toInt().coerceIn(0, 35999)
+        val now = System.currentTimeMillis()
+        if (now - lastDiagnosticHeadingMs >= 3000L) {
+            DiagnosticLog.event("PHONE_SENSOR_HEADING", "heading_cdeg=$currentHeadingCentiDeg")
+            lastDiagnosticHeadingMs = now
+        }
     }
 
     /**
@@ -625,6 +639,12 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         _currentLocation.value = Pair(latitude, longitude)
         val now = System.currentTimeMillis()
         lastLocationTimeMs = now
+        if (now - lastDiagnosticFixMs >= 1000L) {
+            DiagnosticLog.event("GPS_FIX",
+                "provider_course=${gpsBearingDeg ?: "none"} speed_mps=$speedMs " +
+                "heading_cdeg=$currentHeadingCentiDeg")
+            lastDiagnosticFixMs = now
+        }
 
         lastGpsSpeedMs = speedMs
         if (gpsBearingDeg != null && gpsBearingDeg.isFinite() && speedMs >= 3f) {
@@ -755,6 +775,8 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                         calculateDistanceMeters(lat, lon, pt.latitudeE6 / 1e6, pt.longitudeE6 / 1e6)
                     }
                 } ?: Double.POSITIVE_INFINITY
+                DiagnosticLog.event("OSM_CONTEXT", "segments=${segments.size} usable=${usable.size} " +
+                    "nearest_m=${if (closestMeters.isFinite()) closestMeters.toInt() else -1}")
                 if (usable.size < 5 || closestMeters > 250.0) {
                     requestOnlineTileInBackground(lat, lon, context)
                 }
@@ -827,6 +849,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                 // An unavailable map tile must not erase a valid scene that
                 // is already being displayed. Wait for real OSM data.
                 if (roadPolylines.isEmpty()) {
+                    DiagnosticLog.event("OSM_EMPTY", "segments=${segments.size}")
                     Log.w("NavigationVM", "No road context for $lat,$lon: cached segments=${segments.size}")
                     return@launch
                 }
@@ -843,6 +866,8 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                 )
 
                 Log.i("NavigationVM", "Context BLE MEDIUM(12/96): roads=${roadPolylines.size} points=${roadPolylines.sumOf { it.points.size }} sourceSegments=${segments.size}")
+                DiagnosticLog.event("BLE_MAP_SCENE",
+                    "revision=$lastMapSceneRevision roads=${roadPolylines.size} points=${roadPolylines.sumOf { it.points.size }}")
                 bleManager.sendMapScene(scene)
             } catch (e: Exception) {
                 Log.w("NavigationVM", "Error updating map scene and speed limit: ${e.message}")
@@ -861,7 +886,9 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         lastOnlineTileAttemptLon = lon
         onlineTileJob = viewModelScope.launch(Dispatchers.IO) {
             try {
+                DiagnosticLog.event("OVERPASS", "request_start")
                 val available = getOrCreateRepo(context).ensureOnlineTile(lat, lon)
+                DiagnosticLog.event("OVERPASS", "available=$available")
                 Log.i("NavigationVM", "OSM online tile available=$available at $lat,$lon")
                 _downloadStatus.value = if (available)
                     "OSM: dati stradali ricevuti, aggiornamento ESP32..."
@@ -874,6 +901,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                     updateSpeedLimitAndMapScene(currentLat, currentLon, context)
                 }
             } catch (e: Exception) {
+                DiagnosticLog.event("OVERPASS_ERROR", e.message.orEmpty())
                 Log.w("NavigationVM", "OSM online tile fetch failed: ${e.message}")
                 _downloadStatus.value = "Errore strade OSM: ${e.message}"
             }
@@ -1106,6 +1134,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         if (offRouteFixCount < 3 || now - offRouteFirstFixMs < 4_000L) return
 
         if (now - lastRecalculationTime < 10_000L) return
+        DiagnosticLog.event("REROUTE", "trigger off_route_m=${distanceFromRoute.toInt()} speed_mps=$lastGpsSpeedMs")
         lastRecalculationTime = now
         offRouteFixCount = 0
         offRouteFirstFixMs = 0L
@@ -1121,6 +1150,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                 currentSnapshot = snapshot
                 currentGeometry = geometry
                 turnPlan = guidance
+                DiagnosticLog.event("REROUTE", "success")
                 routeDistanceGuard.reset()
                 val refreshed = updateManeuverAndDistance(latitude, longitude)
                     ?: snapshot
@@ -1129,6 +1159,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                 if (geometry != null) sendNearbyRouteGeometry(geometry)
                 bleManager.sendNavigationSnapshot(refreshed)
             } catch (e: Exception) {
+                DiagnosticLog.event("REROUTE_ERROR", e.message.orEmpty())
                 Log.w("NavigationVM", "Route recalculation failed: ${e.message}")
             } finally {
                 rerouteInProgress = false

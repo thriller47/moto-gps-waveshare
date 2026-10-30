@@ -18,6 +18,7 @@ idf_component_register(
         "ble_nav_transport_nimble.cpp"
         "board_port_waveshare_1_75c.cpp"
         "motion_heading_sensor.cpp"
+        "moto_diagnostics.cpp"
         "phone_nav_bridge.cpp"
         "signal_audio_output.cpp"
         "signal_es8311_codec.cpp"
@@ -55,6 +56,7 @@ idf_component_register(
         lvgl
         esp_lcd_co5300
         nvs_flash
+        spi_flash
         bt
         esp32_s3_touch_amoled_1_75c
 )
