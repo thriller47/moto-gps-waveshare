@@ -53,3 +53,19 @@ mutex LVGL, 4 dopo l'acquisizione del mutex, 5 dopo l'applicazione del frame.
 per 250 ms; il task tenta nuovamente senza riavviare né interrompere il BLE.
 `ESP_RENDER` viene ora scritto solo dopo il ritorno dell'aggiornamento UI.
 Questo permette di distinguere il blocco del rendering dalla ricezione BLE.
+
+## Test A/B stabilità display (diagnostica ESP32 disattivata)
+
+Durante la prova senza MotoMap, il display si bloccava ripetutamente dopo
+l'introduzione della diagnostica flash. La build normale ora compila
+`MOTO_ESP_DIAG_FLASH_ENABLED=OFF` di default. Questo **elimina del tutto**
+la scansione e le scritture flash del logger (anche i 64 byte ogni 25 ms
+quando erano presenti eventi), senza modificare il renderer, la navigazione,
+la fusione GPS/giroscopio o lo zoom. Non ripartiziona e non cancella i log
+già presenti in `0xC20000`: sono ancora leggibili con esptool.
+
+Durante questo test non verranno registrati nuovi eventi ESP32; i log Android
+rimangono disponibili con il pulsante Condividi. Il test serve a stabilire
+se le scritture flash erano la causa dei blocchi LVGL. Solo per build da banco,
+è possibile riabilitare esplicitamente la diagnostica ESP32 passando
+`-DMOTO_ESP_DIAG_FLASH_ENABLED=ON` alla configurazione CMake.
