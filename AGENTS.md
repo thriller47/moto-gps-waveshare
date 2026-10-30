@@ -3,7 +3,7 @@
 These instructions apply to the repository unless a more specific AGENTS.md exists deeper in the tree.
 
 ## Start of every coding session
-1. Read `PROJECT_STATE.md` and applicable nested AGENTS.md files.
+1. **Mandatory: always read the root `PROJECT_STATE.md` before analyzing, planning, editing, committing, or resuming work on this project**, even in a new chat or when the task appears small. Review prior decisions, implemented fixes, failed attempts, pending tests, and known regressions so old problems are not reintroduced. Also read applicable nested `AGENTS.md` files.
 2. Use `valhalla` as the active development baseline; `main` is obsolete. Identify active branch, recent commits, current code, relevant tests and CI state. Do not use `main` as the development baseline.
 3. Treat PROJECT_STATE.md as a handoff, **not** proof of implementation; resolve discrepancies by inspecting source.
 4. State scope and potential cross-component impact before changing protocol, routing or navigation behavior.
