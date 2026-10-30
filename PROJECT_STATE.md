@@ -14,9 +14,10 @@ Read root `AGENTS.md` before changes. Keep each session's decisions, changed pat
 ## Project / active branches
 
 - Repository: `https://github.com/thriller47/moto-gps-waveshare` (upstream reference: `mx3353672833-debug/moto-gps-waveshare`).
-- **Active development baseline: `valhalla`**. Latest verified commit at this documentation update: `4c363b8fcd70636bddbe09fd3afddf3b41628ab2`.
-- Other remote branches currently present: `signal` (separate radio/OSRM experimentation) and `test/ble-scene-ack` (BLE/scene ACK experiments). Do not merge their experimental changes into `valhalla` without review/explicit approval.
-- `main` and `NoOta` are obsolete; do not recreate/rebase from them. Upstream is for comparison only; never push to upstream.
+- **Primary/default and sole integration branch: `valhalla`** (confirmed by GitHub repository metadata on 2026-10-30). Last firmware code change covered by this handoff: `4c363b8fcd70636bddbe09fd3afddf3b41628ab2`; subsequent docs-only commits have not altered firmware.
+- **`signal` is retained only as the historical online OSM implementation** (earlier OSRM/gateway approach), not as an active or parallel production branch. Code history may contain separate radio experiments, but that is not its purpose in the branch policy.
+- `test/ble-scene-ack` is a separate, experimental test branch; do not merge without review and explicit permission.
+- **`main` no longer exists**, nor does obsolete `NoOta`. Do not recreate them, target them for merges, or use them as workflow bases. Never push to upstream.
 - Prefer one consolidated commit and **one CI run** per change; avoid unrelated modifications or repeated workflow triggers.
 - Hardware: Waveshare ESP32-S3-Touch-AMOLED-1.75C, 466×466 CO5300 AMOLED, CST9217 touch, QMI8658 gyro, 8 MB PSRAM and 32 MB flash. Firmware ESP-IDF + NimBLE + LVGL; Android companion app communicates via BLE.
 - Windows ESP-IDF / esptool and Android Studio are used for local flashing; a Linux machine is also available.
@@ -43,12 +44,11 @@ Read root `AGENTS.md` before changes. Keep each session's decisions, changed pat
 ## Agreed ESP32 navigation UI — current, not historical
 
 - **Green** selected-route line; gray OSM roads behind it and road labels above the line where present. Route line should cover the useful circular viewport and follow motion smoothly.
-- The **normal turn-arrow glyphs were removed** in commit `61410c27`; keep only the arrival **checkered flag**, along with the regular small bike-position marker. A user nevertheless reported seeing occasional **left-turn and roundabout arrows specifically without MotoMap**. This is an **unresolved observed discrepancy**, not proof that the old arrow renderer is still in the source. Do not dismiss it as a mistaken flash (user confirmed both latest APK and ESP32 firmware were installed).
+- **Turn arrows were removed** in `61410c27`. The user confirms the replacement is **route zoom at turns without arrow glyphs**, including roundabouts. Keep the arrival checkered flag and rider-position marker. A historical no-MotoMap test mentioned arrow-like symbols, but that is not a reason to restore the obsolete arrows.
 - Distance to the next turn: **28 px at roughly 8 o'clock**, visible within **200 m** (changed from earlier proposed center-under-road-name and 100–150 m thresholds). Keep destination distance in its existing central position. The former curved/scrolling street-name arc and verbose turn instructions were removed/hidden by later UI changes.
-- **3.4× progressive zoom near turns**, returning to normal after the maneuver. Commit `9caccf03` removed an obsolete dependency on gray road data: zoom must still work with **green route only**. Never re-enable turn arrows as the fallback for missing context.
+- **Progressive 3.4× zoom around turns is the user-approved final visual guidance**, returning to normal after the maneuver. `9caccf03` allows this with only green route, without gray-road context. No fallback arrows, even without MotoMap.
 - Remove speed, compass, music and OTA pages/functions; retain the speed-limit badge. **Important caveat:** the separate `signal` radio experiment and some radio-mode code remain in the repository; do not confuse those with requested navigation pages.
-- Distance-to-turn still sometimes disappears **up to ~20–30 m before the physical turn** despite progress stabilization. Distinguish a geometrically reached Valhalla maneuver from the actual passed maneuver; do not assume displaying `0 m` means the turn was completed.
-- Roundabouts and back-to-back turns must preserve the current maneuver until actually passed and must not reverse driving direction. Historic wrong/inverted roundabout arrow behavior preceded removal of glyphs.
+- **Historical, superseded turn issues:** inverted roundabout arrows and timing concerns preceded the switch to zoom. An earlier test reported the numeric counter disappearing ~20–30 m before the physical turn; retain as historical evidence, and revisit only if reproduced in the current zoom-based interface. Closely spaced maneuvers must still respect route progress.
 
 ## Recent changes — chronology and reasons (2026-10-28 to 2026-10-30)
 
@@ -57,9 +57,9 @@ Read root `AGENTS.md` before changes. Keep each session's decisions, changed pat
 | `9f29b5cf` · Oct 28 | Established root `PROJECT_STATE.md` / `AGENTS.md` continuity notes. | Document-only baseline, now updated. |
 | `9dabc718` · Oct 28 | Smoother near-turn zoom with shared road context and faster GPS/BLE cadence. | Road tests still showed heading/turn issues. |
 | `70286995`, `c1681ed8` · Oct 29 | Raised zoom, simplified guidance layout / hid verbose road arc, turn distance moved to ~8 o'clock. | Later threshold superseded. |
-| `61410c27` · Oct 29 | Removed ordinary turn arrows; retained arrival checkered flag; set counter to 28 px, near turn from 200 m. | Arrow-like symbols were still reported only when no MotoMap is loaded; origin not confirmed. |
+| `61410c27` · Oct 29 | Removed normal maneuver arrows; retained finish flag and numeric counter. | Arrow-like symbols reported earlier without MotoMap are historical; user chose zoom instead of restoring arrow glyphs. |
 | `887339c2` · Oct 30 | Added `RouteDistanceGuard`, faster route/map checks, more responsive ESP32 heading fusion, more eager reroute (45 m, 3 fixes, 4 s, 10 s cooldown), faster Overpass timeouts / larger bounding area. | Unit/smoke checks and CI do not resolve the premature turn-counter disappearance on road. |
-| `9caccf03` · Oct 30 | Allowed 3.4× turn zoom without gray-road `MapScene`, added native no-context zoom regression test. | Fixes an obsolete code dependency, **not confirmed** to explain unexpected arrow symbols. |
+| `9caccf03` · Oct 30 | Allows 3.4× turn zoom without gray-road `MapScene`, with no-context native test. | **Agreed solution: turn zoom replaces turn-arrow graphics.** |
 | `91db9e3d` · Oct 30 | Added ESP32 flash ring logger (`diag`, 256 KiB at `0xC20000`), Android rotating file logger and shareable ZIP, diagnostics decoder/script. | Android export still active. Flash logger later became the main suspected cause of LVGL stalls. |
 | `ed805f5c` · Oct 30 | Added `NavigationHeadingPolicy`: after first valid fix, ignore handset compass azimuth; use moving GPS course or displacement fallback. Updated Overpass endpoint and endpoint-error diagnostics. | Android-only; physical improvement should be retested. |
 | `9f8dcc6f` · Oct 30 | Capped external LVGL mutex wait at 250 ms and added `RENDER_PHASE` / `DISPLAY_LOCK_TIMEOUT` traces. | Exposed a stalled LVGL/display worker, but timeout **did not cure** the freezes. |
@@ -114,23 +114,27 @@ Relevant code: `platforms/android/app/src/main/java/com/motogps/android/viewmode
 
 Earlier Android and native navigation tests covered `RouteDistanceGuard`, heading selection and no-map zoom. The user reported four green jobs for a separate upstream-comparison test effort; **do not claim those experimental changes were merged** into `valhalla`. No physical-device tests were performed in this documentation session.
 
+## Confirmed decisions — 2026-10-30
+
+- GitHub reports `default_branch=valhalla`; `main` has been removed. `signal` remains **only as historical online OSM/OSRM reference**; `test/ble-scene-ack` is experimental.
+- The user confirmed **turn visualization is resolved by progressive zoom of the green route**: no ordinary maneuver arrows, including at roundabouts and with missing gray context. Historical arrow reports are archived; they are not an active requirement.
+- These updates change **documents and agent guidance only**, not navigation or diagnostic behavior. The ESP32 freeze A/B test without flash logging remains pending.
+
 ## Open problems and priorities
 
 | Priority | Issue | Known facts | Next action |
 | --- | --- | --- | --- |
 | **P0** | ESP32 screen/map freezes | BLE navigation updates still arrive; LVGL mutex timeouts; regression began after flash logger was introduced | Finish A/B road test with logger fully disabled. If it still freezes, instrument LVGL worker/TE/DMA without writing to flash in motion. |
 | **P1** | No gray context without imported MotoMap | Local MotoMap works; public Overpass requests timed out/HTTP 502; changed endpoint needs verification | Review Android ZIP after A/B, verify endpoint responses/OSM cache; prefer offline import as reliable baseline. |
-| **P1** | Turn counter disappears before physical maneuver | Reported up to 20–30 m early; `RouteDistanceGuard` did not fully resolve | Compare maneuver geometry, GPS route progress, release threshold, and zero-distance hiding using captured trace. |
 | **P1** | Heading alignment / phone moving on seat | Magnetic heading was allowed to overwrite travel course; Android code now prioritizes moving GPS | On-road validation of `NavigationHeadingPolicy` + ESP32 QMI8658 fusion. |
-| **P2** | Unexpected left/roundabout glyphs in no-map mode | Reported despite removal of arrow rendering | Safely reproduce without photographing while driving; inspect other draw paths using bench scene replay. |
 | **P2** | ESP32 diagnostic recording for future bugs | Flash logger is unsafe until disproved; now off | Design/test PSRAM→low-priority BLE→Android v2 separately; leave `valhalla` unchanged meanwhile. |
-| Later | Offline place search / Photon; optional radio work | Photon remains online; `signal` isolated | Do not mix these into stability fixes. |
+| Later | Offline search/Photon; historic online-OSM branch | Photon remains online; `signal` is historical only | Do not mix archived online OSM code into `valhalla` stability changes. |
 
 ## Decisions and exclusions to preserve
 
-- Keep `valhalla` as the integration baseline; `signal` and `test/ble-scene-ack` isolated.
+- `valhalla` is the **primary/default branch**; `main` is deleted; `signal` is archived history for online OSM; `test/ble-scene-ack` is experimental.
 - Maintain the **existing destination-distance position**, current turn counter (8 o'clock, 28 px, <=200 m), current zoom 3.4×, green route, genuine gray MotoMap roads, checkered arrival flag and speed-limit badge.
-- **No ordinary turn arrows**, no OTA, no speed/compass/music navigation pages. Any future reintroduction must be an explicit new decision rather than a side effect of fallback rendering.
+- **Use green-route 3.4× zoom for turns, never ordinary left/right/roundabout arrows.** Keep numeric turn and arrival distances and the checkered finish flag. No OTA or speed/compass/music navigation pages.
 - With missing MotoMap, do not make route visibility/zoom dependent on gray context.
 - Preserve Android↔BLE↔ESP32 protocol compatibility; tests are required before packet/schema changes.
 - Do not call a fix “resolved” simply because CI is green or because a reset reason was `POWERON`.
