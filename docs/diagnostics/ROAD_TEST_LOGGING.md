@@ -43,3 +43,13 @@ Record ESP32:
 I log contengono orari, velocità e informazioni sulle manovre, anche se non
 contengono posizioni GPS precise o nomi di strade: condividili privatamente.
 La partizione è circolare e il file Android ruota; salva i file dopo la prova.
+
+## Interpretazione dei blocchi grafici
+
+Il tracciato registra ora `RENDER_PHASE` con questi valori in colonna `a`:
+1 prima della copia dello snapshot, 2 prima della proiezione, 3 prima del
+mutex LVGL, 4 dopo l'acquisizione del mutex, 5 dopo l'applicazione del frame.
+`DISPLAY_LOCK_TIMEOUT` significa che il mutex del display è rimasto occupato
+per 250 ms; il task tenta nuovamente senza riavviare né interrompere il BLE.
+`ESP_RENDER` viene ora scritto solo dopo il ritorno dell'aggiornamento UI.
+Questo permette di distinguere il blocco del rendering dalla ricezione BLE.

@@ -1039,6 +1039,19 @@ void PhoneNavBridge::render_pending() {
   const bool navigation = (requested & RenderNavigation) != 0U;
   const bool motion = !navigation && (requested & RenderMotion) != 0U;
   const bool media = (requested & RenderMedia) != 0U;
+#ifdef ESP_PLATFORM
+  // Trace the exact stage reached by the renderer. These samples stay in the
+  // persistent flash log even when BLE RX continues but the screen freezes.
+  // Throttle to one diagnostic render trace every ~2 seconds.
+  static std::uint64_t last_render_phase_ms = 0;
+  const std::uint64_t render_now_ms = monotonic_ms();
+  const bool trace_render = navigation &&
+      (render_now_ms - last_render_phase_ms >= 2000U);
+  if (trace_render) {
+    last_render_phase_ms = render_now_ms;
+    moto_diag_event(MotoDiagEvent::RenderPhase, 1);  // before snapshot copy
+  }
+#endif
   {
     const std::lock_guard<std::mutex> lock(state_mutex_);
     if (navigation || motion) {
@@ -1057,37 +1070,38 @@ void PhoneNavBridge::render_pending() {
   // Projection is the expensive part of a motion frame (hundreds of map
   // points and trigonometry), but it does not call LVGL. Keep it outside the
   // display mutex so the LVGL worker can finish the previous flush in parallel.
+#ifdef ESP_PLATFORM
+  if (trace_render) moto_diag_event(MotoDiagEvent::RenderPhase, 2);
+#endif
   if (navigation || motion) {
     presenter_.update(render_snapshot_);
   }
-
-  // The BLE worker has already returned before this point in firmware. The
-  // dedicated low-priority renderer is allowed to wait for an in-flight panel
-  // flush without applying backpressure to CoreBluetooth writes.
-  if (!board_port_lock(UINT32_MAX)) {
 #ifdef ESP_PLATFORM
-    // An abnormal BSP failure must not turn into a tight self-notification
-    // loop. Retain the request and retry shortly from this task only.
+  if (trace_render) moto_diag_event(MotoDiagEvent::RenderPhase, 3); // wait LVGL
+  // A stalled display worker must not trap the render task forever. Coalesce
+  // the pending navigation state and try again; never hold the BLE mutex here.
+  constexpr uint32_t kDisplayLockTimeoutMs = 250;
+#else
+  constexpr uint32_t kDisplayLockTimeoutMs = UINT32_MAX;
+#endif
+  if (!board_port_lock(kDisplayLockTimeoutMs)) {
+#ifdef ESP_PLATFORM
+    // The lock was unavailable; log one warning per second, retain the
+    // coalesced frame and retry without interfering with BLE RX.
+    static std::uint64_t last_timeout_trace_ms = 0;
+    const auto now = monotonic_ms();
+    if (now - last_timeout_trace_ms >= 1000U) {
+      moto_diag_event(MotoDiagEvent::RenderLockTimeout,
+                      static_cast<int32_t>(kDisplayLockTimeoutMs));
+      last_timeout_trace_ms = now;
+    }
     vTaskDelay(pdMS_TO_TICKS(10));
 #endif
     request_render(requested);
     return;
   }
 #ifdef ESP_PLATFORM
-  if (navigation) {
-    static std::uint64_t last_render_trace_ms = 0;
-    const auto now = monotonic_ms();
-    if (now - last_render_trace_ms >= 1000U) {
-      const auto& state = presenter_.ui_state();
-      moto_diag_event(MotoDiagEvent::Render,
-                      static_cast<int32_t>(state.maneuver),
-                      static_cast<int32_t>(state.distance_to_maneuver_m),
-                      static_cast<int32_t>(state.route_point_count),
-                      static_cast<int32_t>(state.road_polyline_count),
-                      static_cast<int32_t>(state.maneuver_map_zoom_active));
-      last_render_trace_ms = now;
-    }
-  }
+  if (trace_render) moto_diag_event(MotoDiagEvent::RenderPhase, 4); // LVGL acquired
 #endif
   if (navigation) {
     moto_nav_ui_set_phone_connection(render_phone_connection_);
@@ -1113,6 +1127,18 @@ void PhoneNavBridge::render_pending() {
         (render_media_state_.flags & moto::ble::MediaLiked) != 0U;
     moto_nav_ui_set_music_state(&state);
   }
+#ifdef ESP_PLATFORM
+  if (trace_render) {
+    moto_diag_event(MotoDiagEvent::RenderPhase, 5); // UI method returned
+    const auto& state = presenter_.ui_state();
+    moto_diag_event(MotoDiagEvent::Render,
+                    static_cast<int32_t>(state.maneuver),
+                    static_cast<int32_t>(state.distance_to_maneuver_m),
+                    static_cast<int32_t>(state.route_point_count),
+                    static_cast<int32_t>(state.road_polyline_count),
+                    static_cast<int32_t>(state.maneuver_map_zoom_active));
+  }
+#endif
   board_port_unlock();
 }
 

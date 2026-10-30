@@ -6,7 +6,8 @@ import struct
 from pathlib import Path
 
 STRUCT = struct.Struct("<IIIHH5iI24s")
-LABELS = {1:"BOOT",2:"LINK",3:"NAV_SNAPSHOT",4:"MAP_SCENE",5:"ESP_RENDER"}
+LABELS = {1:"BOOT",2:"LINK",3:"NAV_SNAPSHOT",4:"MAP_SCENE",5:"ESP_RENDER",
+          6:"RENDER_PHASE",7:"DISPLAY_LOCK_TIMEOUT"}
 
 def decode(data):
     result = []
