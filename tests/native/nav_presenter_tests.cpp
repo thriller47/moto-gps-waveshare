@@ -471,18 +471,29 @@ void test_near_turn_zooms_all_map_layers_together_and_restores_scale() {
   const double zoom_offset = rider_y - at_max_zoom.y;
   CHECK(std::abs(zoom_offset - 3.4 * baseline_offset) <= 4.0);
 
-  // Without the surrounding gray streets, retain the arrow and normal view.
+  // Without MotoMap / Overpass roads, navigation still shows the green
+  // route at full 3.4x. This is the real-world case where the legacy
+  // arrow fallback used to be selected.
   snapshot.has_road_context = false;
+  snapshot.road_context_point_count = 0;
+  snapshot.road_context_polyline_count = 0;
   presenter.update(snapshot);
-  CHECK(presenter.ui_state().maneuver_map_zoom_active == 0);
-  CHECK(presenter.ui_state().route_points[1].y == far.y);
-
-  // Completing the roundabout releases zoom, even with scene data cached.
-  snapshot.has_road_context = true;
+  CHECK(presenter.ui_state().maneuver_map_zoom_active == 1);
+  CHECK(presenter.ui_state().road_point_count == 0);
+  CHECK(presenter.ui_state().route_points[1].y == at_max_zoom.y);
+  // Completing the roundabout releases zoom even without scene data.
   snapshot.has_next_maneuver = false;
   presenter.update(snapshot);
   CHECK(presenter.ui_state().maneuver_map_zoom_active == 0);
   CHECK(presenter.ui_state().route_points[1].y == far.y);
+
+  // Missing selected-route geometry is different from missing optional
+  // background map data: do not try to zoom without route vertices.
+  snapshot.has_next_maneuver = true;
+  snapshot.has_route_view = false;
+  presenter.update(snapshot);
+  CHECK(presenter.ui_state().maneuver_map_zoom_active == 0);
+  CHECK(presenter.ui_state().route_point_count == 0);
 }
 
 void test_missing_or_incomplete_geometry_stays_empty() {

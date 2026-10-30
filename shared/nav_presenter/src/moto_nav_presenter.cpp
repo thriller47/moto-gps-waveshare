@@ -17,16 +17,18 @@ constexpr double kUiScale =
 constexpr double kVehicleX = MOTO_UI_CANVAS_WIDTH / 2.0;
 constexpr double kVehicleY = 196.0 * kUiScale;
 // Normal map scale: route, surrounding MotoMap roads and buildings share
-// exactly the same transform. Zoom is continuous, not a discrete level switch.
+// exactly the same transform. The green route can zoom even when no MotoMap
+// or Overpass scene is available. Zoom is continuous, not a level switch.
 constexpr double kMapPixelsPerMeter = 0.44 * kUiScale;
 constexpr double kManeuverZoomStartM = 100.0;
 constexpr double kMaximumManeuverZoom = 3.4;
 
+// The maneuver zoom must never depend on optional road-context availability.
+// The old dependency originated from a fallback to turn arrows, now removed.
 bool maneuver_zoom_available(const NavSnapshot& snapshot) {
   if (snapshot.state != NavState::Navigating ||
       !snapshot.has_next_maneuver ||
       !snapshot.has_route_view || snapshot.route_view_point_count < 2 ||
-      !snapshot.has_road_context || snapshot.road_context_point_count < 2 ||
       !std::isfinite(snapshot.distance_to_next_maneuver_m) ||
       snapshot.distance_to_next_maneuver_m < 0.0 ||
       snapshot.distance_to_next_maneuver_m > kManeuverZoomStartM) {
