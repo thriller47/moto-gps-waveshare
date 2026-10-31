@@ -100,6 +100,12 @@ target_include_directories(connection_epoch_gate_tests PRIVATE
 )
 target_compile_features(connection_epoch_gate_tests PRIVATE cxx_std_17)
 
+add_executable(map_origin_predictor_tests map_origin_predictor_tests.cpp)
+target_include_directories(map_origin_predictor_tests PRIVATE
+  "${CMAKE_CURRENT_LIST_DIR}/../../platforms/esp32/main"
+)
+target_compile_features(map_origin_predictor_tests PRIVATE cxx_std_17)
+
 add_executable(motion_heading_fusion_tests motion_heading_fusion_tests.cpp)
 target_include_directories(motion_heading_fusion_tests PRIVATE
   "${CMAKE_CURRENT_LIST_DIR}/../../platforms/esp32/main"
@@ -136,6 +142,7 @@ add_test(NAME nav_presenter_tests COMMAND nav_presenter_tests)
 add_test(NAME ble_protocol_tests COMMAND ble_protocol_tests)
 add_test(NAME connection_epoch_gate_tests COMMAND connection_epoch_gate_tests)
 add_test(NAME motion_heading_fusion_tests COMMAND motion_heading_fusion_tests)
+add_test(NAME map_origin_predictor_tests COMMAND map_origin_predictor_tests)
 add_test(NAME phone_nav_bridge_tests COMMAND phone_nav_bridge_tests)
 
 # SIGNAL experiment: policy test stays independent of hardware and LVGL.

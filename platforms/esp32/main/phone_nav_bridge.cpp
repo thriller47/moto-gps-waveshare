@@ -519,15 +519,29 @@ void PhoneNavBridge::fill_demo_snapshot(moto::nav::NavSnapshot& output,
 }
 
 void PhoneNavBridge::update_demo(std::uint64_t now_ms) {
+  bool demo = false;
+  bool motion = false;
   {
     const std::lock_guard<std::mutex> lock(state_mutex_);
-    if (!demo_active_) return;
-    const std::uint64_t elapsed_ms = now_ms >= demo_started_ms_
-                                         ? now_ms - demo_started_ms_
-                                         : 0;
-    fill_demo_snapshot(snapshot_, elapsed_ms);
+    demo = demo_active_;
+    if (demo) {
+      const std::uint64_t elapsed_ms = now_ms >= demo_started_ms_
+                                           ? now_ms - demo_started_ms_
+                                           : 0;
+      fill_demo_snapshot(snapshot_, elapsed_ms);
+    } else {
+      motion = snapshot_.state == moto::nav::NavState::Navigating &&
+               snapshot_.has_route_view;
+    }
   }
-  present_navigation();
+  if (demo) {
+    present_navigation();
+  } else if (motion) {
+    // A regular 25 ms position tick keeps the map smooth even when the
+    // QMI8658 has not yielded a new heading sample. Requests coalesce with
+    // the IMU renderer and never enter LVGL from this task.
+    present_motion();
+  }
 }
 
 void PhoneNavBridge::set_demo_active(bool active) {
@@ -829,6 +843,7 @@ moto::ble::AckStatus PhoneNavBridge::consume_geometry(
       }
       geometry_.complete = true;
       geometry_.active = false;
+      ++geometry_sequence_;
       apply_geometry_locked(phone_snapshot_locked());
       complete = true;
       matched_current_snapshot = phone_snapshot_locked().has_route_view;
@@ -1056,6 +1071,7 @@ void PhoneNavBridge::render_pending() {
     const std::lock_guard<std::mutex> lock(state_mutex_);
     if (navigation || motion) {
       render_snapshot_ = snapshot_;
+      render_geometry_sequence_ = geometry_sequence_;
     }
     if (navigation) {
       render_phone_connection_ = ui_phone_connection_;
@@ -1074,6 +1090,23 @@ void PhoneNavBridge::render_pending() {
   if (trace_render) moto_diag_event(MotoDiagEvent::RenderPhase, 2);
 #endif
   if (navigation || motion) {
+    if (!render_demo_active_ &&
+        render_snapshot_.state == moto::nav::NavState::Navigating &&
+        render_snapshot_.has_route_view &&
+        render_snapshot_.route_view_point_count >= 2) {
+      const auto& origin = render_snapshot_.route_view_origin;
+      const auto predicted = map_origin_predictor_.advance(
+          {origin.latitude_deg, origin.longitude_deg}, monotonic_ms(),
+          render_geometry_sequence_, render_snapshot_.route_id,
+          render_snapshot_.route_generation, render_snapshot_.speed_mps,
+          render_snapshot_.heading_deg,
+          render_snapshot_.has_usable_fix && !render_snapshot_.gnss_stale);
+      render_snapshot_.route_view_origin = {
+          predicted.latitude_deg, predicted.longitude_deg};
+    } else {
+      // Clear any previous motion when the demo, route, or GPS changes.
+      map_origin_predictor_ = MapOriginPredictor{};
+    }
     presenter_.update(render_snapshot_);
   }
 #ifdef ESP_PLATFORM

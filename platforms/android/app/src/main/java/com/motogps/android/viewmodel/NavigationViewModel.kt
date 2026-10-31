@@ -673,6 +673,12 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
             speedMs, gpsBearingDeg, displacementM, displacementCourse)
         if (travelCourse != null) {
             currentHeadingCentiDeg = (travelCourse * 100f).toInt().coerceIn(0, 35999)
+            // When the GNSS provider has no bearing, two real fixes still
+            // establish a reliable travel direction for the next reroute.
+            if (speedMs >= 3f && displacementM >= 6.0) {
+                lastReliableGpsBearing = travelCourse
+                lastReliableGpsBearingMs = SystemClock.elapsedRealtime()
+            }
         }
         // Log the course AFTER arbitration, not the previously selected
         // compass heading from before this GPS callback.
@@ -1122,15 +1128,37 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
 
         // Do not mistake distance to the destination for distance to the route.
         var distanceFromRoute = Double.POSITIVE_INFINITY
+        var nearestSegment = -1
         for (i in 1 until points.size) {
-            distanceFromRoute = minOf(distanceFromRoute,
-                distanceToSegmentMeters(latitude, longitude, points[i - 1], points[i]))
+            val distance = distanceToSegmentMeters(
+                latitude, longitude, points[i - 1], points[i])
+            if (distance < distanceFromRoute) {
+                distanceFromRoute = distance
+                nearestSegment = i
+            }
         }
         val now = System.currentTimeMillis()
-        // Recover sooner after a missed turn without rerouting for one
-        // GNSS jump or briefly riding alongside a parallel street.
-        // Require three moving fixes >45m off route for at least 4 seconds.
-        if (distanceFromRoute <= 45.0 || lastGpsSpeedMs < 1.5f) {
+        val bearingIsFresh = SystemClock.elapsedRealtime() -
+            lastReliableGpsBearingMs in 0L..3_000L
+        val reverseCourse = if (nearestSegment > 0 && bearingIsFresh) {
+            val from = points[nearestSegment - 1]
+            val to = points[nearestSegment]
+            RouteDirectionPolicy.isOpposite(
+                lastReliableGpsBearing,
+                calculateBearingDeg(
+                    from.latitudeE6 / 1e6, from.longitudeE6 / 1e6,
+                    to.latitudeE6 / 1e6, to.longitudeE6 / 1e6),
+                lastGpsSpeedMs, distanceFromRoute,
+                calculateDistanceMeters(
+                    from.latitudeE6 / 1e6, from.longitudeE6 / 1e6,
+                    to.latitudeE6 / 1e6, to.longitudeE6 / 1e6)
+            )
+        } else false
+        // Moving in the opposite direction on the same road is not the same
+        // as following the route. Require repeated fixes before rerouting,
+        // to reject brief compass/GNSS errors on sharp bends.
+        val farFromRoute = distanceFromRoute > 45.0
+        if ((!farFromRoute && !reverseCourse) || lastGpsSpeedMs < 1.5f) {
             offRouteFixCount = 0
             offRouteFirstFixMs = 0L
             return
@@ -1142,10 +1170,19 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         if (offRouteFixCount == 0) offRouteFirstFixMs = now
         offRouteFixCount++
         lastOffRouteFixMs = now
-        if (offRouteFixCount < 3 || now - offRouteFirstFixMs < 4_000L) return
+        val minimumFixes = if (farFromRoute) 2 else 3
+        val minimumDurationMs = if (farFromRoute) 1_500L else 2_000L
+        if (offRouteFixCount < minimumFixes ||
+            now - offRouteFirstFixMs < minimumDurationMs) return
 
-        if (now - lastRecalculationTime < 10_000L) return
-        DiagnosticLog.event("REROUTE", "trigger off_route_m=${distanceFromRoute.toInt()} speed_mps=$lastGpsSpeedMs")
+        // The public FOSSGIS online endpoint is a fair-use demo service:
+        // leave more breathing room than the local embedded Valhalla graph.
+        val usesOnline = lastRoutingProvider == "valhalla-online" ||
+            navigationMapsContext?.let { !OfflineValhallaRouter.hasTiles(it) } == true
+        val cooldownMs = if (usesOnline) 15_000L else 8_000L
+        if (now - lastRecalculationTime < cooldownMs) return
+        DiagnosticLog.event("REROUTE",
+            "trigger off_route_m=${distanceFromRoute.toInt()} reverse=$reverseCourse speed_mps=$lastGpsSpeedMs")
         lastRecalculationTime = now
         offRouteFixCount = 0
         offRouteFirstFixMs = 0L
@@ -1264,13 +1301,16 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         if (!hasFirstFix)
             throw IllegalStateException("Fix GPS assente: impossibile navigare")
         val (originLat, originLon) = currentLocation.value
-        val bearing = if (isReroute && lastGpsSpeedMs >= 3f &&
+        // A moving route departure needs the same road-direction hint as a
+        // reroute. Do not substitute the phone's magnetic compass at rest.
+        val bearing = if (lastGpsSpeedMs >= 3f &&
             SystemClock.elapsedRealtime() - lastReliableGpsBearingMs in 0L..5_000L)
             lastReliableGpsBearing else null
         val pending = if (isReroute) activeWaypoints.drop(nextWaypointIndex)
             else _routeWaypoints.value
         val result = resolveRoute(originLat, originLon, place, isReroute, bearing, pending)
-        lastRoutingProvider = "Valhalla"
+        lastRoutingProvider = result.optJSONObject("route")
+            ?.optString("provider", "Valhalla") ?: "Valhalla"
         val (snapshot, geometry) = parseMotoRouteResponse(
             result, originLat, originLon, place)
         return PlannedNavigation(

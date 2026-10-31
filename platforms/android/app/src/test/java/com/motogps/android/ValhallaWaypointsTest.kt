@@ -45,6 +45,24 @@ class ValhallaWaypointsTest {
         assertEquals(120.0, locations.getJSONObject(0).getDouble("heading"), 0.0)
     }
 
+    @Test fun gpsDirectionIsIntegerAndUsedOnMovingDeparture() {
+        val request = OnlineValhallaRouter.request(
+            45.81, 9.33, 46.1, 9.6,
+            gpsBearing = 359.8f, rerouting = false)
+        val origin = request.getJSONArray("locations").getJSONObject(0)
+        assertEquals(0, origin.getInt("heading"))
+        assertEquals(45, origin.getInt("heading_tolerance"))
+        assertTrue(origin.get("heading") is Int)
+
+        val west = OnlineValhallaRouter.request(
+            45.81, 9.33, 46.1, 9.6,
+            gpsBearing = -90f, rerouting = true)
+        assertEquals(270,
+            west.getJSONArray("locations").getJSONObject(0).getInt("heading"))
+        val stationary = OnlineValhallaRouter.request(45.81, 9.33, 46.1, 9.6)
+        assertFalse(stationary.getJSONArray("locations").getJSONObject(0).has("heading"))
+    }
+
     @Test fun marksReachedWaypointsOneByOne() {
         assertEquals(0, ValhallaRouteLocations.nextIndex(0, stops, 45.5, 9.0))
         assertEquals(1, ValhallaRouteLocations.nextIndex(0, stops, 45.7, 9.2))

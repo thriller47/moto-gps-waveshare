@@ -4,6 +4,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.math.cos
 import kotlin.math.hypot
+import kotlin.math.roundToInt
 
 /** Ordered Valhalla stops. 'break' generates legs and arrival/departure guidance. */
 internal object ValhallaRouteLocations {
@@ -21,9 +22,12 @@ internal object ValhallaRouteLocations {
             return JSONObject().put("lat", lat).put("lon", lon).put("type", "break")
         }
         val departure = point(fromLat, fromLon)
-        if (rerouting && bearing != null && bearing.isFinite() &&
-            bearing in 0f..359.999f) {
-            departure.put("heading", bearing.toDouble()).put("heading_tolerance", 45)
+        // Valhalla parses heading as an integer. Sending a float can cause
+        // the preference to be silently ignored by the offline/HTTP engine.
+        // Use the GNSS travel course for both moving departures and reroutes.
+        if (bearing != null && bearing.isFinite()) {
+            val degrees = (((bearing % 360f + 360f) % 360f).roundToInt()) % 360
+            departure.put("heading", degrees).put("heading_tolerance", 45)
         }
         val locations = JSONArray().put(departure)
         stops.forEach { locations.put(point(it.first, it.second)) }

@@ -41,8 +41,10 @@ internal object OnlineValhallaRouter {
             fromLat, fromLon, toLat, toLon, rerouting, gpsBearing, preferences, waypoints)
         val conn = (URL(ENDPOINT).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
-            connectTimeout = 10_000
-            readTimeout = 25_000
+            // Fail visibly rather than holding a recalculation for 25 seconds
+            // on a congested public demo. Never auto-retry 429/503.
+            connectTimeout = 8_000
+            readTimeout = 15_000
             doOutput = true
             setRequestProperty("Content-Type", "application/json; charset=utf-8")
             setRequestProperty("Accept", "application/json")
@@ -55,6 +57,9 @@ internal object OnlineValhallaRouter {
             if (status !in 200..299) {
                 val details = conn.errorStream?.bufferedReader()?.use { it.readText() }
                     ?.take(180)?.replace("\n", " ") ?: ""
+                if (status == 429) {
+                    throw IOException("Valhalla online: limite richieste del server pubblico (HTTP 429)")
+                }
                 throw IOException("Valhalla online HTTP $status: $details")
             }
             val body = conn.inputStream.bufferedReader().use { it.readText() }

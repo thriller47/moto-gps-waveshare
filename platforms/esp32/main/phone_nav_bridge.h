@@ -8,6 +8,7 @@
 #include "moto/ble_protocol/ble_protocol.hpp"
 #include "moto_nav_presenter.hpp"
 #include "motion_heading_fusion.hpp"
+#include "map_origin_predictor.hpp"
 
 #ifdef ESP_PLATFORM
 #include "freertos/FreeRTOS.h"
@@ -93,6 +94,11 @@ class PhoneNavBridge {
   // road/building projection.
   moto::nav::NavSnapshot render_snapshot_{};
   GeometryAssembly geometry_{};
+  // Geometry arrivals are sparse GPS anchors; the renderer interpolates
+  // position at IMU/display cadence without sending extra BLE frames.
+  std::uint32_t geometry_sequence_ = 0;
+  std::uint32_t render_geometry_sequence_ = 0;
+  MapOriginPredictor map_origin_predictor_{};
   SendCallback sender_ = nullptr;
   void* sender_context_ = nullptr;
   // BLE decoding runs on moto_ble_rx while touch callbacks run on the LVGL
