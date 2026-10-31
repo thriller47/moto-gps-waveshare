@@ -161,3 +161,9 @@ Earlier Android and native navigation tests covered `RouteDistanceGuard`, headin
 - Confermato sul PC dell'utente: framework in `C:\Espressif\frameworks\esp-idf-v5.5.6`, virtualenv Python in `C:\Espressif\python_env\idf5.5_py3.10_env`, repository in `C:\moto-gps-waveshare`.
 - `export.bat` falliva finché cercava Python sotto `C:\Users\MoD\.espressif`; la procedura riuscita è stata `install.bat esp32s3`, poi impostare `$env:IDF_TOOLS_PATH = "C:\Espressif"` prima dell'export. Verificato `idf.py --version` → `ESP-IDF v5.5.6-dirty`.
 - Aggiunta una procedura di reinstallazione Windows e recupero funzione PowerShell `moto` senza Notepad a `docs/MANUALE_OPERATIVO.md`. **Non confondere attivazione riuscita con compilazione/flashing/hardware verificati**. CI GitHub continua su 5.5.5. Solo documentazione; nessun test o CI eseguito.
+
+## Windows reinstall and handbook path correction — 2026-10-31
+
+- The user's **current**, confirmed Windows installation uses ESP-IDF 5.5.6 under `C:\Espressif\frameworks\esp-idf-v5.5.6`, Python **3.11.2** at `C:\Espressif\python_env\idf5.5_py3.11_env\Scripts\python.exe`, and checkout `C:\MotoGPS\moto-gps-waveshare`. Supersedes earlier 3.10 / `C:\moto-gps-waveshare` paths for the current workstation.
+- Activation requires setting `IDF_TOOLS_PATH=C:\Espressif` and prepending the Python 3.11 venv Scripts directory to the session PATH. `install.bat esp32s3` then completed successfully; `export.bat` reported Python dependencies OK and ESP-IDF activation. User confirmed that PowerShell shortcut `moto` works after `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` enabled the local profile. No post-reinstall build/flash verification reported.
+- Updated `docs/MANUALE_OPERATIVO.md` with the reproduced repair sequence, PowerShell-vs-CMD distinction, script execution policy, and current clone/update paths. Documentation-only change; no CI triggered intentionally. Next: user can test local ESP32 build when convenient.
