@@ -509,6 +509,32 @@ void test_supersession_duplicate_message_and_wrap() {
   }
 }
 
+void test_optional_diagnostics_extension() {
+  for (const auto control : {DiagnosticControl{0}, DiagnosticControl{1}, DiagnosticControl{2}}) {
+    const Bytes b = encode_or_fail(Message{control});
+    const auto result = decode_message(MessageType::DiagnosticControl, ByteView(b));
+    CHECK(result.ok());
+    if (result.ok()) CHECK(std::get<DiagnosticControl>(result.value) == control);
+  }
+  CHECK(encode_message(Message{DiagnosticControl{3}}).error == Error::InvalidEnum);
+  DiagnosticBatch batch;
+  for (int i=0;i<4;++i) {
+    DiagnosticRecord r;
+    r.sequence = 100+i; r.uptime_ms = 4000+i; r.event = 5;
+    r.values[0] = -i;
+    batch.records.push_back(r);
+  }
+  const Bytes data = encode_or_fail(Message{batch});
+  CHECK(data.size() == 130);
+  const auto back = decode_message(MessageType::DiagnosticBatch, ByteView(data));
+  CHECK(back.ok());
+  if (back.ok()) CHECK(std::get<DiagnosticBatch>(back.value) == batch);
+  CHECK(fragment_or_fail(MessageType::DiagnosticBatch, 34, data, 182).size() == 1);
+  auto invalid = data; invalid.pop_back();
+  CHECK(!decode_message(MessageType::DiagnosticBatch, ByteView(invalid)).ok());
+  batch.records.resize(5);
+  CHECK(encode_message(Message{batch}).error == Error::TooManyItems);
+}
 void test_validation_failures() {
   Bytes revision = encode_or_fail(Message{heartbeat_fixture()});
   revision[0] = 2;
@@ -617,6 +643,7 @@ int main(int argc, char** argv) {
   test_crc_duplicate_gap_conflict_and_timeout();
   test_supersession_duplicate_message_and_wrap();
   test_validation_failures();
+  test_optional_diagnostics_extension();
   test_link_watchdog();
 
   if (failures != 0) {

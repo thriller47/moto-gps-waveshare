@@ -68,6 +68,8 @@ class MotoBLEProtocolCodec {
         const val MSG_MEDIA_STATE: Byte = 0x13
         const val MSG_MAP_SCENE: Byte = 0x14
         const val MSG_DEVICE_COMMAND: Byte = 0x20
+        const val MSG_DIAGNOSTIC_CONTROL: Byte = 0x21
+        const val MSG_DIAGNOSTIC_BATCH: Byte = 0x22
 
         private val idGenerator = AtomicLong(1L)
         private val instances = ConcurrentHashMap<Long, CodecStorage>()
@@ -235,6 +237,16 @@ class MotoBLEProtocolCodec {
         return fragmentMessage(storage, MSG_MEDIA_STATE, payload, ackRequested = false, urgent = false)
     }
 
+    fun nativeEncodeDiagnosticControl(ptr: Long, mode: Int): Array<ByteArray> {
+        val storage = instances[ptr] ?: return emptyArray()
+        if (mode !in 0..2) return emptyArray()
+        val writer = Writer()
+        writer.writeU8(PAYLOAD_REVISION.toInt())
+        writer.writeU8(mode)
+        return fragmentMessage(storage, MSG_DIAGNOSTIC_CONTROL,
+            writer.toByteArray(), ackRequested = false, urgent = true)
+    }
+
     fun nativePushDeviceFrame(ptr: Long, frame: ByteArray, receivedAtMs: Long): MotoBLEInboundMessage {
         val storage = instances[ptr] ?: return MotoBLEInboundMessage(0, false, false, false, null, null, null, null)
 
@@ -277,6 +289,7 @@ class MotoBLEProtocolCodec {
         var heartbeat: MotoBLEHeartbeat? = null
         var ack: MotoBLEAcknowledgement? = null
         var command: MotoBLEDeviceCommand? = null
+        var diagnosticRecords: List<MotoBLEDiagnosticRecord> = emptyList()
         var isComplete = false
 
         if (ends && storage.reassemblyBuffer.size == storage.activeMessageLength) {
@@ -301,6 +314,21 @@ class MotoBLEProtocolCodec {
                                 connStatus = MotoBLEConnectionStatus(
                                     role, state, minVer, maxVer, capabilities, sessionId, maxFrameSize, hbInterval
                                 )
+                            }
+                        }
+                        MSG_DIAGNOSTIC_BATCH -> {
+                            if (reader.remaining() >= 1) {
+                                val count = reader.readU8()
+                                if (count in 1..4 && reader.remaining() == count * 32) {
+                                    diagnosticRecords = List(count) {
+                                        val eventSequence = reader.readU32()
+                                        val uptimeMs = reader.readU32()
+                                        val event = reader.readU16()
+                                        val reserved = reader.readU16()
+                                        val values = List(5) { reader.readU32().toInt() }
+                                        MotoBLEDiagnosticRecord(eventSequence, uptimeMs, event, values, reserved)
+                                    }.filter { it.event in 1..7 && it.reserved == 0 }
+                                }
                             }
                         }
                         MSG_DEVICE_COMMAND -> {
@@ -330,7 +358,8 @@ class MotoBLEProtocolCodec {
             connStatus = connStatus,
             heartbeat = heartbeat,
             ack = ack,
-            command = command
+            command = command,
+            diagnosticRecords = diagnosticRecords
         )
     }
 

@@ -475,6 +475,15 @@ Error validate(const MapScene& value) {
   return Error::None;
 }
 
+Error validate(const DiagnosticControl& value) {
+  return value.mode <= 2 ? Error::None : Error::InvalidEnum;
+}
+Error validate(const DiagnosticBatch& value) {
+  if (value.records.empty() || value.records.size() > 4) return Error::TooManyItems;
+  for (const auto& record : value.records)
+    if (record.event == 0 || record.reserved != 0) return Error::OutOfRange;
+  return Error::None;
+}
 Error validate(const DeviceCommand& value) {
   if (!valid_command_kind(value.kind) || !valid_display_page(value.page)) {
     return Error::InvalidEnum;
@@ -607,6 +616,15 @@ BytesResult encode_payload(const T& value) {
     for (const MapBuildingFootprint& building : value.buildings) {
       writer.u8(static_cast<std::uint8_t>(building.building_class));
       write_points(building.points);
+    }
+  } else if constexpr (std::is_same_v<T, DiagnosticControl>) {
+    writer.u8(value.mode);
+  } else if constexpr (std::is_same_v<T, DiagnosticBatch>) {
+    writer.u8(static_cast<std::uint8_t>(value.records.size()));
+    for (const auto& record : value.records) {
+      writer.u32(record.sequence); writer.u32(record.uptime_ms);
+      writer.u16(record.event); writer.u16(record.reserved);
+      for (auto field : record.values) writer.s32(field);
     }
   } else if constexpr (std::is_same_v<T, DeviceCommand>) {
     writer.u8(static_cast<std::uint8_t>(value.kind));
@@ -890,6 +908,34 @@ MessageResult decode_map_scene(ByteView payload) {
   return decoded_result(std::move(value), reader);
 }
 
+MessageResult decode_diagnostic_control(ByteView payload) {
+  Reader reader(payload);
+  DiagnosticControl value;
+  if (begin_payload(reader)) { value.mode = reader.u8(); reader.require_end(); }
+  return decoded_result(std::move(value), reader);
+}
+MessageResult decode_diagnostic_batch(ByteView payload) {
+  Reader reader(payload);
+  DiagnosticBatch value;
+  if (begin_payload(reader)) {
+    const auto count = reader.u8();
+    if (count == 0 || count > 4) reader.fail(Error::TooManyItems);
+    if (reader.ok() && reader.remaining() != count * 32U)
+      reader.fail(Error::TruncatedPayload);
+    if (reader.ok()) {
+      value.records.reserve(count);
+      for (std::uint8_t i = 0; i < count; ++i) {
+        DiagnosticRecord record;
+        record.sequence = reader.u32(); record.uptime_ms = reader.u32();
+        record.event = reader.u16(); record.reserved = reader.u16();
+        for (auto& field : record.values) field = reader.s32();
+        value.records.push_back(record);
+      }
+      reader.require_end();
+    }
+  }
+  return decoded_result(std::move(value), reader);
+}
 MessageResult decode_device_command(ByteView payload) {
   Reader reader(payload);
   DeviceCommand value;
@@ -1475,6 +1521,10 @@ MessageType message_type(const Message& message) noexcept {
           return MessageType::MediaState;
         } else if constexpr (std::is_same_v<T, MapScene>) {
           return MessageType::MapScene;
+        } else if constexpr (std::is_same_v<T, DiagnosticControl>) {
+          return MessageType::DiagnosticControl;
+        } else if constexpr (std::is_same_v<T, DiagnosticBatch>) {
+          return MessageType::DiagnosticBatch;
         } else {
           return MessageType::DeviceCommand;
         }
@@ -1503,6 +1553,10 @@ MessageResult decode_message(MessageType type, ByteView payload) {
     case MessageType::MapScene: return decode_map_scene(payload);
     case MessageType::DeviceCommand:
       return decode_device_command(payload);
+    case MessageType::DiagnosticControl:
+      return decode_diagnostic_control(payload);
+    case MessageType::DiagnosticBatch:
+      return decode_diagnostic_batch(payload);
   }
   return {{}, Error::UnknownMessageType, 0};
 }

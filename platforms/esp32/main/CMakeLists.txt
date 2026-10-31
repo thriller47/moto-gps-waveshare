@@ -10,14 +10,8 @@ set(MOTO_SHARED_NAV_PRESENTER_SOURCE
 set(MOTO_SHARED_BLE_PROTOCOL_SOURCE
     "${MOTO_REPOSITORY_ROOT}/shared/ble_protocol/src/ble_protocol.cpp")
 
-# Stability A/B: avoid all SPI flash writes/scans while routing and LVGL
-# continuously render from PSRAM. The 256 KiB partition is preserved.
-# Enable only in a controlled bench build after diagnosing the freezes.
-option(MOTO_ESP_DIAG_FLASH_ENABLED "Enable persistent ESP32 flash diagnostic logging (experimental)" OFF)
-set(MOTO_ESP_DIAG_SOURCES "")
-if(MOTO_ESP_DIAG_FLASH_ENABLED)
-    list(APPEND MOTO_ESP_DIAG_SOURCES "moto_diagnostics.cpp")
-endif()
+# Diagnostics use a bounded PSRAM ring, controlled from Android. The flash
+# logger remains out of the firmware in ALL build configurations.
 
 # The shared UI source is compiled directly into this ESP-IDF component. Do not
 # copy it into platforms/esp32: Web and firmware must execute the same code.
@@ -27,7 +21,7 @@ idf_component_register(
         "ble_nav_transport_nimble.cpp"
         "board_port_waveshare_1_75c.cpp"
         "motion_heading_sensor.cpp"
-        ${MOTO_ESP_DIAG_SOURCES}
+        "moto_diagnostics_ram.cpp"
         "phone_nav_bridge.cpp"
         "signal_audio_output.cpp"
         "signal_es8311_codec.cpp"
@@ -70,11 +64,7 @@ idf_component_register(
         esp32_s3_touch_amoled_1_75c
 )
 
-if(MOTO_ESP_DIAG_FLASH_ENABLED)
-    target_compile_definitions(${COMPONENT_LIB} PRIVATE MOTO_ESP_DIAG_FLASH_ENABLED=1)
-else()
-    target_compile_definitions(${COMPONENT_LIB} PRIVATE MOTO_ESP_DIAG_FLASH_ENABLED=0)
-endif()
+# Do not define or link the old flash logger, even in debug builds.
 
 target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_17)
 target_compile_options(${COMPONENT_LIB} PRIVATE

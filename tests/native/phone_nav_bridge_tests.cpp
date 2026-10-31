@@ -95,6 +95,26 @@ void test_sender_is_called_without_bridge_state_lock() {
   CHECK(sender.last_page == moto::ble::DisplayPage::Speed);
 }
 
+void test_diagnostic_control_is_opt_in_and_requires_link() {
+  moto::nav::NavPresenter presenter;
+  PhoneNavBridge bridge(presenter);
+  // OFF and no link by default, the control must not enable capture.
+  CHECK(bridge.on_message(make_message(
+      moto::ble::Message{moto::ble::DiagnosticControl{2}}, 1)) ==
+      moto::ble::AckStatus::InvalidState);
+  bridge.on_link_state(true);
+  CHECK(bridge.on_message(make_message(
+      moto::ble::Message{moto::ble::DiagnosticControl{1}}, 2)) ==
+      moto::ble::AckStatus::Ok);
+  CHECK(bridge.on_message(make_message(
+      moto::ble::Message{moto::ble::DiagnosticControl{0}}, 3)) ==
+      moto::ble::AckStatus::Ok);
+  bridge.on_link_state(false);
+  CHECK(bridge.on_message(make_message(
+      moto::ble::Message{moto::ble::DiagnosticControl{2}}, 4)) ==
+      moto::ble::AckStatus::InvalidState);
+}
+
 void test_navigation_and_touch_updates_are_serialized() {
   moto::test::reset_phone_nav_bridge_probe();
   moto::nav::NavPresenter presenter;
@@ -591,6 +611,7 @@ void test_imu_presentation_preserves_40hz_phase_and_stale_course_is_ignored() {
 int main() {
   test_sender_is_called_without_bridge_state_lock();
   test_navigation_and_touch_updates_are_serialized();
+  test_diagnostic_control_is_opt_in_and_requires_link();
   test_ble_submission_never_waits_for_lvgl_and_retries_latest_state();
   test_phone_connection_lifecycle_reaches_the_ui();
   test_music_capability_state_and_touch_commands();

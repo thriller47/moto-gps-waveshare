@@ -9,9 +9,7 @@
 #include "board_port.h"
 #include "demo_fixture/jinan_big_data_demo.hpp"
 #include "esp_log.h"
-#ifdef ESP_PLATFORM
 #include "moto_diagnostics.h"
-#endif
 #include "esp_timer.h"
 #ifdef ESP_PLATFORM
 #include "esp_heap_caps.h"
@@ -356,6 +354,7 @@ void PhoneNavBridge::on_link_state(bool active) {
       return;
     }
     link_active_ = active;
+    if (!active) moto_diag_set_mode(0);
     ui_phone_connection_ = active ? MOTO_UI_PHONE_CONNECTING
                                   : MOTO_UI_PHONE_OFFLINE;
     auto& phone_snapshot = phone_snapshot_locked();
@@ -544,6 +543,18 @@ void PhoneNavBridge::update_demo(std::uint64_t now_ms) {
   }
 }
 
+void PhoneNavBridge::service_diagnostics(std::uint64_t now_ms) {
+  // Called only by the low-priority 25 ms demo clock; no work from BLE RX or
+  // from the 40 Hz display renderer. No send or allocation when OFF.
+  if (moto_diag_mode() == 0 || now_ms - last_diagnostic_send_ms_ < 1'000U)
+    return;
+  last_diagnostic_send_ms_ = now_ms;
+  moto::ble::DiagnosticBatch batch;
+  if (!moto_diag_take_batch(batch)) return;
+  if (sender_ != nullptr)
+    (void)sender_(moto::ble::Message{std::move(batch)}, 0, sender_context_);
+}
+
 void PhoneNavBridge::set_demo_active(bool active) {
   {
     const std::lock_guard<std::mutex> lock(state_mutex_);
@@ -614,6 +625,18 @@ moto::ble::AckStatus PhoneNavBridge::on_message(
           if (phone_session_id != 0 && value.session_id != phone_session_id) {
             return moto::ble::AckStatus::InvalidState;
           }
+        } else if constexpr (std::is_same_v<T, moto::ble::DiagnosticControl>) {
+          // Only the connected phone can request capture. OFF is always safe.
+          {
+            const std::lock_guard<std::mutex> lock(state_mutex_);
+            if (!link_active_) return moto::ble::AckStatus::InvalidState;
+          }
+          moto_diag_set_mode(value.mode);
+          if (value.mode != 0) {
+            moto_diag_event(MotoDiagEvent::Boot, value.mode);
+          }
+        } else if constexpr (std::is_same_v<T, moto::ble::DiagnosticBatch>) {
+          return moto::ble::AckStatus::Unsupported;
         } else if constexpr (
             std::is_same_v<T, moto::ble::NavigationSnapshot>) {
           consume_navigation(value);

@@ -117,6 +117,8 @@ enum class MessageType : std::uint8_t {
   MediaState = 0x13,
   MapScene = 0x14,
   DeviceCommand = 0x20,
+  DiagnosticControl = 0x21,
+  DiagnosticBatch = 0x22,
 };
 
 enum FrameFlag : std::uint8_t {
@@ -273,6 +275,7 @@ enum Capability : std::uint32_t {
   CapabilityMusicCommands = 1U << 5U,
   CapabilityCommandAck = 1U << 6U,
   CapabilityMapScene = 1U << 7U,
+  CapabilityDiagnosticsRam = 1U << 8U,
 };
 
 struct ConnectionStatus {
@@ -553,6 +556,31 @@ struct DeviceCommand {
   bool operator==(const DeviceCommand& rhs) const noexcept;
 };
 
+// Optional, coordinate-free diagnostic extension, disabled by default.
+struct DiagnosticControl {
+  std::uint8_t mode = 0; // 0=OFF, 1=BASE, 2=DEBUG
+  bool operator==(const DiagnosticControl& rhs) const noexcept {
+    return mode == rhs.mode;
+  }
+};
+struct DiagnosticRecord {
+  std::uint32_t sequence = 0, uptime_ms = 0;
+  std::uint16_t event = 0, reserved = 0;
+  std::int32_t values[5]{};
+  bool operator==(const DiagnosticRecord& rhs) const noexcept {
+    if (sequence != rhs.sequence || uptime_ms != rhs.uptime_ms ||
+        event != rhs.event || reserved != rhs.reserved) return false;
+    for (int i = 0; i < 5; ++i) if (values[i] != rhs.values[i]) return false;
+    return true;
+  }
+};
+static_assert(sizeof(DiagnosticRecord) == 32, "diagnostic record ABI");
+struct DiagnosticBatch {
+  std::vector<DiagnosticRecord> records;
+  bool operator==(const DiagnosticBatch& rhs) const noexcept {
+    return records == rhs.records;
+  }
+};
 using Message = std::variant<ConnectionStatus,
                              Heartbeat,
                              Ack,
@@ -561,7 +589,9 @@ using Message = std::variant<ConnectionStatus,
                              TrafficDeviation,
                              MediaState,
                              MapScene,
-                             DeviceCommand>;
+                             DeviceCommand,
+                             DiagnosticControl,
+                             DiagnosticBatch>;
 
 using MessageResult = Result<Message>;
 

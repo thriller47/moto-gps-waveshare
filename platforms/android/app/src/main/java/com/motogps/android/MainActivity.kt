@@ -13,6 +13,8 @@ import android.hardware.SensorManager
 import android.location.Location
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
@@ -50,6 +52,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     private var lastSentHeadingTime = 0L
     private var lastBackPressTime = 0L
     private var foregroundLocationCallback: ((Location) -> Unit)? = null
+    private var diagnosticMode by mutableStateOf(0)
+    private val diagnosticTimeoutHandler = Handler(Looper.getMainLooper())
+    private val diagnosticTimeout = Runnable { diagnosticMode = 0 }
 
     private fun exportDiagnostics() {
         Thread {
@@ -115,6 +120,13 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             onConnectionStateChange = { state ->
                 DiagnosticLog.event("BLE_LINK", state)
                 viewModel.setConnectionState(state)
+                if (!state.contains("Connesso", ignoreCase = true)) {
+                    diagnosticTimeoutHandler.removeCallbacks(diagnosticTimeout)
+                    diagnosticMode = 0
+                }
+            }
+            onDiagnosticBatchReceived = { records ->
+                DiagnosticLog.esp32Batch(records)
             }
             onConnectionError = { errorMsg ->
                 DiagnosticLog.event("BLE_ERROR", errorMsg)
@@ -198,6 +210,23 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             MaterialTheme(colorScheme = lightColorScheme()) {
                 NavigationScreen(
                     onExportDiagnostics = { exportDiagnostics() },
+                    diagnosticMode = diagnosticMode,
+                    onDiagnosticModeChange = { mode ->
+                        if (bleManager.setDiagnosticMode(mode)) {
+                            diagnosticMode = mode
+                            diagnosticTimeoutHandler.removeCallbacks(diagnosticTimeout)
+                            if (mode != 0) {
+                                diagnosticTimeoutHandler.postDelayed(
+                                    diagnosticTimeout, 10L * 60L * 1000L
+                                )
+                            }
+                            DiagnosticLog.event("ESP32_DIAG_MODE", "mode=$mode")
+                        } else {
+                            Toast.makeText(this@MainActivity,
+                                "Connetti l'ESP32 prima di attivare il log",
+                                Toast.LENGTH_SHORT).show()
+                        }
+                    },
                     onSearch = { query ->
                         viewModel.searchDestination(query)
                     },
@@ -324,6 +353,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             LocationForegroundService.onLocationUpdate = null
         }
         foregroundLocationCallback = null
+        diagnosticTimeoutHandler.removeCallbacks(diagnosticTimeout)
         if (::bleManager.isInitialized) bleManager.close()
         if (isFinishing) {
             stopService(Intent(this, LocationForegroundService::class.java))

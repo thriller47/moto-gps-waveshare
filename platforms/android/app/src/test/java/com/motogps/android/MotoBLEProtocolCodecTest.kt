@@ -22,6 +22,46 @@ class MotoBLEProtocolCodecTest {
     }
 
     @Test
+    fun diagnosticControlUsesDedicatedProtocolType() {
+        for (mode in 0..2) {
+            val frames = codec.nativeEncodeDiagnosticControl(handle, mode)
+            assertEquals(1, frames.size)
+            assertEquals(MotoBLEProtocolCodec.MSG_DIAGNOSTIC_CONTROL, frames[0][2])
+            assertEquals(1.toByte(), frames[0][10])
+            assertEquals(mode.toByte(), frames[0][11])
+        }
+        assertTrue(codec.nativeEncodeDiagnosticControl(handle, 3).isEmpty())
+    }
+
+    @Test
+    fun diagnosticRecordsDecodeWithoutGpsData() {
+        val payload = ByteArray(34)
+        payload[0] = 1 // revision
+        payload[1] = 1 // one record
+        payload[2] = 42 // sequence
+        payload[6] = 100 // uptime milliseconds
+        payload[10] = 7 // RenderLockTimeout
+        payload[14] = 250.toByte() // first signed int32 event field
+        val frame = ByteArray(12 + payload.size)
+        frame[0] = 0xB7.toByte()
+        frame[1] = 1
+        frame[2] = MotoBLEProtocolCodec.MSG_DIAGNOSTIC_BATCH
+        frame[3] = 3
+        frame[4] = 5
+        frame[8] = payload.size.toByte()
+        System.arraycopy(payload, 0, frame, 10, payload.size)
+        val crc = MotoBLEProtocolCodec.crc16CcittFalse(frame, frame.size - 2)
+        frame[frame.size - 2] = crc.toByte()
+        frame[frame.size - 1] = (crc ushr 8).toByte()
+        val result = codec.nativePushDeviceFrame(handle, frame, 1000)
+        assertTrue(result.complete)
+        assertEquals(1, result.diagnosticRecords.size)
+        assertEquals(42L, result.diagnosticRecords.single().sequence)
+        assertEquals(7, result.diagnosticRecords.single().event)
+        assertEquals(250, result.diagnosticRecords.single().values.first())
+    }
+
+    @Test
     fun testPhoneStartingFrameEncoding() {
         val sessionId = 12345678L
         val frames = codec.nativeEncodePhoneStarting(handle, sessionId)

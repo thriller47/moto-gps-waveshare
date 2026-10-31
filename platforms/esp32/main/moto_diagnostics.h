@@ -1,24 +1,31 @@
 #pragma once
 #include <cstdint>
+#include "moto/ble_protocol/ble_protocol.hpp"
 
-// Compact, anonymized persistent ring buffer in the diagnostic flash partition.
+// Diagnostic events are deliberately numeric: no GPS coordinates or streets.
 enum class MotoDiagEvent : std::uint16_t {
   Boot = 1, Link = 2, Snapshot = 3, MapScene = 4, Render = 5,
   RenderPhase = 6, RenderLockTimeout = 7
 };
-// Flash diagnostics are OFF by default for the road-test A/B isolation.
-// Keep call sites, but compile them to true no-ops (no queues, PSRAM
-// accesses, partition scans, flash erases or writes).
-#if defined(MOTO_ESP_DIAG_FLASH_ENABLED) && MOTO_ESP_DIAG_FLASH_ENABLED
+
+// Runtime OFF is the default: no flash, no queueing, no BLE traffic and
+// no frame-by-frame work except the producer's atomic enabled check.
+#ifdef ESP_PLATFORM
 void moto_diag_init() noexcept;
+void moto_diag_set_mode(std::uint8_t mode) noexcept;
+std::uint8_t moto_diag_mode() noexcept;
 void moto_diag_event(MotoDiagEvent event, std::int32_t a = 0,
                      std::int32_t b = 0, std::int32_t c = 0,
                      std::int32_t d = 0, std::int32_t e = 0) noexcept;
-void moto_diag_flush() noexcept;
+bool moto_diag_take_batch(moto::ble::DiagnosticBatch& batch) noexcept;
 #else
 inline void moto_diag_init() noexcept {}
+inline void moto_diag_set_mode(std::uint8_t) noexcept {}
+inline std::uint8_t moto_diag_mode() noexcept { return 0; }
 inline void moto_diag_event(MotoDiagEvent, std::int32_t = 0,
                             std::int32_t = 0, std::int32_t = 0,
                             std::int32_t = 0, std::int32_t = 0) noexcept {}
-inline void moto_diag_flush() noexcept {}
+inline bool moto_diag_take_batch(moto::ble::DiagnosticBatch&) noexcept {
+  return false;
+}
 #endif

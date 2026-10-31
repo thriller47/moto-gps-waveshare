@@ -78,8 +78,9 @@ void demo_tick_task(void* context) {
     const auto now_ms = static_cast<std::uint64_t>(esp_timer_get_time()) /
                         1'000U;
     bridge->update_demo(now_ms);
-    // Flash writes run here, never in the BLE RX or QMI8658 callbacks.
-    moto_diag_flush();
+    // A maximum of one small diagnostic BLE batch/second, only when
+    // explicitly enabled by Android. OFF does no work and never writes flash.
+    bridge->service_diagnostics(now_ms);
     // Match the display and route interpolation at 40 Hz. Keeping all three
     // clocks phase-compatible avoids periodic long frame gaps.
     vTaskDelay(pdMS_TO_TICKS(25));

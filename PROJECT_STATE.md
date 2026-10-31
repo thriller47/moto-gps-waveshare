@@ -2,6 +2,56 @@
 
 > **Updated: 2026-10-30** (Europe/Rome). Living project handoff; checked against the `valhalla` source, Git history, and GitHub Actions on this date. **Code/CI success is not proof of on-road hardware stability.**
 
+## Aggiornamento 2026-10-31 — prova su strada e diagnostica RAM opzionale
+
+**Ramo:** `valhalla`. Modifica corrente: nuova diagnostica RAM/Android
+(commit di questa revisione; SHA consultabile nella cronologia Git). Progetto
+in precedenza aggiornato con `612a0c5`: interpolazione mappa,
+direzione GNSS nei ricalcoli e limiti servizio online. La Project Build di
+`612a0c5` è risultata **success** su GitHub Actions, ma la prova su strada
+di quelle modifiche resta da effettuare.
+
+**Resoconto dell'utente, 31 ottobre:** prova su strada senza blocchi con il
+logger flash ESP32 disattivato; lo zoom risulta corretto, la traslazione
+della mappa avanza ancora a scatti nel vecchio firmware. Il confronto prima/
+dopo l'introduzione del logger attribuisce con elevata confidenza i blocchi
+alle operazioni diagnostiche sulla flash, pur senza una traccia hardware che
+dimostri il preciso meccanismo di stallo. Non riabilitare il flash logger.
+
+**Modifiche diagnostiche implementate in questa revisione:**
+- `moto_diagnostics_ram.cpp` sostituisce il vecchio logger flash nel build
+  ESP32: 64 KiB PSRAM, 2048 record numerici, OFF al boot, BASE/DEBUG solo
+  su comando BLE, timeout di 10 minuti, reset OFF a disconnessione;
+  niente letture/scritture/cancellazioni flash da questo modulo.
+- `moto_diagnostics.h`, `phone_nav_bridge.*` e `app_main.cpp` espongono
+  l'interfaccia runtime; registrazioni con brevi sezioni critiche, trasmissione
+  da task non grafico a massimo 4 record/secondo. Nessun invio diagnostico
+  dall'ESP32 quando OFF.
+- Estensione opzionale del protocollo BLE in `shared/ble_protocol`:
+  comando modalità 0x21, batch numerico 0x22 e capability dedicata, senza
+  cambiare i payload dei messaggi di navigazione.
+- App Android: pulsante LOG con OFF/BASE/DEBUG, comando esplicito soltanto
+  alla scelta utente, file ruotati `esp32-current.log`/
+  `esp32-previous.log` aggiunti allo ZIP di diagnostica, timeout di 10
+  minuti per l'indicatore UI. La diagnostica Android preesistente rimane.
+- Test aggiunti: roundtrip/validazione messaggi BLE, controllo opt-in
+  del bridge nativo, encoder/decoder di eventi Android.
+- Documentazione: `docs/ESP32_DIAGNOSTICA_RAM.md`.
+
+**Verifiche:** modifiche sorgente ispezionate; CI Android/native/ESP32
+**da eseguire con il commit**; nessuna prova su hardware eseguita in questa
+sessione. Una CI verde non dimostra che BASE/DEBUG siano innocui su strada.
+
+**Rischi aperti:** perdita dei record ancora in PSRAM dopo reset/assenza BLE;
+possibile ritardo dei pacchetti diagnostici se il link è congestionato;
+l'acquisizione DEBUG richiede test di carico e non deve essere usata come
+modalità predefinita.
+
+**Prossima azione:** verificare la CI unica della revisione, poi flashare
+Android ed ESP32 compatibili e fare prima la prova su strada **LOG OFF**
+(confrontando fluidità e stabilità), successivamente una prova controllata
+BASE/DEBUG ed esportare il file ZIP.
+
 ## Sources of truth and working rules
 
 1. The currently checked-out branch code, build configuration and tests.

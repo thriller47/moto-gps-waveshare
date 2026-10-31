@@ -18,6 +18,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.ParcelUuid
 import android.util.Log
+import com.motogps.android.jni.MotoBLEDiagnosticRecord
 import com.motogps.android.jni.MotoBLEDeviceCommand
 import com.motogps.android.jni.MotoBLEMapScene
 import com.motogps.android.jni.MotoBLENavigationSnapshot
@@ -39,6 +40,7 @@ class MotoBLEManager(private val context: Context) {
     var onConnectionStateChange: ((String) -> Unit)? = null
     var onConnectionError: ((String) -> Unit)? = null
     var onDeviceCommandReceived: ((MotoBLEDeviceCommand) -> Unit)? = null
+    var onDiagnosticBatchReceived: ((List<MotoBLEDiagnosticRecord>) -> Unit)? = null
 
     @Volatile private var bluetoothGatt: BluetoothGatt? = null
     private var connectedDevice: BluetoothDevice? = null
@@ -95,6 +97,16 @@ class MotoBLEManager(private val context: Context) {
     }
 
     fun getCurrentSessionId(): Long = currentSessionId
+
+    /** No command is sent at boot or reconnect: explicit user opt-in only. */
+    fun setDiagnosticMode(mode: Int): Boolean {
+        if (mode !in 0..2 || bluetoothGatt == null ||
+            handshakeState != HandshakeState.COMPLETED || codecPtr == 0L) return false
+        val frames = bleCodec.nativeEncodeDiagnosticControl(codecPtr, mode)
+        if (frames.isEmpty()) return false
+        enqueueSendFramesTask(frames)
+        return true
+    }
 
     fun sendNavigationSnapshot(snapshot: MotoBLENavigationSnapshot) {
         if (bluetoothGatt == null || handshakeState != HandshakeState.COMPLETED) return
@@ -496,6 +508,9 @@ class MotoBLEManager(private val context: Context) {
             if (cmd != null) {
                 mainHandler.post { onDeviceCommandReceived?.invoke(cmd) }
             }
+            if (inboundMessage.diagnosticRecords.isNotEmpty()) {
+                onDiagnosticBatchReceived?.invoke(inboundMessage.diagnosticRecords)
+            }
         }
     }
 
@@ -623,6 +638,7 @@ class MotoBLEManager(private val context: Context) {
         onConnectionStateChange = null
         onConnectionError = null
         onDeviceCommandReceived = null
+        onDiagnosticBatchReceived = null
         if (codecPtr != 0L) {
             bleCodec.nativeDestroy(codecPtr)
             codecPtr = 0L

@@ -2,6 +2,7 @@ package com.motogps.android.diagnostics
 
 import android.content.Context
 import android.os.SystemClock
+import com.motogps.android.jni.MotoBLEDiagnosticRecord
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -50,6 +51,30 @@ object DiagnosticLog {
         }
     }
 
+    /** Never block the BLE callback with file I/O. */
+    fun esp32Batch(records: List<MotoBLEDiagnosticRecord>) {
+        val dir = root ?: return
+        if (records.isEmpty()) return
+        val wall = System.currentTimeMillis()
+        worker.execute {
+            try {
+                val current = File(dir, "esp32-current.log")
+                if (current.length() >= MAX_FILE_BYTES) {
+                    val previous = File(dir, "esp32-previous.log")
+                    if (previous.exists()) previous.delete()
+                    current.renameTo(previous)
+                }
+                current.appendText(records.joinToString("") { record ->
+                    "wall_ms=$wall esp32_uptime_ms=${record.uptimeMs} " +
+                        "seq=${record.sequence} event=${record.event} " +
+                        "v=${record.values.joinToString(",")}\n"
+                })
+            } catch (_: Exception) {
+                // Never interrupt BLE or navigation because of diagnostics.
+            }
+        }
+    }
+
     /** Call from a background thread; waits for pending log events first. */
     fun exportZip(): File {
         val dir = requireNotNull(root) { "Diagnostic logger not initialized" }
@@ -57,7 +82,7 @@ object DiagnosticLog {
             val exportDir = File(dir, "exports").apply { mkdirs() }
             val zipFile = File(exportDir, "motogps-android-diagnostics.zip")
             ZipOutputStream(zipFile.outputStream().buffered()).use { zip ->
-                for (name in listOf("previous.log", "current.log")) {
+                for (name in listOf("previous.log", "current.log", "esp32-previous.log", "esp32-current.log")) {
                     val file = File(dir, name)
                     if (file.isFile) {
                         zip.putNextEntry(ZipEntry(name))

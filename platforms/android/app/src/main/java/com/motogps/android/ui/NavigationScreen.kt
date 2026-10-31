@@ -474,10 +474,13 @@ fun NavigationScreen(
     isDownloadingMap: Boolean = false,
     onCancelDownload: () -> Unit = {},
     onRefreshMaps: () -> Unit = {},
-    onExportDiagnostics: () -> Unit = {}
+    onExportDiagnostics: () -> Unit = {},
+    diagnosticMode: Int = 0,
+    onDiagnosticModeChange: (Int) -> Unit = {}
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var showOfflineDialog by remember { mutableStateOf(false) }
+    var showDiagnosticsDialog by remember { mutableStateOf(false) }
     var showRoutePreferencesDialog by remember { mutableStateOf(false) }
     var showWaypointsSheet by remember { mutableStateOf(false) }
 
@@ -517,6 +520,34 @@ fun NavigationScreen(
         )
     }
 
+    if (showDiagnosticsDialog) {
+        AlertDialog(
+            onDismissRequest = { showDiagnosticsDialog = false },
+            title = { Text("Diagnostica ESP32") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("OFF per la navigazione ordinaria. BASE registra eventi critici, DEBUG include rendering e BLE. Solo PSRAM: nessuna scrittura flash. Spegnimento automatico dopo 10 minuti.")
+                    for ((mode, label) in listOf(0 to "OFF", 1 to "BASE", 2 to "DEBUG")) {
+                        OutlinedButton(
+                            onClick = {
+                                onDiagnosticModeChange(mode)
+                                showDiagnosticsDialog = false
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text((if (diagnosticMode == mode) "✓ " else "") + label)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showDiagnosticsDialog = false }) {
+                    Text("Chiudi")
+                }
+            }
+        )
+    }
+
     if (showOfflineDialog) {
         OfflineMapsDialog(
             savedMaps = savedMaps,
@@ -548,6 +579,9 @@ fun NavigationScreen(
                         }
                     },
                     actions = {
+                        TextButton(onClick = { showDiagnosticsDialog = true }) {
+                            Text("LOG")
+                        }
                         IconButton(onClick = onExportDiagnostics) {
                             Icon(Icons.Default.Share, contentDescription = "Esporta diagnostica")
                         }
@@ -560,6 +594,9 @@ fun NavigationScreen(
                 TopAppBar(
                     title = { Text("MOTO GPS") },
                     actions = {
+                        TextButton(onClick = { showDiagnosticsDialog = true }) {
+                            Text("LOG")
+                        }
                         IconButton(onClick = onExportDiagnostics) {
                             Icon(Icons.Default.Share, contentDescription = "Esporta diagnostica")
                         }
