@@ -155,3 +155,9 @@ Earlier Android and native navigation tests covered `RouteDistanceGuard`, headin
 - Linked the manual visibly from the root README while warning that older README text is upstream/iPhone-oriented.
 - Explicitly marked **ESP32 flash logging disabled** in current builds and **PSRAM→BLE diagnostics v2 not yet implemented**. No firmware/application code was changed and no CI/hardware checks were run for this docs-only update.
 - Next concrete action remains the road A/B test of ESP32 firmware **4c363b8f** without flash diagnostics; revise the manual when the new diagnostics is genuinely implemented and validated.
+
+## Ambiente Windows ESP-IDF 5.5.6 — 2026-10-31
+
+- Confermato sul PC dell'utente: framework in `C:\Espressif\frameworks\esp-idf-v5.5.6`, virtualenv Python in `C:\Espressif\python_env\idf5.5_py3.10_env`, repository in `C:\moto-gps-waveshare`.
+- `export.bat` falliva finché cercava Python sotto `C:\Users\MoD\.espressif`; la procedura riuscita è stata `install.bat esp32s3`, poi impostare `$env:IDF_TOOLS_PATH = "C:\Espressif"` prima dell'export. Verificato `idf.py --version` → `ESP-IDF v5.5.6-dirty`.
+- Aggiunta una procedura di reinstallazione Windows e recupero funzione PowerShell `moto` senza Notepad a `docs/MANUALE_OPERATIVO.md`. **Non confondere attivazione riuscita con compilazione/flashing/hardware verificati**. CI GitHub continua su 5.5.5. Solo documentazione; nessun test o CI eseguito.

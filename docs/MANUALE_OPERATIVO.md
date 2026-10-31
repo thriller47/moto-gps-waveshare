@@ -1,4 +1,4 @@
-# Moto GPS — Manuale operativo (Windows CMD)
+# Moto GPS — Manuale operativo (Windows CMD e PowerShell)
 
 **Riferimento:** repository thriller47/moto-gps-waveshare, branch principale **valhalla**. 
 **Scheda:** Waveshare ESP32-S3-Touch-AMOLED-1.75C, 32 MB flash, 8 MB PSRAM.
@@ -6,6 +6,134 @@
 **Aggiornato:** 30 ottobre 2026. Controllare prima PROJECT_STATE.md e AGENTS.md.
 
 > **Attenzione:** il branch main è stato eliminato; signal resta solo come storico OSM online. Non usare né main né NoOta come base. Effettuare il flash soltanto con immagini della scheda 1.75C.
+
+## 0. Reinstallare Windows: configurare ESP-IDF 5.5.6 e il comando moto
+
+Questa procedura documenta **i percorsi e i comandi realmente usati e verificati sul PC**. Vale per Windows 10/PowerShell e la Waveshare ESP32-S3. Su una nuova installazione il nome utente e i percorsi potrebbero cambiare.
+
+### A. Installare ESP-IDF
+
+1. Installare Git for Windows e Python, se richiesti dall'installer Espressif.
+2. Installare **ESP-IDF 5.5.6** con l'installer Windows ufficiale (https://dl.espressif.com/dl/esp-idf/). Durante l'installazione selezionare il supporto **ESP32-S3** e, se possibile, questi percorsi già verificati:
+   - Framework: \`C:\Espressif\frameworks\esp-idf-v5.5.6\`
+   - Tool e ambienti Python: \`C:\Espressif\`
+   - Repository Moto GPS: \`C:\moto-gps-waveshare\`
+3. **Non presumere che l'installazione sia riuscita solo perché l'installer termina.** Il primo tentativo aveva creato il framework ma non trovava l'ambiente Python nel percorso predefinito.
+
+Controllare la presenza dello script in PowerShell:
+
+~~~powershell
+Test-Path "C:\Espressif\frameworks\esp-idf-v5.5.6\export.bat"
+~~~
+
+Se la directory esiste ma Python non è pronto, eseguire lo script di installazione **che ha funzionato su questo PC**:
+
+~~~powershell
+cd C:\Espressif\frameworks\esp-idf-v5.5.6
+.\install.bat esp32s3
+~~~
+
+Il risultato corretto termina con **\`All done! You can now run: export.bat\`**. Nel nostro caso l'ambiente Python è stato effettivamente creato in:
+
+~~~text
+C:\Espressif\python_env\idf5.5_py3.10_env\Scripts\python.exe
+~~~
+
+Verifica (in PowerShell):
+
+~~~powershell
+Test-Path "C:\Espressif\python_env\idf5.5_py3.10_env\Scripts\python.exe"
+~~~
+
+Deve restituire **True**. Il vecchio percorso che restituiva **False** era \`C:\Users\MoD\.espressif\python_env\idf5.5_py3.10_env\Scripts\python.exe\`: l'errore dipendeva da **IDF_TOOLS_PATH**, non dall'assenza del framework.
+
+### B. Attivare correttamente IDF_TOOLS_PATH
+
+**Comandi verificati** da PowerShell:
+
+~~~powershell
+$env:IDF_TOOLS_PATH = "C:\Espressif"
+cmd.exe /k 'call "C:\Espressif\frameworks\esp-idf-v5.5.6\export.bat" && cd /d C:\moto-gps-waveshare\platforms\esp32'
+~~~
+
+Nella finestra CMD appena aperta:
+
+~~~cmd
+idf.py --version
+~~~
+
+**Risultato ottenuto sul PC:** \`ESP-IDF v5.5.6-dirty\`. Il suffisso \`-dirty\` indica differenze Git nel checkout del framework, **non è da solo un errore di attivazione**.
+
+### C. Ripristinare il comando moto in PowerShell, senza Notepad
+
+Sul PC originale il comando \`notepad.exe $PROFILE\` falliva anche se \`notepad.exe\` risultava presente: **non serve Notepad**.
+
+Aprire una **nuova** finestra PowerShell. Questo blocco crea il profilo, fa un backup e **sostituisce** eventuali vecchie definizioni di \`moto\` e \`moto61\` nel profilo, invece di accumularne copie. Non sovrascrive le altre righe del profilo:
+
+~~~powershell
+New-Item -ItemType Directory -Force -Path (Split-Path $PROFILE) | Out-Null
+if (Test-Path $PROFILE) {
+    Copy-Item $PROFILE "$PROFILE.bak" -Force
+    $profileText = Get-Content $PROFILE -Raw
+} else {
+    $profileText = ""
+}
+
+# Rimuove vecchie funzioni moto/moto61 semplici, se presenti nel profilo.
+# Se il profilo contiene funzioni complesse o parentesi annidate,
+# verificare il backup .bak prima di apportare modifiche automatiche.
+$profileText = [regex]::Replace(
+    $profileText,
+    '(?ms)^\s*function\s+(?:moto|moto61)\s*\{[^{}]*\}\s*',
+    ''
+)
+
+$functions = @'
+function moto {
+    $env:IDF_TOOLS_PATH = "C:\Espressif"
+    cmd.exe /k 'call "C:\Espressif\frameworks\esp-idf-v5.5.6\export.bat" && cd /d C:\moto-gps-waveshare\platforms\esp32'
+}
+
+# Facoltativo, solo se ESP-IDF 6.1 è ancora installato:
+function moto61 {
+    $env:IDF_TOOLS_PATH = "$env:USERPROFILE\.espressif"
+    cmd.exe /k 'call "C:\esp\v6.1\esp-idf\export.bat" && cd /d C:\moto-gps-waveshare\platforms\esp32'
+}
+'@
+
+Set-Content -Path $PROFILE -Value ($profileText.TrimEnd() + [Environment]::NewLine + $functions) -Encoding UTF8
+. $PROFILE
+~~~
+
+**Nota:** se sulla futura installazione non conserverai ESP-IDF 6.1, puoi ignorare o eliminare la funzione \`moto61\`. Il comando principale è **\`moto\` → 5.5.6**. Se vuoi solo verificare il comando senza cambiare il profilo, usa prima i comandi della sezione B.
+
+Se la sessione PowerShell corrente impedisce il caricamento del profilo per via delle policy, prova una **nuova finestra**; non indebolire automaticamente le impostazioni di sicurezza.
+
+### D. Controllo dopo reinstallazione
+
+In PowerShell:
+
+~~~powershell
+moto
+~~~
+
+Nella finestra CMD aperta da \`moto\`:
+
+~~~cmd
+idf.py --version
+idf.py fullclean
+idf.py build
+~~~
+
+Se la compilazione termina senza errori, con scheda collegata e **COM3** libera:
+
+~~~cmd
+idf.py -p COM3 flash monitor
+~~~
+
+**Prima di \`fullclean\`**, assicurarsi di essere in \`C:\moto-gps-waveshare\platforms\esp32\`: elimina la build locale, non le partizioni della scheda. La prova effettuata finora **conferma l'attivazione di IDF 5.5.6**, non costituisce da sola una compilazione o una prova hardware riuscita. Per una prima installazione del repository vedere la sezione 1.
+
+---
 
 ## 1. Aggiornare il repository sul PC
 
