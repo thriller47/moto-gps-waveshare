@@ -211,6 +211,8 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 NavigationScreen(
                     onExportDiagnostics = { exportDiagnostics() },
                     onTestOpenFreeMap = { viewModel.testOpenFreeMapTile(this@MainActivity) },
+                    onCorridorTileCount = { viewModel.corridorTileCount(this@MainActivity) },
+                    onDownloadCorridor = { viewModel.downloadOpenFreeMapCorridor(this@MainActivity) },
                     diagnosticMode = diagnosticMode,
                     onDiagnosticModeChange = { mode ->
                         if (bleManager.setDiagnosticMode(mode)) {
