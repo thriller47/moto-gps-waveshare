@@ -291,30 +291,47 @@ Per aggiornare un grafo, lavorare preferibilmente con una **nuova cartella Valha
 
 Fonti: https://github.com/valhalla/valhalla/blob/master/docker/README.md e https://valhalla.github.io/valhalla/start/building/
 
-## 6. Recuperare e convertire i log diagnostici ESP32
+## 6. Diagnostica attuale ESP32 (PSRAM/BLE) e Android
 
-**Stato attuale (2026-10-30):** la registrazione continua sulla flash ESP32 è **disattivata di default** dalla build **4c363b8f**, perché sospettata di causare blocchi LVGL. La partizione diagnostica rimane e conserva i **vecchi** log. Non usare questi vecchi dati come se fossero stati registrati con una build nuova.
+**Valhalla, dal 2026-11-01:** il vecchio logger flash ESP32 è
+disattivato. La nuova diagnostica è registrata in PSRAM, trasmessa
+via BLE e salvata nell'app Android. Non sono necessarie letture flash
+né cavo USB per recuperare i nuovi log.
 
-**Leggere i 256 KiB della partizione** (ESP32 collegato a COM3; nessun altro programma deve avere aperto la porta):
+1. Connettere Android all'ESP32 via BLE.
+2. Toccare **LOG**, scegliere **BASE** per eventi critici o **DEBUG**
+   per il dettaglio di navigazione e rendering. L'impostazione
+   predefinita è **OFF**.
+3. Il timeout è di **60 minuti**, con disattivazione anticipata
+   su disconnessione BLE o riavvio. Per interrompere manualmente scegliere
+   **LOG > OFF**.
+4. **Prima di disconnettere**, premere **Condividi / Esporta diagnostica**
+   nella barra dell'app. Salvare `motogps-android-diagnostics.zip`,
+   che comprende i file Android `current.log`/`previous.log` e,
+   se sono arrivati record ESP32, `esp32-current.log`/
+   `esp32-previous.log`.
+
+**Spazio:** Android registra automaticamente (indipendentemente da LOG).
+Entrambe le sorgenti usano due file a rotazione: fino a **2 × 1 MiB**
+per Android e **2 × 2 MiB** per ESP32, circa 6 MiB in totale più
+l'ultimo ZIP esportato. Nessun pulsante di cancellazione; i file più
+vecchi vengono sovrascritti. Il buffer ESP32 PSRAM contiene fino a
+2048 eventi e trasferisce al massimo 4 eventi/s: possono andare persi
+eventi in presenza di intenso DEBUG o di un collegamento BLE interrotto.
+Per il funzionamento ordinario, lasciare LOG su OFF.
+
+**Solo per estrarre i log storici del vecchio firmware ESP32:**
+la partizione flash `0xC20000` rimane presente, ma non viene più
+aggiornata. Con la scheda su COM3:
 
 ~~~cmd
 cd /d C:\MotoGPS\moto-gps-waveshare
 esptool.exe --chip esp32s3 -p COM3 -b 460800 read-flash 0xC20000 0x40000 esp-diag.bin
-~~~
-
-**Convertire il dump binario in CSV:**
-
-~~~cmd
 python scripts\diagnostics\decode_esp32_trace.py esp-diag.bin
 ~~~
 
-Il risultato è **esp-diag.csv** nella cartella corrente, con numero di sequenza, uptime ESP32, evento e cinque campi numerici. Possibili eventi: BOOT, LINK, NAV_SNAPSHOT, MAP_SCENE, ESP_RENDER, RENDER_PHASE, DISPLAY_LOCK_TIMEOUT. Il decoder scarta record corrotti; il dump è in lettura, **non cancella** la flash.
-
-Se si usa esptool **4.x**: read_flash al posto di read-flash.
-
-**Android:** dall'app Moto GPS usare l'icona **Condividi / Esporta diagnostica** e salvare il file **motogps-android-diagnostics.zip**. Per analizzare una prova, conservare ZIP Android e CSV ESP32. **Attenzione:** nella build attuale il CSV ESP32 contiene soltanto log storici.
-
-**Diagnostica futura v2 (ancora da implementare):** registro circolare PSRAM → trasmissione BLE su richiesta → salvataggio permanente nell'APK Android. Quando sarà disponibile, il manuale dovrà riportare il nuovo comando/pulsante di esportazione e l'eventuale conversione. Finché non viene sviluppato, **non esiste un comando BLE per estrarre i log ESP32**. Evitare scritture flash durante la guida.
+Il decoder produce `esp-diag.csv` con **solo** vecchi eventi.
+Con esptool 4.x usare `read_flash` al posto di `read-flash`.
 
 ## 7. Console seriale Wi-Fi della radio (COM3)
 

@@ -217,7 +217,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                             diagnosticTimeoutHandler.removeCallbacks(diagnosticTimeout)
                             if (mode != 0) {
                                 diagnosticTimeoutHandler.postDelayed(
-                                    diagnosticTimeout, 10L * 60L * 1000L
+                                    diagnosticTimeout, 60L * 60L * 1000L
                                 )
                             }
                             DiagnosticLog.event("ESP32_DIAG_MODE", "mode=$mode")

@@ -11,7 +11,8 @@
 // samples only. The buffer occupies 64 KiB of external PSRAM.
 namespace {
 constexpr std::size_t kCapacity = 2048;
-constexpr std::uint32_t kCaptureTimeoutMs = 10U * 60U * 1'000U;
+// Full road-test capture, still strictly PSRAM only.
+constexpr std::uint32_t kCaptureTimeoutMs = 60U * 60U * 1'000U;
 EXT_RAM_BSS_ATTR moto::ble::DiagnosticRecord kRing[kCapacity];
 portMUX_TYPE ring_lock = portMUX_INITIALIZER_UNLOCKED;
 std::atomic<std::uint8_t> mode{0};

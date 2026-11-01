@@ -2,6 +2,36 @@
 
 > **Updated: 2026-10-30** (Europe/Rome). Living project handoff; checked against the `valhalla` source, Git history, and GitHub Actions on this date. **Code/CI success is not proof of on-road hardware stability.**
 
+## Aggiornamento 2026-11-01 — durata diagnostica estesa
+
+**Branch:** `valhalla`. Dopo la prova su strada con ESP32/Android
+PSRAM/BLE (l'utente conferma nessun blocco anche con il logging attivo),
+è stata richiesta una copertura più lunga: **60 minuti**, senza un
+pulsante per cancellare i file.
+
+- Firmware: `platforms/esp32/main/moto_diagnostics_ram.cpp`, TTL
+  OFF/BASE/DEBUG da 10 a 60 minuti. OFF resta la modalità iniziale e
+  la disconnessione/riavvio interrompe la cattura. Rimane l'architettura
+  2048 eventi in PSRAM e al massimo 4 record/s su BLE; **nessuna
+  scrittura sulla flash ESP32**.
+- App: `MainActivity.kt` e `NavigationScreen.kt` allineati a 60 minuti.
+  `DiagnosticLog.kt` conserva sempre due file ruotati, ora fino a
+  1 MiB/file Android e 2 MiB/file ESP32 (circa 6 MiB complessivi,
+  escluso ZIP), senza introdurre cancellazione manuale. Nessuna
+  variazione al logging Android sempre attivo.
+- Documenti: `docs/ESP32_DIAGNOSTICA_RAM.md`,
+  `docs/MANUALE_OPERATIVO.md` e nota di obsolescenza nella guida
+  del vecchio logger flash.
+- **Verifiche:** build CI Android/ESP32 da controllare dopo il singolo
+  commit; non sono stati eseguiti flash o test hardware in questa sessione.
+- **Rischi:** possibile perdita di record quando la produzione supera
+  il BLE sostenibile (4/s), durante disconnessioni o reset; la durata
+  di 60 minuti non implica che si possano recuperare tutti i record
+  in caso di saturazione del ring.
+- **Prossima azione:** aggiornare app/firmware dopo CI verde, raccogliere
+  una traccia di oltre 10 minuti con LOG DEBUG e verificare che l'export
+  contenga correttamente gli eventi della parte finale della prova.
+
 ## Aggiornamento 2026-10-31 — prova su strada e diagnostica RAM opzionale
 
 **Ramo:** `valhalla`. Modifica corrente: nuova diagnostica RAM/Android

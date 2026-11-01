@@ -526,7 +526,7 @@ fun NavigationScreen(
             title = { Text("Diagnostica ESP32") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("OFF per la navigazione ordinaria. BASE registra eventi critici, DEBUG include rendering e BLE. Solo PSRAM: nessuna scrittura flash. Spegnimento automatico dopo 10 minuti.")
+                    Text("OFF per la navigazione ordinaria. BASE registra eventi critici, DEBUG include rendering e BLE. Solo PSRAM: nessuna scrittura flash. Spegnimento automatico dopo 60 minuti.")
                     for ((mode, label) in listOf(0 to "OFF", 1 to "BASE", 2 to "DEBUG")) {
                         OutlinedButton(
                             onClick = {

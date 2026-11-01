@@ -14,7 +14,10 @@ import java.util.zip.ZipOutputStream
 
 /** Persistent, bounded road-test trace. No GPS coordinates or road names. */
 object DiagnosticLog {
-    private const val MAX_FILE_BYTES = 384L * 1024L
+    // Two rolling files per source: at most ~6 MiB altogether, plus export.
+    // Keep a useful one-hour joint Android/ESP32 trace without unbounded growth.
+    private const val MAX_ANDROID_FILE_BYTES = 1L * 1024L * 1024L
+    private const val MAX_ESP32_FILE_BYTES = 2L * 1024L * 1024L
     private val worker = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "MotoGpsTrace").apply { isDaemon = true }
     }
@@ -38,7 +41,7 @@ object DiagnosticLog {
         worker.execute {
             try {
                 val current = File(dir, "current.log")
-                if (current.length() >= MAX_FILE_BYTES) {
+                if (current.length() >= MAX_ANDROID_FILE_BYTES) {
                     val previous = File(dir, "previous.log")
                     if (previous.exists()) previous.delete()
                     current.renameTo(previous)
@@ -59,7 +62,7 @@ object DiagnosticLog {
         worker.execute {
             try {
                 val current = File(dir, "esp32-current.log")
-                if (current.length() >= MAX_FILE_BYTES) {
+                if (current.length() >= MAX_ESP32_FILE_BYTES) {
                     val previous = File(dir, "esp32-previous.log")
                     if (previous.exists()) previous.delete()
                     current.renameTo(previous)

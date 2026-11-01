@@ -10,8 +10,9 @@ include `moto_diagnostics_ram.cpp`, con 64 KiB di PSRAM.
 2. Lasciare **LOG > OFF** durante le normali prove di navigazione.
 3. In caso di anomalia aprire **LOG > BASE** (soli eventi critici)
    o **LOG > DEBUG** (fotogrammi, BLE e navigazione).
-4. La registrazione si disattiva automaticamente dopo 10 minuti; si
+4. La registrazione si disattiva automaticamente dopo **60 minuti**; si
    disattiva anche alla disconnessione BLE e al riavvio dell'ESP32.
+   Un'eventuale nuova selezione BASE/DEBUG riavvia la cattura.
 5. Con la connessione ancora attiva premere il pulsante **Condividi**
    (icona nella barra superiore) per esportare lo ZIP Android. Include
    `esp32-current.log`/`esp32-previous.log` se sono arrivati eventi.
@@ -24,7 +25,13 @@ include `moto_diagnostics_ram.cpp`, con 64 KiB di PSRAM.
   vecchi vengono sovrascritti.
 - Un massimo di 4 eventi per pacchetto BLE e **un pacchetto al secondo**.
   Nessuna trasmissione dal callback BLE o dal task grafico.
-- Il file su Android è persistente e limitato/ruotato come i normali log.
+- I log Android e ESP32 sono persistenti sull'app, con due file a rotazione
+  per sorgente: **1 MiB per file Android, 2 MiB per file ESP32** (massimo
+  indicativo 6 MiB più lo ZIP condiviso). I vecchi dati sono sovrascritti
+  automaticamente, senza necessità di un pulsante per cancellarli.
+- La sessione dura al massimo 60 minuti, ma il ring PSRAM resta da 2048
+  eventi: se vengono prodotti più di 4 eventi al secondo per periodi
+  prolungati, quelli non trasmessi possono venire sovrascritti.
 - Nessuna coordinata GPS né nome strada nei pacchetti diagnostici ESP32.
   I dati di navigazione normali restano naturalmente sul canale BLE esistente.
 - I record non ancora ricevuti da Android si perdono in caso di

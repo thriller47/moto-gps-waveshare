@@ -1,5 +1,14 @@
 # MotoGPS diagnostica delle prove su strada
 
+> **Avviso (2026-11-01):** la procedura ESP32 via flash descritta
+> sotto è **storica**. Nel firmware attuale `valhalla` i nuovi
+> eventi ESP32 viaggiano **PSRAM → BLE → Android** e si esportano
+> nello stesso ZIP dei log Android. Durata massima: 60 minuti,
+> con buffer circolare e file ruotati (Android 2 × 1 MiB,
+> ESP32 2 × 2 MiB). Nessun pulsante di cancellazione.
+> Vedere [ESP32_DIAGNOSTICA_RAM.md](../ESP32_DIAGNOSTICA_RAM.md).
+
+
 Questa build salva due log persistenti anche senza portatile e senza Internet.
 
 ## Android
