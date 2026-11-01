@@ -2,6 +2,12 @@
 
 > **Updated: 2026-10-30** (Europe/Rome). Living project handoff; checked against the `valhalla` source, Git history, and GitHub Actions on this date. **Code/CI success is not proof of on-road hardware stability.**
 
+## Integrazione correzioni Android — 2026-11-01
+
+**Branch** `test/openfreemap-mvt`. Integrate selettivamente dal ramo sperimentale `test/navigation-hardening-20261101` le seguenti correzioni: B-1 denominatore della proiezione su segmento (`dy*dy`), B-0 limiti stringhe UTF-8 nello snapshot BLE (63 byte roadName e 95 byte instruction), A-1 gestione di ritorni GATT falliti all'avvio di `writeCharacteristic` con scarto dei frammenti della stessa sequenza. Portati i file `MotoBLEManager.kt` e `MotoBLEProtocolCodec.kt`, modificata una sola riga di `NavigationViewModel.kt`. Aggiunto il backlog restante in `docs/REVISIONE_ARCHITETTURALE_2026-11-01.md`. Conservati download corridoio, MVT, cache, ricerca e routing già presenti; nessuna modifica al firmware, al formato BLE o a `valhalla`.
+
+**Verifiche:** revisione sorgenti e confronto dei due rami; build CI, unit test e hardware ancora da verificare. Rischi: GATT write privo ancora di watchdog sui callback assenti; servono prove BLE frammentazione, UTF-8, reroute e scena OpenFreeMap. **Prossima azione:** verificare un unico build Android sul branch e testare navigazione con download corridoio prima del merge eventuale in `valhalla`.
+
 ## Aggiornamento 2026-11-01 — corridoio OpenFreeMap offline (test)
 
 **Branch** `test/openfreemap-mvt`, sperimentale, senza modifiche a `valhalla`.
