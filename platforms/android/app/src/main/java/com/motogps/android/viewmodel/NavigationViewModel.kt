@@ -1211,7 +1211,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         val dx = bx - ax
         val dy = by - ay
         val t = if (dx * dx + dy * dy > 0.001)
-            (-(ax * dx + ay * dy) / (dx * dx + dy)).coerceIn(0.0, 1.0)
+            (-(ax * dx + ay * dy) / (dx * dx + dy * dy)).coerceIn(0.0, 1.0)
         else 0.0
         return kotlin.math.hypot(ax + t * dx, ay + t * dy)
     }
