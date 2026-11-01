@@ -905,10 +905,14 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     fun corridorTileCount(context: Context): Int {
         val selected = _routeOptions.value.getOrNull(_selectedRouteIndex.value)
             ?: return 0
-        return OpenFreeMapRouteCorridor.missing(
-            context.applicationContext,
-            OpenFreeMapRouteCorridor.plan(selected.rawRouteJson)
-        ).size
+        return try {
+            val plan = OpenFreeMapRouteCorridor.plan(selected.rawRouteJson)
+            if (plan.isEmpty()) -1
+            else OpenFreeMapRouteCorridor.missing(context.applicationContext, plan).size
+        } catch (e: Exception) {
+            DiagnosticLog.event("OFM_CORRIDOR_ERROR", "plan: " + e.message)
+            -1
+        }
     }
 
     fun downloadOpenFreeMapCorridor(context: Context) {
