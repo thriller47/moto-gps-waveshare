@@ -27,6 +27,13 @@ internal object OpenFreeMapTileProbe {
         val osmTile = GatewayRoadTiles.tileFor(latitude, longitude)
         val z = 14
         val tile = GatewayRoadTiles.Tile(osmTile.x / 2, osmTile.y / 2)
+        return downloadTile(context, z, tile.x, tile.y)
+    }
+
+    fun downloadTile(context: Context, z: Int, x: Int, y: Int,
+                     remainingBytes: Long = Long.MAX_VALUE): Result {
+        require(z == 14 && x in 0 until (1 shl z) && y in 0 until (1 shl z))
+        val tile = GatewayRoadTiles.Tile(x, y)
         val url = URL("https://tiles.openfreemap.org/planet/latest/" +
             z + "/" + tile.x + "/" + tile.y + ".pbf")
         val connection = (url.openConnection() as HttpURLConnection).apply {
@@ -47,7 +54,8 @@ internal object OpenFreeMapTileProbe {
             contentType = connection.contentType.orEmpty().take(80)
             responseLength = connection.contentLengthLong
             contentEncoding = connection.contentEncoding.orEmpty().take(40)
-            if (connection.contentLengthLong > OpenFreeMapMvtDecoder.MAX_TILE_BYTES)
+            if (connection.contentLengthLong > remainingBytes ||
+                connection.contentLengthLong > OpenFreeMapMvtDecoder.MAX_TILE_BYTES)
                 throw IOException("OpenFreeMap tile exceeds 2 MiB")
             bytes = connection.inputStream.use { stream ->
                 val output = ByteArrayOutputStream()
@@ -55,7 +63,8 @@ internal object OpenFreeMapTileProbe {
                 while (true) {
                     val n = stream.read(buf)
                     if (n < 0) break
-                    if (n > OpenFreeMapMvtDecoder.MAX_TILE_BYTES - output.size())
+                    if (n > remainingBytes - output.size() ||
+                        n > OpenFreeMapMvtDecoder.MAX_TILE_BYTES - output.size())
                         throw IOException("OpenFreeMap tile exceeds 2 MiB")
                     output.write(buf, 0, n)
                 }
