@@ -21,9 +21,14 @@ internal object OpenFreeMapTileProbe {
     )
 
     fun downloadOneTile(context: Context, latitude: Double, longitude: Double): Result {
-        val tile = GatewayRoadTiles.tileFor(latitude, longitude)
+        // OpenFreeMap/OpenMapTiles vector data has maxzoom=14. The shared
+        // GatewayRoadTiles grid is z15 for Overpass and must not be used
+        // directly in the OpenFreeMap HTTP tile path.
+        val osmTile = GatewayRoadTiles.tileFor(latitude, longitude)
+        val z = 14
+        val tile = GatewayRoadTiles.Tile(osmTile.x / 2, osmTile.y / 2)
         val url = URL("https://tiles.openfreemap.org/planet/latest/" +
-            GatewayRoadTiles.ZOOM + "/" + tile.x + "/" + tile.y + ".pbf")
+            z + "/" + tile.x + "/" + tile.y + ".pbf")
         val connection = (url.openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"
             connectTimeout = 5_000
@@ -68,13 +73,13 @@ internal object OpenFreeMapTileProbe {
         )
 
         val maps = HybridMapRepository.getSharedMapsDir(context)
-        val name = "ofm_trial_" + tile.key + ".motomap"
+        val name = "ofm_trial_" + z + "_" + tile.x + "_" + tile.y + ".motomap"
         val target = File(maps, name)
         val temp = File(maps, name + ".tmp")
         try {
             val stats = temp.bufferedWriter().use { writer ->
                 OpenFreeMapMvtDecoder.writeTile(
-                    GatewayRoadTiles.ZOOM, tile.x, tile.y, bytes, writer)
+                    z, tile.x, tile.y, bytes, writer)
             }
             if (stats.parts == 0) throw IOException(
                 "MVT zero strade tile=" + tile.key +
