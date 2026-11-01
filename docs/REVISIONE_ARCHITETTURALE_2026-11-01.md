@@ -197,3 +197,46 @@ Ogni proposta sotto elencata rispetta tassativamente i seguenti paletti:
    modifica e validare sempre su hardware reale prima di dichiarare risolto
    qualsiasi comportamento su strada.
 ================================================================================
+
+
+## Addendum 2026-11-01 — nuova prova su strada, log e seconda revisione
+
+**Fonte:** test utente con APK da `test/openfreemap-mvt`, ZIP Android/ESP32 delle 15:13:37–15:24:51 (ora italiana) e documento di revisione `valhalla_migliorie_consigliate(1).txt`. Nessun intervento sul codice è approvato da questo addendum; stato: backlog da verificare.
+
+### Evidenza della prova
+
+- L'app ha registrato **104 `OSM_CONTEXT` con `segments=0` e 104 `OSM_EMPTY`**. Sono state avviate 21 richieste Overpass, tutte `available=false`; riscontrati timeout e HTTP 502 sui due endpoint.
+- **Zero eventi `OFM_MVT_TEST` / `OFM_MVT_TEST_ERROR`: il probe OpenFreeMap manuale non risulta attivato.** Non dedurre da questa prova che il decoder MVT sia difettoso: il fallback automatico resta Overpass nel ramo test.
+- **12 trigger e 12 successi `REROUTE`**, provider `valhalla-online`, senza errori di ricalcolo. L'utente segnala miglioramento visivo e assenza dei precedenti salti nella distanza di arrivo; considerare il risultato positivo ma ancora da replicare.
+- Traccia ESP32: 2425 record sequenziali (seq 1–2425, senza gap osservati nel file); non equivale a una garanzia generale di assenza di perdite.
+
+### Nuovi suggerimenti da tenere in priorita alta
+
+- **BLE-Android A-1:** verificare in `MotoBLEManager.processNextWrite` i risultati di `writeCharacteristic`, assicurare timeout del write pendente e recupero da errori/busy. Una coda GATT bloccata può far mancare scene e navigazione.
+- **BLE-JNI A-2:** audit della concorrenza su `CodecStorage`, `SequenceGenerator` e `Reassembler`. Verificare se le chiamate sono davvero simultanee prima di scegliere mutex o dispatcher unico. Aggiungere test di concorrenza.
+- **BLE-S-1:** controllare crittografia effettiva e pairing: un flag `encrypted_` impostato al connect non dimostra un link cifrato. Valutare protezione del canale di navigazione; compatibilità Android obbligatoria.
+- **ESP-P0-4:** verificare se `service_diagnostics()` può attendere il TX BLE nel task clock da 40 Hz; se confermato, rendere il servizio non bloccante o separarlo dal clock. Si collega alle proposte ESP-02/05 gia archiviate.
+- **Android N-3:** migliorare il badge limite velocità usando proiezione sul segmento e coerenza con heading/rotta, evitando il vertice più vicino e valori stantii quando manca il contesto. I limiti generici del decoder MVT **non sono limiti legali certi**.
+- **Android N-5:** verificare l'aggiornamento prematuro di `lastMapSceneSendTimeMs` prima del successo: applicare throttling ai fallimenti senza ritardare la prima scena finalmente disponibile.
+
+### Da testare successivamente (priorita media)
+
+- **ESP F-1/F-2:** blend della mappa dipendente dal tempo reale tra frame, e zoom interpolato fra snapshot senza alterare la distanza numerica. Test nativi e verifica visiva; mantenere 3.4x.
+- **ESP P0-1/P0-2:** strumentare attesa TE (25 ms) e utilizzo PSRAM/DMA prima di fare prove A/B su TE gating, timeout o allocazioni. La nuova prova non segnala blocchi: classificare come **diagnosi preventiva**, non come bug P0 attualmente riprodotto.
+- **ESP P0-3:** misurare copia delle geometrie ad ogni frame prima di introdurre double buffering; stessa finalita di ESP-04.
+- **BLE S-2/S-4:** contatori drop della coda RX e verifica revisioni `MapScene` fra reconnect/reset, con test del protocollo.
+- **Android A-3/A-4/A-5/A-6:** valutare priorita connessione GATT, scansione con durata limitata, strategia reconnect ed enum di stato anziche confronti testuali; modifiche indipendenti e solo dopo test di compatibilita.
+- **Android N-1/N-2:** esaminare valori GNSS hardcoded e `routeGeneration` nei reroute; compatibilita Android/ESP32 prima di modificarne la semantica.
+- **Android N-4, N-7/N-8, M-3/M-4:** ottimizzare scansione/calcolo delle distanze nel contesto, backoff rete, riduzione log di fix rifiutati, cache e validazione degli import. Verificare prima misure e codice reale.
+
+### Proposte con priorita ridotta o condizionale
+
+- **P0-5 e F-3/F-4/F-5:** retry/invalidate/render completo, segmenti mappa e refresh LVGL: solo con metriche per dimostrare un collo di bottiglia.
+- **S-3:** non modificare le priorita FreeRTOS senza evidenza di starvation del rendering.
+- **N-6:** la revisione stessa indica comportamento attualmente corretto; non richiede fix.
+- **N-9/N-10:** cancellazione reroute allo stop e piccole allocazioni nel percorso GPS: verifiche a basso impatto, dopo gli interventi critici.
+- **M-1/M-2/M-5:** audit manifest, confronto debug/release, e logger Android; l'I/O diagnostico è già asincrono e a rotazione, quindi evitare refactor non misurati.
+
+### Metodo concordato
+
+Prima di qualsiasi patch: confrontare ogni affermazione [VERIFICATO] del documento esterno col codice attuale e con la recente prova senza freeze; non considerare conclusivo un audit di sola lettura. Cambiamenti atomici su un ramo distinto da `test/openfreemap-mvt`, test specifici, una CI consolidata, prova hardware prima del merge in `valhalla`. **Prossimo test OpenFreeMap:** a navigazione ferma premere `Test OpenFreeMap — 1 tile MVT`, poi controllare esito, conteggio strade e invio `MapScene` nel log.
