@@ -18,6 +18,7 @@ import com.motogps.android.jni.MotoBLENavigationSnapshot
 import com.motogps.android.jni.MotoBLERouteGeometry
 import com.motogps.android.map.HybridMapRepository
 import com.motogps.android.map.OpenFreeMapTileProbe
+import com.motogps.android.map.OpenFreeMapRouteCorridor
 import com.motogps.android.map.SavedMapInfo
 import com.motogps.android.location.LocationFixFilter
 import com.motogps.android.routing.OfflineValhallaRouter
@@ -899,6 +900,58 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     // Experimental feature on test/openfreemap-mvt ONLY. Never prefetch or
     // loop over public tiles: one user-initiated tile per button press.
     private var openFreeMapProbeJob: Job? = null
+
+    /** Only route-preview user action may begin this download. */
+    fun corridorTileCount(context: Context): Int {
+        val selected = _routeOptions.value.getOrNull(_selectedRouteIndex.value)
+            ?: return 0
+        return OpenFreeMapRouteCorridor.missing(
+            context.applicationContext,
+            OpenFreeMapRouteCorridor.plan(selected.rawRouteJson)
+        ).size
+    }
+
+    fun downloadOpenFreeMapCorridor(context: Context) {
+        if (_isDownloadingMap.value || mapDownloadJob?.isActive == true) return
+        val selected = _routeOptions.value.getOrNull(_selectedRouteIndex.value) ?: return
+        val appContext = context.applicationContext
+        mapDownloadJob = viewModelScope.launch {
+            _isDownloadingMap.value = true
+            _downloadProgress.value = 0f
+            try {
+                val tiles = withContext(Dispatchers.IO) {
+                    OpenFreeMapRouteCorridor.missing(
+                        appContext, OpenFreeMapRouteCorridor.plan(selected.rawRouteJson)
+                    )
+                }
+                _downloadStatus.value = "Corridoio: ${tiles.size} tile da scaricare"
+                DiagnosticLog.event("OFM_CORRIDOR", "start missing=${tiles.size}")
+                withContext(Dispatchers.IO) {
+                    OpenFreeMapRouteCorridor.download(appContext, tiles) { done, total, bytes ->
+                        _downloadProgress.value = done.toFloat() / total.coerceAtLeast(1)
+                        _downloadStatus.value = "Corridoio ${done}/${total} tile, ${bytes / 1024} KiB"
+                    }
+                }
+                _downloadProgress.value = 1f
+                _downloadStatus.value = "Corridoio salvato: ${tiles.size} nuove tile"
+                DiagnosticLog.event("OFM_CORRIDOR", "complete tiles=${tiles.size}")
+                refreshSavedMaps(appContext)
+                if (hasFirstFix) {
+                    val (lat, lon) = currentLocation.value
+                    updateSpeedLimitAndMapScene(lat, lon, appContext)
+                }
+            } catch (e: CancellationException) {
+                _downloadStatus.value = "Download corridoio interrotto"
+                throw e
+            } catch (e: Exception) {
+                _downloadStatus.value = "Errore corridoio: ${e.message}"
+                DiagnosticLog.event("OFM_CORRIDOR_ERROR", e.message.orEmpty())
+            } finally {
+                _isDownloadingMap.value = false
+                mapDownloadJob = null
+            }
+        }
+    }
 
     fun testOpenFreeMapTile(context: Context) {
         if (_isNavigating.value) {
