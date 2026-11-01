@@ -254,6 +254,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
 
     private val locationFixFilter = LocationFixFilter()
     private val routeDistanceGuard = RouteDistanceGuard()
+    private val routeProgressMatcher = RouteProgressMatcher()
     private var lastLocationTimeMs: Long = 0L
     private var lastDiagnosticFixMs: Long = 0L
     private var lastDiagnosticHeadingMs: Long = 0L
@@ -401,6 +402,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                 currentGeometry = geometry
                 turnPlan = guidance
                 routeDistanceGuard.reset()
+                routeProgressMatcher.reset(geometry?.points.orEmpty())
                 val (startLat, startLon) = currentLocation.value
                 currentSnapshot = updateManeuverAndDistance(startLat, startLon)
                     ?: snapshot
@@ -535,6 +537,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         currentGeometry = null
         turnPlan = ValhallaTurnGuidance.Plan(0.0, emptyList())
         routeDistanceGuard.reset()
+        routeProgressMatcher.reset()
 
         val stopSnapshot = MotoBLENavigationSnapshot(
             stateName = "idle",
@@ -943,37 +946,23 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
 
     private fun updateManeuverAndDistance(lat: Double, lon: Double): MotoBLENavigationSnapshot? {
         val baseSnapshot = currentSnapshot ?: return null
-        // Recompute distance along the route at every GPS fix, even when
-        // maneuver instructions are provided separately by the routing engine.
-        val geometryPoints = currentGeometry?.points.orEmpty()
-        var remainingMeters = baseSnapshot.remainingDistanceM
-        if (geometryPoints.size >= 2) {
-            var nearestSegment = 0
-            var nearestDistance = Double.POSITIVE_INFINITY
-            for (i in 0 until geometryPoints.size - 1) {
-                val d = distanceToSegmentMeters(lat, lon, geometryPoints[i], geometryPoints[i + 1])
-                if (d < nearestDistance) {
-                    nearestDistance = d
-                    nearestSegment = i
-                }
-            }
-            val nextPoint = geometryPoints[nearestSegment + 1]
-            remainingMeters = calculateDistanceMeters(
-                lat, lon, nextPoint.latitudeE6 / 1e6, nextPoint.longitudeE6 / 1e6
-            ).coerceAtLeast(0.0).toLong()
-            for (i in nearestSegment + 1 until geometryPoints.size - 1) {
-                val a = geometryPoints[i]
-                val b = geometryPoints[i + 1]
-                remainingMeters += calculateDistanceMeters(
-                    a.latitudeE6 / 1e6, a.longitudeE6 / 1e6,
-                    b.latitudeE6 / 1e6, b.longitudeE6 / 1e6
-                ).toLong()
-            }
-        }
+        // Keep progress on the current route monotonic across parallel roads
+        // and roundabouts. The old closest-segment search could jump to a
+        // previously traversed edge and make both distances increase.
+        val travelHeading = if (lastGpsSpeedMs >= 3f &&
+            SystemClock.elapsedRealtime() - lastReliableGpsBearingMs in 0L..3_000L)
+            lastReliableGpsBearing else null
+        var remainingMeters = routeProgressMatcher.remaining(
+            lat, lon, travelHeading, lastGpsSpeedMs)
+            ?: baseSnapshot.remainingDistanceM
         // Do not let a nearest-segment snap at an intersection consume
         // 20-30m instantaneously and make the next turn disappear early.
         remainingMeters = routeDistanceGuard.stabilize(remainingMeters, lat, lon)
-        val snapshot = baseSnapshot.copy(remainingDistanceM = remainingMeters)
+        val snapshot = baseSnapshot.copy(
+            remainingDistanceM = remainingMeters,
+            routeProgressM = (turnPlan.totalShapeMeters - remainingMeters)
+                .coerceAtLeast(0.0).toLong()
+        )
 
         // The next maneuver comes from Valhalla's explicit road geometry.
         // Its distance is measured along the same polyline used for the
@@ -1198,8 +1187,10 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                 currentSnapshot = snapshot
                 currentGeometry = geometry
                 turnPlan = guidance
-                DiagnosticLog.event("REROUTE", "success")
+                DiagnosticLog.event("REROUTE",
+                    "success provider=${lastRoutingProvider.orEmpty()} route_m=${snapshot.totalDistanceM}")
                 routeDistanceGuard.reset()
+                routeProgressMatcher.reset(geometry?.points.orEmpty())
                 val refreshed = updateManeuverAndDistance(latitude, longitude)
                     ?: snapshot
                 currentSnapshot = refreshed

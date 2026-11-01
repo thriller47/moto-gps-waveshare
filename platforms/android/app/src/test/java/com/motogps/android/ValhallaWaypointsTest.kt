@@ -51,7 +51,8 @@ class ValhallaWaypointsTest {
             gpsBearing = 359.8f, rerouting = false)
         val origin = request.getJSONArray("locations").getJSONObject(0)
         assertEquals(0, origin.getInt("heading"))
-        assertEquals(45, origin.getInt("heading_tolerance"))
+        assertEquals(35, origin.getInt("heading_tolerance"))
+        assertEquals(35, origin.getInt("radius"))
         assertTrue(origin.get("heading") is Int)
 
         val west = OnlineValhallaRouter.request(

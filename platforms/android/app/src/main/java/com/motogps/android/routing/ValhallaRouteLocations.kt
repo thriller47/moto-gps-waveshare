@@ -27,7 +27,11 @@ internal object ValhallaRouteLocations {
         // Use the GNSS travel course for both moving departures and reroutes.
         if (bearing != null && bearing.isFinite()) {
             val degrees = (((bearing % 360f + 360f) % 360f).roundToInt()) % 360
-            departure.put("heading", degrees).put("heading_tolerance", 45)
+            // Default Valhalla radius=0 considers only the closest edge;
+            // nearby parallel/one-way carriageways need candidate search.
+            departure.put("heading", degrees)
+                .put("heading_tolerance", 35)
+                .put("radius", 35)
         }
         val locations = JSONArray().put(departure)
         stops.forEach { locations.put(point(it.first, it.second)) }
