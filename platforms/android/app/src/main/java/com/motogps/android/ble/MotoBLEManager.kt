@@ -243,14 +243,35 @@ class MotoBLEManager(private val context: Context) {
             return
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            gatt.writeCharacteristic(characteristic, frame!!, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)
-        } else {
-            @Suppress("DEPRECATION")
-            characteristic.value = frame!!
-            characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-            @Suppress("DEPRECATION")
-            gatt.writeCharacteristic(characteristic)
+        val accepted = try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                gatt.writeCharacteristic(characteristic, frame!!, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT) ==
+                    android.bluetooth.BluetoothStatusCodes.SUCCESS
+            } else {
+                @Suppress("DEPRECATION")
+                characteristic.value = frame!!
+                characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+                @Suppress("DEPRECATION")
+                gatt.writeCharacteristic(characteristic)
+            }
+        } catch (e: Exception) {
+            Log.w("MotoBLEManager", "GATT write could not start", e)
+            false
+        }
+        if (!accepted) {
+            // No callback is guaranteed after an unsuccessful write start.
+            // Discard the entire remaining message rather than sending orphan fragments.
+            synchronized(writeQueue) {
+                val failed = activeWriteFrame
+                activeWriteFrame = null
+                if (failed != null) {
+                    val failedSeq = sequenceOf(failed)
+                    writeQueue.removeAll { sequenceOf(it) == failedSeq }
+                    Log.w("MotoBLEManager", "GATT write start rejected, dropping seq=$failedSeq")
+                }
+                activeMessageSequence = null
+            }
+            mainHandler.postDelayed({ processNextWrite() }, 100L)
         }
     }
 
