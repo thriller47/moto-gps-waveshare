@@ -2,6 +2,10 @@
 
 > **Updated: 2026-10-30** (Europe/Rome). Living project handoff; checked against the `valhalla` source, Git history, and GitHub Actions on this date. **Code/CI success is not proof of on-road hardware stability.**
 
+## Revisione architetturale rinviata — 2026-11-01
+
+Le proposte ESP-01..ESP-05 e AND-01..AND-05, con priorità e piano di verifica, sono conservate in [docs/REVISIONE_ARCHITETTURALE_2026-11-01.md](docs/REVISIONE_ARCHITETTURALE_2026-11-01.md). Decisione: rimandarne l'implementazione. Nessun cambiamento firmware/Android, mantenere valhalla stabile e test/openfreemap-mvt separato. Alla ripresa usare un branch di test e verificare i test hardware prima del merge.
+
 ## Aggiornamento 2026-11-01 — durata diagnostica estesa
 
 **Branch:** `valhalla`. Dopo la prova su strada con ESP32/Android
