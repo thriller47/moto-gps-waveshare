@@ -480,8 +480,8 @@ class MotoBLEProtocolCodec {
         writer.writeU16(snapshot.accuracyDecimeters)
         writer.writeU16(snapshot.crossTrackDecimeters)
         writer.writeU8(snapshot.roundaboutExit)
-        writer.writeStringU8(roadName)
-        writer.writeStringU8(instruction)
+        writer.writeStringU8(roadName, 63)
+        writer.writeStringU8(instruction, 95)
         return writer.toByteArray()
     }
 
@@ -666,13 +666,25 @@ class MotoBLEProtocolCodec {
             } while (encoded != 0L)
         }
 
-        fun writeStringU8(str: String) {
-            val bytes = str.toByteArray(StandardCharsets.UTF_8)
-            val len = min(bytes.size, 255)
-            writeU8(len)
-            for (i in 0 until len) {
-                list.add(bytes[i])
+        fun writeStringU8(str: String, maxBytes: Int = 255) {
+            // Bound by encoded bytes without cutting a multibyte UTF-8 code point.
+            val limit = maxBytes.coerceIn(0, 255)
+            val bounded = StringBuilder()
+            var used = 0
+            var offset = 0
+            while (offset < str.length) {
+                val cp = Character.codePointAt(str, offset)
+                val validCp = if (cp in 0xD800..0xDFFF) 0xFFFD else cp
+                val chunk = String(Character.toChars(validCp))
+                val byteCount = chunk.toByteArray(StandardCharsets.UTF_8).size
+                if (used + byteCount > limit) break
+                bounded.append(chunk)
+                used += byteCount
+                offset += Character.charCount(cp)
             }
+            val bytes = bounded.toString().toByteArray(StandardCharsets.UTF_8)
+            writeU8(bytes.size)
+            for (byte in bytes) list.add(byte)
         }
 
         fun toByteArray(): ByteArray = list.toByteArray()
