@@ -2,6 +2,14 @@
 
 > **Updated: 2026-10-30** (Europe/Rome). Living project handoff; checked against the `valhalla` source, Git history, and GitHub Actions on this date. **Code/CI success is not proof of on-road hardware stability.**
 
+## Esito verifiche preliminari e prova su strada pianificata — 2026-11-01
+
+**Branch:** `test/openfreemap-mvt` (nessun merge verso `valhalla`). Dopo l'integrazione selettiva delle correzioni Android B-0/B-1/A-1, l'utente ha confermato: **build riuscita**, **download del corridoio OpenFreeMap funzionante**, **ESP32 connesso via BLE**, e **strade grigie visibili sull'ESP32 all'inizio della navigazione**. Queste sono osservazioni riportate dall'utente; non dimostrano ancora la persistenza del contesto stradale lungo il viaggio.
+
+**Non ancora verificati:** continuità delle strade grigie ai cambi di tile e lungo il corridoio, fluidità della linea verde, zoom 3,4×/distanza alla svolta, ricalcolo in movimento, stabilità BLE/display nelle percorrenze prolungate, limiti UTF-8 e recupero errori GATT su hardware. Il watchdog per callback GATT mancanti resta nel backlog. Nessuna ulteriore modifica al codice in questa sessione; aggiornato solo questo documento.
+
+**Prossima azione (2026-11-02, prova utente in viaggio):** effettuare il test su strada usando la build attuale senza altri cambiamenti, osservando soprattutto la continuità delle strade grigie mentre la posizione avanza; controllare linea verde, ricalcoli, zoom e connessione BLE. Attivare eventualmente diagnostica PSRAM→BLE DEBUG e, a fine prova, esportare ZIP Android/ESP32. Analizzare i log prima di decidere eventuali correzioni o un merge; **`valhalla` rimane invariato**.
+
 ## Integrazione correzioni Android — 2026-11-01
 
 **Branch** `test/openfreemap-mvt`. Integrate selettivamente dal ramo sperimentale `test/navigation-hardening-20261101` le seguenti correzioni: B-1 denominatore della proiezione su segmento (`dy*dy`), B-0 limiti stringhe UTF-8 nello snapshot BLE (63 byte roadName e 95 byte instruction), A-1 gestione di ritorni GATT falliti all'avvio di `writeCharacteristic` con scarto dei frammenti della stessa sequenza. Portati i file `MotoBLEManager.kt` e `MotoBLEProtocolCodec.kt`, modificata una sola riga di `NavigationViewModel.kt`. Aggiunto il backlog restante in `docs/REVISIONE_ARCHITETTURALE_2026-11-01.md`. Conservati download corridoio, MVT, cache, ricerca e routing già presenti; nessuna modifica al firmware, al formato BLE o a `valhalla`.
