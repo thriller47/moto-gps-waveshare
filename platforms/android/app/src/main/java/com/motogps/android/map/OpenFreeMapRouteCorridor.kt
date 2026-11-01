@@ -5,13 +5,9 @@ import org.json.JSONObject
 import java.io.File
 import java.io.IOException
 import kotlin.math.PI
-import kotlin.math.asinh
-import kotlin.math.atan
 import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.ln
-import kotlin.math.min
-import kotlin.math.sinh
 import kotlin.math.tan
 
 /** Explicit offline download along a Valhalla route, never invoked from GPS updates. */
