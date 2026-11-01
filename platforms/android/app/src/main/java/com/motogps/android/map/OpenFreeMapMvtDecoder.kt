@@ -24,7 +24,10 @@ internal object OpenFreeMapMvtDecoder {
     private const val MAX_ROAD_POINTS = 36000
     private const val MAX_ROW_POINTS = 512
 
-    data class Stats(val features: Int, val roads: Int, val parts: Int, val points: Int)
+    data class Stats(
+        val features: Int, val roads: Int, val parts: Int, val points: Int,
+        val layers: String = "", val roadClasses: String = ""
+    )
     private data class Point(val latE6: Int, val lonE6: Int)
     private data class Feature(val type: Int, val tags: IntArray, val geometry: ByteArray)
 
@@ -182,6 +185,8 @@ internal object OpenFreeMapMvtDecoder {
         var roadFeatures = 0
         var totalParts = 0
         var totalPoints = 0
+        val layerNames = ArrayList<String>()
+        val classes = LinkedHashMap<String, Int>()
         while (tile.hasNext()) {
             val field = tile.number()
             if (field != 26) {
@@ -207,6 +212,7 @@ internal object OpenFreeMapMvtDecoder {
                     else -> layer.skip(key and 7)
                 }
             }
+            if (layerNames.size < 20) layerNames.add(name)
             if (name != "transportation") continue
             if (extent !in 256..8192) throw IOException("MVT: invalid extent")
             seenFeatures += features.size
@@ -222,6 +228,9 @@ internal object OpenFreeMapMvtDecoder {
                     if (ki !in keys.indices || vi !in values.indices) continue
                     if (keys[ki] == "class") clazz = values[vi]
                     if (keys[ki] == "subclass") subclass = values[vi]
+                }
+                if (classes.size < 30 || classes.containsKey(clazz)) {
+                    classes[clazz] = (classes[clazz] ?: 0) + 1
                 }
                 val roadType = roadClass(clazz) ?: continue
                 if (subclass in setOf("pedestrian", "footway", "cycleway",
@@ -255,6 +264,10 @@ internal object OpenFreeMapMvtDecoder {
                 }
             }
         }
-        return Stats(seenFeatures, roadFeatures, totalParts, totalPoints)
+        return Stats(
+            seenFeatures, roadFeatures, totalParts, totalPoints,
+            layerNames.joinToString(",").take(200),
+            classes.entries.joinToString(",") { it.key + ":" + it.value }.take(240)
+        )
     }
 }

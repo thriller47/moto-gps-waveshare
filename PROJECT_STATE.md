@@ -31,6 +31,21 @@ c23d193 su valhalla). Non modificare valhalla né il routing Valhalla.
   nel log OFM_MVT_TEST numero strade/vertici/latency, test con la rete
   grigia ESP32, senza avviare alcuna acquisizione automatica continua.
 
+## Aggiornamento 2026-11-01 — diagnostica probe OpenFreeMap
+
+**Ramo esclusivamente sperimentale** `test/openfreemap-mvt`; nessun
+cambiamento a `valhalla`. L'utente ha eseguito il probe manuale
+alle 17:55:18 e 17:55:24: entrambi `OFM_MVT_TEST_ERROR` con zero
+strade utilizzabili. Il log non distingue ancora layer assenti,
+classe stradale esclusa o risposta HTTP con contenuto inatteso.
+
+Aggiunti al decoder i contatori dei layer, delle classi e delle feature
+e al messaggio di errore i byte HTTP, il Content-Type e l'ID della tile.
+Non abilitati download automatici, nessuna modifica BLE o ESP32.
+**Verifica:** unit/build Android nella singola Project Build del commit;
+il test su tile reale rimane da ripetere esplicitamente. Prossimo passo:
+premere una sola volta `Test OpenFreeMap — 1 tile MVT` e inviare lo ZIP.
+
 ## Aggiornamento 2026-11-01 — durata diagnostica estesa
 
 **Branch:** `valhalla`. Dopo la prova su strada con ESP32/Android

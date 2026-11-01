@@ -33,9 +33,11 @@ internal object OpenFreeMapTileProbe {
             instanceFollowRedirects = false
         }
         val bytes: ByteArray
+        var contentType = ""
         try {
             if (connection.responseCode != 200)
                 throw IOException("OpenFreeMap HTTP " + connection.responseCode)
+            contentType = connection.contentType.orEmpty().take(80)
             if (connection.contentLengthLong > OpenFreeMapMvtDecoder.MAX_TILE_BYTES)
                 throw IOException("OpenFreeMap tile exceeds 2 MiB")
             bytes = connection.inputStream.use { stream ->
@@ -63,7 +65,12 @@ internal object OpenFreeMapTileProbe {
                 OpenFreeMapMvtDecoder.writeTile(
                     GatewayRoadTiles.ZOOM, tile.x, tile.y, bytes, writer)
             }
-            if (stats.parts == 0) throw IOException("Tile senza strade utilizzabili")
+            if (stats.parts == 0) throw IOException(
+                "MVT zero strade tile=" + tile.key +
+                    " bytes=" + bytes.size + " type=" + contentType +
+                    " features=" + stats.features + " roads=" + stats.roads +
+                    " layers=" + stats.layers + " classes=" + stats.roadClasses
+            )
             if (target.exists() && !target.delete()) throw IOException("Cannot replace trial tile")
             if (!temp.renameTo(target)) throw IOException("Cannot save trial tile")
             return Result(tile, bytes.size, stats, name)
