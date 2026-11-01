@@ -79,8 +79,10 @@ internal object OpenFreeMapRouteCorridor {
 
     /** Single-thread download; prevents exceeding the public offline limits. */
     fun download(context: Context, tiles: List<Tile>, progress: (Int, Int, Long) -> Unit) {
+        require(tiles.size <= MAX_TILES) { "Corridoio oltre 3000 tile" }
         var bytes = 0L
         for ((index, tile) in tiles.withIndex()) {
+            if (bytes >= MAX_BYTES) throw IOException("Limite download 50 MB raggiunto")
             if (Thread.currentThread().isInterrupted) throw IOException("Interrotto")
             val item = OpenFreeMapTileProbe.downloadTile(
                 context, ZOOM, tile.x, tile.y,
