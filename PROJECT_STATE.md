@@ -2,6 +2,32 @@
 
 > **Updated: 2026-10-30** (Europe/Rome). Living project handoff; checked against the `valhalla` source, Git history, and GitHub Actions on this date. **Code/CI success is not proof of on-road hardware stability.**
 
+## Aggiornamento 2026-11-01 — corridoio OpenFreeMap offline (test)
+
+**Branch** `test/openfreemap-mvt`, sperimentale, senza modifiche a `valhalla`.
+Dopo il successo del probe z14 (18 strade, 47 polilinee, 513 punti;
+utente conferma che le strade grigie compaiono su ESP32), aggiunto
+download delle tile MVT lungo la geometria della rotta Valhalla selezionata,
+con margine di una tile per lato. Conferma esplicita alla pressione di
+`Avvia navigazione`, oppure avvio senza download. La navigazione parte
+senza attendere la fine del download.
+
+**Condizioni d'uso OpenFreeMap** (14 ottobre 2026):
+https://openfreemap.org/tos/ — download offline espliciti fino a 3000
+tile o 50 MB, al massimo quattro richieste parallele; questa
+implementazione usa una sola richiesta alla volta e User-Agent dedicato.
+Nessun download GPS continuo. Le tile salvate .motomap sono già
+leggibili dal flusso strade grigie. Nessun cambiamento a BLE, firmware,
+routing Valhalla, e priorità MotoMap offline. La cache riduce i
+download ripetuti.
+
+**Verifica:** codice commit su branch test; build Android CI e prova
+fisica del corridoio **ancora da verificare**. Rischi: lungo percorso
+oltre 3000 tile, rate limiting, mancata visibilità immediata delle
+strade fino al refresh della scena. **Prossimo passo:** attendere la
+CI Android, installare APK del branch test, selezionare una rotta breve,
+confermare il download e verificare progressi, strade e log.
+
 ## Aggiornamento 2026-11-01 — test OpenFreeMap MVT isolato
 
 **Ramo sperimentale:** test/openfreemap-mvt (partenza dal commit
