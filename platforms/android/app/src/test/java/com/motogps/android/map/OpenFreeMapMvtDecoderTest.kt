@@ -77,6 +77,15 @@ class OpenFreeMapMvtDecoderTest {
         try { decode(tooLarge); throw AssertionError("oversized tile accepted") }
         catch (_: IOException) { }
     }
+    @Test fun skipsNonTransportationLayerEvenWhenItHasFeatures() {
+        val unrelatedLayer = str(1, "waterway") +
+            tagged(2, 2, feature(0)) + str(3, "class") +
+            tagged(4, 2, str(1, "primary")) +
+            varField(5, 4096) + varField(15, 2)
+        val (stats, text) = decode(tagged(3, 2, unrelatedLayer))
+        assertEquals(0, stats.parts)
+        assertTrue(text.isEmpty())
+    }
     @Test fun emptyTileDoesNotInventRoads() {
         val (stats, text) = decode(byteArrayOf())
         assertEquals(0, stats.parts)

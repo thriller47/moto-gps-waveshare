@@ -5,6 +5,7 @@ on:
     branches:
       - signal
       - valhalla
+      - test/openfreemap-mvt
     paths-ignore:
       - '**.md'
       - 'docs/**'
