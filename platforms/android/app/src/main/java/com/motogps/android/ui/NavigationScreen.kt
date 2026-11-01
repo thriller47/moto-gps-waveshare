@@ -481,6 +481,8 @@ fun NavigationScreen(
     onBackToSearch: () -> Unit,
     onImportOsmPack: () -> Unit = {},
     onTestOpenFreeMap: () -> Unit = {},
+    onCorridorTileCount: () -> Int = { 0 },
+    onDownloadCorridor: () -> Unit = {},
     onDeleteMap: (String) -> Unit = {},
     downloadStatus: String? = null,
     downloadProgress: Float = 0f,
@@ -493,6 +495,41 @@ fun NavigationScreen(
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var showOfflineDialog by remember { mutableStateOf(false) }
+    var corridorConfirmation by remember { mutableStateOf<Int?>(null) }
+    var corridorDestination by remember { mutableStateOf<PlaceSearchResult?>(null) }
+    if (corridorConfirmation != null && corridorDestination != null) {
+        val count = corridorConfirmation!!
+        AlertDialog(
+            onDismissRequest = { corridorConfirmation = null; corridorDestination = null },
+            title = { Text("Prepara strade OpenFreeMap") },
+            text = { Text(
+                if (count < 0) "Corridoio troppo grande o geometria non disponibile. " +
+                    "Puoi navigare senza scaricare: importa un pacchetto MotoMap ZIP per le strade."
+                else "Scaricare ${count} tile mancanti del corridoio per uso offline? " +
+                    "Limite: 3000 tile / 50 MB, una richiesta alla volta. " +
+                    "Valhalla parte subito; le strade arrivano progressivamente. " +
+                    "Dati © OpenStreetMap contributors / OpenMapTiles / OpenFreeMap."
+            ) },
+            confirmButton = {
+                TextButton(onClick = {
+                    val destination = corridorDestination!!
+                    corridorConfirmation = null
+                    corridorDestination = null
+                    onStartNavigation(destination)
+                    if (count > 0) onDownloadCorridor()
+                }) { Text(if (count > 0) "Avvia e scarica" else "Avvia navigazione") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    val destination = corridorDestination!!
+                    corridorConfirmation = null
+                    corridorDestination = null
+                    onStartNavigation(destination)
+                }) { Text("Avvia senza download") }
+            }
+        )
+    }
+
     var showDiagnosticsDialog by remember { mutableStateOf(false) }
     var showRoutePreferencesDialog by remember { mutableStateOf(false) }
     var showWaypointsSheet by remember { mutableStateOf(false) }
@@ -784,7 +821,10 @@ fun NavigationScreen(
                         }
                     } else {
                         Button(
-                            onClick = { onStartNavigation(routePreview) },
+                            onClick = {
+                                corridorDestination = routePreview
+                                corridorConfirmation = onCorridorTileCount()
+                            },
                             enabled = selectedRoute != null && geoPoints.size >= 2 && !isLoading,
                             modifier = Modifier
                                 .fillMaxWidth()
