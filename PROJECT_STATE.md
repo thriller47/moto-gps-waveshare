@@ -21,7 +21,7 @@ leggibili dal flusso strade grigie. Nessun cambiamento a BLE, firmware,
 routing Valhalla, e priorità MotoMap offline. La cache riduce i
 download ripetuti.
 
-**Verifica:** codice commit su branch test; build Android CI e prova
+**Verifica:** compilazione Android avviata tramite commit di integrazione; esito CI e prova
 fisica del corridoio **ancora da verificare**. Rischi: lungo percorso
 oltre 3000 tile, rate limiting, mancata visibilità immediata delle
 strade fino al refresh della scena. **Prossimo passo:** attendere la
