@@ -34,10 +34,14 @@ internal object OpenFreeMapTileProbe {
         }
         val bytes: ByteArray
         var contentType = ""
+        var responseLength = -1L
+        var contentEncoding = ""
         try {
             if (connection.responseCode != 200)
                 throw IOException("OpenFreeMap HTTP " + connection.responseCode)
             contentType = connection.contentType.orEmpty().take(80)
+            responseLength = connection.contentLengthLong
+            contentEncoding = connection.contentEncoding.orEmpty().take(40)
             if (connection.contentLengthLong > OpenFreeMapMvtDecoder.MAX_TILE_BYTES)
                 throw IOException("OpenFreeMap tile exceeds 2 MiB")
             bytes = connection.inputStream.use { stream ->
@@ -55,6 +59,13 @@ internal object OpenFreeMapTileProbe {
         } finally {
             connection.disconnect()
         }
+
+        if (bytes.isEmpty()) throw IOException(
+            "OpenFreeMap risposta HTTP 200 vuota: tile=" + tile.key +
+                " bytes=0 type=" + contentType +
+                " length=" + responseLength + " encoding=" + contentEncoding +
+                ". Nessun dato MVT da decodificare"
+        )
 
         val maps = HybridMapRepository.getSharedMapsDir(context)
         val name = "ofm_trial_" + tile.key + ".motomap"
