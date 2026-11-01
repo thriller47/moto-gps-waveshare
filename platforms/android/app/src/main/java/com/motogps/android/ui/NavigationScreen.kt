@@ -330,6 +330,7 @@ fun OfflineMapsDialog(
     onDeleteValhalla: () -> Unit,
     onDeleteMap: (String) -> Unit,
     onImportOsmPack: () -> Unit,
+    onTestOpenFreeMap: () -> Unit = {},
     downloadStatus: String? = null,
     downloadProgress: Float = 0f,
     isDownloadingMap: Boolean = false,
@@ -370,6 +371,17 @@ fun OfflineMapsDialog(
                             Spacer(modifier = Modifier.width(8.dp))
                             Text("Importa mappa ZIP")
                         }
+                        // Opt-in single-tile experiment, never run from the GPS loop.
+                        OutlinedButton(
+                            onClick = onTestOpenFreeMap,
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = !isDownloadingMap && !valhallaImporting && !isNavigating
+                        ) { Text("Test OpenFreeMap — 1 tile MVT") }
+                        Text(
+                            "Solo test manuale di una tile, nessun download automatico. " +
+                                "Dati © OpenStreetMap contributors / OpenMapTiles / OpenFreeMap.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
                         if (isDownloadingMap) {
                             MapDownloadProgressBox(
                                 downloadStatus = downloadStatus,
@@ -468,6 +480,7 @@ fun NavigationScreen(
     onStopNavigation: () -> Unit = {},
     onBackToSearch: () -> Unit,
     onImportOsmPack: () -> Unit = {},
+    onTestOpenFreeMap: () -> Unit = {},
     onDeleteMap: (String) -> Unit = {},
     downloadStatus: String? = null,
     downloadProgress: Float = 0f,
@@ -560,6 +573,7 @@ fun NavigationScreen(
             onDeleteValhalla = onDeleteValhalla,
             onDeleteMap = onDeleteMap,
             onImportOsmPack = onImportOsmPack,
+            onTestOpenFreeMap = onTestOpenFreeMap,
             downloadStatus = downloadStatus,
             downloadProgress = downloadProgress,
             isDownloadingMap = isDownloadingMap,

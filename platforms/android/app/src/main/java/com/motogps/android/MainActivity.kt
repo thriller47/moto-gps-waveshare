@@ -210,6 +210,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             MaterialTheme(colorScheme = lightColorScheme()) {
                 NavigationScreen(
                     onExportDiagnostics = { exportDiagnostics() },
+                    onTestOpenFreeMap = { viewModel.testOpenFreeMapTile(this@MainActivity) },
                     diagnosticMode = diagnosticMode,
                     onDiagnosticModeChange = { mode ->
                         if (bleManager.setDiagnosticMode(mode)) {

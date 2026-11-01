@@ -2,6 +2,35 @@
 
 > **Updated: 2026-10-30** (Europe/Rome). Living project handoff; checked against the `valhalla` source, Git history, and GitHub Actions on this date. **Code/CI success is not proof of on-road hardware stability.**
 
+## Aggiornamento 2026-11-01 — test OpenFreeMap MVT isolato
+
+**Ramo sperimentale:** test/openfreemap-mvt (partenza dal commit
+c23d193 su valhalla). Non modificare valhalla né il routing Valhalla.
+
+- Decoder OpenMapTiles/MVT puro Kotlin: legge il solo layer transportation,
+  LineString e attributi class/subclass, riconverte le geometrie in righe
+  MotoMap già compatibili con la visualizzazione ESP32, con limiti per
+  grandezza compressa/espansa, numero di feature, parti e vertici.
+- Comando esplicito in Gestione mappe: Test OpenFreeMap — 1 tile MVT.
+  Scarica una singola tile z15 per la posizione GPS corrente e la scrive
+  come ofm_trial_*.motomap; il BLE MapScene esistente può mostrarla.
+  Nessun ciclo di prefetch, scansione regionale o sostituzione automatica
+  di Overpass. Solo su ramo di prova.
+- Uso pubblico: una richiesta per tocco, User-Agent unico, nessuna
+  raccolta automatica. Verificare condizioni pubbliche prima di estendere.
+  https://openfreemap.org/tos/
+- Limiti: OpenMapTiles transportation non garantisce il tag maxspeed
+  originale, quindi nel test vengono usati valori generici di classe,
+  mai come limiti legali affidabili. La tile è geometria per rendering,
+  non per Valhalla/routing.
+- Verifiche: quattro test sintetici MVT eseguiti localmente con kotlinc
+  (compressione gzip, classi stradali, input errato/oversize, tile vuota),
+  4/4 superati. GitHub Actions da verificare. Accesso HTTP effettivo,
+  decodifica di una tile reale e prova BLE su strada ancora da verificare.
+- Prossimo passo: APK del ramo test, prova manuale a GPS fermo, controllare
+  nel log OFM_MVT_TEST numero strade/vertici/latency, test con la rete
+  grigia ESP32, senza avviare alcuna acquisizione automatica continua.
+
 ## Aggiornamento 2026-11-01 — durata diagnostica estesa
 
 **Branch:** `valhalla`. Dopo la prova su strada con ESP32/Android

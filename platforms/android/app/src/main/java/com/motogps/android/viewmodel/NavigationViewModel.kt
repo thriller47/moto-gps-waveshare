@@ -17,6 +17,7 @@ import com.motogps.android.jni.MotoBLEMapScene
 import com.motogps.android.jni.MotoBLENavigationSnapshot
 import com.motogps.android.jni.MotoBLERouteGeometry
 import com.motogps.android.map.HybridMapRepository
+import com.motogps.android.map.OpenFreeMapTileProbe
 import com.motogps.android.map.SavedMapInfo
 import com.motogps.android.location.LocationFixFilter
 import com.motogps.android.routing.OfflineValhallaRouter
@@ -891,6 +892,54 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                 bleManager.sendMapScene(scene)
             } catch (e: Exception) {
                 Log.w("NavigationVM", "Error updating map scene and speed limit: ${e.message}")
+            }
+        }
+    }
+
+    // Experimental feature on test/openfreemap-mvt ONLY. Never prefetch or
+    // loop over public tiles: one user-initiated tile per button press.
+    private var openFreeMapProbeJob: Job? = null
+
+    fun testOpenFreeMapTile(context: Context) {
+        if (_isNavigating.value) {
+            _downloadStatus.value = "Test MVT disponibile soltanto a navigazione ferma"
+            return
+        }
+        if (!hasFirstFix) {
+            _downloadStatus.value = "Test MVT: attendere la posizione GPS"
+            return
+        }
+        if (_isDownloadingMap.value || openFreeMapProbeJob?.isActive == true) return
+        val (lat, lon) = currentLocation.value
+        openFreeMapProbeJob = viewModelScope.launch {
+            _downloadStatus.value = "OpenFreeMap: scarico una sola tile MVT..."
+            try {
+                val started = SystemClock.elapsedRealtime()
+                val result = withContext(Dispatchers.IO) {
+                    OpenFreeMapTileProbe.downloadOneTile(
+                        context.applicationContext, lat, lon)
+                }
+                val durationMs = SystemClock.elapsedRealtime() - started
+                _downloadStatus.value = "MVT: " + result.stats.roads +
+                    " strade, " + result.stats.parts + " polilinee, " +
+                    result.stats.points + " punti (" +
+                    result.downloadedBytes / 1024 + " KiB, " + durationMs + " ms)"
+                DiagnosticLog.event("OFM_MVT_TEST",
+                    "tile=" + result.tile.key +
+                    " bytes=" + result.downloadedBytes +
+                    " roads=" + result.stats.roads +
+                    " parts=" + result.stats.parts +
+                    " points=" + result.stats.points +
+                    " time_ms=" + durationMs)
+                refreshSavedMaps(context)
+                // The current BLE MapScene builder reads the new .motomap
+                // cache through its existing path. No ESP32 modifications.
+                updateSpeedLimitAndMapScene(lat, lon, context)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                DiagnosticLog.event("OFM_MVT_TEST_ERROR", e.message.orEmpty())
+                _downloadStatus.value = "Test MVT fallito: " + e.message.orEmpty()
             }
         }
     }
