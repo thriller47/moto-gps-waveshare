@@ -48,11 +48,12 @@ class MapOriginPredictor {
     const double dt = std::min<std::uint64_t>(elapsed_ms, 250U) / 1'000.0;
     const double speed = static_cast<double>(speed_mps);
 
-    // Guard against stale fixes and GPS speeds that would indicate a bad
-    // sample. Never extrapolate indefinitely or while stopped.
+    // Stop translation within 1.5 s of the latest geometry anchor; a BLE
+    // interruption must not carry the map far past a junction or roundabout.
+    // GPS remains authoritative and the route geometry is not modified.
     if (std::isfinite(speed) && speed >= 1.5 && speed <= 60.0 &&
         std::isfinite(heading_deg) &&
-        now_ms - last_fix_ms_ <= 4'200U) {
+        now_ms - last_fix_ms_ <= 1'500U) {
       const double heading = static_cast<double>(heading_deg) *
                              3.14159265358979323846 / 180.0;
       move(std::cos(heading) * speed * dt,
