@@ -2,6 +2,12 @@
 
 > **Updated: 2026-10-30** (Europe/Rome). Living project handoff; checked against the `valhalla` source, Git history, and GitHub Actions on this date. **Code/CI success is not proof of on-road hardware stability.**
 
+## Diagnostica copertura MotoMap e rimozione fallback Overpass — 2026-11-02
+
+**Branch:** `test/openfreemap-mvt`. Il controllo di copertura `OpenFreeMapRouteCorridor.missing()` registra ora `OFM_COVERAGE` con tile pianificate, già in cache OpenFreeMap, coperte da MotoMap e ancora mancanti, e `OFM_COVERAGE_MISSING` per ogni tile z14 da scaricare con coordinate z/x/y e l'elenco delle quattro tile z15 MotoMap assenti/presenti. Scopo: diagnosticare le due tile scaricate dall'utente nell'entroterra piemontese, non vicino al confine geografico Italia; una tile ZIP assente può rappresentare una zona senza segmenti OSM compatibili e non necessariamente un errore di copertura.
+
+Disattivato il recupero automatico delle strade via **Overpass** da `NavigationViewModel` e rimosso `HybridMapRepository.ensureOnlineTile()`; restano lettura offline MotoMap, tile OpenFreeMap richieste esplicitamente dal corridoio, log di contesto e il routing Valhalla esistente. La cache storica OSM non è cancellata. Nessuna modifica al firmware ESP32, alla schermata di guida o a `valhalla`. **Test e CI non eseguiti durante la stesura; compilazione e prova manuale ancora necessarie**. Prossima azione: una sola CI sul commit finale, poi ripetere la rotta e inviare il nuovo ZIP Android con `OFM_COVERAGE_MISSING` per verificare i nomi delle tile z15 effettivamente assenti.
+
 ## Pulizia UI mappe — 2026-11-02
 
 **Branch:** `test/openfreemap-mvt`. Rimosso dalla finestra «Gestione mappe» il comando sperimentale «Test OpenFreeMap — 1 tile MVT» e il testo relativo; eliminati callback e metodo ViewModel dedicati alla prova manuale. Il decoder, il download del corridoio e il componente `OpenFreeMapTileProbe.downloadTile` utilizzato dal corridoio rimangono attivi. Nessun cambiamento a firmware ESP32, protocollo BLE, dati importati o branch `valhalla`.

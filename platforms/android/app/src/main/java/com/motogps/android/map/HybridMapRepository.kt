@@ -90,42 +90,6 @@ class HybridMapRepository(
         return deleted
     }
 
-    /** Fetch a small nearby road window without blocking the navigation loop. */
-    fun ensureOnlineTile(lat: Double, lon: Double): Boolean {
-        val center = GatewayRoadTiles.tileFor(lat, lon)
-        val file = File(mapsDir, "osm_near_${center.key}.motomap")
-        if (file.exists() && file.length() > 0L &&
-            System.currentTimeMillis() - file.lastModified() < 7L * 24L * 60L * 60L * 1000L) {
-            return true
-        }
-        val temp = File(mapsDir, file.name + ".tmp")
-        var count = 0
-        var failures = 0
-        try {
-            temp.bufferedWriter().use { writer ->
-                for (tile in listOf(center)) {
-                    try {
-                        count += GatewayRoadTiles.writeTile(tile, writer)
-                        failures = 0
-                    } catch (_: Exception) {
-                        failures++
-                        if (failures >= 2) break
-                    }
-                }
-            }
-            if (count < 1) {
-                Log.w("HybridMapRepository", "Gateway mappe: nessuna strada disponibile in zona")
-                return false
-            }
-            if (file.exists() && !file.delete()) return false
-            if (!temp.renameTo(file)) return false
-            Log.i("HybridMapRepository", "OSM nearby cache: $count roads")
-            return true
-        } finally {
-            temp.delete()
-        }
-    }
-
     fun loadFromRegionalFiles(
         queryMinLatE6: Int,
         queryMinLonE6: Int,

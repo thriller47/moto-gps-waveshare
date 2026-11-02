@@ -89,7 +89,11 @@ internal object OpenFreeMapRouteCorridor {
     fun missing(context: Context, tiles: List<Tile>): List<Tile> {
         val dir = HybridMapRepository.getSharedMapsDir(context)
         val candidates = tiles.filter { !File(dir, it.filename).isFile }
-        if (candidates.isEmpty()) return emptyList()
+        val cached = tiles.size - candidates.size
+        if (candidates.isEmpty()) {
+            android.util.Log.i("OFM_COVERAGE", "planned=${tiles.size} cached=$cached motoMap=0 missing=0")
+            return emptyList()
+        }
 
         // Query only the entries actually needed for the planned route; do not
         // enumerate/extract hundreds of thousands of Italian MotoMap tiles.
@@ -120,7 +124,21 @@ internal object OpenFreeMapRouteCorridor {
                     "Cannot inspect MotoMap pack ${pack.name}; retain download fallback", e)
             }
         }
-        return candidates.filterNot { coveredByMotoMap(it, found) }
+        val missing = candidates.filterNot { coveredByMotoMap(it, found) }
+        android.util.Log.i("OFM_COVERAGE",
+            "planned=${tiles.size} cached=$cached motoMap=${candidates.size - missing.size} missing=${missing.size} packs=${packs.size}")
+        for (tile in missing) {
+            val x = tile.x * 2
+            val y = tile.y * 2
+            val expected = (0..1).flatMap { dx ->
+                (0..1).map { dy -> "tile_15_${x + dx}_${y + dy}.motomap" }
+            }
+            android.util.Log.i("OFM_COVERAGE_MISSING",
+                "z14=${ZOOM}/${tile.x}/${tile.y} file=${tile.filename} " +
+                    "missingMotoMap=${expected.filterNot { it in found }.joinToString(",")} " +
+                    "presentMotoMap=${expected.count { it in found }}/4")
+        }
+        return missing
     }
 
     /** Single-thread download; prevents exceeding the public offline limits. */

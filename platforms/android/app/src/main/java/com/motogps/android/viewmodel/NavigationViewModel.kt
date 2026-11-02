@@ -264,10 +264,6 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     private var lastMapSceneLat: Double = 0.0
     private var lastMapSceneLon: Double = 0.0
     private var mapSceneUpdateJob: Job? = null
-    private var onlineTileJob: Job? = null
-    private var lastOnlineTileAttemptMs: Long = 0L
-    private var lastOnlineTileAttemptLat: Double = Double.NaN
-    private var lastOnlineTileAttemptLon: Double = Double.NaN
     private var lastMapSceneRevision: Long = 0L
     private var navigationMapsContext: Context? = null
 
@@ -410,9 +406,8 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                     ?: snapshot
                 // Keep the source of the ACTUAL navigation route visible.
                 _routingSource.value = lastRoutingProvider
-                // Public Overpass is not suitable for downloading a complete
-                // route in the background. A small GPS-local area is fetched
-                // on demand and retained in the .motomap cache instead.
+                // Road context is loaded locally from MotoMap/OpenFreeMap;
+                // no Overpass network fallback is invoked.
                 if (geometry != null) {
                     sendNearbyRouteGeometry(geometry)
                 }
@@ -799,9 +794,6 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                 } ?: Double.POSITIVE_INFINITY
                 DiagnosticLog.event("OSM_CONTEXT", "segments=${segments.size} usable=${usable.size} " +
                     "nearest_m=${if (closestMeters.isFinite()) closestMeters.toInt() else -1}")
-                if (usable.size < 5 || closestMeters > 250.0) {
-                    requestOnlineTileInBackground(lat, lon, context)
-                }
 
                 val roadPolylines = mutableListOf<MotoBLEMapRoadPolyline>()
 
@@ -949,39 +941,6 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
             } finally {
                 _isDownloadingMap.value = false
                 mapDownloadJob = null
-            }
-        }
-    }
-
-    private fun requestOnlineTileInBackground(lat: Double, lon: Double, context: Context) {
-        val now = System.currentTimeMillis()
-        val moved = lastOnlineTileAttemptLat.isNaN() ||
-            calculateDistanceMeters(lat, lon, lastOnlineTileAttemptLat, lastOnlineTileAttemptLon) >= 400.0
-        if (onlineTileJob?.isActive == true ||
-            (!moved && now - lastOnlineTileAttemptMs < 35_000L)) return
-        lastOnlineTileAttemptMs = now
-        lastOnlineTileAttemptLat = lat
-        lastOnlineTileAttemptLon = lon
-        onlineTileJob = viewModelScope.launch(Dispatchers.IO) {
-            try {
-                DiagnosticLog.event("OVERPASS", "request_start")
-                val available = getOrCreateRepo(context).ensureOnlineTile(lat, lon)
-                DiagnosticLog.event("OVERPASS", "available=$available")
-                Log.i("NavigationVM", "OSM online tile available=$available at $lat,$lon")
-                _downloadStatus.value = if (available)
-                    "OSM: dati stradali ricevuti, aggiornamento ESP32..."
-                else "OSM: nessuna strada scaricata per la posizione corrente"
-                if (available) {
-                    // Wait until the local read has finished, then publish the
-                    // newly cached roads without waiting for another GPS fix.
-                    mapSceneUpdateJob?.join()
-                    val (currentLat, currentLon) = currentLocation.value
-                    updateSpeedLimitAndMapScene(currentLat, currentLon, context)
-                }
-            } catch (e: Exception) {
-                DiagnosticLog.event("OVERPASS_ERROR", e.message.orEmpty())
-                Log.w("NavigationVM", "OSM online tile fetch failed: ${e.message}")
-                _downloadStatus.value = "Errore strade OSM: ${e.message}"
             }
         }
     }
