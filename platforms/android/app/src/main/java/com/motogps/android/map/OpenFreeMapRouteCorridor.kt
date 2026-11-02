@@ -72,9 +72,55 @@ internal object OpenFreeMapRouteCorridor {
         return tiles.toList()
     }
 
+    /**
+     * Imported MotoMap archives contain z15 road tiles whereas this corridor uses z14.
+     * A z14 tile is considered covered only if all four z15 children are present
+     * (possibly in different archives). A partial or unreadable archive must NOT
+     * suppress an OpenFreeMap download.
+     */
+    internal fun coveredByMotoMap(tile: Tile, available: Set<String>): Boolean {
+        val x = tile.x * 2
+        val y = tile.y * 2
+        return (0..1).all { dx ->
+            (0..1).all { dy -> "tile_15_${x + dx}_${y + dy}.motomap" in available }
+        }
+    }
+
     fun missing(context: Context, tiles: List<Tile>): List<Tile> {
         val dir = HybridMapRepository.getSharedMapsDir(context)
-        return tiles.filter { !File(dir, it.filename).isFile }
+        val candidates = tiles.filter { !File(dir, it.filename).isFile }
+        if (candidates.isEmpty()) return emptyList()
+
+        // Query only the entries actually needed for the planned route; do not
+        // enumerate/extract hundreds of thousands of Italian MotoMap tiles.
+        val wanted = HashSet<String>()
+        for (tile in candidates) {
+            val x = tile.x * 2
+            val y = tile.y * 2
+            for (dx in 0..1) for (dy in 0..1) {
+                wanted.add("tile_15_${x + dx}_${y + dy}.motomap")
+            }
+        }
+        val found = HashSet<String>()
+        val packs = MotomapPackImporter.packagesDir(context).listFiles { file ->
+            file.isFile && file.name.endsWith(".motomap.zip", ignoreCase = true)
+        }.orEmpty()
+        for (pack in packs) {
+            try {
+                java.util.zip.ZipFile(pack).use { zip ->
+                    for (name in wanted) {
+                        if (name in found) continue
+                        val entry = zip.getEntry(name) ?: continue
+                        // Same size bounds as the normal MotoMap ZIP reader.
+                        if (entry.size in 1L..(5L * 1024 * 1024)) found.add(name)
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("OpenFreeMapCorridor",
+                    "Cannot inspect MotoMap pack ${pack.name}; retain download fallback", e)
+            }
+        }
+        return candidates.filterNot { coveredByMotoMap(it, found) }
     }
 
     /** Single-thread download; prevents exceeding the public offline limits. */
