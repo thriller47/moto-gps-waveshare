@@ -2,6 +2,10 @@
 
 > **Updated: 2026-10-30** (Europe/Rome). Living project handoff; checked against the `valhalla` source, Git history, and GitHub Actions on this date. **Code/CI success is not proof of on-road hardware stability.**
 
+## Correzione esportazione diagnostica copertura — 2026-11-02
+
+**Branch:** `test/openfreemap-mvt`. Il log Android del 2 novembre (09:24–09:26) conferma 2 tile scaricate e strade utilizzabili, ma non includeva `OFM_COVERAGE` perché tali eventi erano scritti solo in Logcat Android (`Log.i`), non nel registro persistente ZIP. Corretto `OpenFreeMapRouteCorridor.kt` affinché il riepilogo e le tile mancanti siano registrati tramite `DiagnosticLog.event()`, esportabili in `current.log`. Nessun cambiamento all'algoritmo di copertura né al download. **Build/test non ancora verificati dopo questa correzione**; prova successiva: creare un percorso, esportare ZIP e cercare `OFM_COVERAGE` e `OFM_COVERAGE_MISSING`. `valhalla` invariato.
+
 ## Diagnostica copertura MotoMap e rimozione fallback Overpass — 2026-11-02
 
 **Branch:** `test/openfreemap-mvt`. Il controllo di copertura `OpenFreeMapRouteCorridor.missing()` registra ora `OFM_COVERAGE` con tile pianificate, già in cache OpenFreeMap, coperte da MotoMap e ancora mancanti, e `OFM_COVERAGE_MISSING` per ogni tile z14 da scaricare con coordinate z/x/y e l'elenco delle quattro tile z15 MotoMap assenti/presenti. Scopo: diagnosticare le due tile scaricate dall'utente nell'entroterra piemontese, non vicino al confine geografico Italia; una tile ZIP assente può rappresentare una zona senza segmenti OSM compatibili e non necessariamente un errore di copertura.
