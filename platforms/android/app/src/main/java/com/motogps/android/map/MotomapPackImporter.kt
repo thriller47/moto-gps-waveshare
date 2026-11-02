@@ -14,13 +14,16 @@ import java.util.zip.ZipFile
  */
 internal object MotomapPackImporter {
     private val tileName = Regex("^tile_15_[0-9]{1,5}_[0-9]{1,5}\\.motomap$")
+    const val METADATA = "motomap_v2.json"
+    const val COVERAGE = "coverage_z14.txt"
+    const val MAX_COVERAGE_BYTES = 16L * 1024 * 1024
     private val packName = Regex("[^a-zA-Z0-9._-]")
     private const val MAX_ENTRY_BYTES = 5L * 1024 * 1024
     private const val MAX_TOTAL_BYTES = 8L * 1024 * 1024 * 1024
     private const val MAX_ARCHIVE_BYTES = 8L * 1024 * 1024 * 1024
     private const val MAX_ENTRIES = 500_000
 
-    fun safeName(name: String): Boolean = tileName.matches(name) &&
+    fun safeName(name: String): Boolean = (tileName.matches(name) || name == METADATA || name == COVERAGE) &&
         !name.contains('/') && !name.contains('\\')
 
     fun packagesDir(context: Context): File =
@@ -63,6 +66,8 @@ internal object MotomapPackImporter {
             }
             var count = 0
             var total = 0L
+            var metadata = false
+            var coverage = false
             ZipFile(pending).use { zip ->
                 val entries = zip.entries()
                 while (entries.hasMoreElements()) {
@@ -70,14 +75,28 @@ internal object MotomapPackImporter {
                     if (entry.isDirectory || !safeName(entry.name))
                         throw IOException("Tile ZIP non valida: ${entry.name}")
                     if (++count > MAX_ENTRIES) throw IOException("Troppe tile OSM")
-                    if (entry.size <= 0 || entry.size > MAX_ENTRY_BYTES || entry.compressedSize < 0)
-                        throw IOException("Dimensione tile non valida: ${entry.name}")
+                    val limit = when (entry.name) {
+                        METADATA -> 4096L
+                        COVERAGE -> MAX_COVERAGE_BYTES
+                        else -> MAX_ENTRY_BYTES
+                    }
+                    if (entry.size <= 0 || entry.size > limit || entry.compressedSize < 0)
+                        throw IOException("Dimensione tile non valida: ${entry.name} (${entry.size} byte, limite $limit)")
+                    if (entry.name == METADATA) {
+                        if (metadata) throw IOException("Metadata duplicate")
+                        metadata = true
+                    }
+                    if (entry.name == COVERAGE) {
+                        if (coverage) throw IOException("Coverage index duplicate")
+                        coverage = true
+                    }
                     total += entry.size
                     if (total > MAX_TOTAL_BYTES) throw IOException("Pacchetto OSM troppo grande")
                     if (count % 1000 == 0) onProgress(count)
                 }
             }
-            if (count == 0) throw IOException("Nessuna tile .motomap nel pacchetto")
+            if (count == 0) throw IOException("Archivio vuoto")
+            if (coverage && !metadata) throw IOException("Coverage requires v2 metadata")
             // Keep the previous archive intact if publishing the new one fails.
             val backup = File(dir, destination.name + ".backup")
             if (destination.exists()) {

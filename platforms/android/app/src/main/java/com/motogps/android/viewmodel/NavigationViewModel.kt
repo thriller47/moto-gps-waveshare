@@ -17,8 +17,11 @@ import com.motogps.android.jni.MotoBLEMapScene
 import com.motogps.android.jni.MotoBLENavigationSnapshot
 import com.motogps.android.jni.MotoBLERouteGeometry
 import com.motogps.android.map.HybridMapRepository
+import com.motogps.android.map.OpenFreeMapTileProbe
+import com.motogps.android.map.OpenFreeMapRouteCorridor
 import com.motogps.android.map.SavedMapInfo
 import com.motogps.android.location.LocationFixFilter
+import com.motogps.android.location.NavigationPositionPrediction
 import com.motogps.android.routing.OfflineValhallaRouter
 import com.motogps.android.routing.OnlineValhallaRouter
 import com.motogps.android.routing.ValhallaGraphImporter
@@ -256,16 +259,17 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     private val routeDistanceGuard = RouteDistanceGuard()
     private val routeProgressMatcher = RouteProgressMatcher()
     private var lastLocationTimeMs: Long = 0L
+    private var lastFixElapsedMs: Long = 0L
+    private var lastFixAccuracyM: Float = Float.POSITIVE_INFINITY
+    private var lastFixCourseDeg: Float? = null
     private var lastDiagnosticFixMs: Long = 0L
+    private var lastDiagnosticLatencyMs: Long = 0L
+    private var lastAcceptedFixArrivalMs: Long = 0L
     private var lastDiagnosticHeadingMs: Long = 0L
     private var lastMapSceneSendTimeMs: Long = 0L
     private var lastMapSceneLat: Double = 0.0
     private var lastMapSceneLon: Double = 0.0
     private var mapSceneUpdateJob: Job? = null
-    private var onlineTileJob: Job? = null
-    private var lastOnlineTileAttemptMs: Long = 0L
-    private var lastOnlineTileAttemptLat: Double = Double.NaN
-    private var lastOnlineTileAttemptLon: Double = Double.NaN
     private var lastMapSceneRevision: Long = 0L
     private var navigationMapsContext: Context? = null
 
@@ -408,9 +412,8 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                     ?: snapshot
                 // Keep the source of the ACTUAL navigation route visible.
                 _routingSource.value = lastRoutingProvider
-                // Public Overpass is not suitable for downloading a complete
-                // route in the background. A small GPS-local area is fetched
-                // on demand and retained in the .motomap cache instead.
+                // Road context is loaded locally from MotoMap/OpenFreeMap;
+                // no Overpass network fallback is invoked.
                 if (geometry != null) {
                     sendNearbyRouteGeometry(geometry)
                 }
@@ -428,7 +431,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                         it.maneuverName !in setOf("continue", "none", "arrive") &&
                             it.distanceToManeuverM <= 100L
                     } ?: false
-                    delay(if (turnImminent) 200L else 300L)
+                    delay(if (turnImminent) 200L else 250L)
                     if (!_isNavigating.value) break
                     loopCount++
 
@@ -439,9 +442,13 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                     val pageName = "navigation"
 
                     val (lat, lon) = currentLocation.value
+                    val ageMs = SystemClock.elapsedRealtime() - lastFixElapsedMs
+                    val estimated = NavigationPositionPrediction.estimate(
+                        lat, lon, lastGpsSpeedMs, lastFixCourseDeg,
+                        lastFixAccuracyM, ageMs, ageMs)
                     val updatedSnap = if (_hasArrived.value)
                         (currentSnapshot?.copy() ?: snapshot.copy())
-                    else updateManeuverAndDistance(lat, lon)
+                    else updateManeuverAndDistance(estimated.latitude, estimated.longitude)
                         ?: currentSnapshot?.copy() ?: snapshot.copy()
 
                     val activeSnap = updatedSnap.copy(
@@ -464,7 +471,9 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                         DiagnosticLog.event("NAV_SNAPSHOT",
                             "maneuver=${activeSnap.maneuverName} id=${activeSnap.maneuverID} " +
                             "turn_m=${activeSnap.distanceToManeuverM} remain_m=${activeSnap.remainingDistanceM} " +
-                            "speed_dkph=${activeSnap.speedDeciKPH} heading_cdeg=${activeSnap.headingCentiDegrees}")
+                            "speed_dkph=${activeSnap.speedDeciKPH} heading_cdeg=${activeSnap.headingCentiDegrees} " +
+                            "fix_age_ms=$ageMs received_ago_ms=${SystemClock.elapsedRealtime() - lastAcceptedFixArrivalMs} " +
+                            "predicted_m=${estimated.extrapolatedMeters.toInt()}")
                     }
                     bleManager.sendNavigationSnapshot(activeSnap)
 
@@ -626,11 +635,22 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
             provider = location.provider.orEmpty(),
             speedMetersPerSecond = if (location.hasSpeed()) location.speed else 0f
         )
-        val decision = locationFixFilter.evaluate(fix, SystemClock.elapsedRealtime())
+        val receivedAtMs = SystemClock.elapsedRealtime()
+        val decision = locationFixFilter.evaluate(fix, receivedAtMs)
         if (!decision.accepted) {
             Log.w("NavigationVM", "Location rejected: ${decision.reason} provider=${fix.provider} " +
                 "accuracy=${fix.accuracyMeters.toInt()}m jump=${decision.distanceMeters.toInt()}m")
             return
+        }
+        lastAcceptedFixArrivalMs = receivedAtMs
+        lastFixElapsedMs = fix.elapsedRealtimeMs
+        lastFixAccuracyM = fix.accuracyMeters
+        lastFixCourseDeg = if (location.hasBearing()) location.bearing else null
+        if (receivedAtMs - lastDiagnosticLatencyMs >= 1000L) {
+            lastDiagnosticLatencyMs = receivedAtMs
+            DiagnosticLog.event("GPS_LATENCY",
+                "age_ms=${receivedAtMs - fix.elapsedRealtimeMs} provider=${fix.provider} " +
+                    "accuracy_m=${fix.accuracyMeters} speed_mps=${fix.speedMetersPerSecond}")
         }
         updateAcceptedDeviceLocation(
             latitude = location.latitude,
@@ -797,9 +817,6 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                 } ?: Double.POSITIVE_INFINITY
                 DiagnosticLog.event("OSM_CONTEXT", "segments=${segments.size} usable=${usable.size} " +
                     "nearest_m=${if (closestMeters.isFinite()) closestMeters.toInt() else -1}")
-                if (usable.size < 5 || closestMeters > 250.0) {
-                    requestOnlineTileInBackground(lat, lon, context)
-                }
 
                 val roadPolylines = mutableListOf<MotoBLEMapRoadPolyline>()
 
@@ -895,35 +912,58 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         }
     }
 
-    private fun requestOnlineTileInBackground(lat: Double, lon: Double, context: Context) {
-        val now = System.currentTimeMillis()
-        val moved = lastOnlineTileAttemptLat.isNaN() ||
-            calculateDistanceMeters(lat, lon, lastOnlineTileAttemptLat, lastOnlineTileAttemptLon) >= 400.0
-        if (onlineTileJob?.isActive == true ||
-            (!moved && now - lastOnlineTileAttemptMs < 35_000L)) return
-        lastOnlineTileAttemptMs = now
-        lastOnlineTileAttemptLat = lat
-        lastOnlineTileAttemptLon = lon
-        onlineTileJob = viewModelScope.launch(Dispatchers.IO) {
+    /** Only route-preview user action may begin this download. */
+    fun corridorTileCount(context: Context): Int {
+        val selected = _routeOptions.value.getOrNull(_selectedRouteIndex.value)
+            ?: return 0
+        return try {
+            val plan = OpenFreeMapRouteCorridor.plan(selected.rawRouteJson)
+            if (plan.isEmpty()) -1
+            else OpenFreeMapRouteCorridor.missing(context.applicationContext, plan).size
+        } catch (e: Exception) {
+            DiagnosticLog.event("OFM_CORRIDOR_ERROR", "plan: " + e.message)
+            -1
+        }
+    }
+
+    fun downloadOpenFreeMapCorridor(context: Context) {
+        if (_isDownloadingMap.value || mapDownloadJob?.isActive == true) return
+        val selected = _routeOptions.value.getOrNull(_selectedRouteIndex.value) ?: return
+        val appContext = context.applicationContext
+        mapDownloadJob = viewModelScope.launch {
+            _isDownloadingMap.value = true
+            _downloadProgress.value = 0f
             try {
-                DiagnosticLog.event("OVERPASS", "request_start")
-                val available = getOrCreateRepo(context).ensureOnlineTile(lat, lon)
-                DiagnosticLog.event("OVERPASS", "available=$available")
-                Log.i("NavigationVM", "OSM online tile available=$available at $lat,$lon")
-                _downloadStatus.value = if (available)
-                    "OSM: dati stradali ricevuti, aggiornamento ESP32..."
-                else "OSM: nessuna strada scaricata per la posizione corrente"
-                if (available) {
-                    // Wait until the local read has finished, then publish the
-                    // newly cached roads without waiting for another GPS fix.
-                    mapSceneUpdateJob?.join()
-                    val (currentLat, currentLon) = currentLocation.value
-                    updateSpeedLimitAndMapScene(currentLat, currentLon, context)
+                val tiles = withContext(Dispatchers.IO) {
+                    OpenFreeMapRouteCorridor.missing(
+                        appContext, OpenFreeMapRouteCorridor.plan(selected.rawRouteJson)
+                    )
                 }
+                _downloadStatus.value = "Corridoio: ${tiles.size} tile da scaricare"
+                DiagnosticLog.event("OFM_CORRIDOR", "start missing=${tiles.size}")
+                withContext(Dispatchers.IO) {
+                    OpenFreeMapRouteCorridor.download(appContext, tiles) { done, total, bytes ->
+                        _downloadProgress.value = done.toFloat() / total.coerceAtLeast(1)
+                        _downloadStatus.value = "Corridoio ${done}/${total} tile, ${bytes / 1024} KiB"
+                    }
+                }
+                _downloadProgress.value = 1f
+                _downloadStatus.value = "Corridoio salvato: ${tiles.size} nuove tile"
+                DiagnosticLog.event("OFM_CORRIDOR", "complete tiles=${tiles.size}")
+                refreshSavedMaps(appContext)
+                if (hasFirstFix) {
+                    val (lat, lon) = currentLocation.value
+                    updateSpeedLimitAndMapScene(lat, lon, appContext)
+                }
+            } catch (e: CancellationException) {
+                _downloadStatus.value = "Download corridoio interrotto"
+                throw e
             } catch (e: Exception) {
-                DiagnosticLog.event("OVERPASS_ERROR", e.message.orEmpty())
-                Log.w("NavigationVM", "OSM online tile fetch failed: ${e.message}")
-                _downloadStatus.value = "Errore strade OSM: ${e.message}"
+                _downloadStatus.value = "Errore corridoio: ${e.message}"
+                DiagnosticLog.event("OFM_CORRIDOR_ERROR", e.message.orEmpty())
+            } finally {
+                _isDownloadingMap.value = false
+                mapDownloadJob = null
             }
         }
     }
@@ -1071,6 +1111,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                 val (lat, lon) = currentLocation.value
                 if (hasFirstFix) updateSpeedLimitAndMapScene(lat, lon, context.applicationContext)
             } catch (e: Exception) {
+                com.motogps.android.diagnostics.DiagnosticLog.event("OSM_IMPORT_ERROR", "${e.javaClass.simpleName}: ${e.message}")
                 _downloadStatus.value = "Errore importazione OSM: ${e.message}"
                 _errorMessage.value = _downloadStatus.value
             } finally {
@@ -1105,7 +1146,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         val dx = bx - ax
         val dy = by - ay
         val t = if (dx * dx + dy * dy > 0.001)
-            (-(ax * dx + ay * dy) / (dx * dx + dy)).coerceIn(0.0, 1.0)
+            (-(ax * dx + ay * dy) / (dx * dx + dy * dy)).coerceIn(0.0, 1.0)
         else 0.0
         return kotlin.math.hypot(ax + t * dx, ay + t * dy)
     }

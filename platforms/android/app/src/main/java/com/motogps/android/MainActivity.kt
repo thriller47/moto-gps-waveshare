@@ -210,6 +210,8 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             MaterialTheme(colorScheme = lightColorScheme()) {
                 NavigationScreen(
                     onExportDiagnostics = { exportDiagnostics() },
+                    onCorridorTileCount = { viewModel.corridorTileCount(this@MainActivity) },
+                    onDownloadCorridor = { viewModel.downloadOpenFreeMapCorridor(this@MainActivity) },
                     diagnosticMode = diagnosticMode,
                     onDiagnosticModeChange = { mode ->
                         if (bleManager.setDiagnosticMode(mode)) {

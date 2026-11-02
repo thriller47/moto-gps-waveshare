@@ -3,7 +3,7 @@
 **Riferimento:** repository thriller47/moto-gps-waveshare, branch principale **valhalla**. 
 **Scheda:** Waveshare ESP32-S3-Touch-AMOLED-1.75C, 32 MB flash, 8 MB PSRAM.
 **Porta negli esempi:** **COM3**. I blocchi sono etichettati **PowerShell** o **CMD**: usare la shell indicata. 
-**Aggiornato:** 31 ottobre 2026. Controllare prima PROJECT_STATE.md e AGENTS.md.
+**Aggiornato:** 2 novembre 2026. Controllare prima PROJECT_STATE.md e AGENTS.md.
 
 > **Attenzione:** il branch main è stato eliminato; signal resta solo come storico OSM online. Non usare né main né NoOta come base. Effettuare il flash soltanto con immagini della scheda 1.75C.
 
@@ -249,6 +249,24 @@ python scripts\offline_map\pbf_to_motomap.py C:\MotoGPS\PBF\nord-ovest-latest.os
 
 Il convertitore Python è in memoria e l'intera Italia può usare diversi GB di RAM: chiudere programmi pesanti e controllare spazio disco. I PBF di Geofabrik **non sono** direttamente importabili come MotoMap.
 
+### MotoMap v2: indice di copertura e poligono Geofabrik
+
+Per il file Italia `italy.poly` usare **la fonte ufficiale Geofabrik**:
+https://download.geofabrik.de/europe/italy.poly .
+È il poligono di ritaglio della regione, non un grafo Valhalla. Controllare che il PBF provenga dallo stesso estratto (Italia, non Nord-Ovest o altro).
+
+**PowerShell:**
+
+~~~powershell
+New-Item -ItemType Directory -Force C:\MotoGPS\PBF | Out-Null
+Invoke-WebRequest "https://download.geofabrik.de/europe/italy.poly" -OutFile "C:\MotoGPS\PBF\italy.poly"
+Set-Location "C:\MotoGPS\moto-gps-waveshare"
+python -m pip install osmium shapely
+python scripts\offline_map\pbf_to_motomap.py C:\MotoGPS\PBF\italy-261026.osm.pbf -o C:\MotoGPS\PBF\italy-v2.motomap.zip --coverage-poly C:\MotoGPS\PBF\italy.poly
+~~~
+
+Se si utilizza un PBF nuovo, sostituire il percorso. **Non rinominare un PBF regionale come Italia:** il poligono certifica solo celle z14 interamente interne all'estratto dichiarato. Se non esiste un `.poly` affidabile, omettere `--coverage-poly`: il pacchetto v2 funzionerà, ma non certificherà tile vuote. Con il file v2 Android può riconoscere aree elaborate prive di strade senza riscaricarle da OpenFreeMap. Conservare il precedente ZIP fino all'importazione e alla verifica della copertura.
+
 ## 5. Creare o importare i grafi Valhalla
 
 ### A. Metodo più semplice: grafo già pronto
@@ -290,6 +308,152 @@ zstd -T2 -6 valhalla_tiles.tar -o valhalla_tiles.tar.zst
 Per aggiornare un grafo, lavorare preferibilmente con una **nuova cartella ValhallaData** contenente il nuovo PBF, così un eventuale TAR precedente non viene riutilizzato silenziosamente. La dimensione espansa deve restare entro il limite dell'importatore Android (20 GiB). Per l'intera Italia, valutare RAM, tempi e SSD: con 16 GB di RAM il build potrebbe non riuscire.
 
 Fonti: https://github.com/valhalla/valhalla/blob/master/docker/README.md e https://valhalla.github.io/valhalla/start/building/
+
+### C. Alternativa indipendente: build locale Geofabrik PBF → grafo TAR (Linux/WSL2)
+
+Se routing.earth o altri distributori diventano indisponibili, il repository contiene `scripts/offline_map/build_valhalla_graph.sh`, basato sugli strumenti ufficiali Valhalla. Produce `valhalla_tiles.tar`, importabile direttamente nell'app, senza dipendere da server di grafi pronti. **Non è un convertitore Python puro:** occorrono gli eseguibili Valhalla installati nel sistema Linux (o in WSL2), spazio SSD e molta RAM. È un'alternativa al Docker della sezione B.
+
+Su **Windows PowerShell**, installare WSL2 se necessario (`wsl --install -d Ubuntu`, con riavvio se richiesto), poi lavorare nel terminale Ubuntu. Verificare che gli strumenti `valhalla_build_config`, `valhalla_build_tiles`, `valhalla_build_extract`, `valhalla_build_admins`, `valhalla_build_timezones` siano disponibili tramite pacchetti della distribuzione o una build Valhalla compilata seguendo le istruzioni ufficiali: https://valhalla.github.io/valhalla/start/building/ . La disponibilità esatta dei pacchetti varia in base alla distribuzione.
+
+**Ubuntu/WSL2 (Bash):**
+
+~~~bash
+command -v valhalla_build_config
+command -v valhalla_build_tiles
+command -v valhalla_build_extract
+# Opzionale, per comprimere in tar.zst:
+sudo apt-get update
+sudo apt-get install -y zstd
+cd /mnt/c/MotoGPS/moto-gps-waveshare
+bash scripts/offline_map/build_valhalla_graph.sh \
+  /mnt/c/MotoGPS/PBF/italy-261026.osm.pbf \
+  /mnt/c/MotoGPS/ValhallaItaliaV2 --zstd
+~~~
+
+La cartella `ValhallaItaliaV2` deve essere **nuova e vuota**: lo script si rifiuta di sovrascrivere un grafo precedente. Crea configurazione e directory delle tile, costruisce timezone/admin database quando gli strumenti sono presenti, genera il grafo e il TAR indicizzato, poi controlla che contenga file `.gph`. L'output compresso sarà `C:\MotoGPS\ValhallaItaliaV2\valhalla_tiles.tar.zst`; senza `--zstd` importare `valhalla_tiles.tar`.
+
+Per provare prima su una zona piccola usare `nord-ovest-latest.osm.pbf` e una cartella differente. Con un PBF Italia completo il consumo di RAM e disco può essere notevole; WSL2 deve avere memoria disponibile e lo spazio deve comprendere tile temporanee, TAR e TAR compresso. Se la build non riesce per memoria, usare una sottoregione o un PC più capiente. Su WSL2 può essere più veloce lavorare nel filesystem Linux anziché direttamente in `/mnt/c`.
+
+**Verifica PowerShell dell'archivio:**
+
+~~~powershell
+tar -tf C:\MotoGPS\ValhallaItaliaV2\valhalla_tiles.tar | Select-String '\.gph (PSRAM/BLE) e Android
+
+**Valhalla, dal 2026-11-01:** il vecchio logger flash ESP32 è
+disattivato. La nuova diagnostica è registrata in PSRAM, trasmessa
+via BLE e salvata nell'app Android. Non sono necessarie letture flash
+né cavo USB per recuperare i nuovi log.
+
+1. Connettere Android all'ESP32 via BLE.
+2. Toccare **LOG**, scegliere **BASE** per eventi critici o **DEBUG**
+   per il dettaglio di navigazione e rendering. L'impostazione
+   predefinita è **OFF**.
+3. Il timeout è di **60 minuti**, con disattivazione anticipata
+   su disconnessione BLE o riavvio. Per interrompere manualmente scegliere
+   **LOG > OFF**.
+4. **Prima di disconnettere**, premere **Condividi / Esporta diagnostica**
+   nella barra dell'app. Salvare `motogps-android-diagnostics.zip`,
+   che comprende i file Android `current.log`/`previous.log` e,
+   se sono arrivati record ESP32, `esp32-current.log`/
+   `esp32-previous.log`.
+
+**Spazio:** Android registra automaticamente (indipendentemente da LOG).
+Entrambe le sorgenti usano due file a rotazione: fino a **2 × 1 MiB**
+per Android e **2 × 2 MiB** per ESP32, circa 6 MiB in totale più
+l'ultimo ZIP esportato. Nessun pulsante di cancellazione; i file più
+vecchi vengono sovrascritti. Il buffer ESP32 PSRAM contiene fino a
+2048 eventi e trasferisce al massimo 4 eventi/s: possono andare persi
+eventi in presenza di intenso DEBUG o di un collegamento BLE interrotto.
+Per il funzionamento ordinario, lasciare LOG su OFF.
+
+**Solo per estrarre i log storici del vecchio firmware ESP32:**
+la partizione flash `0xC20000` rimane presente, ma non viene più
+aggiornata. Con la scheda su COM3:
+
+~~~cmd
+cd /d C:\MotoGPS\moto-gps-waveshare
+esptool.exe --chip esp32s3 -p COM3 -b 460800 read-flash 0xC20000 0x40000 esp-diag.bin
+python scripts\diagnostics\decode_esp32_trace.py esp-diag.bin
+~~~
+
+Il decoder produce `esp-diag.csv` con **solo** vecchi eventi.
+Con esptool 4.x usare `read_flash` al posto di `read-flash`.
+
+## 7. Console seriale Wi-Fi della radio (COM3)
+
+La modalità radio può essere avviata separatamente da GPS/BLE tramite il controllo **RADIO** nel firmware che implementa la commutazione. I comandi seguenti sono verificati nel parser del repository (**signal_wifi_console.cpp**). **Non inviarli nella normale schermata GPS**, né durante la guida.
+
+Usare un terminale **bidirezionale** a **115200 baud**, terminatore **LF/Newline** (per esempio monitor Arduino IDE con Newline), oppure Python + pyserial:
+
+~~~cmd
+python -m pip install pyserial
+python -m serial.tools.miniterm COM3 115200 --eol LF
+~~~
+
+Digitare i comandi che seguono **dentro il terminale seriale**, non nel CMD. In particolare, il carattere **|** nel comando wifi set è un separatore della console radio: nella shell CMD sarebbe invece un operatore di pipe!
+
+~~~text
+wifi help
+wifi status
+wifi set NomeRete|PasswordTemporanea
+wifi test
+wifi status
+wifi off
+~~~
+
+| Comando nel monitor seriale | Funzione |
+| --- | --- |
+| wifi help | Mostra i comandi previsti |
+| wifi set NomeRete&#124;PasswordTemporanea | Salva SSID e password in NVS; supporta spazi nell'SSID |
+| wifi test | Connette al Wi-Fi **2,4 GHz** memorizzato |
+| wifi status | Indica se è connesso |
+| wifi off | Disconnette il Wi-Fi |
+| radio list | Elenca le stazioni MP3 disponibili |
+| radio play | Avvia la prima stazione |
+| radio play 2 | Avvia la stazione n. 2, se presente |
+| radio stop | **Durante il playback**, ferma la riproduzione |
+| radio volume 20 | **Durante il playback**, imposta volume al 20% (range 0–100) |
+
+Per uscire da miniterm: **Ctrl+]**. Per evitare errori, prima digitare **wifi status**: se non arriva alcuna risposta, verificare che sia attiva la modalità radio e che il terminale non sia su un'altra porta.
+
+**Sicurezza:** la console di prova non maschera la password; il terminale può conservarla nella cronologia e la memorizzazione NVS potrebbe non essere cifrata. Usare un hotspot di prova, non inserire password reali in schermate/log pubblici.
+
+## 8. Promemoria rapido
+
+| Operazione | File / comando essenziale |
+| --- | --- |
+| Aggiornare il codice | git pull --ff-only origin valhalla |
+| Firmware ESP32 GitHub | Artifact **ESP32-Firmware** della Project Build |
+| Flash completo | bootloader a 0x0; partition-table a 0x8000; app a 0x20000 |
+| Flash solo aggiornamento | app a 0x20000 |
+| MotoMap offline | pbf_to_motomap.py → **.motomap.zip** |
+| Routing offline | Docker Valhalla o grafo esterno → **.tar** / **.tar.zst** |
+| Log ESP32 storico | read-flash 0xC20000 0x40000 → **.bin** → decoder → **.csv** |
+| Log Android | Condividi diagnostica → **.zip** |
+| Wi-Fi radio | COM3, 115200, terminale con Newline; wifi set SSID&#124;PASSWORD |
+
+**In caso di dubbi prima di flashare:** leggere PROJECT_STATE.md e controllare il commit e la run GitHub da cui provengono i binari. CI verde non equivale a stabilità verificata su strada.
+ | Select-Object -First 5
+~~~
+
+Copiare TAR o TAR.ZST sul telefono e selezionare **Gestione mappe → Importa grafo TAR / ZST**. Disattivare temporaneamente la rete e provare una rotta all'interno della copertura: i log devono riportare il provider **Valhalla offline**. L'esistenza del TAR, il controllo `.gph` e una build riuscita **non garantiscono** da soli che il motore JNI Android possa leggerlo: la compatibilità dei grafi binari va verificata sul dispositivo.
+
+### D. Confrontare due grafi Valhalla senza estrarli
+
+Il nuovo comando `scripts/offline_map/analyze_valhalla_graph.py` analizza in streaming archivi `.tar` o `.tar.zst` e legge solo le intestazioni delle tile `.gph`. Il report mostra tile, **nodi** e **archi orientati** per livello Valhalla, oltre ai conteggi totali. Le intestazioni binarie sono interpretate **soltanto quando compatibili con il layout v3 riconosciuto**; in caso contrario il programma stampa `unverified` e non finge numeri attendibili.
+
+**Ubuntu/WSL2:**
+
+~~~bash
+sudo apt-get install -y zstd
+cd /mnt/c/MotoGPS/moto-gps-waveshare
+python3 scripts/offline_map/analyze_valhalla_graph.py \
+  /mnt/c/MotoGPS/ValhallaItaliaV2/valhalla_tiles.tar.zst \
+  /mnt/c/MotoGPS/PBF/Italy.tar.zst \
+  --json /mnt/c/MotoGPS/PBF/confronto-valhalla.json
+~~~
+
+Sostituire il secondo percorso con l'archivio routing.earth effettivo. Si può analizzare anche un singolo TAR (compresso o no) usando un solo argomento. Il comando usa una quantità contenuta di RAM perché legge in sequenza i file dell'archivio, ma deve decomprimere l'intero flusso Zstandard, quindi può impiegare tempo. Se compare `unverified`, controllare la versione del grafo; non confrontare i valori parziali di nodi e archi. Uno stesso tratto bidirezionale produce normalmente due archi orientati e può essere rappresentato in più livelli: **questo conteggio non equivale al numero di strade OSM uniche**. Per verificare copertura e compatibilità bisogna comunque provare itinerari offline sul telefono.
 
 ## 6. Diagnostica attuale ESP32 (PSRAM/BLE) e Android
 

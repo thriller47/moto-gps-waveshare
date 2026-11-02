@@ -2,9 +2,162 @@
 
 > **Updated: 2026-10-30** (Europe/Rome). Living project handoff; checked against the `valhalla` source, Git history, and GitHub Actions on this date. **Code/CI success is not proof of on-road hardware stability.**
 
+## Merge e prova su strada offline — 2026-11-02
+
+**Branch di destinazione:** `valhalla`; integrazione di `test/openfreemap-mvt` autorizzata esplicitamente dopo test motociclistico positivo. L'utente ha percorso strade secondarie/comunali con dati mobili disattivati: ricalcoli Valhalla giudicati coerenti, strade grigie visibili, interfaccia fluida e puntuale. Analizzato `motogps-android-diagnostics.zip`: 20 eventi REROUTE (trigger e success), provider `valhalla-local`, 3 eventi OFM_COVERAGE, inclusi corridoi con 31/31 e 33/33 tile MotoMap certificate senza tile mancanti; 1.746 NAV_SNAPSHOT con fix_age_ms mediano 807 ms e predicted_m mediano 8 m, max 12 m. Nessun evento ERROR/FATAL/Exception nel log Android; nessuna firma Guru Meditation/panic/watchdog nel log ESP32. Il log non certifica assenza assoluta di problemi hardware. Ultimi commit del branch di test con CI verde, compreso `0afa371`. La documentazione di revisione architetturale rinviata dal branch valhalla è preservata. **Prossima azione:** controllare CI del commit di merge su valhalla e poi mantenere le proposte architetturali in backlog, senza implementarle automaticamente.
+
 ## Revisione architetturale rinviata — 2026-11-01
 
-Le proposte ESP-01..ESP-05 e AND-01..AND-05, con priorità e piano di verifica, sono conservate in [docs/REVISIONE_ARCHITETTURALE_2026-11-01.md](docs/REVISIONE_ARCHITETTURALE_2026-11-01.md). Decisione: rimandarne l'implementazione. Nessun cambiamento firmware/Android, mantenere valhalla stabile e test/openfreemap-mvt separato. Alla ripresa usare un branch di test e verificare i test hardware prima del merge.
+Le proposte ESP-01..ESP-05 e AND-01..AND-05, con priorità e piano di verifica, sono conservate in [docs/REVISIONE_ARCHITETTURALE_2026-11-01.md](docs/REVISIONE_ARCHITETTURALE_2026-11-01.md). Decisione: rimandarne l'implementazione. Nessun cambiamento firmware/Android, mantenere le proposte architetturali rinviate e non implementarle durante questo merge. Alla ripresa usare un branch di test e verificare i test hardware prima del merge.
+
+
+## Analizzatore grafi Valhalla — 2026-11-02
+
+**Branch:** `test/openfreemap-mvt`, `valhalla` invariato. Aggiunto `scripts/offline_map/analyze_valhalla_graph.py` per confrontare TAR/TAR.ZST autoprodotti e routing.earth senza estrazione: tile per livello, nodi e archi diretti dal formato GraphTileHeader v3, versioni tile, conteggi non verificabili e report JSON. Il confronto A-B dei directed edges si attiva solo se tutti gli header sono riconosciuti. Aggiornato `docs/MANUALE_OPERATIVO.md` con comandi WSL2 e limiti interpretativi. Motivazione: grafo Italia dell'utente 880 MB .zst contro routing.earth 1.42 GB .zst, generato con soli 8 GB RAM; dimensione compressa non dimostra copertura equivalente.
+
+**Test eseguiti localmente:** compilazione sintattica Python e TAR sintetico con un header v3: 17 nodi, 31 archi diretti, 1 tile riconosciuti. **Non eseguiti:** confronto su TAR Italia reale, CI, verifica Android. **Prossima azione:** utente confronta i due archivi con lo script e fornisce report JSON; controllare differenze per livello, poi test routing locale.
+
+## Ottimizzazione cadenza snapshot e diagnostica GPS — 2026-11-02
+
+**Branch:** `test/openfreemap-mvt`. Separato il timer diagnostico `GPS_LATENCY` da `GPS_FIX` (il precedente condivideva erroneamente `lastDiagnosticFixMs`, sopprimendo quasi tutti gli eventi). Registrati anche `received_ago_ms` e `fix_age_ms` negli snapshot per separare età GNSS e coda di ricezione Android. Ridotto soltanto l'intervallo BLE snapshot su rettilineo da 300 a 250 ms; svolte restano a 200 ms. Predizione limitata a 12 m, GPS autorevole per ricalcoli, scene stradali e navigazione invariati. **Verifica hardware e CI ancora da completare**; dopo compilazione verificare GPS_LATENCY più regolare e confrontare fix_age_ms e received_ago_ms in una prova su strada. Nessun cambiamento a ESP32, BLE codec, MotoMap o Valhalla.
+
+## Riduzione ritardo di posizione display — 2026-11-02
+
+**Branch:** `test/openfreemap-mvt`; `valhalla` invariato. Dopo test MotoMap v2 + Valhalla offline riuscito (3 ricalcoli, 30/30 tile coperte, zero download OpenFreeMap), utente riferisce ritardo di 20–30 m rispetto alla moto. Nota: l'evento GPS_FIX è limitato a circa un log/s e NON misura la cadenza reale del GNSS. Aggiunto `GPS_LATENCY` con età monotona del fix e `fix_age_ms` + `predicted_m` agli snapshot diagnostici; `NavigationPositionPrediction` applica una stima solo alla posizione usata per la visualizzazione della navigazione (max 700 ms e 12 m, velocità 3–35 m/s, precisione <=25 m, fix non più vecchio di 1500 ms, bearing disponibile). La posizione reale resta autoritativa per ricezione fix, ricalcoli e scene stradali. Nessuna modifica a BLE, ESP32, Valhalla, MotoMap o OpenFreeMap. Aggiunti test unitari per fermo, vecchio fix, precisione, direzione e limite. **Test/CI non ancora verificati al momento del commit**; prossima azione: una CI e prova su strada comparativa con GPS_LATENCY e NAV_SNAPSHOT, verificare se il ritardo percepito cala e non compaiono anticipi nelle svolte.
+
+## Correzione importazione MotoMap v2 — 2026-11-02
+
+**Branch:** `test/openfreemap-mvt`. Su Android aggiornato, importazione di un MotoMap v2 Italia falliva con `Dimensione tile non valida: coverage_z14.txt`. Il limite dedicato al file di indice viene aumentato da 2 MiB a 16 MiB sia nella validazione ZIP sia nella lettura del corridoio. L’errore indica ora dimensione reale e limite, e `NavigationViewModel` registra `OSM_IMPORT_ERROR` nel log persistente esportabile. Nessuna modifica al contenuto del convertitore, BLE, ESP32 o routing. Il file v2 già creato può essere riutilizzato. **Non eseguiti** test su archivio Italia reale e dispositivo; verificare una sola CI del commit finale e riprovare importazione sul telefono. La causa dimensionale è probabile ma la dimensione effettiva dell’entry nel file utente non è stata misurata.
+
+## Strumenti di compilazione mappe e manuale — 2026-11-02
+
+**Branch:** `test/openfreemap-mvt`; `valhalla` non modificato. Aggiunto `scripts/offline_map/build_valhalla_graph.sh`, procedura Bash per Valhalla CLI su Linux/WSL2 (config, timezone/admin se disponibili, build tiles, extract TAR, verifica `.gph`, compressione Zstandard opzionale); non dipende da routing.earth. Aggiornato `docs/MANUALE_OPERATIVO.md` con URL ufficiale `https://download.geofabrik.de/europe/italy.poly`, conversione MotoMap v2 e comandi Windows/WSL2 per produrre grafo Valhalla da PBF Geofabrik.
+
+**Test:** controllati sorgenti e documentazione ufficiale; conversione Italia, strumenti Valhalla locali, importazione Android e test sul dispositivo non eseguiti. Rischi: RAM/disco per grafi nazionali, disponibilità tool Valhalla in Linux/WSL, compatibilità binaria con JNI Android. **Prossimo passo:** verificare workflow del singolo commit, poi eseguire prima un build regionale e validarne il routing offline sul telefono. Nessun cambio a BLE/ESP32 o logica di navigazione.
+
+## MotoMap v2 — convertitore e lettore Android — 2026-11-02
+
+**Branch:** `test/openfreemap-mvt`, `valhalla` invariato. Aggiunti `motomap_v2.json` e `coverage_z14.txt` al convertitore Python. L'indice di copertura viene generato **solo** con `--coverage-poly italy.poly` (richiede `shapely`) e contiene esclusivamente tile z14 interamente coperte dal poligono dichiarato dell'estratto; tile marginali o estratti senza poligono non sono certificati e usano il fallback conservativo v1. Android importa e legge entrambi i formati, senza estrarre gli ZIP e senza modificare le strade grigie.
+
+**Comando:** `python -m pip install osmium shapely` e `python scripts/offline_map/pbf_to_motomap.py italy.osm.pbf -o italy-v2.motomap.zip --coverage-poly italy.poly`. Il file `.poly` deve descrivere **esattamente** l'estratto PBF usato; se non disponibile, omettere l'opzione: formato v2 ma senza certificazione di aree vuote. La verifica non avvalora i pacchetti vecchi, che restano supportati. **Test aggiunti:** whitelist metadata nell'importatore; **CI, conversione effettiva su PBF e prova dispositivo non ancora eseguite**. Prossima azione: verificare la singola CI Android e convertire un piccolo estratto PBF con il proprio `.poly` prima di rigenerare Italia. Necessaria cautela se il poligono non corrisponde precisamente al ritaglio.
+
+## Correzione esportazione diagnostica copertura — 2026-11-02
+
+**Branch:** `test/openfreemap-mvt`. Il log Android del 2 novembre (09:24–09:26) conferma 2 tile scaricate e strade utilizzabili, ma non includeva `OFM_COVERAGE` perché tali eventi erano scritti solo in Logcat Android (`Log.i`), non nel registro persistente ZIP. Corretto `OpenFreeMapRouteCorridor.kt` affinché il riepilogo e le tile mancanti siano registrati tramite `DiagnosticLog.event()`, esportabili in `current.log`. Nessun cambiamento all'algoritmo di copertura né al download. **Build/test non ancora verificati dopo questa correzione**; prova successiva: creare un percorso, esportare ZIP e cercare `OFM_COVERAGE` e `OFM_COVERAGE_MISSING`. `valhalla` invariato.
+
+## Diagnostica copertura MotoMap e rimozione fallback Overpass — 2026-11-02
+
+**Branch:** `test/openfreemap-mvt`. Il controllo di copertura `OpenFreeMapRouteCorridor.missing()` registra ora `OFM_COVERAGE` con tile pianificate, già in cache OpenFreeMap, coperte da MotoMap e ancora mancanti, e `OFM_COVERAGE_MISSING` per ogni tile z14 da scaricare con coordinate z/x/y e l'elenco delle quattro tile z15 MotoMap assenti/presenti. Scopo: diagnosticare le due tile scaricate dall'utente nell'entroterra piemontese, non vicino al confine geografico Italia; una tile ZIP assente può rappresentare una zona senza segmenti OSM compatibili e non necessariamente un errore di copertura.
+
+Disattivato il recupero automatico delle strade via **Overpass** da `NavigationViewModel` e rimosso `HybridMapRepository.ensureOnlineTile()`; restano lettura offline MotoMap, tile OpenFreeMap richieste esplicitamente dal corridoio, log di contesto e il routing Valhalla esistente. La cache storica OSM non è cancellata. Nessuna modifica al firmware ESP32, alla schermata di guida o a `valhalla`. **Test e CI non eseguiti durante la stesura; compilazione e prova manuale ancora necessarie**. Prossima azione: una sola CI sul commit finale, poi ripetere la rotta e inviare il nuovo ZIP Android con `OFM_COVERAGE_MISSING` per verificare i nomi delle tile z15 effettivamente assenti.
+
+## Pulizia UI mappe — 2026-11-02
+
+**Branch:** `test/openfreemap-mvt`. Rimosso dalla finestra «Gestione mappe» il comando sperimentale «Test OpenFreeMap — 1 tile MVT» e il testo relativo; eliminati callback e metodo ViewModel dedicati alla prova manuale. Il decoder, il download del corridoio e il componente `OpenFreeMapTileProbe.downloadTile` utilizzato dal corridoio rimangono attivi. Nessun cambiamento a firmware ESP32, protocollo BLE, dati importati o branch `valhalla`.
+
+**Verifiche:** ispezione sorgente; build/test automatici e prova hardware non eseguiti in questa sessione. **Prossima azione:** verificare CI Android del ramo e controllare che la finestra Gestione mappe mostri ancora import MotoMap/Valhalla e stato download senza il vecchio pulsante.
+
+## Ottimizzazione download corridoio con MotoMap importata — 2026-11-02
+
+**Branch:** `test/openfreemap-mvt`; nessun merge in `valhalla`. Nel file `OpenFreeMapRouteCorridor.kt` il calcolo delle tile mancanti controlla ora sia i file OpenFreeMap già salvati sia la copertura dei pacchetti compressi `.motomap.zip` importati. Ogni tile OpenFreeMap z14 viene esclusa dal download soltanto quando sono presenti **tutte le quattro tile MotoMap figlie z15**, anche distribuite fra più archivi; copertura parziale, ZIP illeggibile o tile assenti mantengono il fallback OpenFreeMap con conferma esplicita. Gli archivi vengono consultati tramite indice ZIP (senza estrarre le tile) e soltanto per il percorso pianificato. I grafi di routing Valhalla non vengono scambiati per mappe stradali MotoMap.
+
+**Test aggiunti:** `OpenFreeMapRouteCorridorTest.kt` per copertura completa, una tile figlia assente e copertura estranea. **Non eseguiti in questa sessione:** Gradle/Android CI e test hardware con pacchetto MotoMap Italia installato; non dichiarare riuscito finché verificato. **Rischio residuo:** la presenza della tile ZIP non garantisce una strada effettivamente utilizzabile all'interno; la regola è volutamente conservativa sulla copertura geometrica, ma non esamina il contenuto di ogni tile. **Prossimo passo:** verificare CI del branch, importare MotoMap ZIP e controllare che lungo un percorso interamente coperto non sia richiesto download; testare anche una rotta sul bordo della copertura, dove siano proposte soltanto le tile mancanti. Nessuna modifica a ESP32, BLE, zoom o routing.
+
+## Test su strada positivo e diagnostica Android — 2026-11-02
+
+**Branch:** `test/openfreemap-mvt`. **Fonte:** resoconto diretto dell'utente e ZIP `motogps-android-diagnostics(4).zip` (solo `current.log`, nessun log ESP32). **Nessun cambiamento al codice.**
+
+- **Prova del 2 novembre 07:30:34–07:52:49 (Europe/Rome):** l'utente riferisce navigazione fluida senza salti o blocchi, ricalcoli corretti e strade grigie presenti lungo tutto il corridoio, inclusi i ricalcoli.
+- Dal log: 189 `OSM_CONTEXT` nella sessione mattutina, **189/189 con `usable>0`** (6–497); 189 `BLE_MAP_SCENE` con `roads>0`; 1.477 `NAV_SNAPSHOT`, compresi 11 con `maneuver=arrive`; link `Connesso` alle 07:30:36 e nessun successivo `Non connesso` nel registro della sessione.
+- **12 trigger `REROUTE` e 12 `success`**, tutti `provider=valhalla-online`: confermano il funzionamento del fallback online, **non** il routing offline. Alcuni ricalcoli ravvicinati tra le 07:43 e le 07:44: monitorare, senza ritoccare le soglie in assenza di difetto percepito.
+- La sera del 1 novembre il log registra `OFM_CORRIDOR start missing=31` e `complete tiles=31`. Overpass aveva riportato timeout e HTTP 502; nella prova mattutina non si registrano nuove richieste Overpass e il contesto locale è risultato disponibile.
+- **Limiti:** impossibile certificare frame-rate, mutex LVGL/TE o assenza di perdite di pacchetti BLE lato ESP32 in quanto LOG DEBUG non era attivo. Il resoconto visivo è positivo; i limiti di stringhe UTF-8, gli errori di avvio GATT e il watchdog su callback mancanti non sono esercitati specificamente da un test strumentato.
+- **Verifiche:** build riuscita comunicata dall'utente; log Android effettivamente analizzato, **nessuna build/flash o test automatico eseguito in questa sessione**.
+- **Decisione:** mantenere per ora la build sperimentale come baseline di prova stabile, nessun merge su `valhalla` senza approvazione. **Prossimo passo:** scegliere se validare anche Valhalla *offline* su una tratta con grafi importati, eventualmente raccogliere un test DEBUG PSRAM→BLE 60 minuti, quindi valutare merge con verifica CI e rispetto condizioni d'uso delle tile.
+
+## Esito verifiche preliminari e prova su strada pianificata — 2026-11-01
+
+**Branch:** `test/openfreemap-mvt` (nessun merge verso `valhalla`). Dopo l'integrazione selettiva delle correzioni Android B-0/B-1/A-1, l'utente ha confermato: **build riuscita**, **download del corridoio OpenFreeMap funzionante**, **ESP32 connesso via BLE**, e **strade grigie visibili sull'ESP32 all'inizio della navigazione**. Queste sono osservazioni riportate dall'utente; non dimostrano ancora la persistenza del contesto stradale lungo il viaggio.
+
+**Non ancora verificati:** continuità delle strade grigie ai cambi di tile e lungo il corridoio, fluidità della linea verde, zoom 3,4×/distanza alla svolta, ricalcolo in movimento, stabilità BLE/display nelle percorrenze prolungate, limiti UTF-8 e recupero errori GATT su hardware. Il watchdog per callback GATT mancanti resta nel backlog. Nessuna ulteriore modifica al codice in questa sessione; aggiornato solo questo documento.
+
+**Prossima azione (2026-11-02, prova utente in viaggio):** effettuare il test su strada usando la build attuale senza altri cambiamenti, osservando soprattutto la continuità delle strade grigie mentre la posizione avanza; controllare linea verde, ricalcoli, zoom e connessione BLE. Attivare eventualmente diagnostica PSRAM→BLE DEBUG e, a fine prova, esportare ZIP Android/ESP32. Analizzare i log prima di decidere eventuali correzioni o un merge; **`valhalla` rimane invariato**.
+
+## Integrazione correzioni Android — 2026-11-01
+
+**Branch** `test/openfreemap-mvt`. Integrate selettivamente dal ramo sperimentale `test/navigation-hardening-20261101` le seguenti correzioni: B-1 denominatore della proiezione su segmento (`dy*dy`), B-0 limiti stringhe UTF-8 nello snapshot BLE (63 byte roadName e 95 byte instruction), A-1 gestione di ritorni GATT falliti all'avvio di `writeCharacteristic` con scarto dei frammenti della stessa sequenza. Portati i file `MotoBLEManager.kt` e `MotoBLEProtocolCodec.kt`, modificata una sola riga di `NavigationViewModel.kt`. Aggiunto il backlog restante in `docs/REVISIONE_ARCHITETTURALE_2026-11-01.md`. Conservati download corridoio, MVT, cache, ricerca e routing già presenti; nessuna modifica al firmware, al formato BLE o a `valhalla`.
+
+**Verifiche:** revisione sorgenti e confronto dei due rami; build CI, unit test e hardware ancora da verificare. Rischi: GATT write privo ancora di watchdog sui callback assenti; servono prove BLE frammentazione, UTF-8, reroute e scena OpenFreeMap. **Prossima azione:** verificare un unico build Android sul branch e testare navigazione con download corridoio prima del merge eventuale in `valhalla`.
+
+## Aggiornamento 2026-11-01 — corridoio OpenFreeMap offline (test)
+
+**Branch** `test/openfreemap-mvt`, sperimentale, senza modifiche a `valhalla`.
+Dopo il successo del probe z14 (18 strade, 47 polilinee, 513 punti;
+utente conferma che le strade grigie compaiono su ESP32), aggiunto
+download delle tile MVT lungo la geometria della rotta Valhalla selezionata,
+con margine di una tile per lato. Conferma esplicita alla pressione di
+`Avvia navigazione`, oppure avvio senza download. La navigazione parte
+senza attendere la fine del download.
+
+**Condizioni d'uso OpenFreeMap** (14 ottobre 2026):
+https://openfreemap.org/tos/ — download offline espliciti fino a 3000
+tile o 50 MB, al massimo quattro richieste parallele; questa
+implementazione usa una sola richiesta alla volta e User-Agent dedicato.
+Nessun download GPS continuo. Le tile salvate .motomap sono già
+leggibili dal flusso strade grigie. Nessun cambiamento a BLE, firmware,
+routing Valhalla, e priorità MotoMap offline. La cache riduce i
+download ripetuti.
+
+**Verifica:** compilazione Android avviata tramite commit di integrazione; esito CI e prova
+fisica del corridoio **ancora da verificare**. Rischi: lungo percorso
+oltre 3000 tile, rate limiting, mancata visibilità immediata delle
+strade fino al refresh della scena. **Prossimo passo:** attendere la
+CI Android, installare APK del branch test, selezionare una rotta breve,
+confermare il download e verificare progressi, strade e log.
+
+## Aggiornamento 2026-11-01 — test OpenFreeMap MVT isolato
+
+**Ramo sperimentale:** test/openfreemap-mvt (partenza dal commit
+c23d193 su valhalla). Non modificare valhalla né il routing Valhalla.
+
+- Decoder OpenMapTiles/MVT puro Kotlin: legge il solo layer transportation,
+  LineString e attributi class/subclass, riconverte le geometrie in righe
+  MotoMap già compatibili con la visualizzazione ESP32, con limiti per
+  grandezza compressa/espansa, numero di feature, parti e vertici.
+- Comando esplicito in Gestione mappe: Test OpenFreeMap — 1 tile MVT.
+  Scarica una singola tile z15 per la posizione GPS corrente e la scrive
+  come ofm_trial_*.motomap; il BLE MapScene esistente può mostrarla.
+  Nessun ciclo di prefetch, scansione regionale o sostituzione automatica
+  di Overpass. Solo su ramo di prova.
+- Uso pubblico: una richiesta per tocco, User-Agent unico, nessuna
+  raccolta automatica. Verificare condizioni pubbliche prima di estendere.
+  https://openfreemap.org/tos/
+- Limiti: OpenMapTiles transportation non garantisce il tag maxspeed
+  originale, quindi nel test vengono usati valori generici di classe,
+  mai come limiti legali affidabili. La tile è geometria per rendering,
+  non per Valhalla/routing.
+- Verifiche: quattro test sintetici MVT eseguiti localmente con kotlinc
+  (compressione gzip, classi stradali, input errato/oversize, tile vuota),
+  4/4 superati. GitHub Actions da verificare. Accesso HTTP effettivo,
+  decodifica di una tile reale e prova BLE su strada ancora da verificare.
+- Prossimo passo: APK del ramo test, prova manuale a GPS fermo, controllare
+  nel log OFM_MVT_TEST numero strade/vertici/latency, test con la rete
+  grigia ESP32, senza avviare alcuna acquisizione automatica continua.
+
+## Aggiornamento 2026-11-01 — diagnostica probe OpenFreeMap
+
+**Ramo esclusivamente sperimentale** `test/openfreemap-mvt`; nessun
+cambiamento a `valhalla`. L'utente ha eseguito il probe manuale
+alle 17:55:18 e 17:55:24: entrambi `OFM_MVT_TEST_ERROR` con zero
+strade utilizzabili. Il log non distingue ancora layer assenti,
+classe stradale esclusa o risposta HTTP con contenuto inatteso.
+
+Aggiunti al decoder i contatori dei layer, delle classi e delle feature
+e al messaggio di errore i byte HTTP, il Content-Type e l'ID della tile.
+Non abilitati download automatici, nessuna modifica BLE o ESP32.
+**Verifica:** unit/build Android nella singola Project Build del commit;
+il test su tile reale rimane da ripetere esplicitamente. Prossimo passo:
+premere una sola volta `Test OpenFreeMap — 1 tile MVT` e inviare lo ZIP.
 
 ## Aggiornamento 2026-11-01 — durata diagnostica estesa
 
