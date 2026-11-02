@@ -2,6 +2,12 @@
 
 > **Updated: 2026-10-30** (Europe/Rome). Living project handoff; checked against the `valhalla` source, Git history, and GitHub Actions on this date. **Code/CI success is not proof of on-road hardware stability.**
 
+## Pulizia UI mappe — 2026-11-02
+
+**Branch:** `test/openfreemap-mvt`. Rimosso dalla finestra «Gestione mappe» il comando sperimentale «Test OpenFreeMap — 1 tile MVT» e il testo relativo; eliminati callback e metodo ViewModel dedicati alla prova manuale. Il decoder, il download del corridoio e il componente `OpenFreeMapTileProbe.downloadTile` utilizzato dal corridoio rimangono attivi. Nessun cambiamento a firmware ESP32, protocollo BLE, dati importati o branch `valhalla`.
+
+**Verifiche:** ispezione sorgente; build/test automatici e prova hardware non eseguiti in questa sessione. **Prossima azione:** verificare CI Android del ramo e controllare che la finestra Gestione mappe mostri ancora import MotoMap/Valhalla e stato download senza il vecchio pulsante.
+
 ## Ottimizzazione download corridoio con MotoMap importata — 2026-11-02
 
 **Branch:** `test/openfreemap-mvt`; nessun merge in `valhalla`. Nel file `OpenFreeMapRouteCorridor.kt` il calcolo delle tile mancanti controlla ora sia i file OpenFreeMap già salvati sia la copertura dei pacchetti compressi `.motomap.zip` importati. Ogni tile OpenFreeMap z14 viene esclusa dal download soltanto quando sono presenti **tutte le quattro tile MotoMap figlie z15**, anche distribuite fra più archivi; copertura parziale, ZIP illeggibile o tile assenti mantengono il fallback OpenFreeMap con conferma esplicita. Gli archivi vengono consultati tramite indice ZIP (senza estrarre le tile) e soltanto per il percorso pianificato. I grafi di routing Valhalla non vengono scambiati per mappe stradali MotoMap.
