@@ -10,6 +10,7 @@ A ZIP contains standard tile_15_X_Y.motomap entries; no Render or Overpass calls
 import argparse
 import collections
 import io
+import json
 import math
 import re
 import zipfile
@@ -76,6 +77,56 @@ def rows_for_way(way):
     return output
 
 
+
+def certified_z14_cells(poly_path):
+    """Yield z14 cells entirely covered by the exact Geofabrik .poly boundary.
+
+    Requires shapely; partially covered boundary cells are intentionally omitted.
+    """
+    from shapely.geometry import Polygon, box
+    from shapely.ops import unary_union
+    rings = []
+    with open(poly_path, encoding="utf-8") as stream:
+        next(stream)  # polygon name
+        current, hole = [], False
+        for raw in stream:
+            line = raw.strip()
+            if line == "END":
+                if current:
+                    rings.append((hole, current))
+                    current = []
+                else:
+                    break
+            elif not current and len(line.split()) == 1:
+                hole = line.startswith("!")
+            else:
+                lon, lat = map(float, line.split()[:2])
+                current.append((lon, lat))
+    shells = [Polygon(points) for is_hole, points in rings if not is_hole]
+    holes = [Polygon(points) for is_hole, points in rings if is_hole]
+    if not shells:
+        raise ValueError("Empty or invalid .poly boundary")
+    geom = unary_union(shells)
+    if holes:
+        geom = geom.difference(unary_union(holes))
+    if not geom.is_valid or geom.is_empty:
+        raise ValueError("Invalid extraction polygon")
+    z, scale = 14, 1 << 14
+    min_lon, min_lat, max_lon, max_lat = geom.bounds
+    def latitude(y):
+        return math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * y / scale))))
+    x_min = max(0, int((min_lon + 180) / 360 * scale) - 1)
+    x_max = min(scale - 1, int((max_lon + 180) / 360 * scale) + 1)
+    y_min = max(0, tile(max_lat, min_lon)[1] // 2 - 1)
+    y_max = min(scale - 1, tile(min_lat, max_lon)[1] // 2 + 1)
+    for x in range(x_min, x_max + 1):
+        for y in range(y_min, y_max + 1):
+            cell = box(x / scale * 360 - 180, latitude(y + 1),
+                       (x + 1) / scale * 360 - 180, latitude(y))
+            if geom.covers(cell):
+                yield x, y
+
+
 class Converter(osmium.SimpleHandler):
     def __init__(self, archive):
         super().__init__()
@@ -104,12 +155,24 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("pbf", help="Geofabrik OSM PBF input")
     parser.add_argument("-o", "--output", required=True, help="Destination .motomap.zip")
+    parser.add_argument("--coverage-poly", help="Exact matching extraction boundary .poly (requires shapely)")
     args = parser.parse_args()
     with zipfile.ZipFile(args.output, "w", allowZip64=True) as archive:
         handler = Converter(archive)
         handler.apply_file(args.pbf, locations=True)
         count = handler.finish()
+        covered = list(certified_z14_cells(args.coverage_poly)) if args.coverage_poly else []
+        if covered:
+            archive.writestr("coverage_z14.txt",
+                "".join(f"{x},{y}\n" for x, y in covered),
+                compress_type=zipfile.ZIP_DEFLATED)
+        archive.writestr("motomap_v2.json", json.dumps({
+            "format": "motomap", "version": 2, "zoom": ZOOM,
+            "coverage": "poly-full-z14" if args.coverage_poly else "unknown",
+            "certified_z14": len(covered), "road_tiles": count
+        }), compress_type=zipfile.ZIP_DEFLATED)
     print(f"{handler.ways} road segments -> {count} tiles ({handler.roads} indexed road records)")
+    print(f"Certified z14 coverage cells: {len(covered)}")
     print(f"Import on Android: {args.output}")
 
 

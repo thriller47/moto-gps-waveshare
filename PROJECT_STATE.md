@@ -2,6 +2,12 @@
 
 > **Updated: 2026-10-30** (Europe/Rome). Living project handoff; checked against the `valhalla` source, Git history, and GitHub Actions on this date. **Code/CI success is not proof of on-road hardware stability.**
 
+## MotoMap v2 — convertitore e lettore Android — 2026-11-02
+
+**Branch:** `test/openfreemap-mvt`, `valhalla` invariato. Aggiunti `motomap_v2.json` e `coverage_z14.txt` al convertitore Python. L'indice di copertura viene generato **solo** con `--coverage-poly italy.poly` (richiede `shapely`) e contiene esclusivamente tile z14 interamente coperte dal poligono dichiarato dell'estratto; tile marginali o estratti senza poligono non sono certificati e usano il fallback conservativo v1. Android importa e legge entrambi i formati, senza estrarre gli ZIP e senza modificare le strade grigie.
+
+**Comando:** `python -m pip install osmium shapely` e `python scripts/offline_map/pbf_to_motomap.py italy.osm.pbf -o italy-v2.motomap.zip --coverage-poly italy.poly`. Il file `.poly` deve descrivere **esattamente** l'estratto PBF usato; se non disponibile, omettere l'opzione: formato v2 ma senza certificazione di aree vuote. La verifica non avvalora i pacchetti vecchi, che restano supportati. **Test aggiunti:** whitelist metadata nell'importatore; **CI, conversione effettiva su PBF e prova dispositivo non ancora eseguite**. Prossima azione: verificare la singola CI Android e convertire un piccolo estratto PBF con il proprio `.poly` prima di rigenerare Italia. Necessaria cautela se il poligono non corrisponde precisamente al ritaglio.
+
 ## Correzione esportazione diagnostica copertura — 2026-11-02
 
 **Branch:** `test/openfreemap-mvt`. Il log Android del 2 novembre (09:24–09:26) conferma 2 tile scaricate e strade utilizzabili, ma non includeva `OFM_COVERAGE` perché tali eventi erano scritti solo in Logcat Android (`Log.i`), non nel registro persistente ZIP. Corretto `OpenFreeMapRouteCorridor.kt` affinché il riepilogo e le tile mancanti siano registrati tramite `DiagnosticLog.event()`, esportabili in `current.log`. Nessun cambiamento all'algoritmo di copertura né al download. **Build/test non ancora verificati dopo questa correzione**; prova successiva: creare un percorso, esportare ZIP e cercare `OFM_COVERAGE` e `OFM_COVERAGE_MISSING`. `valhalla` invariato.

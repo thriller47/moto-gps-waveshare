@@ -107,12 +107,41 @@ internal object OpenFreeMapRouteCorridor {
             }
         }
         val found = HashSet<String>()
+        val certified = HashSet<Tile>()
         val packs = MotomapPackImporter.packagesDir(context).listFiles { file ->
             file.isFile && file.name.endsWith(".motomap.zip", ignoreCase = true)
         }.orEmpty()
         for (pack in packs) {
             try {
                 java.util.zip.ZipFile(pack).use { zip ->
+                    val metadataEntry = zip.getEntry(MotomapPackImporter.METADATA)
+                    val coverageEntry = zip.getEntry(MotomapPackImporter.COVERAGE)
+                    if (metadataEntry != null && coverageEntry != null &&
+                        metadataEntry.size in 1L..4096L &&
+                        coverageEntry.size in 1L..(2L * 1024L * 1024L)) {
+                        val meta = org.json.JSONObject(zip.getInputStream(metadataEntry)
+                            .bufferedReader().use { it.readText() })
+                        if (meta.optInt("version") == 2 &&
+                            meta.optString("format") == "motomap" &&
+                            meta.optString("coverage") == "poly-full-z14") {
+                            val relevant = candidates.toHashSet()
+                            zip.getInputStream(coverageEntry).bufferedReader().useLines { lines ->
+                                lines.forEach { line ->
+                                    val parts = line.split(',')
+                                    if (parts.size == 2) {
+                                        val x = parts[0].toIntOrNull()
+                                        val y = parts[1].toIntOrNull()
+                                        if (x != null && y != null &&
+                                            x in 0 until (1 shl ZOOM) &&
+                                            y in 0 until (1 shl ZOOM)) {
+                                            val candidate = Tile(x, y)
+                                            if (candidate in relevant) certified.add(candidate)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                     for (name in wanted) {
                         if (name in found) continue
                         val entry = zip.getEntry(name) ?: continue
@@ -125,9 +154,9 @@ internal object OpenFreeMapRouteCorridor {
                     "Cannot inspect MotoMap pack ${pack.name}; retain download fallback", e)
             }
         }
-        val missing = candidates.filterNot { coveredByMotoMap(it, found) }
+        val missing = candidates.filterNot { it in certified || coveredByMotoMap(it, found) }
         DiagnosticLog.event("OFM_COVERAGE",
-            "planned=${tiles.size} cached=$cached motoMap=${candidates.size - missing.size} missing=${missing.size} packs=${packs.size}")
+            "planned=${tiles.size} cached=$cached motoMap=${candidates.size - missing.size} certified=${candidates.count { it in certified }} missing=${missing.size} packs=${packs.size}")
         for (tile in missing) {
             val x = tile.x * 2
             val y = tile.y * 2
