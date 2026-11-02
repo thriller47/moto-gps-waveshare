@@ -2,6 +2,10 @@
 
 > **Updated: 2026-10-30** (Europe/Rome). Living project handoff; checked against the `valhalla` source, Git history, and GitHub Actions on this date. **Code/CI success is not proof of on-road hardware stability.**
 
+## Rimozione backend gateway legacy — 2026-11-02
+
+**Branch:** `test/turn-heading-render-20261102`; `valhalla` invariato. Rimossa la directory `backend/` e le guide `docs/GATEWAY_SETUP*.md`. Copiata la conversione WGS84/GCJ-02 utilizzata dalle fixture in `scripts/fixture_coordinates.mjs` e spostato il relativo controllo nel job native CI. Eliminato il job backend e aggiornati i trigger dei branch di test. `GatewayRoadTiles.kt` Android è mantenuto perché il calcolo della tile è usato da `HybridMapRepository` per individuare file locali: non significa che il vecchio gateway server sia ancora necessario. Nessuna variazione al protocollo BLE, al routing Valhalla o all'ESP32. **Test:** nuova CI avviata dal commit finale; esito da controllare. **Prossima azione:** controllare CI e riferimenti residui prima del merge approvato.
+
 ## Terminatori di riga Bash — 2026-11-02
 
 **Branch:** `test/turn-heading-render-20261102`. Aggiunto `*.sh text eol=lf` a `.gitattributes` per impedire conversioni CRLF degli script Bash durante checkout su Windows/WSL. Preservate le regole binarie e le eccezioni esistenti. Modifica solo di configurazione Git; nessuna build hardware effettuata. Per file già estratti con CRLF occorre normalizzare o rieseguire il checkout. **Prossima azione:** verificare con `git check-attr text eol -- scripts/offline_map/build_valhalla_graph.sh`.

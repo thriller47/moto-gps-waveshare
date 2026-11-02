@@ -3,9 +3,8 @@ name: Project Build
 on:
   push:
     branches:
-      - signal
       - valhalla
-      - test/openfreemap-mvt
+      - 'test/**'
     paths-ignore:
       - '**.md'
       - 'docs/**'
@@ -13,7 +12,6 @@ on:
       - 'LICENSE'
   pull_request:
     branches:
-      - signal
       - valhalla
     paths-ignore:
       - '**.md'
@@ -23,11 +21,7 @@ on:
   workflow_dispatch:
     inputs:
       build_native:
-        description: 'Build Core and Backend'
-        type: boolean
-        default: true
-      build_backend:
-        description: 'Run Backend tests'
+        description: 'Build native core and tests'
         type: boolean
         default: true
       build_android:
@@ -66,7 +60,7 @@ jobs:
         uses: dorny/paths-filter@v4
         id: filter
         with:
-          # On push, compare against the preceding commit on signal (not main).
+          # On push, compare against the preceding commit of this branch.
           # On PR, compare against the destination branch.
           base: ${{ github.event_name == 'push' && github.ref_name || github.event.pull_request.base.ref }}
           filters: |
@@ -78,11 +72,9 @@ jobs:
               - 'src/**'
               - 'include/**'
               - 'tests/native/**'
+              - 'scripts/generate_jinan_demo_fixture.mjs'
+              - 'scripts/fixture_coordinates.mjs'
               - 'third_party/**'
-            backend:
-              - 'backend/**'
-              - 'scripts/**'
-              - 'package.json'
             android:
               - 'platforms/android/**'
               - 'shared/**'
@@ -121,40 +113,10 @@ jobs:
       - name: Run native tests
         run: ctest --test-dir build/native --output-on-failure
 
-  backend:
-    needs: [detect-changes]
-    if: |
-      always() &&
-      (
-        (github.event_name == 'workflow_dispatch' && inputs.build_backend == true) ||
-        (github.event_name != 'workflow_dispatch' && needs.detect-changes.outputs.backend == 'true')
-      )
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          submodules: recursive
-          persist-credentials: false
+      - name: Verify public demo map fixture
+        run: node scripts/generate_jinan_demo_fixture.mjs --check
 
-      - uses: actions/setup-node@v5
-        with:
-          node-version: '24.22.1'
-          cache: 'npm'
-          cache-dependency-path: backend/package-lock.json
 
-      - name: Install backend dependencies
-        run: npm ci --prefix backend
-
-      - name: Run backend tests
-        run: npm --prefix backend test
-
-      - name: Verify public map fixtures
-        run: |
-          node scripts/generate_jinan_demo_fixture.mjs --check
 
   android:
     needs: [detect-changes]
