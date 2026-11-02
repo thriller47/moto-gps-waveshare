@@ -23,7 +23,7 @@ HEADER_BYTES = 48
 
 
 def header_counts(raw, size):
-    if len(raw) != HEADER_BYTES or size < 512:
+    if len(raw) != HEADER_BYTES or size < HEADER_BYTES:
         return None, "short_tile_or_header"
     version = raw[16:32].split(b"\0", 1)[0]
     if not VERSION.fullmatch(version):
