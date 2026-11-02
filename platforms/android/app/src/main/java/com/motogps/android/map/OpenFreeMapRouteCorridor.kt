@@ -118,7 +118,7 @@ internal object OpenFreeMapRouteCorridor {
                     val coverageEntry = zip.getEntry(MotomapPackImporter.COVERAGE)
                     if (metadataEntry != null && coverageEntry != null &&
                         metadataEntry.size in 1L..4096L &&
-                        coverageEntry.size in 1L..(2L * 1024L * 1024L)) {
+                        coverageEntry.size in 1L..MotomapPackImporter.MAX_COVERAGE_BYTES) {
                         val meta = org.json.JSONObject(zip.getInputStream(metadataEntry)
                             .bufferedReader().use { it.readText() })
                         if (meta.optInt("version") == 2 &&

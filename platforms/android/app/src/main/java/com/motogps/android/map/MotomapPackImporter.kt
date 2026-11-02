@@ -16,6 +16,7 @@ internal object MotomapPackImporter {
     private val tileName = Regex("^tile_15_[0-9]{1,5}_[0-9]{1,5}\\.motomap$")
     const val METADATA = "motomap_v2.json"
     const val COVERAGE = "coverage_z14.txt"
+    const val MAX_COVERAGE_BYTES = 16L * 1024 * 1024
     private val packName = Regex("[^a-zA-Z0-9._-]")
     private const val MAX_ENTRY_BYTES = 5L * 1024 * 1024
     private const val MAX_TOTAL_BYTES = 8L * 1024 * 1024 * 1024
@@ -76,11 +77,11 @@ internal object MotomapPackImporter {
                     if (++count > MAX_ENTRIES) throw IOException("Troppe tile OSM")
                     val limit = when (entry.name) {
                         METADATA -> 4096L
-                        COVERAGE -> 2L * 1024 * 1024
+                        COVERAGE -> MAX_COVERAGE_BYTES
                         else -> MAX_ENTRY_BYTES
                     }
                     if (entry.size <= 0 || entry.size > limit || entry.compressedSize < 0)
-                        throw IOException("Dimensione tile non valida: ${entry.name}")
+                        throw IOException("Dimensione tile non valida: ${entry.name} (${entry.size} byte, limite $limit)")
                     if (entry.name == METADATA) {
                         if (metadata) throw IOException("Metadata duplicate")
                         metadata = true

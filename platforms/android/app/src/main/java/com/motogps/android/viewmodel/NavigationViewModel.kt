@@ -1088,6 +1088,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                 val (lat, lon) = currentLocation.value
                 if (hasFirstFix) updateSpeedLimitAndMapScene(lat, lon, context.applicationContext)
             } catch (e: Exception) {
+                com.motogps.android.diagnostics.DiagnosticLog.event("OSM_IMPORT_ERROR", "${e.javaClass.simpleName}: ${e.message}")
                 _downloadStatus.value = "Errore importazione OSM: ${e.message}"
                 _errorMessage.value = _downloadStatus.value
             } finally {

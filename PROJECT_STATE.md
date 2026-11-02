@@ -2,6 +2,10 @@
 
 > **Updated: 2026-10-30** (Europe/Rome). Living project handoff; checked against the `valhalla` source, Git history, and GitHub Actions on this date. **Code/CI success is not proof of on-road hardware stability.**
 
+## Correzione importazione MotoMap v2 — 2026-11-02
+
+**Branch:** `test/openfreemap-mvt`. Su Android aggiornato, importazione di un MotoMap v2 Italia falliva con `Dimensione tile non valida: coverage_z14.txt`. Il limite dedicato al file di indice viene aumentato da 2 MiB a 16 MiB sia nella validazione ZIP sia nella lettura del corridoio. L’errore indica ora dimensione reale e limite, e `NavigationViewModel` registra `OSM_IMPORT_ERROR` nel log persistente esportabile. Nessuna modifica al contenuto del convertitore, BLE, ESP32 o routing. Il file v2 già creato può essere riutilizzato. **Non eseguiti** test su archivio Italia reale e dispositivo; verificare una sola CI del commit finale e riprovare importazione sul telefono. La causa dimensionale è probabile ma la dimensione effettiva dell’entry nel file utente non è stata misurata.
+
 ## Strumenti di compilazione mappe e manuale — 2026-11-02
 
 **Branch:** `test/openfreemap-mvt`; `valhalla` non modificato. Aggiunto `scripts/offline_map/build_valhalla_graph.sh`, procedura Bash per Valhalla CLI su Linux/WSL2 (config, timezone/admin se disponibili, build tiles, extract TAR, verifica `.gph`, compressione Zstandard opzionale); non dipende da routing.earth. Aggiornato `docs/MANUALE_OPERATIVO.md` con URL ufficiale `https://download.geofabrik.de/europe/italy.poly`, conversione MotoMap v2 e comandi Windows/WSL2 per produrre grafo Valhalla da PBF Geofabrik.
