@@ -21,6 +21,7 @@ import com.motogps.android.map.OpenFreeMapTileProbe
 import com.motogps.android.map.OpenFreeMapRouteCorridor
 import com.motogps.android.map.SavedMapInfo
 import com.motogps.android.location.LocationFixFilter
+import com.motogps.android.location.NavigationPositionPrediction
 import com.motogps.android.routing.OfflineValhallaRouter
 import com.motogps.android.routing.OnlineValhallaRouter
 import com.motogps.android.routing.ValhallaGraphImporter
@@ -258,6 +259,9 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     private val routeDistanceGuard = RouteDistanceGuard()
     private val routeProgressMatcher = RouteProgressMatcher()
     private var lastLocationTimeMs: Long = 0L
+    private var lastFixElapsedMs: Long = 0L
+    private var lastFixAccuracyM: Float = Float.POSITIVE_INFINITY
+    private var lastFixCourseDeg: Float? = null
     private var lastDiagnosticFixMs: Long = 0L
     private var lastDiagnosticHeadingMs: Long = 0L
     private var lastMapSceneSendTimeMs: Long = 0L
@@ -436,9 +440,13 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                     val pageName = "navigation"
 
                     val (lat, lon) = currentLocation.value
+                    val ageMs = SystemClock.elapsedRealtime() - lastFixElapsedMs
+                    val estimated = NavigationPositionPrediction.estimate(
+                        lat, lon, lastGpsSpeedMs, lastFixCourseDeg,
+                        lastFixAccuracyM, ageMs, ageMs)
                     val updatedSnap = if (_hasArrived.value)
                         (currentSnapshot?.copy() ?: snapshot.copy())
-                    else updateManeuverAndDistance(lat, lon)
+                    else updateManeuverAndDistance(estimated.latitude, estimated.longitude)
                         ?: currentSnapshot?.copy() ?: snapshot.copy()
 
                     val activeSnap = updatedSnap.copy(
@@ -461,7 +469,8 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                         DiagnosticLog.event("NAV_SNAPSHOT",
                             "maneuver=${activeSnap.maneuverName} id=${activeSnap.maneuverID} " +
                             "turn_m=${activeSnap.distanceToManeuverM} remain_m=${activeSnap.remainingDistanceM} " +
-                            "speed_dkph=${activeSnap.speedDeciKPH} heading_cdeg=${activeSnap.headingCentiDegrees}")
+                            "speed_dkph=${activeSnap.speedDeciKPH} heading_cdeg=${activeSnap.headingCentiDegrees} " +
+                            "fix_age_ms=$ageMs predicted_m=${estimated.extrapolatedMeters.toInt()}")
                     }
                     bleManager.sendNavigationSnapshot(activeSnap)
 
@@ -623,11 +632,20 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
             provider = location.provider.orEmpty(),
             speedMetersPerSecond = if (location.hasSpeed()) location.speed else 0f
         )
-        val decision = locationFixFilter.evaluate(fix, SystemClock.elapsedRealtime())
+        val receivedAtMs = SystemClock.elapsedRealtime()
+        val decision = locationFixFilter.evaluate(fix, receivedAtMs)
         if (!decision.accepted) {
             Log.w("NavigationVM", "Location rejected: ${decision.reason} provider=${fix.provider} " +
                 "accuracy=${fix.accuracyMeters.toInt()}m jump=${decision.distanceMeters.toInt()}m")
             return
+        }
+        lastFixElapsedMs = fix.elapsedRealtimeMs
+        lastFixAccuracyM = fix.accuracyMeters
+        lastFixCourseDeg = if (location.hasBearing()) location.bearing else null
+        if (receivedAtMs - lastDiagnosticFixMs >= 1000L) {
+            DiagnosticLog.event("GPS_LATENCY",
+                "age_ms=${receivedAtMs - fix.elapsedRealtimeMs} provider=${fix.provider} " +
+                    "accuracy_m=${fix.accuracyMeters} speed_mps=${fix.speedMetersPerSecond}")
         }
         updateAcceptedDeviceLocation(
             latitude = location.latitude,
