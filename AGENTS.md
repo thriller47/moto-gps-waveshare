@@ -4,9 +4,16 @@ These instructions apply to the repository unless a more specific AGENTS.md exis
 
 ## Start of every coding session
 1. **Mandatory: always read the root `PROJECT_STATE.md` before analyzing, planning, editing, committing, or resuming work on this project**, even in a new chat or when the task appears small. Review prior decisions, implemented fixes, failed attempts, pending tests, and known regressions so old problems are not reintroduced. Also read applicable nested `AGENTS.md` files.
-2. **`valhalla` is the primary/default repository branch and the only integration baseline. `main` has been deleted**: do not use, recreate, or target it. `signal` is preserved only as the historical online-OSM/OSRM implementation; `test/*` branches are experimental. Check actual branch, code, recent commits, tests and CI before editing.
+2. **`valhalla` is the primary/default repository branch and the only integration baseline. `main` has been deleted**: do not use, recreate, or target it. `signal` is obsolete and should be deleted after any needed archival check; `test/*` branches are experimental. Check actual branch, code, recent commits, tests and CI before editing.
 3. Treat PROJECT_STATE.md as a handoff, **not** proof of implementation; resolve discrepancies by inspecting source.
 4. State scope and potential cross-component impact before changing protocol, routing or navigation behavior.
+
+## Branch lifecycle and cleanup
+- Keep **exactly one integration branch**, `valhalla` (also the repository default), and **normally only one active experimental `test/*` branch** at a time. Do not recreate `main` or maintain `signal`.
+- Start experimental work from the latest `valhalla`; integrate it into `valhalla` only after explicit user approval and relevant validation.
+- After a successful merge and verified target branch state, delete the merged remote experimental branch and prune stale local tracking refs. Do not keep completed or obsolete test branches indefinitely.
+- Before deleting **any** remote branch, inspect its ahead/behind commits against `valhalla`, unmerged work, open PRs, and whether it is the current active experiment. If commits would otherwise be lost, create and verify an archival tag or obtain explicit approval to discard them first. Never force-delete or silently lose unique work.
+- Do not delete the current active test branch or change the default branch as part of routine cleanup; explain exceptions if a temporary second test branch is genuinely needed.
 
 ## GitHub Actions / CI execution policy
 - **Never trigger a GitHub Actions build for each intermediate commit.** Finish all planned source, test, and documentation changes first, then trigger **one consolidated CI build** for the final revision only.
