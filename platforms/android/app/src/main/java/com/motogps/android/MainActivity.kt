@@ -210,7 +210,6 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             MaterialTheme(colorScheme = lightColorScheme()) {
                 NavigationScreen(
                     onExportDiagnostics = { exportDiagnostics() },
-                    onTestOpenFreeMap = { viewModel.testOpenFreeMapTile(this@MainActivity) },
                     onCorridorTileCount = { viewModel.corridorTileCount(this@MainActivity) },
                     onDownloadCorridor = { viewModel.downloadOpenFreeMapCorridor(this@MainActivity) },
                     diagnosticMode = diagnosticMode,
