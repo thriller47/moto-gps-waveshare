@@ -2,6 +2,10 @@
 
 > **Updated: 2026-10-30** (Europe/Rome). Living project handoff; checked against the `valhalla` source, Git history, and GitHub Actions on this date. **Code/CI success is not proof of on-road hardware stability.**
 
+## Terminatori di riga Bash — 2026-11-02
+
+**Branch:** `test/turn-heading-render-20261102`. Aggiunto `*.sh text eol=lf` a `.gitattributes` per impedire conversioni CRLF degli script Bash durante checkout su Windows/WSL. Preservate le regole binarie e le eccezioni esistenti. Modifica solo di configurazione Git; nessuna build hardware effettuata. Per file già estratti con CRLF occorre normalizzare o rieseguire il checkout. **Prossima azione:** verificare con `git check-attr text eol -- scripts/offline_map/build_valhalla_graph.sh`.
+
 ## Fasi 2 e 3 — test mirati heading, svolte e predizione mappa — 2026-11-02
 
 **Branch:** `test/turn-heading-render-20261102`, derivato da `valhalla` dopo merge offline. Su richiesta dell'utente, il test prolungato ESP32/BLE è rinviato a un weekend utile per condizioni climatiche; priorità a AND-02/05 e ESP-03/04. Prima tranche conservativa: limite massimo di estrapolazione senza nuovo anchor geometria ridotto da 4200 a 1500 ms in `map_origin_predictor.hpp`; test nativo per assenza aggiornamenti e test Android per contatore svolta immobile e heading a bassa velocità. Nessuna variazione a Valhalla, MotoMap, protocollo BLE, ESP32 UI, frecce, zoom 3.4 o distanza arrivo. **ESP-04** (copia selettiva di snapshot) non modificato: richiede profiling del lock e del costo delle copie prima di ottimizzare, per evitare race nei vettori. **Test e CI:** da verificare sul commit conclusivo; prova su strada e in hardware rimandata. **Prossima azione:** verificare CI, poi esercitare heading stop/partenza, rotonde, vibrazioni e BLE intermittente in test protetti prima di merge.

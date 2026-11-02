@@ -10,3 +10,6 @@ shared/nav_ui/assets/moto_font_nav_16.c -whitespace
 # Preserve archived CAD exports and reports byte-for-byte for SHA-256 checks.
 hardware/** -text -whitespace
 docs/technical-proposal/** -text -whitespace
+
+# Keep Bash scripts executable by Linux/WSL even when checked out on Windows.
+*.sh text eol=lf
