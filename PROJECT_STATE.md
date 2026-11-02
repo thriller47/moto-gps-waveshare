@@ -2,6 +2,18 @@
 
 > **Updated: 2026-10-30** (Europe/Rome). Living project handoff; checked against the `valhalla` source, Git history, and GitHub Actions on this date. **Code/CI success is not proof of on-road hardware stability.**
 
+## Test su strada positivo e diagnostica Android — 2026-11-02
+
+**Branch:** `test/openfreemap-mvt`. **Fonte:** resoconto diretto dell'utente e ZIP `motogps-android-diagnostics(4).zip` (solo `current.log`, nessun log ESP32). **Nessun cambiamento al codice.**
+
+- **Prova del 2 novembre 07:30:34–07:52:49 (Europe/Rome):** l'utente riferisce navigazione fluida senza salti o blocchi, ricalcoli corretti e strade grigie presenti lungo tutto il corridoio, inclusi i ricalcoli.
+- Dal log: 189 `OSM_CONTEXT` nella sessione mattutina, **189/189 con `usable>0`** (6–497); 189 `BLE_MAP_SCENE` con `roads>0`; 1.477 `NAV_SNAPSHOT`, compresi 11 con `maneuver=arrive`; link `Connesso` alle 07:30:36 e nessun successivo `Non connesso` nel registro della sessione.
+- **12 trigger `REROUTE` e 12 `success`**, tutti `provider=valhalla-online`: confermano il funzionamento del fallback online, **non** il routing offline. Alcuni ricalcoli ravvicinati tra le 07:43 e le 07:44: monitorare, senza ritoccare le soglie in assenza di difetto percepito.
+- La sera del 1 novembre il log registra `OFM_CORRIDOR start missing=31` e `complete tiles=31`. Overpass aveva riportato timeout e HTTP 502; nella prova mattutina non si registrano nuove richieste Overpass e il contesto locale è risultato disponibile.
+- **Limiti:** impossibile certificare frame-rate, mutex LVGL/TE o assenza di perdite di pacchetti BLE lato ESP32 in quanto LOG DEBUG non era attivo. Il resoconto visivo è positivo; i limiti di stringhe UTF-8, gli errori di avvio GATT e il watchdog su callback mancanti non sono esercitati specificamente da un test strumentato.
+- **Verifiche:** build riuscita comunicata dall'utente; log Android effettivamente analizzato, **nessuna build/flash o test automatico eseguito in questa sessione**.
+- **Decisione:** mantenere per ora la build sperimentale come baseline di prova stabile, nessun merge su `valhalla` senza approvazione. **Prossimo passo:** scegliere se validare anche Valhalla *offline* su una tratta con grafi importati, eventualmente raccogliere un test DEBUG PSRAM→BLE 60 minuti, quindi valutare merge con verifica CI e rispetto condizioni d'uso delle tile.
+
 ## Esito verifiche preliminari e prova su strada pianificata — 2026-11-01
 
 **Branch:** `test/openfreemap-mvt` (nessun merge verso `valhalla`). Dopo l'integrazione selettiva delle correzioni Android B-0/B-1/A-1, l'utente ha confermato: **build riuscita**, **download del corridoio OpenFreeMap funzionante**, **ESP32 connesso via BLE**, e **strade grigie visibili sull'ESP32 all'inizio della navigazione**. Queste sono osservazioni riportate dall'utente; non dimostrano ancora la persistenza del contesto stradale lungo il viaggio.
