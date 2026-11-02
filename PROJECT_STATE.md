@@ -2,6 +2,10 @@
 
 > **Updated: 2026-10-30** (Europe/Rome). Living project handoff; checked against the `valhalla` source, Git history, and GitHub Actions on this date. **Code/CI success is not proof of on-road hardware stability.**
 
+## Analizzatore grafi Valhalla — 2026-11-02
+
+**Branch:** `test/turn-heading-render-20261102`. Esteso `scripts/offline_map/analyze_valhalla_graph.py` per accettare identificativi di versione 3.x con suffissi commit (es. `3.9.0-685e3d8`, Routing.earth), e per indicare separatamente le cause degli header non riconosciuti con esempi, invece di attribuirli silenziosamente alla versione. Rimane il controllo conservativo della dimensione minima del GraphTile: i conteggi di nodi e archi sono dichiarati incompleti se ci sono tile non verificabili. Nessuna modifica alla generazione del grafo o all'Android/ESP32. **Test:** verifica statica del codice; confronto reale da ripetere con entrambi i TAR.ZST. **Prossima azione:** eseguire lo script aggiornato e ispezionare le cause di scarto, poi valutare conteggi confrontabili.
+
 ## Rimozione backend gateway legacy — 2026-11-02
 
 **Branch:** `test/turn-heading-render-20261102`; `valhalla` invariato. Rimossa la directory `backend/` e le guide `docs/GATEWAY_SETUP*.md`. Copiata la conversione WGS84/GCJ-02 utilizzata dalle fixture in `scripts/fixture_coordinates.mjs` e spostato il relativo controllo nel job native CI. Eliminato il job backend e aggiornati i trigger dei branch di test. `GatewayRoadTiles.kt` Android è mantenuto perché il calcolo della tile è usato da `HybridMapRepository` per individuare file locali: non significa che il vecchio gateway server sia ancora necessario. Nessuna variazione al protocollo BLE, al routing Valhalla o all'ESP32. **Test:** nuova CI avviata dal commit finale; esito da controllare. **Prossima azione:** controllare CI e riferimenti residui prima del merge approvato.

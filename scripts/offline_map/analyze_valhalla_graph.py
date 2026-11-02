@@ -16,7 +16,7 @@ import sys
 import tarfile
 
 MASK = (1 << 21) - 1
-VERSION = re.compile(rb"^3\.[0-9]+(?:\.[0-9]+)?$")
+VERSION = re.compile(rb"^3\.[0-9]+(?:\.[0-9]+)?(?:-[0-9A-Za-z._-]+)?$")
 # v3 GraphTileHeader layout on x86_64 little-endian:
 # flags/graphid 8, base_ll 8, version 16, dataset_id 8, counts bitfield 8.
 HEADER_BYTES = 48
@@ -24,12 +24,12 @@ HEADER_BYTES = 48
 
 def header_counts(raw, size):
     if len(raw) != HEADER_BYTES or size < 512:
-        return None
+        return None, "short_tile_or_header"
     version = raw[16:32].split(b"\0", 1)[0]
     if not VERSION.fullmatch(version):
-        return None
+        return None, "unrecognized_version"
     bits = struct.unpack_from("<Q", raw, 40)[0]
-    return version.decode("ascii"), bits & MASK, (bits >> 21) & MASK
+    return (version.decode("ascii"), bits & MASK, (bits >> 21) & MASK), None
 
 
 def inspect(filename):
@@ -48,6 +48,8 @@ def inspect(filename):
         levels = defaultdict(lambda: dict(tiles=0, nodes=0, directed_edges=0, unknown=0))
         versions = defaultdict(int)
         duplicates = []
+        rejected = defaultdict(int)
+        rejected_examples = defaultdict(list)
         seen = set()
         with tarfile.open(fileobj=stream, mode="r|") as archive:
             for member in archive:
@@ -63,9 +65,12 @@ def inspect(filename):
                 bucket = levels[level]
                 bucket["tiles"] += 1
                 entry = archive.extractfile(member)
-                result = header_counts(entry.read(HEADER_BYTES), member.size) if entry else None
+                result, reason = header_counts(entry.read(HEADER_BYTES), member.size) if entry else (None, "unreadable_member")
                 if result is None:
                     bucket["unknown"] += 1
+                    rejected[reason] += 1
+                    if len(rejected_examples[reason]) < 5:
+                        rejected_examples[reason].append({"tile": member.name, "size": member.size})
                 else:
                     version, nodes, edges = result
                     versions[version] += 1
@@ -81,6 +86,7 @@ def inspect(filename):
         return {"archive": str(path), "archive_bytes": path.stat().st_size,
                 "levels": dict(sorted(levels.items())), "totals": totals,
                 "versions": dict(versions), "duplicates": duplicates[:10],
+                "rejected": dict(rejected), "rejected_examples": dict(rejected_examples),
                 "complete": totals["unknown"] == 0 and not duplicates}
     finally:
         if stream is not None and not stream.closed:
@@ -104,6 +110,9 @@ def main():
                   f"{item['directed_edges']:>17,} {item['unknown']:>11,}")
         print("TOTAL:", report["totals"])
         print("Versions:", report["versions"])
+        print("Rejected headers by reason:", report["rejected"])
+        if report["rejected_examples"]:
+            print("Rejected examples:", report["rejected_examples"])
         if not report["complete"]:
             print("WARNING: unrecognized headers or duplicate paths; node/edge totals are incomplete.")
     if len(reports) == 2 and all(x["complete"] for x in reports):
