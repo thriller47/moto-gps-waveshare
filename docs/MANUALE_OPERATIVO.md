@@ -438,6 +438,23 @@ Per uscire da miniterm: **Ctrl+]**. Per evitare errori, prima digitare **wifi st
 
 Copiare TAR o TAR.ZST sul telefono e selezionare **Gestione mappe → Importa grafo TAR / ZST**. Disattivare temporaneamente la rete e provare una rotta all'interno della copertura: i log devono riportare il provider **Valhalla offline**. L'esistenza del TAR, il controllo `.gph` e una build riuscita **non garantiscono** da soli che il motore JNI Android possa leggerlo: la compatibilità dei grafi binari va verificata sul dispositivo.
 
+### D. Confrontare due grafi Valhalla senza estrarli
+
+Il nuovo comando `scripts/offline_map/analyze_valhalla_graph.py` analizza in streaming archivi `.tar` o `.tar.zst` e legge solo le intestazioni delle tile `.gph`. Il report mostra tile, **nodi** e **archi orientati** per livello Valhalla, oltre ai conteggi totali. Le intestazioni binarie sono interpretate **soltanto quando compatibili con il layout v3 riconosciuto**; in caso contrario il programma stampa `unverified` e non finge numeri attendibili.
+
+**Ubuntu/WSL2:**
+
+~~~bash
+sudo apt-get install -y zstd
+cd /mnt/c/MotoGPS/moto-gps-waveshare
+python3 scripts/offline_map/analyze_valhalla_graph.py \
+  /mnt/c/MotoGPS/ValhallaItaliaV2/valhalla_tiles.tar.zst \
+  /mnt/c/MotoGPS/PBF/Italy.tar.zst \
+  --json /mnt/c/MotoGPS/PBF/confronto-valhalla.json
+~~~
+
+Sostituire il secondo percorso con l'archivio routing.earth effettivo. Si può analizzare anche un singolo TAR (compresso o no) usando un solo argomento. Il comando usa una quantità contenuta di RAM perché legge in sequenza i file dell'archivio, ma deve decomprimere l'intero flusso Zstandard, quindi può impiegare tempo. Se compare `unverified`, controllare la versione del grafo; non confrontare i valori parziali di nodi e archi. Uno stesso tratto bidirezionale produce normalmente due archi orientati e può essere rappresentato in più livelli: **questo conteggio non equivale al numero di strade OSM uniche**. Per verificare copertura e compatibilità bisogna comunque provare itinerari offline sul telefono.
+
 ## 6. Diagnostica attuale ESP32 (PSRAM/BLE) e Android
 
 **Valhalla, dal 2026-11-01:** il vecchio logger flash ESP32 è

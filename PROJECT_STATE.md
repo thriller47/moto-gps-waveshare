@@ -2,6 +2,12 @@
 
 > **Updated: 2026-10-30** (Europe/Rome). Living project handoff; checked against the `valhalla` source, Git history, and GitHub Actions on this date. **Code/CI success is not proof of on-road hardware stability.**
 
+## Analizzatore grafi Valhalla — 2026-11-02
+
+**Branch:** `test/openfreemap-mvt`, `valhalla` invariato. Aggiunto `scripts/offline_map/analyze_valhalla_graph.py` per confrontare TAR/TAR.ZST autoprodotti e routing.earth senza estrazione: tile per livello, nodi e archi diretti dal formato GraphTileHeader v3, versioni tile, conteggi non verificabili e report JSON. Il confronto A-B dei directed edges si attiva solo se tutti gli header sono riconosciuti. Aggiornato `docs/MANUALE_OPERATIVO.md` con comandi WSL2 e limiti interpretativi. Motivazione: grafo Italia dell'utente 880 MB .zst contro routing.earth 1.42 GB .zst, generato con soli 8 GB RAM; dimensione compressa non dimostra copertura equivalente.
+
+**Test eseguiti localmente:** compilazione sintattica Python e TAR sintetico con un header v3: 17 nodi, 31 archi diretti, 1 tile riconosciuti. **Non eseguiti:** confronto su TAR Italia reale, CI, verifica Android. **Prossima azione:** utente confronta i due archivi con lo script e fornisce report JSON; controllare differenze per livello, poi test routing locale.
+
 ## Ottimizzazione cadenza snapshot e diagnostica GPS — 2026-11-02
 
 **Branch:** `test/openfreemap-mvt`. Separato il timer diagnostico `GPS_LATENCY` da `GPS_FIX` (il precedente condivideva erroneamente `lastDiagnosticFixMs`, sopprimendo quasi tutti gli eventi). Registrati anche `received_ago_ms` e `fix_age_ms` negli snapshot per separare età GNSS e coda di ricezione Android. Ridotto soltanto l'intervallo BLE snapshot su rettilineo da 300 a 250 ms; svolte restano a 200 ms. Predizione limitata a 12 m, GPS autorevole per ricalcoli, scene stradali e navigazione invariati. **Verifica hardware e CI ancora da completare**; dopo compilazione verificare GPS_LATENCY più regolare e confrontare fix_age_ms e received_ago_ms in una prova su strada. Nessun cambiamento a ESP32, BLE codec, MotoMap o Valhalla.
