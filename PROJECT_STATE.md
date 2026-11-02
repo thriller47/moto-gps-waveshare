@@ -2,6 +2,10 @@
 
 > **Updated: 2026-10-30** (Europe/Rome). Living project handoff; checked against the `valhalla` source, Git history, and GitHub Actions on this date. **Code/CI success is not proof of on-road hardware stability.**
 
+## Terminatori di riga Bash — 2026-11-02
+
+**Branch:** `valhalla`. Aggiunto `*.sh text eol=lf` a `.gitattributes` per impedire conversioni CRLF degli script Bash durante checkout su Windows/WSL. Preservate le regole binarie e le eccezioni esistenti. Modifica solo di configurazione Git; nessuna build hardware effettuata. Per file già estratti con CRLF occorre normalizzare o rieseguire il checkout. **Prossima azione:** verificare con `git check-attr text eol -- scripts/offline_map/build_valhalla_graph.sh`.
+
 ## Regola ciclo di vita dei branch — 2026-11-02
 
 **Branch:** `valhalla`. Aggiornato `AGENTS.md`: conservare soltanto `valhalla` e normalmente un singolo branch sperimentale `test/*`; cancellare i branch di test dopo merge riuscito e verificato, previo controllo commit esclusivi e possibile archiviazione via tag. Non ricreare `main`; `signal` è obsoleto, da eliminare dopo le verifiche. Branch attivo attuale: `test/turn-heading-render-20261102`. Questa modifica stabilisce una regola e **non cancella** branch; `test/navigation-hardening-20261101` presenta commit divergenti che devono essere tutelati prima della cancellazione. **Test:** modifica soltanto documentale, nessun test hardware o Android richiesto. **Prossima azione:** archiviare eventuali commit esclusivi e ripulire i branch remoti superflui.
