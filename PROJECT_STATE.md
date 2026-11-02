@@ -2,6 +2,12 @@
 
 > **Updated: 2026-10-30** (Europe/Rome). Living project handoff; checked against the `valhalla` source, Git history, and GitHub Actions on this date. **Code/CI success is not proof of on-road hardware stability.**
 
+## Strumenti di compilazione mappe e manuale — 2026-11-02
+
+**Branch:** `test/openfreemap-mvt`; `valhalla` non modificato. Aggiunto `scripts/offline_map/build_valhalla_graph.sh`, procedura Bash per Valhalla CLI su Linux/WSL2 (config, timezone/admin se disponibili, build tiles, extract TAR, verifica `.gph`, compressione Zstandard opzionale); non dipende da routing.earth. Aggiornato `docs/MANUALE_OPERATIVO.md` con URL ufficiale `https://download.geofabrik.de/europe/italy.poly`, conversione MotoMap v2 e comandi Windows/WSL2 per produrre grafo Valhalla da PBF Geofabrik.
+
+**Test:** controllati sorgenti e documentazione ufficiale; conversione Italia, strumenti Valhalla locali, importazione Android e test sul dispositivo non eseguiti. Rischi: RAM/disco per grafi nazionali, disponibilità tool Valhalla in Linux/WSL, compatibilità binaria con JNI Android. **Prossimo passo:** verificare workflow del singolo commit, poi eseguire prima un build regionale e validarne il routing offline sul telefono. Nessun cambio a BLE/ESP32 o logica di navigazione.
+
 ## MotoMap v2 — convertitore e lettore Android — 2026-11-02
 
 **Branch:** `test/openfreemap-mvt`, `valhalla` invariato. Aggiunti `motomap_v2.json` e `coverage_z14.txt` al convertitore Python. L'indice di copertura viene generato **solo** con `--coverage-poly italy.poly` (richiede `shapely`) e contiene esclusivamente tile z14 interamente coperte dal poligono dichiarato dell'estratto; tile marginali o estratti senza poligono non sono certificati e usano il fallback conservativo v1. Android importa e legge entrambi i formati, senza estrarre gli ZIP e senza modificare le strade grigie.
