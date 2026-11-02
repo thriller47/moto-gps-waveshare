@@ -263,6 +263,8 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     private var lastFixAccuracyM: Float = Float.POSITIVE_INFINITY
     private var lastFixCourseDeg: Float? = null
     private var lastDiagnosticFixMs: Long = 0L
+    private var lastDiagnosticLatencyMs: Long = 0L
+    private var lastAcceptedFixArrivalMs: Long = 0L
     private var lastDiagnosticHeadingMs: Long = 0L
     private var lastMapSceneSendTimeMs: Long = 0L
     private var lastMapSceneLat: Double = 0.0
@@ -429,7 +431,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                         it.maneuverName !in setOf("continue", "none", "arrive") &&
                             it.distanceToManeuverM <= 100L
                     } ?: false
-                    delay(if (turnImminent) 200L else 300L)
+                    delay(if (turnImminent) 200L else 250L)
                     if (!_isNavigating.value) break
                     loopCount++
 
@@ -470,7 +472,8 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                             "maneuver=${activeSnap.maneuverName} id=${activeSnap.maneuverID} " +
                             "turn_m=${activeSnap.distanceToManeuverM} remain_m=${activeSnap.remainingDistanceM} " +
                             "speed_dkph=${activeSnap.speedDeciKPH} heading_cdeg=${activeSnap.headingCentiDegrees} " +
-                            "fix_age_ms=$ageMs predicted_m=${estimated.extrapolatedMeters.toInt()}")
+                            "fix_age_ms=$ageMs received_ago_ms=${SystemClock.elapsedRealtime() - lastAcceptedFixArrivalMs} " +
+                            "predicted_m=${estimated.extrapolatedMeters.toInt()}")
                     }
                     bleManager.sendNavigationSnapshot(activeSnap)
 
@@ -639,10 +642,12 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                 "accuracy=${fix.accuracyMeters.toInt()}m jump=${decision.distanceMeters.toInt()}m")
             return
         }
+        lastAcceptedFixArrivalMs = receivedAtMs
         lastFixElapsedMs = fix.elapsedRealtimeMs
         lastFixAccuracyM = fix.accuracyMeters
         lastFixCourseDeg = if (location.hasBearing()) location.bearing else null
-        if (receivedAtMs - lastDiagnosticFixMs >= 1000L) {
+        if (receivedAtMs - lastDiagnosticLatencyMs >= 1000L) {
+            lastDiagnosticLatencyMs = receivedAtMs
             DiagnosticLog.event("GPS_LATENCY",
                 "age_ms=${receivedAtMs - fix.elapsedRealtimeMs} provider=${fix.provider} " +
                     "accuracy_m=${fix.accuracyMeters} speed_mps=${fix.speedMetersPerSecond}")
