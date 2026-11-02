@@ -269,191 +269,131 @@ Se si utilizza un PBF nuovo, sostituire il percorso. **Non rinominare un PBF reg
 
 ## 5. Creare o importare i grafi Valhalla
 
-### A. Metodo più semplice: grafo già pronto
+### A. Importare un grafo già pronto
 
 Scaricare, se disponibile per la zona e compatibile, un archivio **.tar.zst** (per esempio **Italy.tar.zst** da un distributore di grafi Valhalla) o **.tar**. Sul telefono:
 **Gestione mappe → Importa grafo TAR / ZST**.
 
 L'app decomprime autonomamente uno ZST in un TAR con tile **.gph**, verifica l'archivio e salva il file in area privata. Non occorre decomprimere lo ZST sul PC. **Verificare il routing effettivo** dopo l'importazione: alcuni grafi sono incompatibili con la versione del motore nell'APK.
 
-### B. Creare autonomamente il grafo dal PBF (Docker Desktop, Windows)
+### B. Compilare il grafo Italia su AMD Ryzen 5 3600 / WSL2 (procedura verificata)
 
-Richiede **Docker Desktop avviato**, container Linux e spazio libero su SSD. Il container ufficiale Valhalla scripted genera tile e archivio TAR indicizzato. Prima provare con **un estratto regionale**. Con 16 GB di RAM sul PC, il build dell'Italia intera può esaurire la memoria.
+**Configurazione riuscita il 2 novembre 2026:** Windows con WSL2 Ubuntu 24.04, Ryzen 5 3600 (16 GB RAM fisica), `pyvalhalla==3.9.1`, **due thread di compilazione**, PBF `italy-261101.osm.pbf`, workspace nel filesystem Linux `/home/mod/motogps-build`. Risultato: **1.591 tile .gph**, TAR di circa 2,3 GB e `valhalla_tiles.tar.zst` di **886 MiB**. Il fatto che la build sia riuscita non dimostra, isolatamente, che la riduzione a due thread abbia risolto i crash precedenti: nel frattempo sono cambiati anche l'installazione Ubuntu e il filesystem usato.
 
-~~~cmd
-docker --version
-mkdir C:\MotoGPS\ValhallaData
-copy C:\MotoGPS\PBF\nord-ovest-latest.osm.pbf C:\MotoGPS\ValhallaData\
-docker run --rm --name motogps-valhalla-build -v "C:\MotoGPS\ValhallaData:/custom_files" -e serve_tiles=False -e build_tar=True -e server_threads=2 ghcr.io/valhalla/valhalla-scripted:latest
-~~~
-
-Il risultato previsto è **C:\MotoGPS\ValhallaData\valhalla_tiles.tar**. Il container costruisce le tile stradali dal PBF e l'archivio TAR; l'opzione server_threads=2 limita il parallelismo. Se Docker restituisce errori, consultare i log e verificare RAM/spazio disponibile; non interpretare la sola creazione di un file come prova di compatibilità.
-
-**Controllo rapido dell'archivio** tramite tar integrato in Windows:
-
-~~~cmd
-dir C:\MotoGPS\ValhallaData\valhalla_tiles.tar
-tar -tf C:\MotoGPS\ValhallaData\valhalla_tiles.tar | findstr /i ".gph" | more
-~~~
-
-Se compaiono tile **.gph**, importare **valhalla_tiles.tar** nell'app Android, usando **Importa grafo TAR / ZST**. L'app supporta direttamente il TAR: **comprimerlo non è obbligatorio**.
-
-**Compressione opzionale** (solo se è installato il programma zstd):
-
-~~~cmd
-cd /d C:\MotoGPS\ValhallaData
-zstd -T2 -6 valhalla_tiles.tar -o valhalla_tiles.tar.zst
-~~~
-
-Per aggiornare un grafo, lavorare preferibilmente con una **nuova cartella ValhallaData** contenente il nuovo PBF, così un eventuale TAR precedente non viene riutilizzato silenziosamente. La dimensione espansa deve restare entro il limite dell'importatore Android (20 GiB). Per l'intera Italia, valutare RAM, tempi e SSD: con 16 GB di RAM il build potrebbe non riuscire.
-
-Fonti: https://github.com/valhalla/valhalla/blob/master/docker/README.md e https://valhalla.github.io/valhalla/start/building/
-
-### C. Alternativa indipendente: build locale Geofabrik PBF → grafo TAR (Linux/WSL2)
-
-Se routing.earth o altri distributori diventano indisponibili, il repository contiene `scripts/offline_map/build_valhalla_graph.sh`, basato sugli strumenti ufficiali Valhalla. Produce `valhalla_tiles.tar`, importabile direttamente nell'app, senza dipendere da server di grafi pronti. **Non è un convertitore Python puro:** occorrono gli eseguibili Valhalla installati nel sistema Linux (o in WSL2), spazio SSD e molta RAM. È un'alternativa al Docker della sezione B.
-
-Su **Windows PowerShell**, installare WSL2 se necessario (`wsl --install -d Ubuntu`, con riavvio se richiesto), poi lavorare nel terminale Ubuntu. Verificare che gli strumenti `valhalla_build_config`, `valhalla_build_tiles`, `valhalla_build_extract`, `valhalla_build_admins`, `valhalla_build_timezones` siano disponibili tramite pacchetti della distribuzione o una build Valhalla compilata seguendo le istruzioni ufficiali: https://valhalla.github.io/valhalla/start/building/ . La disponibilità esatta dei pacchetti varia in base alla distribuzione.
-
-**Ubuntu/WSL2 (Bash):**
-
-~~~bash
-command -v valhalla_build_config
-command -v valhalla_build_tiles
-command -v valhalla_build_extract
-# Opzionale, per comprimere in tar.zst:
-sudo apt-get update
-sudo apt-get install -y zstd
-cd /mnt/c/MotoGPS/moto-gps-waveshare
-bash scripts/offline_map/build_valhalla_graph.sh \
-  /mnt/c/MotoGPS/PBF/italy-261026.osm.pbf \
-  /mnt/c/MotoGPS/ValhallaItaliaV2 --zstd
-~~~
-
-La cartella `ValhallaItaliaV2` deve essere **nuova e vuota**: lo script si rifiuta di sovrascrivere un grafo precedente. Crea configurazione e directory delle tile, costruisce timezone/admin database quando gli strumenti sono presenti, genera il grafo e il TAR indicizzato, poi controlla che contenga file `.gph`. L'output compresso sarà `C:\MotoGPS\ValhallaItaliaV2\valhalla_tiles.tar.zst`; senza `--zstd` importare `valhalla_tiles.tar`.
-
-Per provare prima su una zona piccola usare `nord-ovest-latest.osm.pbf` e una cartella differente. Con un PBF Italia completo il consumo di RAM e disco può essere notevole; WSL2 deve avere memoria disponibile e lo spazio deve comprendere tile temporanee, TAR e TAR compresso. Se la build non riesce per memoria, usare una sottoregione o un PC più capiente. Su WSL2 può essere più veloce lavorare nel filesystem Linux anziché direttamente in `/mnt/c`.
-
-**Verifica PowerShell dell'archivio:**
+**1. Installare Ubuntu e WSL2** (PowerShell amministratore; solo se non installato):
 
 ~~~powershell
-tar -tf C:\MotoGPS\ValhallaItaliaV2\valhalla_tiles.tar | Select-String '\.gph (PSRAM/BLE) e Android
-
-**Valhalla, dal 2026-11-01:** il vecchio logger flash ESP32 è
-disattivato. La nuova diagnostica è registrata in PSRAM, trasmessa
-via BLE e salvata nell'app Android. Non sono necessarie letture flash
-né cavo USB per recuperare i nuovi log.
-
-1. Connettere Android all'ESP32 via BLE.
-2. Toccare **LOG**, scegliere **BASE** per eventi critici o **DEBUG**
-   per il dettaglio di navigazione e rendering. L'impostazione
-   predefinita è **OFF**.
-3. Il timeout è di **60 minuti**, con disattivazione anticipata
-   su disconnessione BLE o riavvio. Per interrompere manualmente scegliere
-   **LOG > OFF**.
-4. **Prima di disconnettere**, premere **Condividi / Esporta diagnostica**
-   nella barra dell'app. Salvare `motogps-android-diagnostics.zip`,
-   che comprende i file Android `current.log`/`previous.log` e,
-   se sono arrivati record ESP32, `esp32-current.log`/
-   `esp32-previous.log`.
-
-**Spazio:** Android registra automaticamente (indipendentemente da LOG).
-Entrambe le sorgenti usano due file a rotazione: fino a **2 × 1 MiB**
-per Android e **2 × 2 MiB** per ESP32, circa 6 MiB in totale più
-l'ultimo ZIP esportato. Nessun pulsante di cancellazione; i file più
-vecchi vengono sovrascritti. Il buffer ESP32 PSRAM contiene fino a
-2048 eventi e trasferisce al massimo 4 eventi/s: possono andare persi
-eventi in presenza di intenso DEBUG o di un collegamento BLE interrotto.
-Per il funzionamento ordinario, lasciare LOG su OFF.
-
-**Solo per estrarre i log storici del vecchio firmware ESP32:**
-la partizione flash `0xC20000` rimane presente, ma non viene più
-aggiornata. Con la scheda su COM3:
-
-~~~cmd
-cd /d C:\MotoGPS\moto-gps-waveshare
-esptool.exe --chip esp32s3 -p COM3 -b 460800 read-flash 0xC20000 0x40000 esp-diag.bin
-python scripts\diagnostics\decode_esp32_trace.py esp-diag.bin
+wsl --install -d Ubuntu-24.04
+wsl --update
+wsl --list --verbose
 ~~~
 
-Il decoder produce `esp-diag.csv` con **solo** vecchi eventi.
-Con esptool 4.x usare `read_flash` al posto di `read-flash`.
+Se WSL2 è già configurato, **non reinstallarlo**. Non eseguire `wsl --unregister` senza backup: elimina tutto il filesystem Linux della distribuzione selezionata. Creare l'utente Ubuntu al primo avvio.
 
-## 7. Console seriale Wi-Fi della radio (COM3)
+**2. Configurare memoria WSL2** (PowerShell; file `%USERPROFILE%\.wslconfig`):
 
-La modalità radio può essere avviata separatamente da GPS/BLE tramite il controllo **RADIO** nel firmware che implementa la commutazione. I comandi seguenti sono verificati nel parser del repository (**signal_wifi_console.cpp**). **Non inviarli nella normale schermata GPS**, né durante la guida.
-
-Usare un terminale **bidirezionale** a **115200 baud**, terminatore **LF/Newline** (per esempio monitor Arduino IDE con Newline), oppure Python + pyserial:
-
-~~~cmd
-python -m pip install pyserial
-python -m serial.tools.miniterm COM3 115200 --eol LF
+~~~powershell
+notepad $env:USERPROFILE\.wslconfig
 ~~~
 
-Digitare i comandi che seguono **dentro il terminale seriale**, non nel CMD. In particolare, il carattere **|** nel comando wifi set è un separatore della console radio: nella shell CMD sarebbe invece un operatore di pipe!
+Contenuto adottato sul PC Ryzen:
 
-~~~text
-wifi help
-wifi status
-wifi set NomeRete|PasswordTemporanea
-wifi test
-wifi status
-wifi off
+~~~ini
+[wsl2]
+memory=12GB
+processors=4
+swap=8GB
 ~~~
 
-| Comando nel monitor seriale | Funzione |
-| --- | --- |
-| wifi help | Mostra i comandi previsti |
-| wifi set NomeRete&#124;PasswordTemporanea | Salva SSID e password in NVS; supporta spazi nell'SSID |
-| wifi test | Connette al Wi-Fi **2,4 GHz** memorizzato |
-| wifi status | Indica se è connesso |
-| wifi off | Disconnette il Wi-Fi |
-| radio list | Elenca le stazioni MP3 disponibili |
-| radio play | Avvia la prima stazione |
-| radio play 2 | Avvia la stazione n. 2, se presente |
-| radio stop | **Durante il playback**, ferma la riproduzione |
-| radio volume 20 | **Durante il playback**, imposta volume al 20% (range 0–100) |
+Salvare e applicare:
 
-Per uscire da miniterm: **Ctrl+]**. Per evitare errori, prima digitare **wifi status**: se non arriva alcuna risposta, verificare che sia attiva la modalità radio e che il terminale non sia su un'altra porta.
-
-**Sicurezza:** la console di prova non maschera la password; il terminale può conservarla nella cronologia e la memorizzazione NVS potrebbe non essere cifrata. Usare un hotspot di prova, non inserire password reali in schermate/log pubblici.
-
-## 8. Promemoria rapido
-
-| Operazione | File / comando essenziale |
-| --- | --- |
-| Aggiornare il codice | git pull --ff-only origin valhalla |
-| Firmware ESP32 GitHub | Artifact **ESP32-Firmware** della Project Build |
-| Flash completo | bootloader a 0x0; partition-table a 0x8000; app a 0x20000 |
-| Flash solo aggiornamento | app a 0x20000 |
-| MotoMap offline | pbf_to_motomap.py → **.motomap.zip** |
-| Routing offline | Docker Valhalla o grafo esterno → **.tar** / **.tar.zst** |
-| Log ESP32 storico | read-flash 0xC20000 0x40000 → **.bin** → decoder → **.csv** |
-| Log Android | Condividi diagnostica → **.zip** |
-| Wi-Fi radio | COM3, 115200, terminale con Newline; wifi set SSID&#124;PASSWORD |
-
-**In caso di dubbi prima di flashare:** leggere PROJECT_STATE.md e controllare il commit e la run GitHub da cui provengono i binari. CI verde non equivale a stabilità verificata su strada.
- | Select-Object -First 5
+~~~powershell
+wsl --shutdown
 ~~~
 
-Copiare TAR o TAR.ZST sul telefono e selezionare **Gestione mappe → Importa grafo TAR / ZST**. Disattivare temporaneamente la rete e provare una rotta all'interno della copertura: i log devono riportare il provider **Valhalla offline**. L'esistenza del TAR, il controllo `.gph` e una build riuscita **non garantiscono** da soli che il motore JNI Android possa leggerlo: la compatibilità dei grafi binari va verificata sul dispositivo.
+Con 16 GB fisici, chiudere altre applicazioni pesanti e verificare lo spazio disponibile sul disco Windows che ospita WSL. Memoria e swap sono **limiti/configurazioni**, non prova che il processo non possa esaurirli.
 
-### D. Confrontare due grafi Valhalla senza estrarli
-
-Il nuovo comando `scripts/offline_map/analyze_valhalla_graph.py` analizza in streaming archivi `.tar` o `.tar.zst` e legge solo le intestazioni delle tile `.gph`. Il report mostra tile, **nodi** e **archi orientati** per livello Valhalla, oltre ai conteggi totali. Le intestazioni binarie sono interpretate **soltanto quando compatibili con il layout v3 riconosciuto**; in caso contrario il programma stampa `unverified` e non finge numeri attendibili.
-
-**Ubuntu/WSL2:**
+**3. Preparare Ubuntu e pyvalhalla** (terminale Ubuntu):
 
 ~~~bash
-sudo apt-get install -y zstd
-cd /mnt/c/MotoGPS/moto-gps-waveshare
-python3 scripts/offline_map/analyze_valhalla_graph.py \
-  /mnt/c/MotoGPS/ValhallaItaliaV2/valhalla_tiles.tar.zst \
-  /mnt/c/MotoGPS/PBF/Italy.tar.zst \
-  --json /mnt/c/MotoGPS/PBF/confronto-valhalla.json
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y python3 python3-pip python3-venv git curl wget zstd build-essential
+python3 -m venv ~/valhalla-env
+source ~/valhalla-env/bin/activate
+python -m pip install --upgrade pip
+python -m pip install pyvalhalla==3.9.1
+python -m pip show pyvalhalla
+command -v valhalla_build_tiles
+command -v valhalla_build_config
+command -v valhalla_build_extract
 ~~~
 
-Sostituire il secondo percorso con l'archivio routing.earth effettivo. Si può analizzare anche un singolo TAR (compresso o no) usando un solo argomento. Il comando usa una quantità contenuta di RAM perché legge in sequenza i file dell'archivio, ma deve decomprimere l'intero flusso Zstandard, quindi può impiegare tempo. Se compare `unverified`, controllare la versione del grafo; non confrontare i valori parziali di nodi e archi. Uno stesso tratto bidirezionale produce normalmente due archi orientati e può essere rappresentato in più livelli: **questo conteggio non equivale al numero di strade OSM uniche**. Per verificare copertura e compatibilità bisogna comunque provare itinerari offline sul telefono.
+`valhalla_build_admins` e `valhalla_build_timezones` sono facoltativi nello script. Se manca il generatore timezone, possono essere ridotte le funzioni di routing dipendenti dall'orario.
+
+**4. Copiare il PBF dentro il filesystem Linux**, anziché costruire direttamente sotto `/mnt/c`. Esempio con i percorsi effettivi dell'installazione:
+
+~~~bash
+mkdir -p ~/motogps-build
+cp /mnt/c/MotoGPS/PBF/italy-261101.osm.pbf ~/motogps-build/
+# Se disponibile, conservare anche il perimetro usato da MotoMap v2:
+cp /mnt/c/MotoGPS/PBF/italy.poly ~/motogps-build/
+sha256sum /mnt/c/MotoGPS/PBF/italy-261101.osm.pbf ~/motogps-build/italy-261101.osm.pbf
+df -h ~
+free -h
+~~~
+
+I due SHA256 del PBF devono corrispondere. `italy.poly` serve al convertitore MotoMap v2 e **non** alla compilazione Valhalla. Prevedere preferibilmente 30–40 GB di spazio libero per tile temporanee, TAR e compressione.
+
+**5. Costruire il grafo con due thread.** Lo script aggiornato usa **2 thread per default** e consente `--threads N`; lavorare in una directory nuova:
+
+~~~bash
+source ~/valhalla-env/bin/activate
+cd /mnt/c/MotoGPS/moto-gps-waveshare
+git switch test/turn-heading-render-20261102
+git pull --ff-only origin test/turn-heading-render-20261102
+bash scripts/offline_map/build_valhalla_graph.sh \
+  ~/motogps-build/italy-261101.osm.pbf \
+  ~/motogps-build/ValhallaItaliaV4 --zstd --threads 2
+~~~
+
+Non usare una cartella output già popolata: lo script rifiuta il riutilizzo dei file del grafo precedente. La vecchia build con parametri impliciti aveva prodotto errori `EdgeInfo offsets incorrect` e poi `SIGKILL 9`; l'ambiente pulito e i due thread sono la configurazione osservata riuscire.
+
+**6. Verificare l'archivio e copiarlo su Windows:**
+
+~~~bash
+ls -lh ~/motogps-build/ValhallaItaliaV4/
+tar -tf ~/motogps-build/ValhallaItaliaV4/valhalla_tiles.tar | grep -c '\.gph$'
+python3 scripts/offline_map/analyze_valhalla_graph.py \
+  ~/motogps-build/ValhallaItaliaV4/valhalla_tiles.tar.zst \
+  --json ~/motogps-build/grafo-italia.json
+cp ~/motogps-build/ValhallaItaliaV4/valhalla_tiles.tar.zst \
+  /mnt/c/MotoGPS/valhalla_italia_ryzen.tar.zst
+~~~
+
+La build riuscita aveva **1.591 tile**, **11.457.028 nodi**, **26.093.538 archi orientati**, `Unverified: 0` (header compatibili). I conteggi non attestano da soli la qualità o la compatibilità di routing JNI Android: importare lo ZST in **Gestione mappe → Importa grafo TAR / ZST** e verificare itinerari senza connessione dati.
+
+### C. Confrontare il grafo locale con Routing.earth
+
+L'analizzatore accetta archivi `.tar` e `.tar.zst` e versioni Valhalla v3 con suffissi di build, senza estrarre tutto l'archivio su disco:
+
+~~~bash
+python3 scripts/offline_map/analyze_valhalla_graph.py \
+  ~/motogps-build/ValhallaItaliaV4/valhalla_tiles.tar.zst \
+  /mnt/c/MotoGPS/Italy.tar.zst \
+  --json ~/motogps-build/confronto_valhalla.json
+~~~
+
+**Risultati rilevati il 2 novembre 2026:**
+
+| Parametro | Locale 3.9.1 | Routing.earth 3.9.0 (varie revisioni) |
+| --- | ---: | ---: |
+| Tile | 1.591 | 1.202 |
+| Nodi | 11.457.028 | 12.939.572 |
+| Archi orientati | 26.093.538 | 29.484.433 |
+| Header non verificati | 0 | 0 |
+| Archivio compresso | 886 MiB | circa 1,42 GB |
+
+Routing.earth contiene circa il 13% di nodi/archi orientati in più, **non necessariamente il 13% di chilometri di strada in più**. Le tile non sono direttamente confrontabili come indicatore di copertura; cambiano versione, estratto e configurazione di costruzione. Nessuna conclusione sulla qualità degli itinerari prima di una prova funzionale a parità di impostazioni.
 
 ## 6. Diagnostica attuale ESP32 (PSRAM/BLE) e Android
 
@@ -497,57 +437,19 @@ python scripts\diagnostics\decode_esp32_trace.py esp-diag.bin
 Il decoder produce `esp-diag.csv` con **solo** vecchi eventi.
 Con esptool 4.x usare `read_flash` al posto di `read-flash`.
 
-## 7. Console seriale Wi-Fi della radio (COM3)
+## 7. Promemoria rapido
 
-La modalità radio può essere avviata separatamente da GPS/BLE tramite il controllo **RADIO** nel firmware che implementa la commutazione. I comandi seguenti sono verificati nel parser del repository (**signal_wifi_console.cpp**). **Non inviarli nella normale schermata GPS**, né durante la guida.
-
-Usare un terminale **bidirezionale** a **115200 baud**, terminatore **LF/Newline** (per esempio monitor Arduino IDE con Newline), oppure Python + pyserial:
-
-~~~cmd
-python -m pip install pyserial
-python -m serial.tools.miniterm COM3 115200 --eol LF
-~~~
-
-Digitare i comandi che seguono **dentro il terminale seriale**, non nel CMD. In particolare, il carattere **|** nel comando wifi set è un separatore della console radio: nella shell CMD sarebbe invece un operatore di pipe!
-
-~~~text
-wifi help
-wifi status
-wifi set NomeRete|PasswordTemporanea
-wifi test
-wifi status
-wifi off
-~~~
-
-| Comando nel monitor seriale | Funzione |
+| Operazione | File / comando |
 | --- | --- |
-| wifi help | Mostra i comandi previsti |
-| wifi set NomeRete&#124;PasswordTemporanea | Salva SSID e password in NVS; supporta spazi nell'SSID |
-| wifi test | Connette al Wi-Fi **2,4 GHz** memorizzato |
-| wifi status | Indica se è connesso |
-| wifi off | Disconnette il Wi-Fi |
-| radio list | Elenca le stazioni MP3 disponibili |
-| radio play | Avvia la prima stazione |
-| radio play 2 | Avvia la stazione n. 2, se presente |
-| radio stop | **Durante il playback**, ferma la riproduzione |
-| radio volume 20 | **Durante il playback**, imposta volume al 20% (range 0–100) |
-
-Per uscire da miniterm: **Ctrl+]**. Per evitare errori, prima digitare **wifi status**: se non arriva alcuna risposta, verificare che sia attiva la modalità radio e che il terminale non sia su un'altra porta.
-
-**Sicurezza:** la console di prova non maschera la password; il terminale può conservarla nella cronologia e la memorizzazione NVS potrebbe non essere cifrata. Usare un hotspot di prova, non inserire password reali in schermate/log pubblici.
-
-## 8. Promemoria rapido
-
-| Operazione | File / comando essenziale |
-| --- | --- |
-| Aggiornare il codice | git pull --ff-only origin valhalla |
+| Aggiornare il codice stabile | `git pull --ff-only origin valhalla` |
 | Firmware ESP32 GitHub | Artifact **ESP32-Firmware** della Project Build |
-| Flash completo | bootloader a 0x0; partition-table a 0x8000; app a 0x20000 |
-| Flash solo aggiornamento | app a 0x20000 |
-| MotoMap offline | pbf_to_motomap.py → **.motomap.zip** |
-| Routing offline | Docker Valhalla o grafo esterno → **.tar** / **.tar.zst** |
-| Log ESP32 storico | read-flash 0xC20000 0x40000 → **.bin** → decoder → **.csv** |
-| Log Android | Condividi diagnostica → **.zip** |
-| Wi-Fi radio | COM3, 115200, terminale con Newline; wifi set SSID&#124;PASSWORD |
+| Flash completo | bootloader `0x0`, partizioni `0x8000`, app `0x20000` |
+| Flash solo app | `0x20000` |
+| MotoMap offline | `pbf_to_motomap.py` → **.motomap.zip**; `italy.poly` per copertura v2 |
+| Grafo Valhalla | WSL2/Ubuntu, `pyvalhalla==3.9.1`, 2 thread → **.tar.zst** |
+| Log diagnostici attuali | Android → Condividi diagnostica → **.zip** |
+| Log ESP32 storici | `read-flash` e decoder; soltanto firmware precedenti |
 
-**In caso di dubbi prima di flashare:** leggere PROJECT_STATE.md e controllare il commit e la run GitHub da cui provengono i binari. CI verde non equivale a stabilità verificata su strada.
+Il vecchio backend/gateway e la modalità radio seriale non fanno parte del flusso operativo corrente del branch di test. Per lo storico consultare i commit precedenti, non tentare i comandi radio sulla normale schermata GPS.
+
+**Prima del flash:** leggere `PROJECT_STATE.md`, controllare commit e run degli artifact. CI verde non equivale a test su strada.
