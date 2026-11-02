@@ -8,6 +8,12 @@ These instructions apply to the repository unless a more specific AGENTS.md exis
 3. Treat PROJECT_STATE.md as a handoff, **not** proof of implementation; resolve discrepancies by inspecting source.
 4. State scope and potential cross-component impact before changing protocol, routing or navigation behavior.
 
+## GitHub Actions / CI execution policy
+- **Never trigger a GitHub Actions build for each intermediate commit.** Finish all planned source, test, and documentation changes first, then trigger **one consolidated CI build** for the final revision only.
+- Prefer preparing related edits as a single final commit/push. If intermediate pushes are unavoidable, explicitly prevent their CI runs (for example with `[skip ci]` where supported), and run CI only on the final commit. Do not manually dispatch workflows during intermediate work.
+- Check the workflow triggers before pushing: instructions in this file alone do not disable automatic GitHub Actions `push` triggers. Do not claim CI ran only once unless verified.
+- If the final build fails, investigate and batch necessary fixes before requesting another run; avoid repeated speculative runs.
+
 ## Engineering rules
 - Prefer small, reviewable changes on an appropriate feature/test branch. Merge into `valhalla` only with explicit approval; never push upstream or target the deleted `main` branch.
 - Check Android ↔ BLE ↔ ESP32 compatibility before changing payloads or navigation semantics.
