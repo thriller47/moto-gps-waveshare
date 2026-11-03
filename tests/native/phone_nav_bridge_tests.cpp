@@ -584,7 +584,10 @@ void test_imu_presentation_preserves_40hz_phase_and_stale_course_is_ignored() {
   moto::ble::NavigationSnapshot navigation;
   navigation.state = moto::ble::NavigationState::Navigating;
   navigation.display_page = moto::ble::DisplayPage::Compass;
-  navigation.flags = moto::ble::NavigationHasFix;
+  navigation.flags = moto::ble::NavigationHasFix |
+                     moto::ble::NavigationHasNextManeuver;
+  navigation.maneuver = moto::ble::Maneuver::Left;
+  navigation.distance_to_maneuver_m = 140;
   navigation.heading_cdeg = 9'000;
   navigation.speed_deci_kph = 360;
   CHECK(bridge.on_message(make_message(navigation, 1)) == moto::ble::AckStatus::Ok);
@@ -598,6 +601,9 @@ void test_imu_presentation_preserves_40hz_phase_and_stale_course_is_ignored() {
   }
   const int motion_frames = moto::test::phone_nav_bridge_apply_count() - before;
   CHECK(motion_frames == 40);  // resetting the deadline yields only 31
+  // Heading-only render frames must not lose navigation/maneuver state.
+  CHECK(moto::test::phone_nav_bridge_last_maneuver() == MOTO_MANEUVER_LEFT);
+  CHECK(moto::test::phone_nav_bridge_last_distance_to_maneuver_m() == 140U);
   const auto before_stale = moto::test::phone_nav_bridge_last_heading_deg();
   navigation.heading_cdeg = 27'000;
   navigation.flags |= moto::ble::NavigationGnssStale;

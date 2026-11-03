@@ -1092,9 +1092,17 @@ void PhoneNavBridge::render_pending() {
 #endif
   {
     const std::lock_guard<std::mutex> lock(state_mutex_);
-    if (navigation || motion) {
+    if (navigation) {
+      // Geometry and strings are refreshed only for a real navigation update.
+      // At IMU cadence (up to 40 Hz), snapshot_ changes heading only; avoid
+      // copying the heavy road/building/route arrays on every motion tick.
       render_snapshot_ = snapshot_;
       render_geometry_sequence_ = geometry_sequence_;
+    } else if (motion) {
+      render_snapshot_.heading_deg = snapshot_.heading_deg;
+      // Always pass the measured BLE anchor to MapOriginPredictor rather
+      // than feeding the previous predicted origin back into itself.
+      render_snapshot_.route_view_origin = snapshot_.route_view_origin;
     }
     if (navigation) {
       render_phone_connection_ = ui_phone_connection_;
