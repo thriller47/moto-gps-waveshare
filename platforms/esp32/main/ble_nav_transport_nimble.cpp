@@ -763,8 +763,19 @@ bool BleNavTransport::send_message(const moto::ble::Message& message,
       tx_value_handle_ == 0 || tx_mutex_ == nullptr) {
     return false;
   }
-  if ((frame_flags & ~moto::ble::kApplicationFrameFlags) != 0U ||
-      xSemaphoreTake(tx_mutex_, pdMS_TO_TICKS(500)) != pdTRUE) {
+  if ((frame_flags & ~moto::ble::kApplicationFrameFlags) != 0U) {
+    return false;
+  }
+  // Diagnostics are strictly best effort and must never spend 500 ms
+  // waiting behind navigation acknowledgements or pending command retries.
+  const bool diagnostic =
+      std::holds_alternative<moto::ble::DiagnosticBatch>(message);
+  if (xSemaphoreTake(tx_mutex_,
+                     diagnostic ? 0 : pdMS_TO_TICKS(500)) != pdTRUE) {
+    return false;
+  }
+  if (diagnostic && pending_ack_.active) {
+    xSemaphoreGive(tx_mutex_);
     return false;
   }
 

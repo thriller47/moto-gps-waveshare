@@ -141,6 +141,7 @@ class PhoneNavBridge {
   MotionHeadingFusion heading_fusion_;
   std::uint64_t last_motion_present_ms_ = 0;
   std::uint64_t last_diagnostic_send_ms_ = 0;
+  moto::ble::DiagnosticBatch pending_diagnostic_batch_{};
   moto::nav::NavSnapshot snapshot_before_demo_{};
   std::uint64_t demo_started_ms_ = 0;
   bool demo_active_ = false;

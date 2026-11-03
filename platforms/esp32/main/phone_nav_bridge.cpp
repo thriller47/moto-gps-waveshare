@@ -549,13 +549,31 @@ void PhoneNavBridge::update_demo(std::uint64_t now_ms) {
 void PhoneNavBridge::service_diagnostics(std::uint64_t now_ms) {
   // Called only by the low-priority 25 ms demo clock; no work from BLE RX or
   // from the 40 Hz display renderer. No send or allocation when OFF.
-  if (moto_diag_mode() == 0 || now_ms - last_diagnostic_send_ms_ < 1'000U)
+  // OFF/disconnection also discards an unsent previous-session batch.
+  if (moto_diag_mode() == 0) {
+    pending_diagnostic_batch_.records.clear();
     return;
+  }
+  if (now_ms - last_diagnostic_send_ms_ < 1'000U) return;
   last_diagnostic_send_ms_ = now_ms;
-  moto::ble::DiagnosticBatch batch;
-  if (!moto_diag_take_batch(batch)) return;
-  if (sender_ != nullptr)
-    (void)sender_(moto::ble::Message{std::move(batch)}, 0, sender_context_);
+#ifdef ESP_PLATFORM
+  static std::uint32_t last_reported_overwrites = 0;
+  const auto overwritten = moto_diag_overwritten_records();
+  if (overwritten != last_reported_overwrites) {
+    ESP_LOGW(kTag, "diagnostics PSRAM ring overwritten=%lu",
+             static_cast<unsigned long>(overwritten));
+    last_reported_overwrites = overwritten;
+  }
+#endif
+  // The batch survives transient transport congestion rather than being
+  // removed from the PSRAM ring and immediately lost on send failure.
+  if (pending_diagnostic_batch_.records.empty() &&
+      !moto_diag_take_batch(pending_diagnostic_batch_)) return;
+  if (sender_ &&
+      sender_(moto::ble::Message{pending_diagnostic_batch_},
+              0, sender_context_)) {
+    pending_diagnostic_batch_.records.clear();
+  }
 }
 
 void PhoneNavBridge::set_demo_active(bool active) {

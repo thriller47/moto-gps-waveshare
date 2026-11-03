@@ -18,6 +18,8 @@ void moto_diag_event(MotoDiagEvent event, std::int32_t a = 0,
                      std::int32_t b = 0, std::int32_t c = 0,
                      std::int32_t d = 0, std::int32_t e = 0) noexcept;
 bool moto_diag_take_batch(moto::ble::DiagnosticBatch& batch) noexcept;
+/** Cumulative PSRAM events overwritten since DEBUG/BASE activation. */
+std::uint32_t moto_diag_overwritten_records() noexcept;
 #else
 inline void moto_diag_init() noexcept {}
 inline void moto_diag_set_mode(std::uint8_t) noexcept {}
@@ -28,4 +30,5 @@ inline void moto_diag_event(MotoDiagEvent, std::int32_t = 0,
 inline bool moto_diag_take_batch(moto::ble::DiagnosticBatch&) noexcept {
   return false;
 }
+inline std::uint32_t moto_diag_overwritten_records() noexcept { return 0; }
 #endif

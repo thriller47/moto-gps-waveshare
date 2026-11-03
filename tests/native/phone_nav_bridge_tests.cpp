@@ -95,6 +95,40 @@ void test_sender_is_called_without_bridge_state_lock() {
   CHECK(sender.last_page == moto::ble::DisplayPage::Speed);
 }
 
+void test_power_monitor_tracks_arrival_and_phone_reconnection() {
+  moto::nav::NavPresenter presenter;
+  PhoneNavBridge bridge(presenter);
+  CHECK(!bridge.has_ever_connected());
+  CHECK(!bridge.phone_connected());
+  CHECK(!bridge.phone_arrived());
+
+  bridge.on_link_state(true);
+  CHECK(bridge.has_ever_connected());
+  CHECK(bridge.phone_connected());
+  moto::ble::NavigationSnapshot nav;
+  nav.state = moto::ble::NavigationState::Navigating;
+  CHECK(bridge.on_message(make_message(moto::ble::Message{nav}, 101)) ==
+        moto::ble::AckStatus::Ok);
+  CHECK(!bridge.phone_arrived());
+
+  nav.state = moto::ble::NavigationState::Arrived;
+  CHECK(bridge.on_message(make_message(moto::ble::Message{nav}, 102)) ==
+        moto::ble::AckStatus::Ok);
+  CHECK(bridge.phone_arrived());
+  nav.state = moto::ble::NavigationState::Navigating;
+  CHECK(bridge.on_message(make_message(moto::ble::Message{nav}, 103)) ==
+        moto::ble::AckStatus::Ok);
+  CHECK(!bridge.phone_arrived());
+
+  bridge.on_link_state(false);
+  CHECK(bridge.has_ever_connected());
+  CHECK(!bridge.phone_connected());
+  CHECK(!bridge.phone_arrived());
+  bridge.on_link_state(true);
+  CHECK(bridge.phone_connected());
+  CHECK(bridge.has_ever_connected());
+}
+
 void test_diagnostic_control_is_opt_in_and_requires_link() {
   moto::nav::NavPresenter presenter;
   PhoneNavBridge bridge(presenter);
@@ -618,6 +652,7 @@ int main() {
   test_sender_is_called_without_bridge_state_lock();
   test_navigation_and_touch_updates_are_serialized();
   test_diagnostic_control_is_opt_in_and_requires_link();
+  test_power_monitor_tracks_arrival_and_phone_reconnection();
   test_ble_submission_never_waits_for_lvgl_and_retries_latest_state();
   test_phone_connection_lifecycle_reaches_the_ui();
   test_music_capability_state_and_touch_commands();

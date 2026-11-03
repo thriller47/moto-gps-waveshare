@@ -19,6 +19,7 @@ std::atomic<std::uint8_t> mode{0};
 std::atomic<std::uint32_t> expires_at_ms{0};
 std::uint32_t next_sequence = 1;
 std::size_t tail = 0, count = 0;
+std::atomic<std::uint32_t> overwritten_records{0};
 
 bool enabled() noexcept {
   if (mode.load(std::memory_order_relaxed) == 0) return false;
@@ -39,6 +40,7 @@ void moto_diag_set_mode(std::uint8_t requested) noexcept {
   portENTER_CRITICAL(&ring_lock);
   tail = 0;
   count = 0;
+  overwritten_records.store(0, std::memory_order_relaxed);
   portEXIT_CRITICAL(&ring_lock);
   if (requested == 1 || requested == 2) {
     expires_at_ms.store(
@@ -67,6 +69,7 @@ void moto_diag_event(MotoDiagEvent event, std::int32_t a,
   portENTER_CRITICAL(&ring_lock);
   record.sequence = next_sequence++;
   if (count == kCapacity) {
+    overwritten_records.fetch_add(1, std::memory_order_relaxed);
     tail = (tail + 1) % kCapacity;
     --count;
   }
@@ -89,4 +92,8 @@ bool moto_diag_take_batch(moto::ble::DiagnosticBatch& out) noexcept {
   portEXIT_CRITICAL(&ring_lock);
   for (std::size_t i = 0; i < n; ++i) out.records.push_back(local[i]);
   return n != 0;
+}
+
+std::uint32_t moto_diag_overwritten_records() noexcept {
+  return overwritten_records.load(std::memory_order_relaxed);
 }
