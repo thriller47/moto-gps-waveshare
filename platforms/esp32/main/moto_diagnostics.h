@@ -5,7 +5,7 @@
 // Diagnostic events are deliberately numeric: no GPS coordinates or streets.
 enum class MotoDiagEvent : std::uint16_t {
   Boot = 1, Link = 2, Snapshot = 3, MapScene = 4, Render = 5,
-  RenderPhase = 6, RenderLockTimeout = 7
+  RenderPhase = 6, RenderLockTimeout = 7, RenderTiming = 8
 };
 
 // Runtime OFF is the default: no flash, no queueing, no BLE traffic and

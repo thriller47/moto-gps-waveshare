@@ -1089,6 +1089,12 @@ void PhoneNavBridge::render_pending() {
     last_render_phase_ms = render_now_ms;
     moto_diag_event(MotoDiagEvent::RenderPhase, 1);  // before snapshot copy
   }
+  // Sample timing once per two seconds only while LOG > DEBUG is enabled.
+  // No per-frame diagnostic writes, extra allocations or UI operations.
+  static std::uint64_t last_timing_sample_ms = 0;
+  const bool sample_timing = moto_diag_mode() == 2 &&
+      (render_now_ms - last_timing_sample_ms >= 2000U);
+  if (sample_timing) last_timing_sample_ms = render_now_ms;
 #endif
   {
     const std::lock_guard<std::mutex> lock(state_mutex_);
@@ -1120,6 +1126,10 @@ void PhoneNavBridge::render_pending() {
 #ifdef ESP_PLATFORM
   if (trace_render) moto_diag_event(MotoDiagEvent::RenderPhase, 2);
 #endif
+#ifdef ESP_PLATFORM
+  const std::int64_t projection_start_us =
+      sample_timing ? esp_timer_get_time() : 0;
+#endif
   if (navigation || motion) {
     if (!render_demo_active_ &&
         render_snapshot_.state == moto::nav::NavState::Navigating &&
@@ -1141,12 +1151,18 @@ void PhoneNavBridge::render_pending() {
     presenter_.update(render_snapshot_);
   }
 #ifdef ESP_PLATFORM
+  const std::int32_t projection_us = sample_timing ?
+      static_cast<std::int32_t>(esp_timer_get_time() - projection_start_us) : 0;
   if (trace_render) moto_diag_event(MotoDiagEvent::RenderPhase, 3); // wait LVGL
   // A stalled display worker must not trap the render task forever. Coalesce
   // the pending navigation state and try again; never hold the BLE mutex here.
   constexpr uint32_t kDisplayLockTimeoutMs = 250;
 #else
   constexpr uint32_t kDisplayLockTimeoutMs = UINT32_MAX;
+#endif
+#ifdef ESP_PLATFORM
+  const std::int64_t lock_wait_start_us =
+      sample_timing ? esp_timer_get_time() : 0;
 #endif
   if (!board_port_lock(kDisplayLockTimeoutMs)) {
 #ifdef ESP_PLATFORM
@@ -1166,6 +1182,8 @@ void PhoneNavBridge::render_pending() {
   }
 #ifdef ESP_PLATFORM
   if (trace_render) moto_diag_event(MotoDiagEvent::RenderPhase, 4); // LVGL acquired
+  const std::int64_t lock_acquired_us =
+      sample_timing ? esp_timer_get_time() : 0;
 #endif
   if (navigation) {
     moto_nav_ui_set_phone_connection(render_phone_connection_);
@@ -1203,7 +1221,22 @@ void PhoneNavBridge::render_pending() {
                     static_cast<int32_t>(state.maneuver_map_zoom_active));
   }
 #endif
+#ifdef ESP_PLATFORM
+  const std::int64_t lock_release_us =
+      sample_timing ? esp_timer_get_time() : 0;
+#endif
   board_port_unlock();
+#ifdef ESP_PLATFORM
+  if (sample_timing) {
+    // a=projection, b=lock wait, c=lock hold (all microseconds);
+    // d=render flags, e=0 reserved. Never log under the LVGL lock.
+    moto_diag_event(MotoDiagEvent::RenderTiming,
+                    projection_us,
+                    static_cast<std::int32_t>(lock_acquired_us - lock_wait_start_us),
+                    static_cast<std::int32_t>(lock_release_us - lock_acquired_us),
+                    static_cast<std::int32_t>(requested));
+  }
+#endif
 }
 
 #ifdef ESP_PLATFORM

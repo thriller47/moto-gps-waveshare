@@ -39,7 +39,15 @@ include `moto_diagnostics_ram.cpp`, con 64 KiB di PSRAM.
 - L'attivazione impone un carico aggiuntivo, quindi **DEBUG va utilizzato
   solo per diagnosticare un problema**, preferibilmente in prova controllata.
 - Eventi: 1=avvio cattura, 2=link, 3=snapshot, 4=mappa,
-  5=render, 6=fase render, 7=timeout lock display.
+  5=render, 6=fase render, 7=timeout lock display, 8=tempi rendering.
+- **Evento 8 = RENDER_TIMING**, registrato al massimo ogni 2 secondi solo con
+  **LOG > DEBUG**. Campi: `a` = tempo di proiezione/preparazione in µs,
+  `b` = attesa di acquisizione lock LVGL in µs,
+  `c` = tempo dentro il lock in µs, `d` = maschera frame
+  (1=navigazione, 2=movimento IMU, 4=media), `e` = riservato.
+  Le misure vengono emesse dopo lo sblocco del display; nessun dato GPS.
+  Un campione ogni 2 secondi **non misura il massimo assoluto**:
+  combinare con evento 7 per i timeout e confrontare più prove.
 - Per un confronto sulla stabilità usare sempre la configurazione **OFF**.
 
 La capacità diagnostica è opzionale (bit `CapabilityDiagnosticsRam`) e
