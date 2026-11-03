@@ -76,6 +76,7 @@ jobs:
               - 'scripts/fixture_coordinates.mjs'
               - 'third_party/**'
             android:
+              - '.github/workflows/project-build.yml'
               - 'platforms/android/**'
               - 'shared/**'
               - 'core/**'
@@ -127,7 +128,7 @@ jobs:
         (github.event_name != 'workflow_dispatch' && needs.detect-changes.outputs.android == 'true')
       )
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
     defaults:
       run:
         shell: bash
@@ -142,6 +143,41 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
           cache: 'gradle'
+
+      - name: Ensure Android NDK 27 is installed (retry corrupted downloads)
+        run: |
+          set -euo pipefail
+          sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          if [[ -z "$sdk" ]]; then
+            echo "::error::ANDROID_HOME / ANDROID_SDK_ROOT not configured"
+            exit 1
+          fi
+          manager="$sdk/cmdline-tools/latest/bin/sdkmanager"
+          if [[ ! -x "$manager" ]]; then
+            manager="$(command -v sdkmanager || true)"
+          fi
+          if [[ -z "$manager" || ! -x "$manager" ]]; then
+            echo "::error::Android sdkmanager is missing"
+            exit 1
+          fi
+          ndk="$sdk/ndk/27.0.12077973"
+          for attempt in 1 2 3; do
+            if [[ -f "$ndk/source.properties" ]] && grep -q '^Pkg.Revision = 27.0.12077973' "$ndk/source.properties"; then
+              echo "NDK 27.0.12077973 ready"
+              exit 0
+            fi
+            echo "NDK installation attempt $attempt/3"
+            rm -rf "$ndk"
+            if "$manager" --sdk_root="$sdk" --install 'ndk;27.0.12077973'; then
+              if [[ -f "$ndk/source.properties" ]] && grep -q '^Pkg.Revision = 27.0.12077973' "$ndk/source.properties"; then
+                echo "NDK installed successfully"
+                exit 0
+              fi
+            fi
+            if [[ "$attempt" -lt 3 ]]; then sleep $((attempt * 5)); fi
+          done
+          echo "::error::NDK installation failed after 3 attempts"
+          exit 1
 
       - name: Make gradlew executable
         run: chmod +x platforms/android/gradlew
