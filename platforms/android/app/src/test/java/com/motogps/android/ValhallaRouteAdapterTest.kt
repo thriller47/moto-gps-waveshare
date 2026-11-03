@@ -82,6 +82,52 @@ class ValhallaRouteAdapterTest {
         assertEquals("valhalla-local", route.getString("provider"))
         assertTrue(result.getInt("protocol_version") == 1)
     }
+
+    @Test
+    fun consecutiveRoundaboutsTreatExitsAsPartOfTheirEntrance() {
+        // Real Valhalla uses type 26 for enter and 27 for exit. The latter
+        // must not become a second 0-m roundabout on the dashboard.
+        val points = (0..10).map { 45.0 to (9.0 + it * 0.0002) }
+        fun step(type: Int, begin: Int, end: Int = begin) = JSONObject()
+            .put("type", type)
+            .put("begin_shape_index", begin)
+            .put("end_shape_index", end)
+            .put("roundabout_exit_count", if (type == 26) 2 else 0)
+            .put("instruction", "Test roundabout")
+        val leg = JSONObject()
+            .put("shape", encode(points))
+            .put("summary", JSONObject().put("length", 0.3))
+            .put("maneuvers", JSONArray()
+                .put(step(1, 0))
+                .put(step(26, 2, 4))
+                .put(step(27, 4))
+                .put(step(26, 6, 8))
+                .put(step(27, 8))
+                .put(step(4, 10)))
+        val trip = JSONObject()
+            .put("summary", JSONObject().put("length", 0.3).put("time", 30))
+            .put("legs", JSONArray().put(leg))
+        val route = ValhallaRouteAdapter.toMotoRoute(
+            JSONObject().put("trip", trip), 45.0, 9.0, 45.0, 9.002)
+            .getJSONObject("route")
+        val maneuvers = route.getJSONArray("maneuvers")
+        assertEquals("roundabout", maneuvers.getJSONObject(1).getString("type"))
+        assertEquals("continue", maneuvers.getJSONObject(2).getString("type"))
+        assertEquals("roundabout", maneuvers.getJSONObject(3).getString("type"))
+        assertEquals("continue", maneuvers.getJSONObject(4).getString("type"))
+
+        val plan = com.motogps.android.routing.ValhallaTurnGuidance.fromRoute(route)
+        assertEquals(3, plan.actions.size) // two roundabouts + arrival
+        assertEquals(2L, plan.next(plan.totalShapeMeters.toLong())!!.action.index)
+        val afterFirstExit = (plan.totalShapeMeters -
+            plan.actions[0].releaseMeters - 20.0).toLong()
+        val next = plan.next(afterFirstExit)!!
+        assertEquals(4L, next.action.index)
+        assertEquals("roundabout", next.action.type)
+        assertTrue("The next real roundabout must have a positive approach distance",
+            next.meters > 0L)
+    }
+
     @Test
     fun identifiesOnlineRoutesWithoutChangingMotoBleEnvelope() {
         val points = listOf(45.0 to 9.0, 45.001 to 9.001)
