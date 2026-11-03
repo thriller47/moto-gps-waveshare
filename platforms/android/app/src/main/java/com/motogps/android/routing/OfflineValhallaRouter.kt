@@ -184,7 +184,11 @@ internal object ValhallaRouteAdapter {
         10, 11, 18, 20, 37 -> "turn_right"
         14, 15, 19, 21, 38 -> "turn_left"
         12, 13 -> "u_turn"
-        26, 27 -> "roundabout"
+        26 -> "roundabout"
+        // Valhalla 27 is the EXIT of the same roundabout, not a new one.
+        // Keep its route-shape offset in the schema, but do not present it
+        // as another upcoming turn (which would stay at 0 m near the exit).
+        27 -> "continue"
         else -> "continue"
     }
 }

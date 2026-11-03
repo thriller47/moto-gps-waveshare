@@ -4,16 +4,24 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: $0 INPUT.osm.pbf OUTPUT_DIR [--zstd]"
+  echo "Usage: $0 INPUT.osm.pbf OUTPUT_DIR [--zstd] [--threads N]"
   echo "Requires valhalla_build_config, valhalla_build_tiles, valhalla_build_extract."
   exit 2
 }
-[[ $# -ge 2 && $# -le 3 ]] || usage
+[[ $# -ge 2 ]] || usage
 PBF=$(realpath "$1")
 OUT=$2
-COMPRESSION=${3:-}
+COMPRESSION=""
+THREADS=2
+shift 2
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --zstd) [[ -z "$COMPRESSION" ]] || usage; COMPRESSION="--zstd"; shift ;;
+    --threads) [[ $# -ge 2 && "$2" =~ ^[1-9][0-9]*$ ]] || usage; THREADS=$2; shift 2 ;;
+    *) usage ;;
+  esac
+done
 [[ -f "$PBF" && "$PBF" == *.osm.pbf ]] || { echo "Missing .osm.pbf: $PBF" >&2; exit 2; }
-[[ -z "$COMPRESSION" || "$COMPRESSION" == "--zstd" ]] || usage
 for cmd in valhalla_build_config valhalla_build_tiles valhalla_build_extract python3; do
   command -v "$cmd" >/dev/null || { echo "Missing tool: $cmd" >&2; exit 2; }
 done
@@ -33,6 +41,7 @@ fi
 mkdir -p "$TILES"
 valhalla_build_config --mjolnir-tile-dir "$TILES" \
   --mjolnir-tile-extract "$TAR" \
+  --mjolnir-concurrency "$THREADS" \
   --mjolnir-timezone "$TILES/timezones.sqlite" \
   --mjolnir-admin "$TILES/admins.sqlite" > "$CONFIG"
 # Timezone/admin tools are recommended by Valhalla, but optional if not

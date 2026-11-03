@@ -16,6 +16,16 @@ class RouteDistanceGuardTest {
         assertTrue(next < first && next > 0L)
     }
 
+    @Test fun stationarySnapshotsCannotConsumeOrSkipUpcomingTurn() {
+        val guard = RouteDistanceGuard()
+        assertEquals(55L, guard.stabilize(55L, 45.0, 9.0))
+        repeat(15) {
+            assertEquals(55L, guard.stabilize(0L, 45.0, 9.0))
+        }
+        val next = guard.stabilize(0L, 45.00003, 9.0)
+        assertTrue(next in 49L..54L)
+    }
+
     @Test fun genuineMovementCanReachZeroAndRerouteResetsClock() {
         val guard = RouteDistanceGuard()
         assertEquals(30L, guard.stabilize(30L, 45.0, 9.0))

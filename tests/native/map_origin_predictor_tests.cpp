@@ -41,6 +41,21 @@ void test_subframe_motion_and_correction() {
   CHECK(east_metres(still, origin.longitude_deg) >= east_metres(stopped, origin.longitude_deg));
 }
 
+void test_prediction_freezes_after_missing_geometry_anchor() {
+  MapOriginPredictor predictor;
+  const MapOriginPredictor::Position start{45.0, 9.0};
+  predictor.advance(start, 1'000, 4, "offline-route", 1, 20, 90, true);
+  MapOriginPredictor::Position at_limit{};
+  for (std::uint64_t ms = 1'025; ms <= 3'000; ms += 25) {
+    auto current = predictor.advance(start, ms, 4, "offline-route", 1, 20, 90, true);
+    if (ms == 2'500) at_limit = current;
+  }
+  const auto frozen = predictor.advance(start, 3'025, 4, "offline-route", 1, 20, 90, true);
+  CHECK(east_metres(at_limit, start.longitude_deg) > 29.0);
+  CHECK(east_metres(at_limit, start.longitude_deg) < 31.0);
+  CHECK(std::abs(frozen.longitude_deg - at_limit.longitude_deg) < 1e-10);
+}
+
 void test_stale_stop_and_route_changes() {
   MapOriginPredictor predictor;
   const MapOriginPredictor::Position start{45.0, 9.0};
@@ -66,6 +81,7 @@ void test_stale_stop_and_route_changes() {
 int main() {
   test_subframe_motion_and_correction();
   test_stale_stop_and_route_changes();
+  test_prediction_freezes_after_missing_geometry_anchor();
   if (failures) {
     std::cerr << failures << " map predictor checks failed\n";
     return EXIT_FAILURE;
