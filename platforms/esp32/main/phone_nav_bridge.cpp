@@ -354,6 +354,9 @@ void PhoneNavBridge::on_link_state(bool active) {
       return;
     }
     link_active_ = active;
+    power_connected_.store(active, std::memory_order_relaxed);
+    if (active) power_ever_connected_.store(true, std::memory_order_relaxed);
+    if (!active) power_arrived_.store(false, std::memory_order_relaxed);
     if (!active) moto_diag_set_mode(0);
     ui_phone_connection_ = active ? MOTO_UI_PHONE_CONNECTING
                                   : MOTO_UI_PHONE_OFFLINE;
@@ -694,6 +697,8 @@ void PhoneNavBridge::consume_navigation(
                                input.flags, moto::ble::NavigationGnssStale));
 
     phone_snapshot.state = map_state(input.state);
+    power_arrived_.store(input.state == moto::ble::NavigationState::Arrived,
+                         std::memory_order_relaxed);
     phone_snapshot.network = map_network(input.network);
     phone_snapshot.display_page = map_page(input.display_page);
     phone_snapshot.has_destination = has_flag(

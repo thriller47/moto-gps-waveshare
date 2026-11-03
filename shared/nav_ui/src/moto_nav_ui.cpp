@@ -118,6 +118,7 @@ struct Ui {
     lv_timer_t *nav_route_motion_timer = nullptr;
     lv_obj_t *nav_marker = nullptr;
     lv_obj_t *nav_status = nullptr;
+    lv_obj_t *nav_battery = nullptr;
     lv_obj_t *nav_distance = nullptr;
     lv_obj_t *nav_unit = nullptr;
     lv_obj_t *nav_turn_distance = nullptr;
@@ -1575,6 +1576,13 @@ void create_navigation_page() {
 
     apply_lifecycle_content(LifecycleVisual::PhoneOffline);
     ui.lifecycle_target = LifecycleVisual::PhoneOffline;
+    // Two o'clock, above the map and away from the arrival distance.
+    ui.nav_battery = make_label(page, &lv_font_montserrat_16, kQuiet, "");
+    lv_obj_set_width(ui.nav_battery, px(96));
+    lv_obj_set_style_text_align(ui.nav_battery, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(ui.nav_battery, LV_ALIGN_TOP_RIGHT, px(-22), px(100));
+    lv_obj_clear_flag(ui.nav_battery, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(ui.nav_battery, LV_OBJ_FLAG_HIDDEN);
 }
 
 void create_speed_page() {
@@ -1942,6 +1950,21 @@ extern "C" void moto_nav_ui_set_phone_connection(
         }
     }
     refresh_lifecycle();
+}
+
+extern "C" void moto_nav_ui_set_battery(int percentage, uint8_t charging) {
+    if(ui.nav_battery == nullptr) return;
+    if(percentage < 0 || percentage > 100) {
+        lv_obj_add_flag(ui.nav_battery, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    char label[20];
+    std::snprintf(label, sizeof(label), "%d%% %s", percentage,
+                  charging ? "+" : "");
+    lv_label_set_text(ui.nav_battery, label);
+    lv_obj_set_style_text_color(ui.nav_battery,
+        percentage <= 20 && !charging ? kAmber : kQuiet, 0);
+    lv_obj_remove_flag(ui.nav_battery, LV_OBJ_FLAG_HIDDEN);
 }
 
 extern "C" void moto_nav_ui_set_reduce_motion(uint8_t reduce_motion) {

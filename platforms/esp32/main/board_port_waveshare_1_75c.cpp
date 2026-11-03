@@ -984,6 +984,18 @@ extern "C" bool board_port_power_button_pressed(void) {
   return gpio_get_level(kPowerButtonGpio) != 0;
 }
 
+extern "C" bool board_port_read_battery(int* percent, bool* charging) {
+  if (!pmic || !percent || !charging) return false;
+  std::uint8_t status = 0, charge = 0, soc = 0;
+  if (read_pmic_register(0x00, &status) != ESP_OK ||
+      read_pmic_register(0x01, &charge) != ESP_OK ||
+      read_pmic_register(0xA4, &soc) != ESP_OK ||
+      (status & 0x08) == 0 || soc > 100) return false;
+  *percent = soc;
+  *charging = ((charge >> 5) & 0x03) == 1;
+  return true;
+}
+
 extern "C" esp_err_t board_port_power_off(void) {
   if (pmic == nullptr) {
     return ESP_ERR_INVALID_STATE;

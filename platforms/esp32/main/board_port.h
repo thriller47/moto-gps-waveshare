@@ -62,6 +62,8 @@ bool board_port_power_button_pressed(void);
  * for the USB-powered case until all three supply combinations are bench-tested.
  */
 esp_err_t board_port_power_off(void);
+/** AXP2101 fuel gauge, valid only with a detected battery. */
+bool board_port_read_battery(int* percent, bool* charging);
 
 #ifdef __cplusplus
 }

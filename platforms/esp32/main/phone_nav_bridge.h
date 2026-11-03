@@ -34,6 +34,15 @@ class PhoneNavBridge {
   void render_pending_for_test();
 #endif
   void on_link_state(bool active);
+  bool has_ever_connected() const noexcept {
+    return power_ever_connected_.load(std::memory_order_relaxed);
+  }
+  bool phone_connected() const noexcept {
+    return power_connected_.load(std::memory_order_relaxed);
+  }
+  bool phone_arrived() const noexcept {
+    return power_arrived_.load(std::memory_order_relaxed);
+  }
   void on_imu_sample(float heading_rate_dps, std::uint64_t sample_ms);
   void update_demo(std::uint64_t now_ms);
   void service_diagnostics(std::uint64_t now_ms);
@@ -109,6 +118,9 @@ class PhoneNavBridge {
   std::uint32_t phone_session_id_ = 0;
   std::uint16_t next_command_id_ = 1;
   bool link_active_ = false;
+  std::atomic<bool> power_ever_connected_{false};
+  std::atomic<bool> power_connected_{false};
+  std::atomic<bool> power_arrived_{false};
   moto_ui_phone_connection_t ui_phone_connection_ = MOTO_UI_PHONE_OFFLINE;
   moto::ble::MediaState media_state_{};
   moto::ble::MediaState render_media_state_{};

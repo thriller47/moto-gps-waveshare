@@ -56,6 +56,8 @@ extern "C" void signal_request_mode(int radio) {
 namespace {
 constexpr char kTag[] = "moto_gps";
 constexpr std::uint64_t kPowerHoldMs = 3'000;
+constexpr std::uint64_t kAutoPowerOffMs = 120'000;
+constexpr std::uint64_t kBatteryPollMs = 30'000;
 
 moto::ble::AckStatus receive_phone_message(
     const moto::ble::ReassembledMessage& message, void* context) {
@@ -105,6 +107,63 @@ void add_radio_entry() {
   lv_label_set_text(txt, LV_SYMBOL_WIFI);
   lv_obj_center(txt);
 }
+// Identical power path for manual and automatic shutdown.
+void power_down(const char* reason) {
+  ESP_LOGI(kTag, "Power off requested: %s", reason);
+  if (board_port_lock(500)) {
+    moto_nav_ui_show_power_off_screen();
+    board_port_unlock();
+  }
+  vTaskDelay(pdMS_TO_TICKS(300));
+  const esp_err_t result = board_port_power_off();
+  if (result != ESP_OK) {
+    ESP_LOGE(kTag, "AXP2101 software power-off failed: %s",
+             esp_err_to_name(result));
+  }
+  vTaskDelay(pdMS_TO_TICKS(500));
+  while (board_port_power_button_pressed()) vTaskDelay(pdMS_TO_TICKS(20));
+  ESP_ERROR_CHECK(esp_sleep_enable_ext1_wakeup_io(
+      1ULL << 3, ESP_EXT1_WAKEUP_ANY_HIGH));
+  esp_deep_sleep_start();
+}
+
+void power_monitor_task(void* context) {
+  auto* bridge = static_cast<PhoneNavBridge*>(context);
+  std::uint64_t pending_since = 0;
+  bool pending = false;
+  std::uint64_t last_battery_poll = 0;
+  while (true) {
+    const auto now = static_cast<std::uint64_t>(esp_timer_get_time()) / 1000U;
+    const bool connected = bridge->phone_connected();
+    const bool should_shutdown = bridge->has_ever_connected() &&
+        (!connected || bridge->phone_arrived());
+    if (!should_shutdown) {
+      pending = false;
+    } else if (!pending) {
+      pending = true;
+      pending_since = now;
+      ESP_LOGI(kTag, "Auto power off countdown started (120 s): %s",
+               connected ? "arrival" : "phone disconnected");
+    } else if (now - pending_since >= kAutoPowerOffMs) {
+      if (bridge->has_ever_connected() &&
+          (!bridge->phone_connected() || bridge->phone_arrived()))
+        power_down("120s after arrival or BLE disconnection");
+      pending = false;
+    }
+    if (last_battery_poll == 0 || now - last_battery_poll >= kBatteryPollMs) {
+      last_battery_poll = now;
+      int battery = -1;
+      bool charging = false;
+      const bool valid = board_port_read_battery(&battery, &charging);
+      if (board_port_lock(100)) {
+        moto_nav_ui_set_battery(valid ? battery : -1, charging ? 1 : 0);
+        board_port_unlock();
+      }
+    }
+    vTaskDelay(pdMS_TO_TICKS(1000));
+  }
+}
+
 void power_button_task(void*) {
   std::uint64_t pressed_since_ms = 0;
   // The AXP2101 needs roughly a one-second press to power the board on, so
@@ -134,28 +193,7 @@ void power_button_task(void*) {
       pressed_since_ms = now_ms;
       ESP_LOGI(kTag, "PWR press started");
     } else if (now_ms - pressed_since_ms >= kPowerHoldMs) {
-      ESP_LOGI(kTag, "PWR held for 3 seconds; requesting shutdown");
-      if (board_port_lock(UINT32_MAX)) {
-        moto_nav_ui_show_power_off_screen();
-        board_port_unlock();
-      }
-      vTaskDelay(pdMS_TO_TICKS(300));
-      const esp_err_t result = board_port_power_off();
-      if (result != ESP_OK) {
-        ESP_LOGE(kTag, "AXP2101 software power-off failed: %s",
-                 esp_err_to_name(result));
-      }
-
-      // AXP2101 should remove the switched rails here. If this particular
-      // board remains alive while USB is attached, blank the panel and enter
-      // deep sleep after key release. GPIO3 high wakes it on the next press.
-      vTaskDelay(pdMS_TO_TICKS(500));
-      while (board_port_power_button_pressed()) {
-        vTaskDelay(pdMS_TO_TICKS(20));
-      }
-      ESP_ERROR_CHECK(esp_sleep_enable_ext1_wakeup_io(
-          1ULL << 3, ESP_EXT1_WAKEUP_ANY_HIGH));
-      esp_deep_sleep_start();
+      power_down("PWR held for 3 seconds");
     }
     vTaskDelay(pdMS_TO_TICKS(20));
   }
@@ -330,6 +368,10 @@ extern "C" void app_main(void) {
     return;
   }
   ESP_LOGI(kTag, "BOOT_DIAG stage=renderer_ready");
+  if (xTaskCreate(power_monitor_task, "moto_auto_power", 3'072,
+                  &phone_bridge, 2, nullptr) != pdPASS) {
+    ESP_LOGW(kTag, "automatic power monitor could not start");
+  }
 
   // The NimBLE host/PHY must start before the panel to avoid interrupting
   // display DMA during initialization. However, the GATT peripheral must NOT

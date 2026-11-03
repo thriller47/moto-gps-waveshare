@@ -158,6 +158,8 @@ void moto_nav_ui_set_motion_state(const moto_ui_state_t *state);
 /** Drive the full-screen connection/ready lifecycle on the navigation page. */
 void moto_nav_ui_set_phone_connection(
     moto_ui_phone_connection_t connection);
+/** Local ESP32 battery level, not phone battery; -1 means unavailable. */
+void moto_nav_ui_set_battery(int percentage, uint8_t charging);
 void moto_nav_ui_set_reduce_motion(uint8_t reduce_motion);
 void moto_nav_ui_set_page(moto_ui_page_t page);
 moto_ui_page_t moto_nav_ui_get_page(void);
