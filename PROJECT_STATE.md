@@ -2,6 +2,10 @@
 
 > **Updated: 2026-10-30** (Europe/Rome). Living project handoff; checked against the `valhalla` source, Git history, and GitHub Actions on this date. **Code/CI success is not proof of on-road hardware stability.**
 
+## Correzione rotatorie bloccate a zero — 2026-11-03
+
+**Branch:** `test/turn-heading-render-20261102`; `valhalla` invariato. Dal log mattutino riferiti 831/988 snapshot roundabout con 0m e ID persistente a lungo, pur con ricalcoli e UI fluidi. In `ValhallaTurnGuidance.Plan.next()` limita la permanenza della manovra roundabout a 250 m dopo l'ingresso, oltre ai consueti 15 m di isteresi: un indice `roundabout_end_point_index` anomalo non può più mantenere la manovra a zero per chilometri. Il conteggio chilometrico e il routing restano immutati; test di regressione su indice uscita errato e test esistente su uscita normale. **Limite noto:** rotatorie eccezionalmente lunghe oltre 250 m potrebbero essere rilasciate prima dell'uscita; hardware/on-road non ancora validato. **Prossima azione:** verificare i test Android CI e la corretta successione manovre in prova su strada; non fare merge finché non autorizzato.
+
 ## Manuale operativo e build Ryzen — 2026-11-02
 
 **Branch:** `test/turn-heading-render-20261102`. Aggiornato `docs/MANUALE_OPERATIVO.md`: rimosse sezioni Docker legacy, radio non più operativa, diagnostica duplicata e testo accidentalmente inserito in blocco di codice. Aggiunta procedura WSL2 Ubuntu 24.04 su Ryzen 5 3600, 12GB RAM WSL e 8GB swap, PBF su ext4 Linux, `pyvalhalla==3.9.1`, due thread, validazione e confronto Routing.earth (1.591 tile, 11.457.028 nodi, 26.093.538 archi, zero tile non verificabili). Lo script `scripts/offline_map/build_valhalla_graph.sh` usa ora `--mjolnir-concurrency 2` come default, sovrascrivibile con `--threads N`; compatibile con uso precedente `[--zstd]`. **Test:** revisione statica; la build di successo è quella segnalata dall'utente (con due thread), ma questa nuova interfaccia CLI non è ancora stata provata su Ryzen. **Prossima azione:** verificare sintassi Bash/CI e una nuova build soltanto al successivo aggiornamento del PBF; nessuna modifica al branch stabile.

@@ -26,10 +26,16 @@ internal object ValhallaTurnGuidance {
         fun next(remainingMeters: Long): Next? {
             if (actions.isEmpty() || remainingMeters < 0L) return null
             val progress = (totalShapeMeters - remainingMeters).coerceIn(0.0, totalShapeMeters)
-            // Move to the next maneuver only after the current one has passed
-            // by at least 15m. Avoid flicker at the GPS snap-to-road boundary.
-            val action = actions.firstOrNull { it.releaseMeters + 15.0 >= progress }
-                ?: return null
+            // A malformed/stale roundabout exit shape index must never pin a
+            // maneuver at zero for kilometres. Preserve real exits normally,
+            // but cap the hold to a generous 250m after the entrance.
+            // The additional 15m hysteresis prevents GPS snap flicker.
+            val action = actions.firstOrNull {
+                val release = if (it.type == "roundabout")
+                    it.releaseMeters.coerceAtMost(it.shapeMeters + 250.0)
+                else it.releaseMeters
+                release + 15.0 >= progress
+            } ?: return null
             return Next(action, (action.shapeMeters - progress)
                 .coerceAtLeast(0.0).toLong())
         }
