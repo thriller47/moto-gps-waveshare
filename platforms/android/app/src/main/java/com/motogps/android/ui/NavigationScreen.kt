@@ -808,8 +808,17 @@ fun NavigationScreen(
                     } else {
                         Button(
                             onClick = {
-                                corridorDestination = routePreview
-                                corridorConfirmation = onCorridorTileCount()
+                                val missingTiles = onCorridorTileCount()
+                                if (missingTiles == 0) {
+                                    // All route tiles cached: avoid a redundant dialog.
+                                    corridorDestination = null
+                                    corridorConfirmation = null
+                                    onStartNavigation(routePreview!!)
+                                } else {
+                                    // Positive = download choice; negative = geometry/error warning.
+                                    corridorDestination = routePreview
+                                    corridorConfirmation = missingTiles
+                                }
                             },
                             enabled = selectedRoute != null && geoPoints.size >= 2 && !isLoading,
                             modifier = Modifier
