@@ -145,14 +145,6 @@ void fill_streets(moto_ui_state_t& state) {
   }
   state.road_polyline_count = 1;
   state.road_polylines[0] = {0, 8, 1};
-  state.building_point_count = 6;
-  for (int i = 0; i < 6; ++i) {
-    state.building_points[i] = {
-        static_cast<std::int16_t>(300 + (i % 3) * 40),
-        static_cast<std::int16_t>(300 + (i / 3) * 40)};
-  }
-  state.building_footprint_count = 1;
-  state.building_footprints[0] = {0, 6, 1};
 }
 
 void test_frames_are_deterministic() {
@@ -191,8 +183,6 @@ void test_clearing_geometry_leaves_no_residue() {
   without_route.route_point_count = 0;
   without_route.road_point_count = 0;
   without_route.road_polyline_count = 0;
-  without_route.building_point_count = 0;
-  without_route.building_footprint_count = 0;
   moto_nav_ui_set_state(&without_route);
   pump(260);
   const Frame cleared_frame = capture();
@@ -566,22 +556,14 @@ void test_motion_frames_interpolate_then_settle_without_residue() {
   state.road_points[1] = {110, 30};
   state.road_polyline_count = 1;
   state.road_polylines[0] = {0, 2, 1};
-  state.building_point_count = 4;
-  state.building_points[0] = {300, 80};
-  state.building_points[1] = {350, 80};
-  state.building_points[2] = {350, 130};
-  state.building_points[3] = {300, 130};
-  state.building_footprint_count = 1;
-  state.building_footprints[0] = {0, 4, 1};
   moto_nav_ui_set_state(&state);
   pump(260);  // finish the transient connected indication before comparing
   const auto before = capture().hash;
 
-  // One heading frame moves all retained arrays through the ordinary motion
+  // One heading frame moves both route and road arrays through the ordinary motion
   // path, preserving the anchor and topology while the map turns under it.
   for (int index = 1; index < 3; ++index) state.route_points[index].x -= 130;
   for (int index = 0; index < 2; ++index) state.road_points[index].x += 110;
-  for (int index = 0; index < 4; ++index) state.building_points[index].x -= 90;
   moto_nav_ui_set_reduce_motion(0);
   moto_nav_ui_set_motion_state(&state);
   pump(10);  // 50 ms contains two 25 ms interpolation opportunities.
@@ -593,7 +575,7 @@ void test_motion_frames_interpolate_then_settle_without_residue() {
   CHECK(settled != intermediate);
 
   // The eventual animated frame must match a direct render exactly, including
-  // clearing the old road/building pixels in the shared invalidated region.
+  // clearing the old road pixels in the shared invalidated region.
   moto_nav_ui_set_reduce_motion(1);
   moto_nav_ui_set_state(&state);
   const auto direct = capture();
