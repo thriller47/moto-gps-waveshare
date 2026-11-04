@@ -584,7 +584,7 @@ int main() {
   test_real_road_context_uses_the_same_heading_up_transform();
   test_map_scene_classes_and_capacity_share_route_transform();
   test_map_scale_does_not_jump_at_maneuver_distance_thresholds();
-  test_near_turn_zooms_all_map_layers_together_and_restores_scale();
+  test_near_turn_zooms_route_and_roads_together_and_restores_scale();
   test_missing_or_incomplete_geometry_stays_empty();
   test_presenter_owns_road_name_storage();
   test_street_arc_rejects_instructions_and_overlong_names();
