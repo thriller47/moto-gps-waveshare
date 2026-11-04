@@ -2,6 +2,10 @@
 
 > **Updated: 2026-10-30** (Europe/Rome). Living project handoff; checked against the `valhalla` source, Git history, and GitHub Actions on this date. **Code/CI success is not proof of on-road hardware stability.**
 
+## CI finale MotoMap v3 — 2026-11-04
+
+Run 41808834169 (commit `2824fa7`): `completed/success`; Android `Build Android app` verde, `testDebugUnitTest` e `testReleaseUnitTest` verdi, APK pubblicato. Run precedente 41808280423: native e test convertitore Python verdi; l'errore Android era soltanto un import JUnit del test dell'importatore, corretto. ESP32 saltato perché nessun file firmware modificato. **Hardware/topologia reale non collaudati**: rigenerare MotoMap v3, installare APK di test e verificare cavalcavia/svincoli/rotatorie prima del merge in `valhalla`.
+
 ## Correzione CI Android MotoMap v3 — 2026-11-04
 
 La CI [41808280423](https://github.com/thriller47/moto-gps-waveshare/actions/runs/41808280423) del commit `71a71d6` ha eseguito con successo i test `native` e `Verify MotoMap v3 converter contract`; il job Android ha fallito **solo** alla compilazione dei test Kotlin: in `MotomapPackImporterTest.kt` mancava l'import di `org.junit.Assert.assertEquals`. Corretta l'importazione, lasciando invariato il codice runtime Android e Python. Il job ESP32 è stato saltato per assenza di modifiche firmware. **Prossima verifica:** esito CI Android successiva, con unit test topologici. Nessun collaudo fisico né import del pacchetto v3 ancora eseguiti.
