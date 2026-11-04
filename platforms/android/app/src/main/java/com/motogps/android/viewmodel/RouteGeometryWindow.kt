@@ -17,7 +17,8 @@ internal object RouteGeometryWindow {
     private const val LOOKAHEAD_METERS = 550.0
     private const val MIN_TURN_DETAIL_METERS = 1.2
 
-    fun around(route: MotoBLERouteGeometry, latitude: Double, longitude: Double): MotoBLERouteGeometry {
+    fun around(route: MotoBLERouteGeometry, latitude: Double, longitude: Double,
+        progressHintMeters: Double? = null): MotoBLERouteGeometry {
         val full = route.points
         if (full.size < 2 || !latitude.isFinite() || !longitude.isFinite()) return route
 
@@ -27,9 +28,17 @@ internal object RouteGeometryWindow {
         fun x(point: GeoPointE6) = (point.longitudeE6 / 1e6 - longitude) * xScale
         fun y(point: GeoPointE6) = (point.latitudeE6 / 1e6 - latitude) * yScale
 
+        // The nearest GPS segment can be an older lap at a crossing.
+        val cumulative = DoubleArray(full.size)
+        for (i in 1 until full.size) {
+            cumulative[i] = cumulative[i - 1] + hypot(
+                x(full[i]) - x(full[i - 1]), y(full[i]) - y(full[i - 1]))
+        }
+        val hint = progressHintMeters?.takeIf { it.isFinite() && it >= 0.0 }
+            ?.coerceIn(0.0, cumulative.last())
         var nearestSegment = 0
         var nearestFraction = 0.0
-        var bestSquaredDistance = Double.POSITIVE_INFINITY
+        var bestScore = Double.POSITIVE_INFINITY
         for (i in 0 until full.lastIndex) {
             val ax = x(full[i])
             val ay = y(full[i])
@@ -41,9 +50,12 @@ internal object RouteGeometryWindow {
             } else 0.0
             val px = ax + t * dx
             val py = ay + t * dy
-            val distanceSquared = px * px + py * py
-            if (distanceSquared < bestSquaredDistance) {
-                bestSquaredDistance = distanceSquared
+            val along = cumulative[i] + (cumulative[i + 1] - cumulative[i]) * t
+            val behind = if (hint != null) (hint - along - 35.0).coerceAtLeast(0.0) else 0.0
+            val ahead = if (hint != null) (along - hint - 110.0).coerceAtLeast(0.0) else 0.0
+            val score = hypot(px, py) + behind * 4.0 + ahead * 2.0
+            if (score < bestScore) {
+                bestScore = score
                 nearestSegment = i
                 nearestFraction = t
             }

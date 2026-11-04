@@ -1,6 +1,6 @@
 # MotoMap v3: connettività OSM per le strade di contesto
 
-**Stato:** implementazione sperimentale sul branch `test/road-contrast-cleanup-20261104` (4 novembre 2026). Non ancora collaudata su strada.
+**Stato:** implementazione sperimentale sul branch `test/road-contrast-cleanup-20261104` (4 novembre 2026). Filtro cavalcavia confermato dall'utente in prova reale; ulteriori miglioramenti di selezione in attesa di verifica.
 
 ## Perché non basta intersecare due linee sul display
 
@@ -30,7 +30,7 @@ Il convertitore `scripts/offline_map/pbf_to_motomap.py` genera il formato v3 leg
 4. Fra le polilinee che attraversano il percorso in 2D, vengono scartate soltanto quelle senza nodi OSM condivisi. Le strade direttamente sul percorso, gli svincoli realmente connessi e quelle vicine che non attraversano il percorso restano visibili.
 5. Se manca un abbinamento affidabile o se la riga è vecchia/senza metadati, il filtro **non elimina** quella strada. La navigazione e il BLE restano inalterati.
 
-La selezione finale continua a usare **12 polilinee / 96 vertici** per scena: nessun cambiamento al formato BLE, al firmware ESP32, al routing Valhalla o allo zoom 3,4x.
+La selezione finale usa **16 polilinee / 128 vertici** (fino a 8 vertici per strada), sotto il limite firmware di 24/192. Un selettore sperimentale privilegia le strade vicine alla rotta e con nodi OSM condivisi con le way della rotta, per dare priorità alle uscite di rotonda rispetto alle vie laterali; le way già mostrate hanno un piccolo bonus di continuità. La finestra grafica verde usa il progresso monotono della navigazione per evitare di riagganciarsi ai tratti già percorsi quando la geometria passa vicina a sé stessa. Queste ultime correzioni attendono collaudo. BLE, firmware ESP32, routing Valhalla e zoom 3,4x restano invariati.
 
 ## Rigenerazione e importazione
 

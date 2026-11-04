@@ -93,4 +93,16 @@ class RouteGeometryWindowTest {
         assertTrue(!RouteGeometryWindow.isWinding(window))
     }
 
+    @Test fun monotonicHintChoosesLaterPassThroughSamePoint() {
+        val points = listOf(
+            GeoPointE6(45_000_000, 8_000_000),
+            GeoPointE6(45_000_900, 8_000_000),
+            GeoPointE6(45_000_900, 8_002_000),
+            GeoPointE6(45_000_000, 8_002_000),
+            GeoPointE6(45_000_000, 8_000_000),
+            GeoPointE6(44_999_100, 8_000_000)
+        )
+        val window = RouteGeometryWindow.around(route(points), 45.0, 8.0, 470.0)
+        assertTrue(window.points.any { it.latitudeE6 < 45_000_000 })
+    }
 }
