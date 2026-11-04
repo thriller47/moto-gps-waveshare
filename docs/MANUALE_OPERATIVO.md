@@ -3,7 +3,7 @@
 **Riferimento:** repository thriller47/moto-gps-waveshare, branch principale **valhalla**. 
 **Scheda:** Waveshare ESP32-S3-Touch-AMOLED-1.75C, 32 MB flash, 8 MB PSRAM.
 **Porta negli esempi:** **COM3**. I blocchi sono etichettati **PowerShell** o **CMD**: usare la shell indicata. 
-**Aggiornato:** 2 novembre 2026. Controllare prima PROJECT_STATE.md e AGENTS.md.
+**Aggiornato:** 4 novembre 2026 (sezione MotoMap v3 sperimentale). Controllare prima PROJECT_STATE.md e AGENTS.md.
 
 > **Attenzione:** il branch main è stato eliminato; signal resta solo come storico OSM online. Non usare né main né NoOta come base. Effettuare il flash soltanto con immagini della scheda 1.75C.
 
@@ -249,23 +249,30 @@ python scripts\offline_map\pbf_to_motomap.py C:\MotoGPS\PBF\nord-ovest-latest.os
 
 Il convertitore Python è in memoria e l'intera Italia può usare diversi GB di RAM: chiudere programmi pesanti e controllare spazio disco. I PBF di Geofabrik **non sono** direttamente importabili come MotoMap.
 
-### MotoMap v2: indice di copertura e poligono Geofabrik
+### MotoMap v3: poligono di copertura e topologia dei cavalcavia (branch test)
 
-Per il file Italia `italy.poly` usare **la fonte ufficiale Geofabrik**:
-https://download.geofabrik.de/europe/italy.poly .
-È il poligono di ritaglio della regione, non un grafo Valhalla. Controllare che il PBF provenga dallo stesso estratto (Italia, non Nord-Ovest o altro).
+**Stato al 4 novembre 2026:** nel branch sperimentale `test/road-contrast-cleanup-20261104`, il convertitore genera **MotoMap v3** (`motomap_v3.json`). Oltre alle tile z15, conserva gli ID dei nodi OSM (base36) e il livello strada/ponte/galleria, usati dal filtro Android per evitare di rappresentare come incroci collegati i cavalcavia. Il file `coverage_z14.txt` continua a certificare solo le celle interamente comprese nel perimetro Geofabrik. I pacchetti v2 restano supportati dall'app; `valhalla` rimane separato fino alla prova completa.
 
-**PowerShell:**
+Conservare PBF e `.poly` in `C:\MotoGPS\PBF` e usare lo **script del branch test**, non quello di `valhalla` finché il merge non sarà approvato. Esempio PowerShell:
 
 ~~~powershell
-New-Item -ItemType Directory -Force C:\MotoGPS\PBF | Out-Null
-Invoke-WebRequest "https://download.geofabrik.de/europe/italy.poly" -OutFile "C:\MotoGPS\PBF\italy.poly"
-Set-Location "C:\MotoGPS\moto-gps-waveshare"
+cd C:\MotoGPS\moto-gps-waveshare
+git switch test/road-contrast-cleanup-20261104
 python -m pip install osmium shapely
-python scripts\offline_map\pbf_to_motomap.py C:\MotoGPS\PBF\italy-261026.osm.pbf -o C:\MotoGPS\PBF\italy-v2.motomap.zip --coverage-poly C:\MotoGPS\PBF\italy.poly
+python scripts\offline_map\pbf_to_motomap.py C:\MotoGPS\PBF\italy-261101.osm.pbf -o C:\MotoGPS\PBF\italy-v3.motomap.zip --coverage-poly C:\MotoGPS\PBF\italy.poly
 ~~~
 
-Se si utilizza un PBF nuovo, sostituire il percorso. **Non rinominare un PBF regionale come Italia:** il poligono certifica solo celle z14 interamente interne all'estratto dichiarato. Se non esiste un `.poly` affidabile, omettere `--coverage-poly`: il pacchetto v2 funzionerà, ma non certificherà tile vuote. Con il file v2 Android può riconoscere aree elaborate prive di strade senza riscaricarle da OpenFreeMap. Conservare il precedente ZIP fino all'importazione e alla verifica della copertura.
+Sostituire il nome del PBF con quello reale: lo script non richiede una cartella diversa da `C:\MotoGPS\PBF`. **Non rigenerare** un pacchetto v3 già valido soltanto perché il file si chiama `italy-v2.motomap.zip`: la versione effettiva dipende dal metadata interno, non dal nome ZIP. Per controllare il file già prodotto:
+
+~~~powershell
+python -c "import zipfile,json; p=r'C:\MotoGPS\PBF\italy-v2.motomap.zip'; z=zipfile.ZipFile(p); print(json.dumps(json.loads(z.read('motomap_v3.json')),indent=2)); print('Coverage:', 'coverage_z14.txt' in z.namelist())"
+~~~
+
+**Pacchetto verificato dall'utente:** `version=3`, `zoom=15`, `topology=osm-node-ids-base36`, `level=osm-layer-or-bridge-tunnel`, 278.048 tile stradali e 214.320 celle z14 certificate. Dopo la correzione Android del controllo di copertura (commit `35a5e02`), sul percorso Cuneo → Reggio Calabria il conteggio è passato da **667 a 0 tile mancanti**. Nel successivo test su strada l'autostrada sotto un cavalcavia è stata correttamente esclusa dalla scena di contesto. Per sfruttare la v3 serve **un APK compilato dal branch test**; lo ZIP da solo non aggiorna Android.
+
+**Esperimento successivo (solo Android, ancora da collaudare):** commit `985700e` alza il limite della scena da 12/96 a **16 strade / 128 punti**, senza modificare firmware ESP32 o dati MotoMap. Resta sotto il massimo firmware di 24/192. Non è necessario rigenerare il PBF, reinstallare il grafo Valhalla o riflashare l'ESP32; compilare/installare Android dal branch test. Verificare sul campo la continuità delle strade grigie e l'assenza di congestione BLE prima del merge.
+
+**Attenzione:** il poligono `italy.poly` deve corrispondere all'estratto Italia. Non rinominare un PBF di sottoregione come Italia, né usarlo con la certificazione dell'intero Paese. Senza `--coverage-poly` l'archivio resta leggibile ma non certifica le aree prive di strade. Conservare lo ZIP precedente finché l'importazione e un percorso di prova non sono riusciti.
 
 ## 5. Creare o importare i grafi Valhalla
 
@@ -335,14 +342,14 @@ command -v valhalla_build_extract
 ~~~bash
 mkdir -p ~/motogps-build
 cp /mnt/c/MotoGPS/PBF/italy-261101.osm.pbf ~/motogps-build/
-# Se disponibile, conservare anche il perimetro usato da MotoMap v2:
+# Se disponibile, conservare anche il perimetro usato da MotoMap v2/v3:
 cp /mnt/c/MotoGPS/PBF/italy.poly ~/motogps-build/
 sha256sum /mnt/c/MotoGPS/PBF/italy-261101.osm.pbf ~/motogps-build/italy-261101.osm.pbf
 df -h ~
 free -h
 ~~~
 
-I due SHA256 del PBF devono corrispondere. `italy.poly` serve al convertitore MotoMap v2 e **non** alla compilazione Valhalla. Prevedere preferibilmente 30–40 GB di spazio libero per tile temporanee, TAR e compressione.
+I due SHA256 del PBF devono corrispondere. `italy.poly` serve al convertitore MotoMap v2/v3 e **non** alla compilazione Valhalla. Prevedere preferibilmente 30–40 GB di spazio libero per tile temporanee, TAR e compressione.
 
 **5. Costruire il grafo con due thread.** Lo script aggiornato usa **2 thread per default** e consente `--threads N`; lavorare in una directory nuova:
 
@@ -445,7 +452,7 @@ Con esptool 4.x usare `read_flash` al posto di `read-flash`.
 | Firmware ESP32 GitHub | Artifact **ESP32-Firmware** della Project Build |
 | Flash completo | bootloader `0x0`, partizioni `0x8000`, app `0x20000` |
 | Flash solo app | `0x20000` |
-| MotoMap offline | `pbf_to_motomap.py` → **.motomap.zip**; `italy.poly` per copertura v2 |
+| MotoMap offline | `pbf_to_motomap.py` → **.motomap.zip**; `italy.poly` per copertura v2/v3 |
 | Grafo Valhalla | WSL2/Ubuntu, `pyvalhalla==3.9.1`, 2 thread → **.tar.zst** |
 | Log diagnostici attuali | Android → Condividi diagnostica → **.zip** |
 | Log ESP32 storici | `read-flash` e decoder; soltanto firmware precedenti |

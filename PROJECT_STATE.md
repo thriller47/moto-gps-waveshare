@@ -1,6 +1,14 @@
 # Moto GPS — Project State
 
-> **Updated: 2026-10-30** (Europe/Rome). Living project handoff; checked against the `valhalla` source, Git history, and GitHub Actions on this date. **Code/CI success is not proof of on-road hardware stability.**
+> **Updated: 2026-11-04** (Europe/Rome). Living project handoff; branch-specific outcomes are marked below. **Code/CI success is not proof of on-road hardware stability.**
+
+## Prova stradale MotoMap v3 e aumento conservativo contesto — 2026-11-04
+
+**Branch:** `test/road-contrast-cleanup-20261104` (NON integrato in `valhalla`). Pacchetto Italia generato dall'utente: ZIP con 278.048 tile stradali z15, `motomap_v3.json`, `coverage_z14.txt` e 214.320 celle z14 certificate; usare `italy.poly` corrispondente al PBF. Nella prova pre-navigazione Cuneo → Reggio Calabria Android segnalava 667 tile mancanti. Corretto `OpenFreeMapRouteCorridor.missing()` (commit `35a5e02`) affinché accetti i metadati v3, non solo `version == 2`, e mantenga la compatibilità v2; l'utente conferma **zero tile mancanti** dopo l'aggiornamento.
+
+**Prova reale:** l'utente riferisce che l'autostrada sotto il cavalcavia non è più mostrata come strada di contesto al crossing senza connessione; riscontro positivo sul filtro topologico MotoMap v3. Resta un'impressione soggettiva di comparsa irregolare delle strade grigie (non ancora attribuita a un bug preciso). Audit codice: `NavigationViewModel` sceglie e reinvia periodicamente le strade più vicine e quelle verso il percorso imminente; i limiti prima della prova erano **12 strade / 96 punti** con fino a 8 vertici per strada, inferiori alla capacità firmware 24/192. **Esperimento non ancora verificato su strada:** commit `985700e` porta a **16 strade / 128 punti**, selezione iniziale 8+8 vicine/future, mantenendo al massimo 8 vertici per strada; niente cambi a firmware ESP32, BLE, Valhalla, convertitore o filtro topologico. Non confondere questa configurazione sperimentale con quella già collaudata. Monitorare continuità visiva, rotonde, eventuali ritardi BLE e GATT; se persiste l'effetto di apparizione/scomparsa, valutare isteresi/stabilità fra selezioni anziché aumentare ancora il payload. Non effettuare il merge finché l'utente non approva la prova.
+
+**Documentazione:** il manuale operativo descrive MotoMap v3, importazione e verifica metadati; le precedenti sezioni datate restano come cronologia. Nessun risultato CI attribuito al commit `985700e` senza verifica.
 
 ## CI finale MotoMap v3 — 2026-11-04
 
