@@ -17,7 +17,7 @@ import com.motogps.android.jni.MotoBLEMapScene
 import com.motogps.android.jni.MotoBLENavigationSnapshot
 import com.motogps.android.jni.MotoBLERouteGeometry
 import com.motogps.android.map.HybridMapRepository
-import com.motogps.android.map.RoadContextTopology
+import com.motogps.android.map.RoadContextJunctions
 import com.motogps.android.map.OpenFreeMapTileProbe
 import com.motogps.android.map.OpenFreeMapRouteCorridor
 import com.motogps.android.map.SavedMapInfo
@@ -843,23 +843,15 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                     val nearbyRoute = currentGeometry?.let { geometry ->
                         RouteGeometryWindow.around(geometry, lat, lon).points
                     }.orEmpty()
-                    val roadSegments = RoadContextTopology.excludeDisconnectedCrossings(
-                        contextRoads, nearbyRoute, lat, lon
-                    )
-                    if (roadSegments.size != contextRoads.size) {
-                        DiagnosticLog.event("OSM_GRADE_CROSSING",
-                            "excluded=${contextRoads.size - roadSegments.size} kept=${roadSegments.size}")
-                    }
+                    // Layer/grade separation filtering is intentionally OFF
+                    // for this field trial. Keep the complete local street graph.
+                    val roadSegments = contextRoads
                     fun roadDistance(seg: com.motogps.android.map.MapRoadSegment, centerLat: Double, centerLon: Double) =
                         seg.points.minOf { pt ->
                             calculateDistanceMeters(centerLat, centerLon,
                                 pt.latitudeE6 / 1e6, pt.longitudeE6 / 1e6)
                         }
                     val nearest = roadSegments.sortedBy { roadDistance(it, lat, lon) }
-                    // Reserve some of the 16 BLE street slots for intersections
-                    // ahead on the selected route. Otherwise the nearest
-                    // residential roads behind the rider hide roundabout exits
-                    // until the last few metres.
                     val upcoming = currentGeometry?.let { geometry ->
                         val window = RouteGeometryWindow.around(geometry, lat, lon)
                         window.points.drop(1).firstOrNull { point ->
@@ -867,13 +859,20 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                                 point.latitudeE6 / 1e6, point.longitudeE6 / 1e6) >= 160.0
                         } ?: window.points.lastOrNull()
                     }
+                    val focus = RoadContextJunctions.find(roadSegments, lat, lon, upcoming)
+                    // The ring and its exits are one navigational landmark.
+                    // Independently reserve a substantial near-GPS fallback:
+                    // leaving the planned route must NOT empty the grey streets.
                     val orderedRoads = LinkedHashSet<com.motogps.android.map.MapRoadSegment>()
-                    nearest.take(8).forEach { orderedRoads.add(it) }
+                    focus?.ring?.let(orderedRoads::add)
+                    focus?.exits?.take(7)?.forEach(orderedRoads::add)
+                    nearest.take(8).forEach(orderedRoads::add)
                     if (upcoming != null) {
-                        roadSegments.sortedBy { roadDistance(it, upcoming.latitudeE6 / 1e6, upcoming.longitudeE6 / 1e6) }
-                            .take(8).forEach { orderedRoads.add(it) }
+                        roadSegments.sortedBy {
+                            roadDistance(it, upcoming.latitudeE6 / 1e6, upcoming.longitudeE6 / 1e6)
+                        }.take(6).forEach(orderedRoads::add)
                     }
-                    nearest.forEach { orderedRoads.add(it) }
+                    nearest.forEach(orderedRoads::add)
                     val candidates = orderedRoads.asSequence()
                     // Conservative field trial: 16 roads / 128 points versus the firmware
                     // maximum of 24 / 192. Keep eight vertices per road and
@@ -883,9 +882,13 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                         if (roadPolylines.size >= 16 || pointsRemaining < 2) break
                         // Each OSM way may begin kilometres away from the GPS fix.
                         // Select the nearby portion, retaining junction corners.
-                        val points = RoadContextWindow.around(
-                            seg.points, lat, lon, minOf(pointsRemaining, 8)
-                        )
+                        val points = if (seg === focus?.ring && pointsRemaining >= 12) {
+                            RoadContextWindow.closedRing(seg.points, lat, minOf(pointsRemaining, 16))
+                        } else {
+                            RoadContextWindow.around(
+                                seg.points, lat, lon, minOf(pointsRemaining, 8)
+                            )
+                        }
                         if (points.size < 2) continue
                         roadPolylines.add(MotoBLEMapRoadPolyline(roadClass = seg.roadClass, points = points))
                         pointsRemaining -= points.size

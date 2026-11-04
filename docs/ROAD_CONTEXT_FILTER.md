@@ -1,5 +1,11 @@
 # MotoMap v3: connettività OSM per le strade di contesto
 
+## Esperimento successivo: rotonda intera e contesto off-route (4 novembre)
+
+Il filtro `RoadContextTopology` è **disabilitato nella generazione delle scene** su richiesta dell'utente: i livelli e gli attraversamenti verranno affrontati più avanti. Il codice del filtro resta conservato per future prove. Ora `RoadContextJunctions` riconosce le piccole OSM ways chiuse vicine al GPS o al percorso imminente e dà priorità all'anello e alle uscite che condividono nodi OSM, senza escludere il resto delle strade. `RoadContextWindow.closedRing` conserva tutta la forma della rotonda. Rimane la selezione delle 8 strade locali più vicine e il fallback di prossimità, così da mostrare strade anche dopo una deviazione e prima del ricalcolo. Restano 16 strade/128 punti; l'anello può usare fino a 16 punti. Il formato MotoMap v3 non include il tag junction=roundabout, quindi le rotonde composte da più ways non sono ancora rilevate come singola figura. **Da validare su strada prima del merge.**
+
+
+
 **Stato:** implementazione sperimentale sul branch `test/road-contrast-cleanup-20261104` (4 novembre 2026). Il test ha confermato un cavalcavia correttamente filtrato, ma anche strade su altri livelli ancora visibili. La prova del selettore route-focused `4226b63` è stata negativa ed è stata annullata; restano le limitazioni indicate sotto.
 
 ## Perché non basta intersecare due linee sul display

@@ -6,6 +6,43 @@ import kotlin.math.hypot
 
 /** Local, contiguous street geometry, centred on the rider instead of way[0]. */
 internal object RoadContextWindow {
+    /**
+     * Preserve the entire closed ring, including the return to the first
+     * vertex. The usual rider-centred clipping breaks roundabouts in half.
+     * Arc-length resampling distributes the small vertex budget around the
+     * whole loop rather than dropping most of one side.
+     */
+    fun closedRing(points: List<GeoPointE6>, latitude: Double, maximumPoints: Int): List<GeoPointE6> {
+        if (points.size < 4 || maximumPoints < 4) return emptyList()
+        if (points.size <= maximumPoints) return points
+        val scale = 111_320.0 * cos(Math.toRadians(latitude))
+        fun length(a: GeoPointE6, b: GeoPointE6) = hypot(
+            (b.latitudeE6 - a.latitudeE6) / 1e6 * 111_320.0,
+            (b.longitudeE6 - a.longitudeE6) / 1e6 * scale)
+        val cumulative = DoubleArray(points.size)
+        for (i in 1 until points.size) {
+            cumulative[i] = cumulative[i - 1] + length(points[i - 1], points[i])
+        }
+        val total = cumulative.last()
+        if (total <= 0.1) return emptyList()
+        val result = ArrayList<GeoPointE6>(maximumPoints)
+        for (j in 0 until maximumPoints - 1) {
+            val target = total * j / (maximumPoints - 1)
+            var i = 1
+            while (i < cumulative.lastIndex && cumulative[i] < target) i++
+            val segment = (cumulative[i] - cumulative[i - 1]).coerceAtLeast(1e-6)
+            val fraction = ((target - cumulative[i - 1]) / segment).coerceIn(0.0, 1.0)
+            val a = points[i - 1]
+            val b = points[i]
+            result.add(GeoPointE6(
+                (a.latitudeE6 + (b.latitudeE6 - a.latitudeE6) * fraction).toInt(),
+                (a.longitudeE6 + (b.longitudeE6 - a.longitudeE6) * fraction).toInt()
+            ))
+        }
+        result.add(result.first())
+        return result
+    }
+
     fun around(points: List<GeoPointE6>, latitude: Double, longitude: Double, maximumPoints: Int): List<GeoPointE6> {
         if (points.size < 2 || maximumPoints < 2) return emptyList()
 
