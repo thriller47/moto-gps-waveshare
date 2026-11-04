@@ -17,8 +17,6 @@ constexpr std::size_t kRouteViewPointCapacity = 24;
 // verification fixture intentionally exercises both limits.
 constexpr std::size_t kRoadContextPointCapacity = 192;
 constexpr std::size_t kRoadContextPolylineCapacity = 24;
-constexpr std::size_t kBuildingContextPointCapacity = 128;
-constexpr std::size_t kBuildingContextFootprintCapacity = 16;
 
 enum class RoadContextClass : std::uint8_t {
   Motorway = 0,
@@ -29,22 +27,10 @@ enum class RoadContextClass : std::uint8_t {
   Other = 5,
 };
 
-enum class BuildingContextClass : std::uint8_t {
-  Generic = 0,
-  Landmark = 1,
-  Parking = 2,
-};
-
 struct RoadContextPolylineSpan {
   std::uint8_t first_point_index = 0;
   std::uint8_t point_count = 0;
   RoadContextClass road_class = RoadContextClass::Residential;
-};
-
-struct BuildingContextFootprintSpan {
-  std::uint8_t first_point_index = 0;
-  std::uint8_t point_count = 0;
-  BuildingContextClass building_class = BuildingContextClass::Generic;
 };
 
 struct NavCoreConfig {
@@ -99,17 +85,6 @@ struct NavSnapshot {
   std::uint8_t road_context_point_count = 0;
   std::uint8_t road_context_polyline_count = 0;
 
-  // MapScene buildings share the exact rider-centred transform used by the
-  // selected route and streets. The polygon closing edge is implicit here;
-  // the UI renderer closes it without duplicating BLE/storage points.
-  bool has_building_context = false;
-  std::array<Gcj02Point, kBuildingContextPointCapacity>
-      building_context_points{};
-  std::array<BuildingContextFootprintSpan,
-             kBuildingContextFootprintCapacity>
-      building_context_footprints{};
-  std::uint8_t building_context_point_count = 0;
-  std::uint8_t building_context_footprint_count = 0;
   std::uint32_t map_scene_revision = 0;
 
   std::string route_id;

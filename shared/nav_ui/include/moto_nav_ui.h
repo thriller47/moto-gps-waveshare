@@ -5,8 +5,6 @@
 #define MOTO_UI_ROUTE_POINT_CAPACITY 24
 #define MOTO_UI_ROAD_POINT_CAPACITY 192
 #define MOTO_UI_ROAD_POLYLINE_CAPACITY 24
-#define MOTO_UI_BUILDING_POINT_CAPACITY 128
-#define MOTO_UI_BUILDING_FOOTPRINT_CAPACITY 16
 #define MOTO_UI_CANVAS_WIDTH 466
 #define MOTO_UI_CANVAS_HEIGHT 466
 
@@ -85,12 +83,6 @@ typedef struct {
 } moto_ui_polyline_span_t;
 
 typedef struct {
-    uint8_t first_point_index;
-    uint8_t point_count;
-    uint8_t building_class;
-} moto_ui_building_span_t;
-
-typedef struct {
     const char *source_name;
     const char *track_title;
     const char *artist_name;
@@ -138,11 +130,6 @@ typedef struct {
     uint8_t road_polyline_count;
     moto_ui_polyline_span_t
         road_polylines[MOTO_UI_ROAD_POLYLINE_CAPACITY];
-    uint8_t building_point_count;
-    moto_ui_point_t building_points[MOTO_UI_BUILDING_POINT_CAPACITY];
-    uint8_t building_footprint_count;
-    moto_ui_building_span_t
-        building_footprints[MOTO_UI_BUILDING_FOOTPRINT_CAPACITY];
     const char *road_name;
     const char *next_road_name;
 } moto_ui_state_t;

@@ -475,7 +475,7 @@ void test_ios_demo_token_attaches_context_and_live_route_clears_it() {
   CHECK(moto::test::phone_nav_bridge_last_road_polyline_count() == 0);
 }
 
-void test_map_scene_atomically_replaces_roads_and_buildings_at_capacity() {
+void test_map_scene_atomically_replaces_roads_at_capacity() {
   moto::test::reset_phone_nav_bridge_probe();
   moto::nav::NavPresenter presenter;
   PhoneNavBridge bridge(presenter);
@@ -526,10 +526,6 @@ void test_map_scene_atomically_replaces_roads_and_buildings_at_capacity() {
   CHECK(moto::test::phone_nav_bridge_last_road_polyline_count() == 1);
   CHECK(moto::test::phone_nav_bridge_last_road_class() ==
         static_cast<std::uint8_t>(moto::ble::MapRoadClass::Primary));
-  CHECK(moto::test::phone_nav_bridge_last_building_point_count() == 3);
-  CHECK(moto::test::phone_nav_bridge_last_building_footprint_count() == 1);
-  CHECK(moto::test::phone_nav_bridge_last_building_class() ==
-        static_cast<std::uint8_t>(moto::ble::MapBuildingClass::Landmark));
 
   moto::ble::MapScene maximum;
   maximum.scene_revision = 2;
@@ -551,22 +547,6 @@ void test_map_scene_atomically_replaces_roads_and_buildings_at_capacity() {
     }
     maximum.roads.push_back(std::move(road));
   }
-  for (std::size_t building_index = 0;
-       building_index < moto::ble::kMaxMapSceneBuildings;
-       ++building_index) {
-    moto::ble::MapBuildingFootprint building;
-    building.building_class = moto::ble::MapBuildingClass::Parking;
-    for (std::size_t point_index = 0; point_index < 8; ++point_index) {
-      building.points.push_back({
-          geometry.view_origin.latitude_e6 +
-              static_cast<std::int32_t>(building_index * 30 + point_index),
-          geometry.view_origin.longitude_e6 +
-              static_cast<std::int32_t>(building_index * 35 + point_index * 2),
-      });
-    }
-    maximum.buildings.push_back(std::move(building));
-  }
-
   const int before_maximum = moto::test::phone_nav_bridge_apply_count();
   CHECK(bridge.on_message(make_message(maximum, 53)) ==
         moto::ble::AckStatus::Ok);
@@ -579,12 +559,6 @@ void test_map_scene_atomically_replaces_roads_and_buildings_at_capacity() {
         moto::ble::kMaxMapSceneRoads);
   CHECK(moto::test::phone_nav_bridge_last_road_class() ==
         static_cast<std::uint8_t>(moto::ble::MapRoadClass::Service));
-  CHECK(moto::test::phone_nav_bridge_last_building_point_count() ==
-        moto::ble::kMaxMapSceneBuildingPoints);
-  CHECK(moto::test::phone_nav_bridge_last_building_footprint_count() ==
-        moto::ble::kMaxMapSceneBuildings);
-  CHECK(moto::test::phone_nav_bridge_last_building_class() ==
-        static_cast<std::uint8_t>(moto::ble::MapBuildingClass::Parking));
 
   const int before_stale = moto::test::phone_nav_bridge_apply_count();
   CHECK(bridge.on_message(make_message(first, 54)) ==
@@ -592,8 +566,6 @@ void test_map_scene_atomically_replaces_roads_and_buildings_at_capacity() {
   CHECK(moto::test::phone_nav_bridge_apply_count() == before_stale);
   CHECK(moto::test::phone_nav_bridge_last_road_point_count() ==
         moto::ble::kMaxMapSceneRoadPoints);
-  CHECK(moto::test::phone_nav_bridge_last_building_point_count() ==
-        moto::ble::kMaxMapSceneBuildingPoints);
 
   moto::ble::MapScene empty;
   empty.scene_revision = 3;
@@ -604,8 +576,6 @@ void test_map_scene_atomically_replaces_roads_and_buildings_at_capacity() {
   pump(bridge);
   CHECK(moto::test::phone_nav_bridge_last_road_point_count() == 0);
   CHECK(moto::test::phone_nav_bridge_last_road_polyline_count() == 0);
-  CHECK(moto::test::phone_nav_bridge_last_building_point_count() == 0);
-  CHECK(moto::test::phone_nav_bridge_last_building_footprint_count() == 0);
 }
 
 void test_imu_presentation_preserves_40hz_phase_and_stale_course_is_ignored() {
@@ -658,7 +628,7 @@ int main() {
   test_music_capability_state_and_touch_commands();
   test_demo_uses_the_production_presenter_path();
   test_ios_demo_token_attaches_context_and_live_route_clears_it();
-  test_map_scene_atomically_replaces_roads_and_buildings_at_capacity();
+  test_map_scene_atomically_replaces_roads_at_capacity();
   test_imu_presentation_preserves_40hz_phase_and_stale_course_is_ignored();
 
   if (failures != 0) {

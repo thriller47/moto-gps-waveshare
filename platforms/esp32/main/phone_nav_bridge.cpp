@@ -144,9 +144,6 @@ void add_demo_road_context(moto::nav::NavSnapshot& output) {
     };
   }
   output.has_road_context = true;
-  output.has_building_context = false;
-  output.building_context_point_count = 0;
-  output.building_context_footprint_count = 0;
   output.map_scene_revision = 0;
 }
 
@@ -156,26 +153,14 @@ void clear_road_context(moto::nav::NavSnapshot& output) {
   output.road_context_polyline_count = 0;
 }
 
-void clear_building_context(moto::nav::NavSnapshot& output) {
-  output.has_building_context = false;
-  output.building_context_point_count = 0;
-  output.building_context_footprint_count = 0;
-}
-
 void clear_map_context(moto::nav::NavSnapshot& output) {
   clear_road_context(output);
-  clear_building_context(output);
   output.map_scene_revision = 0;
 }
 
 moto::nav::RoadContextClass map_road_class(
     moto::ble::MapRoadClass road_class) {
   return static_cast<moto::nav::RoadContextClass>(road_class);
-}
-
-moto::nav::BuildingContextClass map_building_class(
-    moto::ble::MapBuildingClass building_class) {
-  return static_cast<moto::nav::BuildingContextClass>(building_class);
 }
 
 bool is_ios_demo_route_token(std::uint32_t route_token) {
@@ -954,22 +939,14 @@ moto::ble::AckStatus PhoneNavBridge::consume_map_scene(
   for (const auto& road : input.roads) {
     road_point_count += road.points.size();
   }
-  std::size_t building_point_count = 0;
-  for (const auto& building : input.buildings) {
-    building_point_count += building.points.size();
-  }
 #ifdef ESP_PLATFORM
   moto_diag_event(MotoDiagEvent::MapScene,
                   static_cast<int32_t>(input.scene_revision),
                   static_cast<int32_t>(input.roads.size()),
-                  static_cast<int32_t>(road_point_count),
-                  static_cast<int32_t>(input.buildings.size()));
+                  static_cast<int32_t>(road_point_count), 0);
 #endif
   if (input.roads.size() > moto::nav::kRoadContextPolylineCapacity ||
-      road_point_count > moto::nav::kRoadContextPointCapacity ||
-      input.buildings.size() >
-          moto::nav::kBuildingContextFootprintCapacity ||
-      building_point_count > moto::nav::kBuildingContextPointCapacity) {
+      road_point_count > moto::nav::kRoadContextPointCapacity) {
     return moto::ble::AckStatus::Unsupported;
   }
 
@@ -1006,42 +983,18 @@ moto::ble::AckStatus PhoneNavBridge::consume_map_scene(
       };
     }
 
-    std::size_t next_building_point = 0;
-    std::size_t next_building = 0;
-    for (const auto& building : input.buildings) {
-      const std::size_t first = next_building_point;
-      for (const auto& point : building.points) {
-        target.building_context_points[next_building_point++] = {
-            static_cast<double>(point.latitude_e6) / 1'000'000.0,
-            static_cast<double>(point.longitude_e6) / 1'000'000.0,
-        };
-      }
-      target.building_context_footprints[next_building++] = {
-          static_cast<std::uint8_t>(first),
-          static_cast<std::uint8_t>(building.points.size()),
-          map_building_class(building.building_class),
-      };
-    }
-
     target.road_context_point_count =
         static_cast<std::uint8_t>(next_road_point);
     target.road_context_polyline_count =
         static_cast<std::uint8_t>(next_road);
     target.has_road_context = next_road > 0;
-    target.building_context_point_count =
-        static_cast<std::uint8_t>(next_building_point);
-    target.building_context_footprint_count =
-        static_cast<std::uint8_t>(next_building);
-    target.has_building_context = next_building > 0;
     target.map_scene_revision = input.scene_revision;
   }
   ESP_LOGI(kTag,
-           "map scene committed: revision=%lu roads=%u/%u buildings=%u/%u",
+           "map scene committed: revision=%lu roads=%u/%u",
            static_cast<unsigned long>(input.scene_revision),
            static_cast<unsigned>(input.roads.size()),
-           static_cast<unsigned>(road_point_count),
-           static_cast<unsigned>(input.buildings.size()),
-           static_cast<unsigned>(building_point_count));
+           static_cast<unsigned>(road_point_count));
   present_navigation();
   return moto::ble::AckStatus::Ok;
 }

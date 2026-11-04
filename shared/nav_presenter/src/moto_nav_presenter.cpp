@@ -16,7 +16,7 @@ constexpr double kUiScale =
     static_cast<double>(MOTO_UI_CANVAS_WIDTH) / kLegacyCanvasSize;
 constexpr double kVehicleX = MOTO_UI_CANVAS_WIDTH / 2.0;
 constexpr double kVehicleY = 196.0 * kUiScale;
-// Normal map scale: route, surrounding MotoMap roads and buildings share
+// Normal map scale: route and surrounding MotoMap roads share
 // exactly the same transform. The green route can zoom even when no MotoMap
 // or Overpass scene is available. Zoom is continuous, not a level switch.
 constexpr double kMapPixelsPerMeter = 0.44 * kUiScale;
@@ -336,49 +336,6 @@ void project_road_context(const NavSnapshot& snapshot,
       static_cast<std::uint8_t>(accepted_polylines);
 }
 
-void project_building_context(const NavSnapshot& snapshot,
-                              const MapTransform& transform,
-                              moto_ui_state_t& output) {
-  output.building_point_count = 0;
-  output.building_footprint_count = 0;
-  if (!snapshot.has_building_context ||
-      snapshot.building_context_point_count < 3 ||
-      snapshot.building_context_footprint_count == 0) {
-    return;
-  }
-
-  const std::size_t point_count = std::min<std::size_t>(
-      snapshot.building_context_point_count,
-      MOTO_UI_BUILDING_POINT_CAPACITY);
-  const std::size_t footprint_count = std::min<std::size_t>(
-      snapshot.building_context_footprint_count,
-      MOTO_UI_BUILDING_FOOTPRINT_CAPACITY);
-  for (std::size_t index = 0; index < point_count; ++index) {
-    output.building_points[index] = project_map_point(
-        snapshot.building_context_points[index], transform);
-  }
-
-  std::size_t accepted_footprints = 0;
-  for (std::size_t index = 0; index < footprint_count; ++index) {
-    const BuildingContextFootprintSpan& span =
-        snapshot.building_context_footprints[index];
-    const std::size_t first = span.first_point_index;
-    const std::size_t count = span.point_count;
-    if (count < 3 || first >= point_count || count > point_count - first) {
-      continue;
-    }
-    output.building_footprints[accepted_footprints] = {
-        static_cast<std::uint8_t>(first),
-        static_cast<std::uint8_t>(count),
-        static_cast<std::uint8_t>(span.building_class),
-    };
-    ++accepted_footprints;
-  }
-  output.building_point_count = static_cast<std::uint8_t>(point_count);
-  output.building_footprint_count =
-      static_cast<std::uint8_t>(accepted_footprints);
-}
-
 }  // namespace
 
 NavPresenter::NavPresenter() { update(NavSnapshot{}); }
@@ -437,13 +394,12 @@ void NavPresenter::update(const NavSnapshot& snapshot) {
       static_cast<double>(snapshot.speed_mps) * 3.6);
   ui_state_.speed_limit_kph = snapshot.speed_limit_kph;
   ui_state_.heading_deg = normalized_heading(snapshot.heading_deg);
-  // Route, roads and buildings share one rider-centred transform. Besides
+  // The route and roads share one rider-centred transform. Besides
   // guaranteeing exact layer alignment, this avoids repeating trigonometry
   // hundreds of times on every high-rate IMU frame.
   const MapTransform transform = map_transform(snapshot);
   project_route_view(snapshot, transform, ui_state_);
   project_road_context(snapshot, transform, ui_state_);
-  project_building_context(snapshot, transform, ui_state_);
   ui_state_.road_name = road_name_.empty() ? nullptr : road_name_.c_str();
   ui_state_.next_road_name =
       next_road_name_.empty() ? nullptr : next_road_name_.c_str();

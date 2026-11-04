@@ -302,7 +302,7 @@ void test_real_road_context_uses_the_same_heading_up_transform() {
   CHECK(state.road_points[1].y == state.route_points[1].y);
 }
 
-void test_map_scene_classes_buildings_and_capacity_share_route_transform() {
+void test_map_scene_classes_and_capacity_share_route_transform() {
   NavPresenter presenter;
   NavSnapshot snapshot;
   snapshot.state = NavState::Navigating;
@@ -331,26 +331,6 @@ void test_map_scene_classes_buildings_and_capacity_share_route_transform() {
     };
   }
 
-  snapshot.has_building_context = true;
-  snapshot.building_context_point_count = kBuildingContextPointCapacity;
-  snapshot.building_context_footprint_count =
-      kBuildingContextFootprintCapacity;
-  for (std::size_t index = 0; index < kBuildingContextPointCapacity;
-       ++index) {
-    snapshot.building_context_points[index] = {
-        36.67 + static_cast<double>(index) * 0.000001,
-        117.13 + static_cast<double>(index) * 0.000002,
-    };
-  }
-  for (std::size_t index = 0;
-       index < kBuildingContextFootprintCapacity; ++index) {
-    snapshot.building_context_footprints[index] = {
-        static_cast<std::uint8_t>(index * 8), 8,
-        index == 0 ? BuildingContextClass::Landmark
-                   : BuildingContextClass::Generic,
-    };
-  }
-
   presenter.update(snapshot);
   const moto_ui_state_t& state = presenter.ui_state();
   CHECK(state.road_point_count == MOTO_UI_ROAD_POINT_CAPACITY);
@@ -359,18 +339,9 @@ void test_map_scene_classes_buildings_and_capacity_share_route_transform() {
         static_cast<std::uint8_t>(RoadContextClass::Motorway));
   CHECK(state.road_polylines[1].road_class ==
         static_cast<std::uint8_t>(RoadContextClass::Service));
-  CHECK(state.building_point_count == MOTO_UI_BUILDING_POINT_CAPACITY);
-  CHECK(state.building_footprint_count ==
-        MOTO_UI_BUILDING_FOOTPRINT_CAPACITY);
-  CHECK(state.building_footprints[0].building_class ==
-        static_cast<std::uint8_t>(BuildingContextClass::Landmark));
-
-  // The first point of every layer is the rider origin, proving route, road
-  // and building coordinates share one heading-up projection.
+  // Both road and route coordinates share one heading-up projection.
   CHECK(state.road_points[0].x == state.route_points[0].x);
   CHECK(state.road_points[0].y == state.route_points[0].y);
-  CHECK(state.building_points[0].x == state.route_points[0].x);
-  CHECK(state.building_points[0].y == state.route_points[0].y);
 }
 
 void test_map_scale_does_not_jump_at_maneuver_distance_thresholds() {
@@ -416,7 +387,7 @@ void test_map_scale_does_not_jump_at_maneuver_distance_thresholds() {
 }
 
 
-void test_near_turn_zooms_all_map_layers_together_and_restores_scale() {
+void test_near_turn_zooms_route_and_roads_together_and_restores_scale() {
   NavPresenter presenter;
   NavSnapshot snapshot;
   snapshot.state = NavState::Navigating;
@@ -434,14 +405,6 @@ void test_near_turn_zooms_all_map_layers_together_and_restores_scale() {
   snapshot.road_context_points[1] = snapshot.route_view_points[1];
   snapshot.road_context_polyline_count = 1;
   snapshot.road_context_polylines[0] = {0, 2};
-  snapshot.has_building_context = true;
-  snapshot.building_context_point_count = 3;
-  snapshot.building_context_points[0] = snapshot.route_view_origin;
-  snapshot.building_context_points[1] = snapshot.route_view_points[1];
-  snapshot.building_context_points[2] = {36.6704, 117.1301};
-  snapshot.building_context_footprint_count = 1;
-  snapshot.building_context_footprints[0] = {0, 3};
-
   snapshot.distance_to_next_maneuver_m = 101.0;
   presenter.update(snapshot);
   const auto far = presenter.ui_state().route_points[1];
@@ -457,8 +420,6 @@ void test_near_turn_zooms_all_map_layers_together_and_restores_scale() {
   CHECK(close.route_points[1].y < far.y);
   CHECK(close.road_points[1].x == close.route_points[1].x);
   CHECK(close.road_points[1].y == close.route_points[1].y);
-  CHECK(close.building_points[1].x == close.route_points[1].x);
-  CHECK(close.building_points[1].y == close.route_points[1].y);
   CHECK(close.maneuver_map_zoom_active == 1);
 
   snapshot.distance_to_next_maneuver_m = 0.0;
@@ -621,7 +582,7 @@ int main() {
   test_heading_up_route_projection_keeps_rider_fixed();
   test_non_finite_heading_keeps_map_projection_finite();
   test_real_road_context_uses_the_same_heading_up_transform();
-  test_map_scene_classes_buildings_and_capacity_share_route_transform();
+  test_map_scene_classes_and_capacity_share_route_transform();
   test_map_scale_does_not_jump_at_maneuver_distance_thresholds();
   test_near_turn_zooms_all_map_layers_together_and_restores_scale();
   test_missing_or_incomplete_geometry_stays_empty();
