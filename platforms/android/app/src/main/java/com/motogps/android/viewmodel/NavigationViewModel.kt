@@ -874,12 +874,12 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                     }
                     nearest.forEach(orderedRoads::add)
                     val candidates = orderedRoads.asSequence()
-                    // Conservative field trial: 16 roads / 128 points versus the firmware
-                    // maximum of 24 / 192. Keep eight vertices per road and
-                    // reserve slots for both local roads and upcoming junctions.
-                    var pointsRemaining = 128
+                    // Conservative field trial: 20 roads / 160 points versus the firmware
+                    // maximum of 24 / 192. Ordinary roads keep up to 8 vertices;
+                    // a focused roundabout may use 16. Both caps must be respected.
+                    var pointsRemaining = 160
                     for (seg in candidates) {
-                        if (roadPolylines.size >= 16 || pointsRemaining < 2) break
+                        if (roadPolylines.size >= 20 || pointsRemaining < 2) break
                         // Each OSM way may begin kilometres away from the GPS fix.
                         // Select the nearby portion, retaining junction corners.
                         val points = if (seg === focus?.ring && pointsRemaining >= 12) {
@@ -914,10 +914,10 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                     buildings = emptyList()
                 )
 
-                Log.i("NavigationVM", "Context BLE TRIAL(16/128): roads=${roadPolylines.size} points=${roadPolylines.sumOf { it.points.size }} sourceSegments=${segments.size}")
+                Log.i("NavigationVM", "Context BLE TRIAL(20/160): roads=${roadPolylines.size} points=${roadPolylines.sumOf { it.points.size }} sourceSegments=${segments.size}")
                 DiagnosticLog.event("BLE_MAP_SCENE",
                     "revision=$lastMapSceneRevision roads=${roadPolylines.size} points=${roadPolylines.sumOf { it.points.size }} " +
-                        "candidates=${segments.size} capacity=16/128")
+                        "candidates=${segments.size} capacity=20/160")
                 bleManager.sendMapScene(scene)
             } catch (e: Exception) {
                 Log.w("NavigationVM", "Error updating map scene and speed limit: ${e.message}")

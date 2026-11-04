@@ -2,7 +2,7 @@
 
 ## Esperimento successivo: rotonda intera e contesto off-route (4 novembre)
 
-Il filtro `RoadContextTopology` è **disabilitato nella generazione delle scene** su richiesta dell'utente: i livelli e gli attraversamenti verranno affrontati più avanti. Il codice del filtro resta conservato per future prove. Ora `RoadContextJunctions` riconosce le piccole OSM ways chiuse vicine al GPS o al percorso imminente e dà priorità all'anello e alle uscite che condividono nodi OSM, senza escludere il resto delle strade. `RoadContextWindow.closedRing` conserva tutta la forma della rotonda. Rimane la selezione delle 8 strade locali più vicine e il fallback di prossimità, così da mostrare strade anche dopo una deviazione e prima del ricalcolo. Restano 16 strade/128 punti; l'anello può usare fino a 16 punti. Il formato MotoMap v3 non include il tag junction=roundabout, quindi le rotonde composte da più ways non sono ancora rilevate come singola figura. **Da validare su strada prima del merge.**
+Il filtro `RoadContextTopology` è **disabilitato nella generazione delle scene** su richiesta dell'utente: i livelli e gli attraversamenti verranno affrontati più avanti. Il codice del filtro resta conservato per future prove. Ora `RoadContextJunctions` riconosce le piccole OSM ways chiuse vicine al GPS o al percorso imminente e dà priorità all'anello e alle uscite che condividono nodi OSM, senza escludere il resto delle strade. `RoadContextWindow.closedRing` conserva tutta la forma della rotonda. Rimane la selezione delle 8 strade locali più vicine e il fallback di prossimità, così da mostrare strade anche dopo una deviazione e prima del ricalcolo. Il budget sperimentale attuale è 20 strade/160 punti (prima 16/128); l'anello può usare fino a 16 punti. Il formato MotoMap v3 non include il tag junction=roundabout, quindi le rotonde composte da più ways non sono ancora rilevate come singola figura. **Da validare su strada prima del merge.**
 
 
 
@@ -36,7 +36,7 @@ Il convertitore `scripts/offline_map/pbf_to_motomap.py` genera il formato v3 leg
 4. Fra le polilinee che attraversano il percorso in 2D, vengono scartate soltanto quelle senza nodi OSM condivisi. Le strade direttamente sul percorso, gli svincoli realmente connessi e quelle vicine che non attraversano il percorso restano visibili.
 5. Se manca un abbinamento affidabile o se la riga è vecchia/senza metadati, il filtro **non elimina** quella strada. La navigazione e il BLE restano inalterati.
 
-Dopo il rollback dell'esperimento `4226b63`, la selezione usa **16 polilinee / 128 vertici** per scena (massimo 8 vertici per strada), con il criterio precedente di prossimità GPS e una riserva per il percorso imminente. Firmware ESP32, protocollo BLE, routing Valhalla e zoom 3,4x invariati. È un compromesso sperimentale, non una soluzione definitiva per le rotonde.
+Dopo il rollback dell'esperimento `4226b63`, la selezione per prossimità GPS e percorso imminente è stata preservata; il budget attuale sperimentale è **20 polilinee / 160 vertici** per scena (8 vertici per strada ordinaria e fino a 16 per l'anello del focus). Firmware ESP32, protocollo BLE, routing Valhalla e zoom 3,4x invariati. È un compromesso sperimentale, non una soluzione definitiva per le rotonde.
 
 ## Rigenerazione e importazione
 
