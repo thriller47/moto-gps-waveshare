@@ -856,8 +856,8 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                                 pt.latitudeE6 / 1e6, pt.longitudeE6 / 1e6)
                         }
                     val nearest = roadSegments.sortedBy { roadDistance(it, lat, lon) }
-                    // Reserve some of the 12 BLE street slots for intersections
-                    // ahead on the selected route. Otherwise the 12 nearest
+                    // Reserve some of the 16 BLE street slots for intersections
+                    // ahead on the selected route. Otherwise the nearest
                     // residential roads behind the rider hide roundabout exits
                     // until the last few metres.
                     val upcoming = currentGeometry?.let { geometry ->
@@ -868,21 +868,19 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                         } ?: window.points.lastOrNull()
                     }
                     val orderedRoads = LinkedHashSet<com.motogps.android.map.MapRoadSegment>()
-                    nearest.take(6).forEach { orderedRoads.add(it) }
+                    nearest.take(8).forEach { orderedRoads.add(it) }
                     if (upcoming != null) {
                         roadSegments.sortedBy { roadDistance(it, upcoming.latitudeE6 / 1e6, upcoming.longitudeE6 / 1e6) }
-                            .take(6).forEach { orderedRoads.add(it) }
+                            .take(8).forEach { orderedRoads.add(it) }
                     }
                     nearest.forEach { orderedRoads.add(it) }
                     val candidates = orderedRoads.asSequence()
-                    // Gradual increase after successful 8/64 field test.
-                    // Stay well below the firmware ceiling of 24/192 to
-                    // avoid BLE congestion from large fragmented scenes.
-                    // Eight vertices per street preserve roundabout corners
-                    // while leaving 96/8 = 12 slots for nearby and ahead roads.
-                    var pointsRemaining = 96
+                    // Conservative field trial: 16 roads / 128 points versus the firmware
+                    // maximum of 24 / 192. Keep eight vertices per road and
+                    // reserve slots for both local roads and upcoming junctions.
+                    var pointsRemaining = 128
                     for (seg in candidates) {
-                        if (roadPolylines.size >= 12 || pointsRemaining < 2) break
+                        if (roadPolylines.size >= 16 || pointsRemaining < 2) break
                         // Each OSM way may begin kilometres away from the GPS fix.
                         // Select the nearby portion, retaining junction corners.
                         val points = RoadContextWindow.around(
@@ -913,9 +911,10 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                     buildings = emptyList()
                 )
 
-                Log.i("NavigationVM", "Context BLE MEDIUM(12/96): roads=${roadPolylines.size} points=${roadPolylines.sumOf { it.points.size }} sourceSegments=${segments.size}")
+                Log.i("NavigationVM", "Context BLE TRIAL(16/128): roads=${roadPolylines.size} points=${roadPolylines.sumOf { it.points.size }} sourceSegments=${segments.size}")
                 DiagnosticLog.event("BLE_MAP_SCENE",
-                    "revision=$lastMapSceneRevision roads=${roadPolylines.size} points=${roadPolylines.sumOf { it.points.size }}")
+                    "revision=$lastMapSceneRevision roads=${roadPolylines.size} points=${roadPolylines.sumOf { it.points.size }} " +
+                        "candidates=${segments.size} capacity=16/128")
                 bleManager.sendMapScene(scene)
             } catch (e: Exception) {
                 Log.w("NavigationVM", "Error updating map scene and speed limit: ${e.message}")
