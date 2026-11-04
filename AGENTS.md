@@ -37,3 +37,10 @@ Update `PROJECT_STATE.md` in the same change whenever implementation state, deci
 - Open bugs, risks, hardware verification pending.
 - One concrete next action.
 Do not overwrite older decisions silently; document reversals and reasons.
+
+## Operational manual maintenance
+- At the end of each coding session, **check whether `docs/MANUALE_OPERATIVO.md` needs an update**. When procedures or user-facing commands change, update the manual **in the same consolidated change** as the implementation and `PROJECT_STATE.md`; do not rely on the project-state handoff as a substitute for runnable instructions.
+- Update the manual for changes to prerequisites and tool versions, repository/branch workflows, build and CI instructions, ESP32 flash offsets or port defaults, Android installation, MotoMap/Valhalla import and conversion, diagnostic export, or other operational steps users must perform.
+- Keep Windows PowerShell vs CMD commands clearly labeled, paths and filenames consistent with the current project, and distinguish **validated procedures** from experimental or untested ones. Preserve historical instructions only when explicitly labeled as historical.
+- If an implementation change does not affect a user procedure, **do not make cosmetic manual edits** solely to satisfy this check. Note any relevant documentation caveat in `PROJECT_STATE.md` when it matters for handoff.
+
