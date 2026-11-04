@@ -1,6 +1,6 @@
 # MotoMap v3: connettività OSM per le strade di contesto
 
-**Stato:** implementazione sperimentale sul branch `test/road-contrast-cleanup-20261104` (4 novembre 2026). Filtro cavalcavia confermato dall'utente in prova reale; ulteriori miglioramenti di selezione in attesa di verifica.
+**Stato:** implementazione sperimentale sul branch `test/road-contrast-cleanup-20261104` (4 novembre 2026). Il test ha confermato un cavalcavia correttamente filtrato, ma anche strade su altri livelli ancora visibili. La prova del selettore route-focused `4226b63` è stata negativa ed è stata annullata; restano le limitazioni indicate sotto.
 
 ## Perché non basta intersecare due linee sul display
 
@@ -30,7 +30,7 @@ Il convertitore `scripts/offline_map/pbf_to_motomap.py` genera il formato v3 leg
 4. Fra le polilinee che attraversano il percorso in 2D, vengono scartate soltanto quelle senza nodi OSM condivisi. Le strade direttamente sul percorso, gli svincoli realmente connessi e quelle vicine che non attraversano il percorso restano visibili.
 5. Se manca un abbinamento affidabile o se la riga è vecchia/senza metadati, il filtro **non elimina** quella strada. La navigazione e il BLE restano inalterati.
 
-La selezione finale usa **16 polilinee / 128 vertici** (fino a 8 vertici per strada), sotto il limite firmware di 24/192. Un selettore sperimentale privilegia le strade vicine alla rotta e con nodi OSM condivisi con le way della rotta, per dare priorità alle uscite di rotonda rispetto alle vie laterali; le way già mostrate hanno un piccolo bonus di continuità. La finestra grafica verde usa il progresso monotono della navigazione per evitare di riagganciarsi ai tratti già percorsi quando la geometria passa vicina a sé stessa. Queste ultime correzioni attendono collaudo. BLE, firmware ESP32, routing Valhalla e zoom 3,4x restano invariati.
+Dopo il rollback dell'esperimento `4226b63`, la selezione usa **16 polilinee / 128 vertici** per scena (massimo 8 vertici per strada), con il criterio precedente di prossimità GPS e una riserva per il percorso imminente. Firmware ESP32, protocollo BLE, routing Valhalla e zoom 3,4x invariati. È un compromesso sperimentale, non una soluzione definitiva per le rotonde.
 
 ## Rigenerazione e importazione
 
@@ -49,3 +49,7 @@ Se necessario, aggiungere `--coverage-poly italy.poly` soltanto usando il confin
 - Sono necessari collaudi su cavalcavia senza rampa, sottopassi, svincoli con rampe, rotatorie e zone con mappatura incompleta.
 - Alcune strade non connesse continueranno ad apparire come **contesto laterale** se non intersecano geometricamente la rotta; è intenzionale.
 - Quando si importano più pacchetti con versioni diverse e zone sovrapposte, la deduplicazione non riconcilia le stesse way per ID, quindi utilizzare un solo archivio per l'Italia nel test.
+
+## Prova negativa del selettore mirato alla rotta (4 novembre 2026)
+
+Nel test del commit `4226b63`, il nuovo selettore privilegiava eccessivamente strade connesse alla rotta: molte scene con poche strade nonostante dati OSM disponibili, rotonde tardive e assenza di contesto in caso di deviazione prima del ricalcolo. L'algoritmo è stato **annullato** senza integrarlo in `valhalla`. L'ancoraggio grafico al progresso introdotto nello stesso commit è stato annullato insieme al selettore per ripristinare la configurazione di partenza del test. Le prossime soluzioni devono mantenere strade locali disponibili anche fuori rotta e preservare l'anello e tutte le uscite di una rotonda, senza confondere intersezione 2D e connettività OSM. Il filtro esistente non elimina ogni strada di livello diverso: questo resta aperto.

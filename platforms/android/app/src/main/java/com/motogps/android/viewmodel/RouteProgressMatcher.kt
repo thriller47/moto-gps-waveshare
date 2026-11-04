@@ -37,9 +37,6 @@ internal class RouteProgressMatcher {
         lastLon = Double.NaN
     }
 
-    /** Monotonic distance along full active route, used by the display window. */
-    fun progressMeters(): Double? = progress
-
     fun remaining(lat: Double, lon: Double, heading: Float?, speed: Float): Long? {
         if (route.size < 2 || !lat.isFinite() || !lon.isFinite()) return null
         val mx = 111_195.0 * cos(Math.toRadians(lat))
