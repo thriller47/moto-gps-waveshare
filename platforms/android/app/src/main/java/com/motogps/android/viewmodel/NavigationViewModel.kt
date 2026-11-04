@@ -17,6 +17,7 @@ import com.motogps.android.jni.MotoBLEMapScene
 import com.motogps.android.jni.MotoBLENavigationSnapshot
 import com.motogps.android.jni.MotoBLERouteGeometry
 import com.motogps.android.map.HybridMapRepository
+import com.motogps.android.map.RoadContextTopology
 import com.motogps.android.map.OpenFreeMapTileProbe
 import com.motogps.android.map.OpenFreeMapRouteCorridor
 import com.motogps.android.map.SavedMapInfo
@@ -838,7 +839,17 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
 
                     // Prefer actual nearby OSM roads and never exceed the ESP32's
                     // aggregate 192-point / 24-polyline scene capacities.
-                    val roadSegments = segments.filter { it.roadClass in 0..3 && it.points.size >= 2 }
+                    val contextRoads = segments.filter { it.roadClass in 0..3 && it.points.size >= 2 }
+                    val nearbyRoute = currentGeometry?.let { geometry ->
+                        RouteGeometryWindow.around(geometry, lat, lon).points
+                    }.orEmpty()
+                    val roadSegments = RoadContextTopology.excludeDisconnectedCrossings(
+                        contextRoads, nearbyRoute, lat, lon
+                    )
+                    if (roadSegments.size != contextRoads.size) {
+                        DiagnosticLog.event("OSM_GRADE_CROSSING",
+                            "excluded=${contextRoads.size - roadSegments.size} kept=${roadSegments.size}")
+                    }
                     fun roadDistance(seg: com.motogps.android.map.MapRoadSegment, centerLat: Double, centerLon: Double) =
                         seg.points.minOf { pt ->
                             calculateDistanceMeters(centerLat, centerLon,

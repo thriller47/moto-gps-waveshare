@@ -22,7 +22,12 @@ data class MapRoadSegment(
     val minLonE6: Int,
     val maxLatE6: Int,
     val maxLonE6: Int,
-    val points: List<GeoPointE6>
+    val points: List<GeoPointE6>,
+    /** Present only for MotoMap v3; old tiles remain drawable without filtering. */
+    val osmWayId: Long? = null,
+    val layer: Int? = null,
+    /** Aligned with points: IDs shared by OSM ways denote actual junctions. */
+    val nodeIds: List<Long> = emptyList()
 )
 
 data class BoundingBox(
@@ -162,13 +167,15 @@ class HybridMapRepository(
         if (trimmed.isEmpty() || trimmed.startsWith("#")) return
         if (!seenRoads.add(trimmed)) return
 
-        val parts = trimmed.split("|")
+        val parts = trimmed.split("|", limit = 3)
         if (parts.size < 3) return
 
         val headerParts = parts[0].split(",")
         if (headerParts.size < 2) return
         val roadClass = headerParts[0].toIntOrNull() ?: 5
         val maxSpeedKph = headerParts[1].toIntOrNull() ?: getDefaultSpeedLimitForClass(roadClass)
+        val layer = if (headerParts.size >= 4) headerParts[2].toIntOrNull() else null
+        val osmWayId = if (headerParts.size >= 4) headerParts[3].toLongOrNull() else null
 
         val bboxParts = parts[1].split(",")
         if (bboxParts.size < 4) return
@@ -186,6 +193,15 @@ class HybridMapRepository(
 
         val coordStr = parts[2]
         val points = parseCoordinates(coordStr)
+        // MotoMap v3 appends the original OSM node ID in base36 to each
+        // coordinate. An incomplete row is treated as unverified geometry;
+        // it can still be displayed but must not drive topology filtering.
+        val parsedNodeIds = if (osmWayId != null && layer != null) {
+            coordStr.split(";").map { it.substringAfterLast(",", missingDelimiterValue = "").toLongOrNull(36) }
+        } else emptyList()
+        val nodeIds = if (parsedNodeIds.size == points.size &&
+            parsedNodeIds.all { it != null && it > 0L }) parsedNodeIds.filterNotNull()
+            else emptyList()
         if (points.isNotEmpty()) {
             results.add(
                 MapRoadSegment(
@@ -195,7 +211,10 @@ class HybridMapRepository(
                     minLonE6 = minLonE6,
                     maxLatE6 = maxLatE6,
                     maxLonE6 = maxLonE6,
-                    points = points
+                    points = points,
+                    osmWayId = osmWayId,
+                    layer = layer,
+                    nodeIds = nodeIds
                 )
             )
         }

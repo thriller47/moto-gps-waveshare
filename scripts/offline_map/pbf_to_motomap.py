@@ -5,6 +5,7 @@ Requires: python -m pip install osmium
 Usage: python scripts/offline_map/pbf_to_motomap.py italy-nord-ovest.osm.pbf -o nord-ovest.motomap.zip
 
 Import resulting ZIP in Moto-GPS Android > Gestione Mappe Offline.
+MotoMap v3 stores OSM node IDs and road levels for safe junction filtering.
 A ZIP contains standard tile_15_X_Y.motomap entries; no Render or Overpass calls.
 """
 import argparse
@@ -36,6 +37,30 @@ def tile(lat, lon):
     return x, y
 
 
+def to_base36(value):
+    """Compact, lossless encoding of OSM's positive 64-bit node IDs."""
+    digits = "0123456789abcdefghijklmnopqrstuvwxyz"
+    if value <= 0:
+        raise ValueError("OSM node IDs must be positive")
+    output = ""
+    while value:
+        value, digit = divmod(value, 36)
+        output = digits[digit] + output
+    return output
+
+
+def road_level(tags):
+    """Use OSM layer when provided; bridge/tunnel as a conservative fallback."""
+    layer = tags.get("layer", "").strip()
+    if re.fullmatch(r"-?\d{1,2}", layer):
+        return max(-9, min(9, int(layer)))
+    if tags.get("bridge", "no") not in ("no", "false", "0"):
+        return 1
+    if tags.get("tunnel", "no") not in ("no", "false", "0"):
+        return -1
+    return 0
+
+
 def rows_for_way(way):
     highway = way.tags.get("highway")
     if highway not in KEEP:
@@ -44,12 +69,14 @@ def rows_for_way(way):
     raw_speed = way.tags.get("maxspeed", "")
     m = re.fullmatch(r"(\d{1,3})(?: km/h)?", raw_speed.strip())
     speed = int(m.group(1)) if m and 5 <= int(m.group(1)) <= 140 else SPEED[cls]
+    level = road_level(way.tags)
     points = []
     for node in way.nodes:
-        if not node.location.valid():
+        if not node.location.valid() or node.ref <= 0:
             continue
-        coord = (round(node.lat * 1_000_000), round(node.lon * 1_000_000))
-        if not points or points[-1] != coord:
+        coord = (round(node.lat * 1_000_000), round(node.lon * 1_000_000),
+                 to_base36(node.ref))
+        if not points or points[-1][:2] != coord[:2]:
             points.append(coord)
     if len(points) < 2:
         return ()
@@ -60,12 +87,12 @@ def rows_for_way(way):
             continue
         box = (min(p[0] for p in segment), min(p[1] for p in segment),
                max(p[0] for p in segment), max(p[1] for p in segment))
-        line = f"{cls},{speed}|{','.join(map(str, box))}|" + ";".join(
-            f"{lat},{lon}" for lat, lon in segment) + "\n"
+        line = f"{cls},{speed},{level},{way.id}|{','.join(map(str, box))}|" + ";".join(
+            f"{lat},{lon},{node_id}" for lat, lon, node_id in segment) + "\n"
         # Assign to all tile cells intersected by polyline, rather than just
         # the way's starting point. Long ways must remain accessible everywhere.
         touched = set()
-        for (lat_a, lon_a), (lat_b, lon_b) in zip(segment, segment[1:]):
+        for (lat_a, lon_a, _), (lat_b, lon_b, _) in zip(segment, segment[1:]):
             x1, y1 = tile(lat_a / 1e6, lon_a / 1e6)
             x2, y2 = tile(lat_b / 1e6, lon_b / 1e6)
             steps = max(abs(x2-x1), abs(y2-y1), 1)
@@ -166,8 +193,9 @@ def main():
             archive.writestr("coverage_z14.txt",
                 "".join(f"{x},{y}\n" for x, y in covered),
                 compress_type=zipfile.ZIP_DEFLATED)
-        archive.writestr("motomap_v2.json", json.dumps({
-            "format": "motomap", "version": 2, "zoom": ZOOM,
+        archive.writestr("motomap_v3.json", json.dumps({
+            "format": "motomap", "version": 3, "zoom": ZOOM,
+            "topology": "osm-node-ids-base36", "level": "osm-layer-or-bridge-tunnel",
             "coverage": "poly-full-z14" if args.coverage_poly else "unknown",
             "certified_z14": len(covered), "road_tiles": count
         }), compress_type=zipfile.ZIP_DEFLATED)

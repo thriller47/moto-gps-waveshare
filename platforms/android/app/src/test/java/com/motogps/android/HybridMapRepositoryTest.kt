@@ -110,7 +110,7 @@ class HybridMapRepositoryTest {
         ZipOutputStream(archive.outputStream().buffered()).use { zip ->
             zip.putNextEntry(ZipEntry("tile_${tile.key}.motomap"))
             zip.write(
-                "# OSM import\\n3,50|45000000,8000000,45000100,8000000|45000000,8000000;45000100,8000000\\n"
+                "# OSM import\\n3,50,1,34567|45000000,8000000,45000100,8000000|45000000,8000000,2s;45000100,8000000,2t\\n"
                     .replace("\\n", "\n").toByteArray(Charsets.UTF_8)
             )
             zip.closeEntry()
@@ -120,6 +120,9 @@ class HybridMapRepositoryTest {
         )
         assertEquals(1, roads.size)
         assertEquals(2, roads.first().points.size)
+        assertEquals(34567L, roads.first().osmWayId)
+        assertEquals(1, roads.first().layer)
+        assertEquals(listOf(100L, 101L), roads.first().nodeIds)
     }
 
     @Test
