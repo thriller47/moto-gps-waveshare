@@ -14,9 +14,7 @@ import java.util.zip.ZipFile
  */
 internal object MotomapPackImporter {
     private val tileName = Regex("^tile_15_[0-9]{1,5}_[0-9]{1,5}\\.motomap$")
-    const val METADATA_V2 = "motomap_v2.json"
-    const val METADATA_V3 = "motomap_v3.json"
-    val METADATA_NAMES = setOf(METADATA_V2, METADATA_V3)
+    const val METADATA = "motomap_v2.json"
     const val COVERAGE = "coverage_z14.txt"
     const val MAX_COVERAGE_BYTES = 16L * 1024 * 1024
     private val packName = Regex("[^a-zA-Z0-9._-]")
@@ -25,7 +23,7 @@ internal object MotomapPackImporter {
     private const val MAX_ARCHIVE_BYTES = 8L * 1024 * 1024 * 1024
     private const val MAX_ENTRIES = 500_000
 
-    fun safeName(name: String): Boolean = (tileName.matches(name) || name in METADATA_NAMES || name == COVERAGE) &&
+    fun safeName(name: String): Boolean = (tileName.matches(name) || name == METADATA || name == COVERAGE) &&
         !name.contains('/') && !name.contains('\\')
 
     fun packagesDir(context: Context): File =
@@ -78,13 +76,13 @@ internal object MotomapPackImporter {
                         throw IOException("Tile ZIP non valida: ${entry.name}")
                     if (++count > MAX_ENTRIES) throw IOException("Troppe tile OSM")
                     val limit = when (entry.name) {
-                        METADATA_V2, METADATA_V3 -> 4096L
+                        METADATA -> 4096L
                         COVERAGE -> MAX_COVERAGE_BYTES
                         else -> MAX_ENTRY_BYTES
                     }
                     if (entry.size <= 0 || entry.size > limit || entry.compressedSize < 0)
                         throw IOException("Dimensione tile non valida: ${entry.name} (${entry.size} byte, limite $limit)")
-                    if (entry.name in METADATA_NAMES) {
+                    if (entry.name == METADATA) {
                         if (metadata) throw IOException("Metadata duplicate")
                         metadata = true
                     }
@@ -98,7 +96,7 @@ internal object MotomapPackImporter {
                 }
             }
             if (count == 0) throw IOException("Archivio vuoto")
-            if (coverage && !metadata) throw IOException("Coverage requires MotoMap metadata")
+            if (coverage && !metadata) throw IOException("Coverage requires v2 metadata")
             // Keep the previous archive intact if publishing the new one fails.
             val backup = File(dir, destination.name + ".backup")
             if (destination.exists()) {

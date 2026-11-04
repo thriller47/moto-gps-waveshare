@@ -114,19 +114,14 @@ internal object OpenFreeMapRouteCorridor {
         for (pack in packs) {
             try {
                 java.util.zip.ZipFile(pack).use { zip ->
-                    val metadataV2 = zip.getEntry(MotomapPackImporter.METADATA_V2)
-                    val metadataV3 = zip.getEntry(MotomapPackImporter.METADATA_V3)
-                    // Do not trust ambiguous packs containing both schema versions.
-                    val metadataEntry = if ((metadataV2 == null) != (metadataV3 == null))
-                        metadataV2 ?: metadataV3 else null
+                    val metadataEntry = zip.getEntry(MotomapPackImporter.METADATA)
                     val coverageEntry = zip.getEntry(MotomapPackImporter.COVERAGE)
                     if (metadataEntry != null && coverageEntry != null &&
                         metadataEntry.size in 1L..4096L &&
                         coverageEntry.size in 1L..MotomapPackImporter.MAX_COVERAGE_BYTES) {
                         val meta = org.json.JSONObject(zip.getInputStream(metadataEntry)
                             .bufferedReader().use { it.readText() })
-                        if (meta.optInt("version") == (if (metadataV3 != null) 3 else 2) &&
-                            meta.optInt("zoom") == 15 &&
+                        if (meta.optInt("version") == 2 &&
                             meta.optString("format") == "motomap" &&
                             meta.optString("coverage") == "poly-full-z14") {
                             val relevant = candidates.toHashSet()
