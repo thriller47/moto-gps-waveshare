@@ -736,11 +736,13 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
             // but never at the 200 ms snapshot cadence: map scenes are large.
             val nearTurn = currentSnapshot?.let {
                 it.maneuverName !in setOf("continue", "none", "arrive") &&
-                    it.distanceToManeuverM <= 110L
+                    it.distanceToManeuverM <= 260L
             } ?: false
             val sinceSceneMs = now - lastMapSceneSendTimeMs
-            val minimumIntervalMs = if (nearTurn) 5_000L else 6_000L
-            val movementThresholdM = if (nearTurn) 40.0 else 60.0
+            // Refresh before the approach: one extra map scene at most every
+            // 3.5s near a genuine maneuver, never on every GPS update.
+            val minimumIntervalMs = if (nearTurn) 3_500L else 6_000L
+            val movementThresholdM = if (nearTurn) 30.0 else 60.0
             if (sinceSceneMs >= minimumIntervalMs &&
                 (distFromLastScene >= movementThresholdM || sinceSceneMs >= 25_000L)) {
                 lastMapSceneSendTimeMs = now
@@ -861,7 +863,8 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                         nearbyRoute, lat, lastGpsSpeedMs, lastFixAccuracyM)
                     // Multi-way OSM detection and scene allocation are independent.
                     // Neither can remove the GPS-local reserve.
-                    val analysis = RoadContextJunctions.analyze(contextRoads, lat, lon, upcoming)
+                    val analysis = RoadContextJunctions.analyze(
+                        contextRoads, lat, lon, upcoming, nearbyRoute)
                     val sceneSelection = RoadContextSceneSelector.select(
                         contextRoads, analysis.focus, lat, lon, upcoming, nearbyRoute)
                     sceneSelection.drawn.forEach { drawn ->
@@ -876,6 +879,8 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                         " score=" + (focus?.confidence ?: 0) +
                         " gps_m=" + (focus?.gpsDistanceM?.toInt() ?: -1) +
                         " ahead_m=" + (focus?.upcomingDistanceM?.takeIf { it.isFinite() }?.toInt() ?: -1) +
+                        " route_gap_m=" + (focus?.forwardRouteDistanceM?.takeIf { it.isFinite() }?.toInt() ?: -1) +
+                        " route_along_m=" + (focus?.forwardRouteAlongM?.takeIf { it.isFinite() }?.toInt() ?: -1) +
                         " exit_ways=" + (focus?.rawExitWays ?: 0) +
                         " branches=" + (focus?.distinctExitBranches ?: 0) +
                         " prioritized=" + (focus?.exits?.size ?: 0) +

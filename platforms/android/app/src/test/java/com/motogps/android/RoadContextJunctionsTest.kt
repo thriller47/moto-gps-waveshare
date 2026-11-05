@@ -97,6 +97,28 @@ class RoadContextJunctionsTest {
         assertEquals(2, focus?.exits?.size)
     }
 
+    @Test fun connectedRingOnForwardRouteIsSelectedBeforeItsGpsProximityWindow() {
+        val offset = 3900
+        val aheadRing = road(150, ringPoints.map {
+            p(it.latitudeE6 - 45_000_000 + offset,
+                it.longitudeE6 - 8_000_000)
+        }, ring.nodeIds)
+        val ringExitA = road(151,
+            listOf(p(120 + offset, 120), p(120 + offset, 550)),
+            listOf(101, 500))
+        val ringExitB = road(152,
+            listOf(p(240 + offset, 0), p(700 + offset, 0)),
+            listOf(102, 600))
+        val data = listOf(aheadRing, ringExitA, ringExitB)
+        assertNull(RoadContextJunctions.find(data, 45.0, 8.0, p(900, 0)))
+        val selected = RoadContextJunctions.find(
+            data, 45.0, 8.0, p(900, 0),
+            route = listOf(p(0, 0), p(6000, 0)))
+        assertNotNull(selected)
+        assertEquals(2, selected?.exits?.size)
+        assertTrue((selected?.forwardRouteAlongM ?: 0.0) > 350.0)
+    }
+
     @Test fun aDistantRingIsNotChosenAndOrdinaryRoadsRemainAvailable() {
         assertNull(RoadContextJunctions.find(
             listOf(ring, exitA, exitB), 45.005, 8.005, null))

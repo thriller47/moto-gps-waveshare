@@ -20,7 +20,13 @@ internal object RoadContextSceneSelector {
     const val MAX_POINTS = 160
     private const val MAX_EXITS = RoadContextJunctions.MAX_PRIORITIZED_EXITS
     private const val MIN_GPS_ROADS = 6
-    private const val MAX_UPCOMING_ROADS = 4
+    private const val MAX_UPCOMING_ROADS = 6
+
+    // A lane near the next manoeuvre must outrank unrelated lanes just behind
+    // the rider; six local GPS roads remain protected when navigating off-route.
+    private const val MAX_FORWARD_DISTANCE_M = 58.0
+    private data class ForwardRoad(val road: MapRoadSegment,
+        val anchor: GeoPointE6, val score: Double)
 
     enum class Role { RING, EXIT, GPS, UPCOMING, EXTRA }
     data class Drawn(val road: MapRoadSegment, val points: List<GeoPointE6>, val role: Role)
@@ -74,9 +80,30 @@ internal object RoadContextSceneSelector {
         val ringMembers = focus?.members?.toSet().orEmpty()
         val available = roads.filter { it !in ringMembers }
         val gpsOrder = available.sortedBy { metric.distance(gps, it.points) }
-        val upcomingOrder = if (upcoming != null) {
-            available.sortedBy { metric.distance(upcoming, it.points) }
+        // Sample the *forward route corridor*, not a single point 90-220m
+        // ahead. A long OSM way must later be clipped at its own junction,
+        // otherwise the chosen exit can remain outside its transmitted window.
+        // Do not privilege a stale green route when the real GPS is off-route.
+        val forwardProbes = if (route.size >= 2 &&
+            metric.distance(gps, route) <= 80.0) {
+            RoadContextUpcoming.probes(route, latitude)
         } else emptyList()
+        val forwardRoads = if (forwardProbes.isNotEmpty()) {
+            available.mapNotNull { road ->
+                val best = forwardProbes.map { (meters, point) ->
+                    Triple(metric.distance(point, road.points), meters, point)
+                }.minBy { it.first + it.second * 0.015 }
+                if (best.first > MAX_FORWARD_DISTANCE_M) null
+                else ForwardRoad(road, best.third, best.first + best.second * 0.015 +
+                    road.roadClass.coerceIn(0, 4) * 1.5)
+            }.sortedBy { it.score }
+        } else emptyList()
+        val forwardAnchor = forwardRoads.associate { it.road to it.anchor }
+        val upcomingOrder = when {
+            forwardRoads.isNotEmpty() -> forwardRoads.map { it.road }
+            upcoming != null -> available.sortedBy { metric.distance(upcoming, it.points) }
+            else -> emptyList()
+        }
         // LinkedHashMap de-duplicates overlapping GPS/focus/upcoming lists
         // without silently consuming the scarce 20 BLE slots.
         val priority = LinkedHashMap<MapRoadSegment, Role>()
@@ -88,8 +115,12 @@ internal object RoadContextSceneSelector {
         // This reserve is independent of the route, even when GPS is off-route.
         gpsOrder.asSequence().filterNot { it in priority }.take(MIN_GPS_ROADS)
             .forEach { add(it, Role.GPS) }
-        upcomingOrder.asSequence().filterNot { it in priority }.take(MAX_UPCOMING_ROADS)
-            .forEach { add(it, Role.UPCOMING) }
+        upcomingOrder.asSequence().filterNot { it in priority }.take(
+            if (forwardRoads.isEmpty()) 4 else MAX_UPCOMING_ROADS
+        ).forEach { add(it, Role.UPCOMING) }
+        // Use remaining slots for other streets on the upcoming route before
+        // filling with less relevant streets around the current GPS position.
+        forwardRoads.forEach { add(it.road, Role.EXTRA) }
         gpsOrder.forEach { add(it, Role.EXTRA) }
 
         val drawn = ArrayList<Drawn>()
@@ -120,9 +151,18 @@ internal object RoadContextSceneSelector {
                         connection?.latitudeE6?.div(1e6) ?: latitude,
                         connection?.longitudeE6?.div(1e6) ?: longitude, limit)
                 }
-                Role.UPCOMING -> RoadContextWindow.around(
-                    road.points, upcoming?.latitudeE6?.div(1e6) ?: latitude,
-                    upcoming?.longitudeE6?.div(1e6) ?: longitude, limit)
+                Role.UPCOMING -> {
+                    val anchor = forwardAnchor[road] ?: upcoming
+                    RoadContextWindow.around(road.points,
+                        anchor?.latitudeE6?.div(1e6) ?: latitude,
+                        anchor?.longitudeE6?.div(1e6) ?: longitude, limit)
+                }
+                Role.EXTRA -> {
+                    val anchor = forwardAnchor[road]
+                    RoadContextWindow.around(road.points,
+                        anchor?.latitudeE6?.div(1e6) ?: latitude,
+                        anchor?.longitudeE6?.div(1e6) ?: longitude, limit)
+                }
                 else -> RoadContextWindow.around(road.points, latitude, longitude, limit)
             }
             if (shape.size < 2) continue
@@ -144,6 +184,24 @@ internal object RoadContextSceneSelector {
 
 /** Interpolate a useful point AHEAD along the green route, not a random vertex. */
 internal object RoadContextUpcoming {
+    /** Sparse, bounded ahead samples favour visible exits before the next turn. */
+    fun probes(routeWindow: List<GeoPointE6>, latitude: Double
+    ): List<Pair<Double, GeoPointE6>> {
+        if (routeWindow.size < 2) return emptyList()
+        val lonScale = 111_320.0 * cos(Math.toRadians(latitude))
+        val lengthM = routeWindow.zipWithNext().sumOf { (a, b) ->
+            hypot((b.latitudeE6 - a.latitudeE6) / 1e6 * 111_320.0,
+                (b.longitudeE6 - a.longitudeE6) / 1e6 * lonScale)
+        }
+        if (lengthM < 35.0) return emptyList()
+        return listOf(90.0, 160.0, 240.0, 320.0, 420.0, 500.0)
+            .filter { it <= lengthM }
+            .ifEmpty { listOf(lengthM) }
+            .mapNotNull { metres ->
+                atDistance(routeWindow, latitude, metres)?.let { metres to it }
+            }
+    }
+
     fun ahead(routeWindow: List<GeoPointE6>, latitude: Double,
               speedMps: Float, accuracyM: Float): GeoPointE6? {
         if (routeWindow.isEmpty()) return null
@@ -151,6 +209,13 @@ internal object RoadContextUpcoming {
         val speed = speedMps.takeIf { it.isFinite() }?.coerceIn(0f, 35f) ?: 0f
         val accuracy = accuracyM.takeIf { it.isFinite() }?.coerceIn(0f, 35f) ?: 0f
         val distanceM = (90.0 + speed * 6.0 + accuracy * 0.5).coerceIn(90.0, 220.0)
+        return atDistance(routeWindow, latitude, distanceM)
+    }
+
+    private fun atDistance(routeWindow: List<GeoPointE6>, latitude: Double,
+                           distanceM: Double): GeoPointE6? {
+        if (routeWindow.isEmpty()) return null
+        if (routeWindow.size == 1) return routeWindow.first()
         val lonScale = 111_320.0 * cos(Math.toRadians(latitude))
         var travelled = 0.0
         for (index in 0 until routeWindow.lastIndex) {

@@ -53,6 +53,36 @@ internal object RoadContextJunctions {
             }
             return sqrt(best)
         }
+
+        /** Ring-to-forward-route distance and progress. Never infers OSM connectivity. */
+        fun forwardMatch(points: List<GeoPointE6>, route: List<GeoPointE6>): Pair<Double, Double> {
+            if (points.isEmpty() || route.size < 2)
+                return Double.POSITIVE_INFINITY to Double.POSITIVE_INFINITY
+            var best = Double.POSITIVE_INFINITY
+            var along = Double.POSITIVE_INFINITY
+            var travelled = 0.0
+            for (i in 0 until route.lastIndex) {
+                val a = route[i]
+                val b = route[i + 1]
+                val (vx, vy) = toXY(b, a)
+                val lengthSquared = vx * vx + vy * vy
+                val lengthM = sqrt(lengthSquared)
+                for (p in points) {
+                    val (px, py) = toXY(p, a)
+                    val t = if (lengthSquared > 1e-8)
+                        ((px * vx + py * vy) / lengthSquared).coerceIn(0.0, 1.0)
+                    else 0.0
+                    val sq = (px - t * vx) * (px - t * vx) +
+                        (py - t * vy) * (py - t * vy)
+                    if (sq < best) {
+                        best = sq
+                        along = travelled + t * lengthM
+                    }
+                }
+                travelled += lengthM
+            }
+            return sqrt(best) to along
+        }
     }
 
     data class Priority(
@@ -65,7 +95,9 @@ internal object RoadContextJunctions {
         val upcomingDistanceM: Double,
         val key: String,
         val rawExitWays: Int,
-        val distinctExitBranches: Int
+        val distinctExitBranches: Int,
+        val forwardRouteDistanceM: Double = Double.POSITIVE_INFINITY,
+        val forwardRouteAlongM: Double = Double.POSITIVE_INFINITY
     )
     data class Analysis(
         val focus: Priority?,
@@ -208,11 +240,11 @@ internal object RoadContextJunctions {
     }
 
     fun find(roads: List<MapRoadSegment>, latitude: Double, longitude: Double,
-             upcoming: GeoPointE6?): Priority? =
-        analyze(roads, latitude, longitude, upcoming).focus
+             upcoming: GeoPointE6?, route: List<GeoPointE6> = emptyList()): Priority? =
+        analyze(roads, latitude, longitude, upcoming, route).focus
 
     fun analyze(roads: List<MapRoadSegment>, latitude: Double, longitude: Double,
-                upcoming: GeoPointE6?): Analysis {
+                upcoming: GeoPointE6?, route: List<GeoPointE6> = emptyList()): Analysis {
         if (roads.isEmpty() || !latitude.isFinite() || !longitude.isFinite())
             return Analysis(null, 0, 0, emptyMap())
         val metric = Metric(latitude)
@@ -237,7 +269,15 @@ internal object RoadContextJunctions {
             val gpsDistance = metric.nearest(points, gps)
             val aheadDistance = upcoming?.let { metric.nearest(points, it) }
                 ?: Double.POSITIVE_INFINITY
-            if (gpsDistance > 270.0 && aheadDistance > 180.0) {
+            // A connected circle ahead can be 350-500m away yet deserves early
+            // focus. A route crossing in 2D is NOT sufficient to identify an exit:
+            // only shared OSM node IDs may create exit branches.
+            val routeTrusted = route.size >= 2 && metric.nearest(route, gps) <= 80.0
+            val (routeGap, routeAlong) = if (routeTrusted)
+                metric.forwardMatch(points, route)
+            else Double.POSITIVE_INFINITY to Double.POSITIVE_INFINITY
+            val forwardRing = routeGap <= 32.0 && routeAlong in 35.0..500.0
+            if (gpsDistance > 270.0 && aheadDistance > 180.0 && !forwardRing) {
                 reject("far")
                 return
             }
@@ -255,7 +295,8 @@ internal object RoadContextJunctions {
                 it > 0L && it == nodeIds.last()
             } == true
             val close = metric.squared(points.first(), points.last()) <= 2.25
-            val closeEnough = gpsDistance <= 130.0 || aheadDistance <= 150.0
+            val closeEnough = gpsDistance <= 130.0 || aheadDistance <= 150.0 ||
+                forwardRing
             val connectionScore = when {
                 exits.size >= 3 -> 20
                 exits.size == 2 -> 14
@@ -271,7 +312,8 @@ internal object RoadContextJunctions {
             val score = (if (topological) 30 else 10) +
                 (if (close) 10 else 0) + 15 +
                 (if (closeEnough) 15 else 8) + connectionScore +
-                classScore - scarcityPenalty
+                classScore - scarcityPenalty +
+                (if (forwardRing) 28 else 0)
             if (score < MIN_SCORE) {
                 reject("confidence")
                 return
@@ -288,7 +330,8 @@ internal object RoadContextJunctions {
             )
             val option = Priority(ring, members, exits, protected, score,
                 gpsDistance, aheadDistance, key,
-                choices.connectedWays, choices.distinctBranches)
+                choices.connectedWays, choices.distinctBranches,
+                routeGap, routeAlong)
             val previous = best
             if (previous == null || option.confidence > previous.confidence ||
                 (option.confidence == previous.confidence &&

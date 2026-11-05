@@ -78,6 +78,31 @@ class RoadContextSceneSelectorTest {
         assertEquals(1, result.count(RoadContextSceneSelector.Role.RING))
     }
 
+    @Test fun routeCorridorOutranksGpsSideStreetsAndClipsNearFutureJunction() {
+        val nearbySide = (0 until 28).map { i ->
+            road(8000 + i.toLong(),
+                listOf(p(-100 + i * 8, -80), p(-100 + i * 8, 80)),
+                listOf(7000L + i * 2, 7001L + i * 2))
+        }
+        // Two crossing branches at 35-45m lateral separation, hundreds
+        // of metres ahead. Neither is among the closest roads to GPS.
+        val junction = road(9999,
+            (0..32).map { p(900 + it * 100, 320) },
+            (0..32).map { 90000L + it })
+        val selected = RoadContextSceneSelector.select(
+            nearbySide + junction, null, 45.0, 8.0,
+            p(800, 0), listOf(p(0, 0), p(5000, 0)))
+        val forward = selected.drawn.firstOrNull { it.road == junction }
+        assertTrue("Junction along the next 400m must beat nearby side streets",
+            forward != null)
+        assertTrue(forward!!.role == RoadContextSceneSelector.Role.UPCOMING ||
+            forward.role == RoadContextSceneSelector.Role.EXTRA)
+        assertTrue("Clip the selected way at its forward anchor, not at 90m",
+            forward.points.any { it.latitudeE6 >= p(2300, 0).latitudeE6 })
+        assertTrue(selected.count(RoadContextSceneSelector.Role.GPS) >= 6)
+        assertTrue(selected.slots <= 20 && selected.points <= 160)
+    }
+
     @Test fun upcomingInterpolationIsSpeedDependentAndWorksWithMissingFixAccuracy() {
         val route = listOf(p(0, 0), p(3000, 0))
         val slow = RoadContextUpcoming.ahead(route, 45.0, 0f, Float.POSITIVE_INFINITY)
