@@ -1,5 +1,9 @@
 # MotoMap v3: connettività OSM per le strade di contesto
 
+## Prova successiva — 5 novembre: sette uscite prioritarie e zoom 4×
+
+Dopo il test con 159 scene Android (134 al limite di 20 strade e un massimo di 133/160 punti), la priorità è aumentata a **un anello e fino a sette uscite OSM distinte**; il ring può usare fino a **20 vertici** e ogni uscita fino a **10**, entro il limite complessivo invariato **20 polilinee / 160 vertici**. Restano riservate fino a sei strade GPS locali indipendenti dal percorso e quattro slot per le strade future, con fallback in assenza di un ring valido. Con il riconoscimento delle connessioni si continuano a usare solo nodi OSM realmente condivisi. Zoom progressivo in prossimità delle manovre fino a **4,0×**, per rotta verde e strade di contesto, senza riattivare le frecce. Filtro livelli **disabilitato**. Richiede APK Android e flash ESP32 nuovi, da validare sul campo.
+
 ## Raffinamento uscite e colori — prova successiva, 5 novembre 2026
 
 Le ways connesse ad un ring vengono ora raggruppate per **ID nodo OSM condiviso e direzione di partenza entro 25°**; ogni gruppo usa un solo slot prioritario (fino a cinque). Quando sono presenti più di cinque direzioni, si dà precedenza a un ramo vicino alla posizione/percorso imminente e si distribuiscono i rimanenti attorno all'anello. Non si inventano connessioni geometriche senza nodi OSM; direzioni opposte sullo stesso nodo restano distinte. Il ring conserva i nodi delle uscite selezionate. I contatori `OSM_RING` distinguono `exit_ways`, `branches`, `prioritized` e `OSM_SCENE_POLICY.exits_sent` indica gli slot realmente inviati. Il limite resta **20/160**, con minimo sei strade GPS locali quando disponibili; filtro livelli sempre **spento**.

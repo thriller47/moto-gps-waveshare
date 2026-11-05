@@ -10,13 +10,15 @@ import kotlin.math.roundToInt
 /**
  * Explicit BLE scene allocation. Focus + exits have priority, but at least
  * six independent GPS-local roads are reserved BEFORE upcoming/extra roads.
+ * A single ring and up to seven distinct outgoing branches take precedence
+ * over additional, less relevant local streets (20 roads / 160 points total).
  * All geometry is chosen from MotoMap, never restricted to the calculated
  * route: the rider must still see streets during a deviation.
  */
 internal object RoadContextSceneSelector {
     const val MAX_ROADS = 20
     const val MAX_POINTS = 160
-    private const val MAX_EXITS = 5
+    private const val MAX_EXITS = RoadContextJunctions.MAX_PRIORITIZED_EXITS
     private const val MIN_GPS_ROADS = 6
     private const val MAX_UPCOMING_ROADS = 4
 
@@ -101,7 +103,11 @@ internal object RoadContextSceneSelector {
             // spend all 160 points while local context is still outstanding.
             val later = items.size - index - 1
             val allowance = (remaining - 2 * later).coerceAtLeast(2)
-            val limit = minOf(allowance, if (role == Role.RING) 16 else 8)
+            val limit = minOf(allowance, when (role) {
+                Role.RING -> 20
+                Role.EXIT -> 10
+                else -> 8
+            })
             val shape = when (role) {
                 Role.RING -> RoadContextWindow.closedRing(
                     road.points, latitude, limit, focus?.junctionPoints.orEmpty()

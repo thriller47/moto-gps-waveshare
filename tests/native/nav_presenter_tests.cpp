@@ -426,14 +426,14 @@ void test_near_turn_zooms_route_and_roads_together_and_restores_scale() {
   presenter.update(snapshot);
   const auto at_max_zoom = presenter.ui_state().route_points[1];
   CHECK(at_max_zoom.y < close.route_points[1].y);
-  // All map layers use the same precise maximum scale: 3.4x.
+  // All map layers use the same precise maximum scale: 4.0x.
   constexpr double rider_y = 196.0 * MOTO_UI_CANVAS_HEIGHT / 360.0;
   const double baseline_offset = rider_y - far.y;
   const double zoom_offset = rider_y - at_max_zoom.y;
-  CHECK(std::abs(zoom_offset - 3.4 * baseline_offset) <= 4.0);
+  CHECK(std::abs(zoom_offset - 4.0 * baseline_offset) <= 4.0);
 
   // Without MotoMap / Overpass roads, navigation still shows the green
-  // route at full 3.4x. This is the real-world case where the legacy
+  // route at full 4.0x. This is the real-world case where the legacy
   // arrow fallback used to be selected.
   snapshot.has_road_context = false;
   snapshot.road_context_point_count = 0;

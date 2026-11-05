@@ -21,7 +21,7 @@ constexpr double kVehicleY = 196.0 * kUiScale;
 // or Overpass scene is available. Zoom is continuous, not a level switch.
 constexpr double kMapPixelsPerMeter = 0.44 * kUiScale;
 constexpr double kManeuverZoomStartM = 100.0;
-constexpr double kMaximumManeuverZoom = 3.4;
+constexpr double kMaximumManeuverZoom = 4.0;
 
 // The maneuver zoom must never depend on optional road-context availability.
 // The old dependency originated from a fallback to turn arrows, now removed.

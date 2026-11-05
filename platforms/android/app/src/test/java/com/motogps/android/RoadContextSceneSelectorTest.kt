@@ -48,6 +48,7 @@ class RoadContextSceneSelectorTest {
         assertTrue(result.count(RoadContextSceneSelector.Role.GPS) >= 6)
         assertTrue(result.slots <= 20)
         assertTrue(result.points <= 160)
+        assertTrue(result.drawn.first().points.size <= 20)
         assertEquals(result.slots, result.drawn.map { it.road }.distinct().size)
         assertEquals(result.drawn.first().points.first(), result.drawn.first().points.last())
         // All selected geometry comes from either one reconstructed ring or a way.
@@ -85,4 +86,32 @@ class RoadContextSceneSelectorTest {
         assertEquals(null, RoadContextUpcoming.ahead(emptyList(), 45.0, 5f, 5f))
         assertEquals(route.first(), RoadContextUpcoming.ahead(route.take(1), 45.0, 5f, 5f))
     }
+    @Test fun sevenExitSlotsPreserveSixGpsRoadsAndUpcomingRoads() {
+        val octagon = (0 until 8).map { index ->
+            val angle = index * 2.0 * Math.PI / 8.0
+            p((170 * kotlin.math.sin(angle)).toInt(),
+                (240 * kotlin.math.cos(angle)).toInt())
+        }
+        val ringIds = (1000L..1007L).toList()
+        val bigRing = road(999, octagon + octagon.first(), ringIds + ringIds.first())
+        val branches = octagon.mapIndexed { index, pt ->
+            road(1000 + index.toLong(), listOf(pt,
+                p(pt.latitudeE6 - 45_000_000 + (if (index < 4) 400 else -400),
+                  pt.longitudeE6 - 8_000_000 + (if (index % 2 == 0) 500 else -500))),
+                listOf(ringIds[index], 9000L + index))
+        }
+        val focus = RoadContextJunctions.find(
+            listOf(bigRing) + branches + local, 45.0, 8.0, p(0, 0))
+        assertEquals(7, focus?.exits?.size)
+        val scene = RoadContextSceneSelector.select(
+            listOf(bigRing) + branches + local, focus, 45.0, 8.0,
+            p(1200, 0), listOf(p(0, 0), p(2000, 0)))
+        assertEquals(1, scene.count(RoadContextSceneSelector.Role.RING))
+        assertEquals(7, scene.count(RoadContextSceneSelector.Role.EXIT))
+        assertTrue(scene.count(RoadContextSceneSelector.Role.GPS) >= 6)
+        assertTrue(scene.slots <= 20)
+        assertTrue(scene.points <= 160)
+        assertTrue(scene.drawn.first().points.size <= 20)
+    }
+
 }

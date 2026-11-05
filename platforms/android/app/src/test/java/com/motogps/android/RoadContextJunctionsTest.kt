@@ -119,7 +119,7 @@ class RoadContextJunctionsTest {
         assertEquals(2, focus?.junctionPoints?.size)
     }
 
-    @Test fun eightConnectedBranchesAreDistributedAroundRingWithinFiveSlots() {
+    @Test fun eightConnectedBranchesAreDistributedAroundRingWithinSevenSlots() {
         val octagon = (0 until 8).map { i ->
             val angle = i * Math.PI * 2.0 / 8.0
             p((170 * kotlin.math.sin(angle)).toInt(),
@@ -138,8 +138,8 @@ class RoadContextJunctionsTest {
             listOf(circle) + approaches, 45.0, 8.0, p(0, 0))
         assertEquals(8, selection?.rawExitWays)
         assertEquals(8, selection?.distinctExitBranches)
-        assertEquals(5, selection?.exits?.size)
-        assertEquals(5, selection?.junctionPoints?.size)
+        assertEquals(7, selection?.exits?.size)
+        assertEquals(7, selection?.junctionPoints?.size)
         // Geographic coordinates are not a metric circle: the first radial
         // OSM way is not guaranteed to be the closest to the GPS.
         val closest = approaches.minByOrNull { way ->

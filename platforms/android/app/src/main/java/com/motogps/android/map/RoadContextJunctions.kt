@@ -13,6 +13,8 @@ import kotlin.math.sqrt
  */
 internal object RoadContextJunctions {
     private const val MIN_SCORE = 70
+    // Show more distinct physical branches when the scene has spare road slots.
+    const val MAX_PRIORITIZED_EXITS = 7
     private const val MAX_WAYS = 8
     private const val MAX_EDGES = 90
     private const val MAX_SEARCH_STATES = 3500
@@ -153,13 +155,13 @@ internal object RoadContextJunctions {
             }
             if (!duplicate) distinct.add(candidate)
         }
-        if (distinct.size <= 5) return ExitChoices(distinct, ways, distinct.size)
+        if (distinct.size <= MAX_PRIORITIZED_EXITS) return ExitChoices(distinct, ways, distinct.size)
 
-        // One near approach first, then distribute the limited five slots
+        // Keep the nearest approach first, then distribute the remaining exit slots
         // around the ring rather than filling them with neighbouring ways.
         val chosen = ArrayList<ExitBranch>()
         chosen.add(distinct.first())
-        while (chosen.size < 5) {
+        while (chosen.size < MAX_PRIORITIZED_EXITS) {
             val next = distinct.filterNot { it in chosen }.maxByOrNull { branch ->
                 val separation = chosen.minOf {
                     metric.distance(branch.attachment, it.attachment)
@@ -246,7 +248,7 @@ internal object RoadContextJunctions {
                 gps, upcoming, metric)
             val exits = choices.selected.map { it.road }
             // Preserve exactly the junction vertices we are drawing, not
-            // every connected way that could not fit the five exit slots.
+            // every connected way that could not fit the priority exit slots.
             val protected = choices.selected.map { it.attachment }.toSet()
 
             val topological = nodeIds.size == points.size && nodeIds.firstOrNull()?.let {
