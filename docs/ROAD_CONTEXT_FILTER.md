@@ -1,6 +1,16 @@
 # MotoMap v3: connettività OSM per le strade di contesto
 
-## Esperimento successivo: rotonda intera e contesto off-route (4 novembre)
+## Esperimento attuale — 5 novembre 2026: rotonde multi-way e contesto sempre visibile
+
+Branch `test/road-contrast-cleanup-20261104` (**non integrato in `valhalla`**). Rispetto al test precedente `09d3aa8`, `RoadContextJunctions` rileva sia anelli completi su una way sia circuiti chiusi su più ways con estremi OSM condivisi. Ricerca limitata a 8 ways per ring, 90 way candidate, 3500 espansioni e 48 candidati ring per scena. La geometria deve essere chiusa entro 2,5 m, avere diametro 12–160 m, circonferenza 35–550 m e forma non degenerata. Il punteggio iniziale include chiusura OSM, geometria, prossimità, numero uscite connesse e classe stradale; richiede almeno 70 punti. **Si seleziona un solo ring**, altrimenti selezione strade ordinaria.
+
+Le uscite richiedono nodi OSM realmente condivisi, mai semplici attraversamenti 2D. `RoadContextWindow.closedRing` conserva i punti di chiusura e i nodi delle uscite durante la semplificazione (max 16 punti). `RoadContextSceneSelector` gestisce l'allocazione indipendentemente dal rilevamento: fino a 1 ring e 5 uscite, almeno 6 altre strade vicine al GPS, fino a 4 nuove strade del percorso imminente e poi altre nearest finché c'è budget. Le strade GPS non dipendono dall'aderenza alla rotta e rimangono disponibili durante una deviazione. Limite Android **20 strade/160 punti**, massimo 8 per polilinea ordinaria e 16 per ring; limiti firmware 24/192 invariati. L'anticipo `upcoming` è interpolato sul percorso (indicativamente 90–220 m secondo velocità/accuratezza).
+
+Diagnostica in `OSM_RING`, `OSM_SCENE_POLICY`, `BLE_MAP_SCENE`: candidati, qualificati, punteggio, uscite trovate/inviate, motivi di scarto, quote effettive di slot/punti e continuità strade GPS fuori rotta. **Nessun filtro per layer/grade separation è attivo** in questa fase, come richiesto. `RoadContextTopology` resta in repository per un futuro test separato, non viene invocato dalla scena. Nessuna rigenerazione MotoMap v3 e nessun nuovo firmware richiesti.
+
+**Limiti non risolti per definizione:** il pacchetto MotoMap v3 non esporta `junction=roundabout`, quindi il punteggio di confidenza è euristico. I circuiti urbani compatti possono ancora somigliare a una rotonda; dati mancanti o way molto lunghe possono rendere impossibile ricostruire un ring. **CI e test su strada di questa revisione ancora da verificare** prima del merge.
+
+## Cronologia: primo tentativo di ring completo — 4 novembre
 
 Il filtro `RoadContextTopology` è **disabilitato nella generazione delle scene** su richiesta dell'utente: i livelli e gli attraversamenti verranno affrontati più avanti. Il codice del filtro resta conservato per future prove. Ora `RoadContextJunctions` riconosce le piccole OSM ways chiuse vicine al GPS o al percorso imminente e dà priorità all'anello e alle uscite che condividono nodi OSM, senza escludere il resto delle strade. `RoadContextWindow.closedRing` conserva tutta la forma della rotonda. Rimane la selezione delle 8 strade locali più vicine e il fallback di prossimità, così da mostrare strade anche dopo una deviazione e prima del ricalcolo. Il budget sperimentale attuale è 20 strade/160 punti (prima 16/128); l'anello può usare fino a 16 punti. Il formato MotoMap v3 non include il tag junction=roundabout, quindi le rotonde composte da più ways non sono ancora rilevate come singola figura. **Da validare su strada prima del merge.**
 
@@ -28,7 +38,7 @@ Gli ID nodo sono **originali OSM**, base36 senza collisioni. Identificativi ugua
 
 Il convertitore `scripts/offline_map/pbf_to_motomap.py` genera il formato v3 leggendo lo stesso PBF Geofabrik usato finora. Non richiede una seconda scansione completa del PBF; conserva gli identificativi nel medesimo passaggio di esportazione. Maggiori dimensioni dell'archivio sono previste per la presenza degli ID sui vertici.
 
-## Algoritmo Android
+## Algoritmo Android — filtro topologico storico, DISABILITATO nella scena attuale
 
 1. Il lettore `HybridMapRepository` estrae `osmWayId`, `layer` e lista dei nodi parallelamente alle coordinate.
 2. `RoadContextTopology` individua strade che **si sovrappongono alla geometria Valhalla** per almeno 12 m con distanza massima di 8 m e orientamento allineato (coseno >= 0,82).

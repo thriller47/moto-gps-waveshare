@@ -61,4 +61,34 @@ class RoadContextWindowTest {
         assertTrue(result.any { it.longitudeE6 < 7_999_875 })
     }
 
+
+    @Test
+    fun smallRingBudgetStillKeepsClosureAndAnExitNode() {
+        val points = (0 until 24).map { index ->
+            val angle = index * Math.PI * 2 / 24.0
+            GeoPointE6(45_000_000 + (170 * kotlin.math.sin(angle)).toInt(),
+                8_000_000 + (240 * kotlin.math.cos(angle)).toInt())
+        }
+        val ring = points + points.first()
+        val exitNode = points[5]
+        val output = RoadContextWindow.closedRing(ring, 45.0, 6, setOf(exitNode))
+        assertEquals(6, output.size)
+        assertEquals(output.first(), output.last())
+        assertTrue(exitNode in output)
+    }
+
+    @Test
+    fun approximateClosureIsNormalisedButOpenRoadIsRejected() {
+        val pts = listOf(
+            GeoPointE6(45_000_000, 8_000_000),
+            GeoPointE6(45_000_200, 8_000_000),
+            GeoPointE6(45_000_200, 8_000_200),
+            GeoPointE6(45_000_000, 8_000_200),
+            GeoPointE6(45_000_001, 8_000_000)
+        )
+        val output = RoadContextWindow.closedRing(pts, 45.0, 8)
+        assertEquals(pts.first(), output.last())
+        assertTrue(RoadContextWindow.closedRing(
+            pts.dropLast(1) + GeoPointE6(45_000_500, 8_000_500), 45.0, 8).isEmpty())
+    }
 }
