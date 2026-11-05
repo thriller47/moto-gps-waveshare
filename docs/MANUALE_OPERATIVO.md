@@ -446,11 +446,11 @@ Con esptool 4.x usare `read_flash` al posto di `read-flash`.
 
 ## 7. Radio Wi-Fi — console seriale di configurazione e prova (modalità isolata)
 
-**Sezione ripristinata dalle istruzioni del 30 ottobre 2026 e verificata contro il codice presente il 5 novembre.** I comandi sono realmente previsti da \`platforms/esp32/main/signal_wifi_console.cpp\` e \`signal_radio_stream.cpp\`, ma la radio resta **sperimentale**: la presenza del parser **non garantisce** che audio MP3, connettività Wi-Fi, touch e stabilità della riproduzione siano stati collaudati sul firmware corrente.
+**Sezione ripristinata dalle istruzioni del 30 ottobre 2026 e verificata contro il codice presente il 5 novembre.** I comandi sono realmente previsti da `platforms/esp32/main/signal_wifi_console.cpp` e `signal_radio_stream.cpp`, ma la radio resta **sperimentale**: la presenza del parser **non garantisce** che audio MP3, connettività Wi-Fi, touch e stabilità della riproduzione siano stati collaudati sul firmware corrente.
 
 ### Come entrare nella modalità radio
 
-Il firmware di prova attuale definisce \`MOTO_SIGNAL_MODE_SWITCH\` in \`platforms/esp32/main/CMakeLists.txt\`. Nella pagina GPS, il pulsante rotondo con simbolo Wi-Fi a circa **ore 3** richiede un **riavvio software controllato in modalità radio**. GPS e BLE non lavorano contemporaneamente alla radio: durante il test il normale sistema di navigazione è disabilitato fino al ritorno alla modalità GPS. Non usare questa funzione durante la guida. La configurazione isolata \`MOTO_SIGNAL_WIFI_LAB_BOOT\` è una variante da laboratorio: non attivarla senza ricompilare intenzionalmente un firmware di test.
+Il firmware di prova attuale definisce `MOTO_SIGNAL_MODE_SWITCH` in `platforms/esp32/main/CMakeLists.txt`. Nella pagina GPS, il pulsante rotondo con simbolo Wi-Fi a circa **ore 3** richiede un **riavvio software controllato in modalità radio**. GPS e BLE non lavorano contemporaneamente alla radio: durante il test il normale sistema di navigazione è disabilitato fino al ritorno alla modalità GPS. Non usare questa funzione durante la guida. La configurazione isolata `MOTO_SIGNAL_WIFI_LAB_BOOT` è una variante da laboratorio: non attivarla senza ricompilare intenzionalmente un firmware di test.
 
 Per tornare alla navigazione usare il controllo **GPS** dell'interfaccia radio, se disponibile e funzionante. Altrimenti, interrompere il test e riavviare normalmente il dispositivo: un'accensione da spento torna alla modalità GPS predefinita. Non presumere che una semplice riconnessione BLE basti mentre è attiva la radio.
 
@@ -481,22 +481,22 @@ radio stop
 wifi off
 ~~~
 
-Il separatore \`|\` mantiene gli spazi nel nome rete: ad esempio \`wifi set Hotspot di prova|PasswordDiProva123\`. Sono accettate anche le varianti \`wifi set SSID PASSWORD\` e \`wifi set "SSID con spazi" PASSWORD\`. **SSID massimo 32 caratteri**; la password WPA2 deve avere normalmente **8–63 caratteri**. Le credenziali vengono salvate nella NVS e riutilizzate da \`wifi test\`, ma il salvataggio non dimostra la riuscita della connessione.
+Il separatore `|` mantiene gli spazi nel nome rete: ad esempio `wifi set Hotspot di prova|PasswordDiProva123`. Sono accettate anche le varianti `wifi set SSID PASSWORD` e `wifi set "SSID con spazi" PASSWORD`. **SSID massimo 32 caratteri**; la password WPA2 deve avere normalmente **8–63 caratteri**. Le credenziali vengono salvate nella NVS e riutilizzate da `wifi test`, ma il salvataggio non dimostra la riuscita della connessione.
 
 | Comando da digitare | Significato / limitazione |
 | --- | --- |
-| \`wifi help\` | Elenca la sintassi disponibile |
-| \`wifi set SSID\`&#124;\`PASSWORD\` | Memorizza le credenziali (scrivere senza backtick né spazi attorno a \`|\`) |
-| \`wifi test\` | Tenta connessione alla rete salvata; controllare \`ESP_OK\` nei log |
-| \`wifi status\` | Mostra stato connessione |
-| \`wifi off\` | Disconnette il Wi-Fi |
-| \`radio list\` | Elenca le stazioni definite nel firmware |
-| \`radio play\` / \`radio play 1\` | Avvia lo streaming della prima stazione, solo con Wi-Fi connesso |
-| \`radio play 2\` | Avvia la stazione numero 2, se esiste |
-| \`radio stop\` | Ferma la riproduzione **mentre è in esecuzione**; a riproduzione inattiva segnala che non sta suonando |
-| \`radio volume 20\` | Durante lo streaming imposta il volume (range 0–100); non è comando principale del prompt inattivo |
+| `wifi help` | Elenca la sintassi disponibile |
+| `wifi set SSID`&#124;`PASSWORD` | Memorizza le credenziali (scrivere senza backtick né spazi attorno a `|`) |
+| `wifi test` | Tenta connessione alla rete salvata; controllare `ESP_OK` nei log |
+| `wifi status` | Mostra stato connessione |
+| `wifi off` | Disconnette il Wi-Fi |
+| `radio list` | Elenca le stazioni definite nel firmware |
+| `radio play` / `radio play 1` | Avvia lo streaming della prima stazione, solo con Wi-Fi connesso |
+| `radio play 2` | Avvia la stazione numero 2, se esiste |
+| `radio stop` | Ferma la riproduzione **mentre è in esecuzione**; a riproduzione inattiva segnala che non sta suonando |
+| `radio volume 20` | Durante lo streaming imposta il volume (range 0–100); non è comando principale del prompt inattivo |
 
-**Diagnosi:** se \`wifi status\` non risponde, controllare la modalità radio attiva, la porta COM e il terminatore di linea. Se il Wi-Fi non si connette, verificare frequenza 2,4 GHz, password, copertura e messaggio \`Wi-Fi connect result: ...\`. Se \`radio play\` non produce suono, verificare i messaggi \`HTTP status\`, \`MP3 decoder\`, \`Speaker opened\` e memoria disponibile: il percorso decoder/audio è sperimentale e potrebbe non funzionare anche con risposta HTTP 200. Non cancellare NVS per tentativi, perché contiene credenziali e altre configurazioni.
+**Diagnosi:** se `wifi status` non risponde, controllare la modalità radio attiva, la porta COM e il terminatore di linea. Se il Wi-Fi non si connette, verificare frequenza 2,4 GHz, password, copertura e messaggio `Wi-Fi connect result: ...`. Se `radio play` non produce suono, verificare i messaggi `HTTP status`, `MP3 decoder`, `Speaker opened` e memoria disponibile: il percorso decoder/audio è sperimentale e potrebbe non funzionare anche con risposta HTTP 200. Non cancellare NVS per tentativi, perché contiene credenziali e altre configurazioni.
 
 **Sicurezza:** la console può mostrare in chiaro la password digitata, e le credenziali NVS potrebbero non essere cifrate. Per prove e screenshot/log usare solo una rete di test; non pubblicare password, SSID personali o log con dati sensibili. **Non eseguire streaming radio in parallelo alla navigazione.**
 
