@@ -4,6 +4,8 @@
 
 ## Riconoscimento rotonde multi-way, scoring e priorità GPS — 2026-11-05
 
+**Verifica CI successiva al commit `abc7ae6`:** workflow [41990146732](https://github.com/thriller47/moto-gps-waveshare/actions/runs/41990146732), stato `completed/success`. Job Android `Build Android app` riuscito con `./gradlew build -x lint -x lintVitalRelease --build-cache` (compilazione e test Gradle) e APK debug caricato come artifact. Job `native` ed `esp32` correttamente saltati per assenza di modifiche. **Nessun collaudo su strada di questa nuova logica effettuato**: il risultato CI non verifica antìcipo delle uscite, falsi positivi, stabilità FPS/BLE o scene senza contesto; questi restano il passo successivo. Per la sola documentazione usare `[skip ci]` e non avviare un'altra build.
+
 **Branch di lavoro:** `test/road-contrast-cleanup-20261104`, baseline runtime `8243eb8` (20/160). **NON integrato in `valhalla`.** Modifica sperimentale successiva alla prova 20/160 (178 scene, 152 scene al limite 20 strade, massimo 132 punti, 153/153 revisioni combacianti Android/ESP32), per migliorare riconoscimento anticipato delle rotonde e preservare strade locali dopo deviazioni. **Filtro dei livelli e grade separation ESPLICITAMENTE DISABILITATO** per decisione dell'utente: non è stato riattivato.
 
 **Implementazione Android predisposta in un unico change-set:**
