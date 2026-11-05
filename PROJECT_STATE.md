@@ -1,5 +1,54 @@
 # Moto GPS — Project State
 
+## Roadmap approvata: registrazione GPS completa e simulatore interfaccia ESP32 su Windows — 2026-11-05
+
+**Decisione utente:** prima realizzare un sistema completo di registrazione e riproduzione della navigazione, quindi usare i dati per **simulare sul PC Windows il comportamento grafico dell'ESP32** e accelerare il debug di svincoli, rotatorie, tornanti, zoom, strade grigie e guasti di comunicazione. Questo è un **piano, non un'implementazione**. Continuare a lavorare nel branch sperimentale \`test/road-contrast-cleanup-20261104\`; nessun merge su \`valhalla\` senza autorizzazione. Lo stato delle prove stradali resta distinto dal CI.
+
+### Fase 0 — Proteggere la versione funzionante e preparare casi riproducibili
+
+- L'ultima prova ha confermato **solo l'inserimento senza disconnessione immediata** di una tappa: non sono ancora verificati l'arrivo alla tappa, la prosecuzione, il ricalcolo con tappe né la ri-sincronizzazione dopo disconnessione volontaria durante navigazione.
+- L'ultima selezione corridoio/rotatorie è il commit Android \`c57adb2\`; [CI 42079332773](https://github.com/thriller47/moto-gps-waveshare/actions/runs/42079332773) verificata \`completed/success\` (Android verde, ESP32/native saltati perché non modificati). Mancano confronti visivi e performance su strada della nuova selezione.
+- Conservare campioni di prova riproducibili: rotatorie con 5–8 rami, svincoli, viadotti/sottopassi, tornanti, percorso fuori rotta, GPS fermo o poco preciso, tappa intermedia e riconnessione BLE. Stabilire *prima* gli indicatori: comparsa delle uscite alla distanza corretta, copertura contestuale, 20/160, drop delle scene, FPS e display-lock timeout.
+
+### Fase 1 — Nuovo registratore GPS/navigazione completo sul telefono Android (PRIMA del simulatore)
+
+**Limite dei log attuali:** \`DiagnosticLog\` salva solo eventi sintetici e **omette volutamente latitudine/longitudine, geometrie e contenuti completi**; gli ZIP attuali non consentono replay fedele. Non estendere indiscriminatamente il log testuale continuo né scrivere sulla flash ESP32 durante la guida.
+
+Definire un **trace versionato** separato, ad esempio archivio ZIP contenente \`manifest.json\` + \`events.jsonl\` (JSON Lines; nome/schema da confermare all'implementazione), con **record ordinati e numerati**. Registrazione esplicitamente attivata dall'utente e esportabile; nessuna raccolta automatica continua di itinerari e coordinate precise. Campi richiesti, ove forniti dalle API e con indicazione chiara di valore mancante:
+
+1. **Sincronizzazione:** timestamp UTC, tempo monotono Android, progressivo evento, sessione, versione APK/firmware, versioni codec/protocollo, coordinate e unità, sorgente dei dati, impostazioni navigazione. Preservare intervalli reali, ordinamento e ripartenze di processo/sessione BLE.
+2. **Fix GNSS grezzi e accettati/rifiutati:** lat/lon, velocità, rotta/bearing, accuratezza orizzontale e verticale, accuratezza velocità/rotta, quota, provider, età fix, flag mock se disponibile, esito e motivo filtro GNSS. Separare movimento reale, predizione/interpolazione e heading derivato da sensori/IMU.
+3. **Routing e progresso:** origine/destinazione e tappe ordinate, preferenze, fonte Valhalla offline/online, rotta completa in punti e manovre/offset, generazione/token, progress metri, distanza manovra/arrivo, velocità e limite strada, stato navigazione/arrivo, trigger e risultati di \`REROUTE\`, prossimo waypoint, errori.
+4. **Scena reale destinata all'ESP32:** snapshot di navigazione **già normalizzato**, finestra di rotta trasmessa, origin/radius/revision, polilinee grigie **con punti, classe e ordine**, candidate/focus ring/rami/slot, zoom e stato telefono/BLE ove disponibili. Registrare esattamente cosa è stato **prodotto e inviato**, distinguendolo dai dati MotoMap/Valhalla originali.
+5. **Trasporto e display:** inizio/fine handshake, session ID, GATT errors e retry, tempi e ordine dei messaggi BLE (snapshot/geometry/map scene), drop/coalescing, eventuali ACK; diagnostica ESP32 correlata tramite uptime, revisione scena, FPS, lock/timeout, stato batteria/riconnessione. Le immagini effettive sul display **non sono già disponibili** nei log: un eventuale confronto fotografico/video sarà un dato separato, non inventato dal trace.
+
+**Vincoli:** scrittura asincrona su Android con buffer/coda limitata, file a rotazione e limiti dimensionali; priorità alla navigazione e a BLE, mai bloccare UI/GPS; contatori di perdita espliciti; no coordinate/password nei log normali; opzione di esclusione o anonimizzazione per gli export. Verificare permessi e privacy perché un trace completo contiene **posizioni e itinerari personali**. Test: serializzazione/deserializzazione con golden fixtures, monotonicità, perdita controllata, export/import, percorsi lunghi, riconnessione e compatibilità fra versioni. **Deliverable:** una registrazione reale di 10–20 minuti che possa essere caricata e riprodotta senza rete, telefono o ESP32.
+
+### Fase 2 — Simulatore Windows dell'ESP32, basato sul renderer di produzione
+
+- Usare il **medesimo codice** \`shared/nav_presenter\` e \`shared/nav_ui\` (LVGL, RGB565, canvas 466×466) e, ove possibile, la macchina di stato effettiva \`platforms/esp32/main/phone_nav_bridge.cpp\`. I test \`tests/native/nav_ui_render_tests.cpp\` già renderizzano in modalità headless con LVGL; non rappresentano però una GUI interattiva Windows già pronta. Preparare port desktop LVGL con framebuffer o SDL, CMake e toolchain Windows (MSVC/MinGW da scegliere dopo spike).
+- Player per importare il trace, play/pausa, velocità 0,25×–8×, singolo frame/evento, avanzamento di 1/5/10 s, seek a timestamp/manovra, loop di un tratto, freeze GPS, deviazioni e disconnessioni BLE controllate. La riproduzione deve usare il **tempo del trace**, non l'orologio del PC, e conservare l'ordine originale dei messaggi.
+- Visualizzare virtualmente il display AMOLED circolare 466×466, con pannello di debug separato: GPS vs posizione renderizzata, heading, velocità, raggio/zoom, distanza svolta, rotta verde, ring e uscite, conteggio strade/punti per ruolo, revisione/latency della scena, stato BLE; esportare screenshot PNG e sequenze di immagini per confronto. Non creare mappe/uscite artificiali assenti dagli eventi registrati.
+- Specificare due modalità: **replay esatto degli input BLE registrati** (diagnosi del renderer/ESP32) e **ricalcolo offline lato Android con gli stessi fix GNSS** (diagnosi della selezione MotoMap, utile ma dipendente dagli asset/engine). Tenere separati chiaramente gli esiti dei due esperimenti. Se si simula il solo presenter non chiamarlo una riproduzione esatta del firmware su hardware.
+
+**Deliverable:** eseguibile Windows avviabile senza ESP32, che ricostruisce la stessa sequenza di schermate da uno stesso file; validazione visuale del primo trace reale su scene di rotatoria e svincolo. Esplicitare limiti dell'emulazione: timings QSPI/TE/DMA, BLE radio, PSRAM e sensore fisico richiedono ancora test sull'hardware.
+
+### Fase 3 — Debug deterministico, regressioni e interventi alla selezione strade
+
+- Automatizzare fixture e screenshot/frame-hash dal renderer **reale** (come i test headless LVGL esistenti); confrontare stato e grafica prima/dopo una modifica e costruire test di regressione per uscita mancante, ring incompleto, incrocio sopra/sotto, strada irrilevante, sovraccarico 20/160, zoom 4×, posizione 20–30m in ritardo, BLE reconnect, passaggio waypoint.
+- Usare il replay per misurare **quanto prima** un'uscita viene selezionata, se è stata omessa per mancanza di nodi OSM o per slot, e quali strade secondarie hanno occupato il budget. Mantenere il filtro layer/grade separation **disattivato** salvo una soluzione verificata; 24/192 solo come successivo esperimento distinto dopo test di fluidità.
+- Generare report comparabili: tempo/posizione di prima apparizione uscita, numero di uscite topologicamente valide e realmente trasmesse, differenze di scena e pixel, costo CPU/tempi update host (non equiparare FPS host a FPS ESP32), coalescing/ACK e gap del trace. Dopo i test sintetici, validare le modifiche sul mezzo con lo stesso percorso e nuovi log.
+
+### Ordine operativo e criterio di completamento
+
+1. Congelare un trace minimo e un contratto di eventi/manifest; implementare/esportare/verificare la cattura Android **prima** del simulatore.
+2. Produrre un primo replay headless identico in sequenza e un player Windows con vista 466×466.
+3. Importare un giro reale, riprodurre una rotatoria con uscita tardiva e determinare se il difetto nasce **in Android, durante BLE o nel renderer ESP32**.
+4. Aggiungere test regressione e migliorare selezione/zoom; **una CI consolidata a fine change-set**, test hardware prima dell'eventuale merge \`valhalla\`.
+
+**Stato e controlli 2026-11-05:** roadmap e ripristino documentazione radio **soltanto documentali**; nessun nuovo registratore o simulatore implementato, nessun test eseguito per questa nota, nessun firmware flashato. La procedura del manuale radio è stata ripristinata riferendosi al parser \`signal_wifi_console.cpp\` realmente presente e viene etichettata sperimentale/isolata. **Prossima azione di sviluppo:** definire schema v1 del trace e test di roundtrip/import, poi instrumentazione Android opt-in a basso impatto.
+
+
 ## Priorità corridoio di percorso e anticipazione svincoli/rotatorie — 2026-11-05
 
 **Feedback:** miglioramenti visibili ma ancora troppe strade periferiche che saturano i 20 slot; svincoli e uscite di rotatoria compaiono in ritardo. Non confondere con il bug precedente della tappa: ultima prova di semplice inserimento riuscita, test completo con tappa su strada ancora da fare. **Branch sperimentale** `test/road-contrast-cleanup-20261104`; `valhalla` invariato.

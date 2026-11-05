@@ -3,7 +3,7 @@
 **Riferimento:** repository thriller47/moto-gps-waveshare, branch principale **valhalla**. 
 **Scheda:** Waveshare ESP32-S3-Touch-AMOLED-1.75C, 32 MB flash, 8 MB PSRAM.
 **Porta negli esempi:** **COM3**. I blocchi sono etichettati **PowerShell** o **CMD**: usare la shell indicata. 
-**Aggiornato:** 4 novembre 2026 (sezione MotoMap v3 sperimentale). Controllare prima PROJECT_STATE.md e AGENTS.md.
+**Aggiornato:** 5 novembre 2026 (ripristino console radio sperimentale; piano simulatore Windows in PROJECT_STATE.md). Controllare prima PROJECT_STATE.md e AGENTS.md.
 
 > **Attenzione:** il branch main è stato eliminato; signal resta solo come storico OSM online. Non usare né main né NoOta come base. Effettuare il flash soltanto con immagini della scheda 1.75C.
 
@@ -251,7 +251,7 @@ Il convertitore Python è in memoria e l'intera Italia può usare diversi GB di 
 
 ### MotoMap v3: poligono di copertura e topologia dei cavalcavia (branch test)
 
-**Stato al 4 novembre 2026:** nel branch sperimentale `test/road-contrast-cleanup-20261104`, il convertitore genera **MotoMap v3** (`motomap_v3.json`). Oltre alle tile z15, conserva gli ID dei nodi OSM (base36) e il livello strada/ponte/galleria, usati dal filtro Android per evitare di rappresentare come incroci collegati i cavalcavia. Il file `coverage_z14.txt` continua a certificare solo le celle interamente comprese nel perimetro Geofabrik. I pacchetti v2 restano supportati dall'app; `valhalla` rimane separato fino alla prova completa.
+**Stato al 4 novembre 2026:** nel branch sperimentale `test/road-contrast-cleanup-20261104`, il convertitore genera **MotoMap v3** (`motomap_v3.json`). Oltre alle tile z15, conserva gli ID dei nodi OSM (base36) e il livello strada/ponte/galleria, disponibili per l'analisi topologica delle connessioni; **il filtro di livello/cavalcavia è attualmente disabilitato** dopo regressioni su strada, quindi questi metadati non vengono usati per nascondere strade. Il file `coverage_z14.txt` continua a certificare solo le celle interamente comprese nel perimetro Geofabrik. I pacchetti v2 restano supportati dall'app; `valhalla` rimane separato fino alla prova completa.
 
 Conservare PBF e `.poly` in `C:\MotoGPS\PBF` e usare lo **script del branch test**, non quello di `valhalla` finché il merge non sarà approvato. Esempio PowerShell:
 
@@ -444,7 +444,63 @@ python scripts\diagnostics\decode_esp32_trace.py esp-diag.bin
 Il decoder produce `esp-diag.csv` con **solo** vecchi eventi.
 Con esptool 4.x usare `read_flash` al posto di `read-flash`.
 
-## 7. Promemoria rapido
+## 7. Radio Wi-Fi — console seriale di configurazione e prova (modalità isolata)
+
+**Sezione ripristinata dalle istruzioni del 30 ottobre 2026 e verificata contro il codice presente il 5 novembre.** I comandi sono realmente previsti da \`platforms/esp32/main/signal_wifi_console.cpp\` e \`signal_radio_stream.cpp\`, ma la radio resta **sperimentale**: la presenza del parser **non garantisce** che audio MP3, connettività Wi-Fi, touch e stabilità della riproduzione siano stati collaudati sul firmware corrente.
+
+### Come entrare nella modalità radio
+
+Il firmware di prova attuale definisce \`MOTO_SIGNAL_MODE_SWITCH\` in \`platforms/esp32/main/CMakeLists.txt\`. Nella pagina GPS, il pulsante rotondo con simbolo Wi-Fi a circa **ore 3** richiede un **riavvio software controllato in modalità radio**. GPS e BLE non lavorano contemporaneamente alla radio: durante il test il normale sistema di navigazione è disabilitato fino al ritorno alla modalità GPS. Non usare questa funzione durante la guida. La configurazione isolata \`MOTO_SIGNAL_WIFI_LAB_BOOT\` è una variante da laboratorio: non attivarla senza ricompilare intenzionalmente un firmware di test.
+
+Per tornare alla navigazione usare il controllo **GPS** dell'interfaccia radio, se disponibile e funzionante. Altrimenti, interrompere il test e riavviare normalmente il dispositivo: un'accensione da spento torna alla modalità GPS predefinita. Non presumere che una semplice riconnessione BLE basti mentre è attiva la radio.
+
+### Monitor seriale su Windows
+
+Collegare la scheda via USB e identificare la porta corretta nel Gestione dispositivi (negli esempi **COM3**, che può variare). Il parser riceve righe sul terminale seriale USB ESP-IDF. Aprire **un solo programma seriale alla volta**, a **115200 baud** con fine riga **LF/Newline** (in genere è accettato anche CRLF). **Esempio da CMD**, con Python già installato:
+
+~~~cmd
+python -m pip install pyserial
+python -m serial.tools.miniterm COM3 115200 --eol LF
+~~~
+
+Nel caso di monitor che non supportano input bidirezionale usare un terminale interattivo (ad esempio Arduino IDE Serial Monitor, con **Newline**). Per uscire da miniterm: **Ctrl+]**. I comandi qui sotto vanno digitati **dentro il monitor seriale, non nel CMD o PowerShell**.
+
+### Configurare hotspot e avviare radio
+
+Accendere un hotspot di prova **Wi-Fi 2,4 GHz** e annotarne nome e password. Nel monitor seriale, una riga alla volta:
+
+~~~text
+wifi help
+wifi status
+wifi set MotoGPS_Test|PasswordDiProva123
+wifi test
+wifi status
+radio list
+radio play 1
+radio stop
+wifi off
+~~~
+
+Il separatore \`|\` mantiene gli spazi nel nome rete: ad esempio \`wifi set Hotspot di prova|PasswordDiProva123\`. Sono accettate anche le varianti \`wifi set SSID PASSWORD\` e \`wifi set "SSID con spazi" PASSWORD\`. **SSID massimo 32 caratteri**; la password WPA2 deve avere normalmente **8–63 caratteri**. Le credenziali vengono salvate nella NVS e riutilizzate da \`wifi test\`, ma il salvataggio non dimostra la riuscita della connessione.
+
+| Comando da digitare | Significato / limitazione |
+| --- | --- |
+| \`wifi help\` | Elenca la sintassi disponibile |
+| \`wifi set SSID\`&#124;\`PASSWORD\` | Memorizza le credenziali (scrivere senza backtick né spazi attorno a \`|\`) |
+| \`wifi test\` | Tenta connessione alla rete salvata; controllare \`ESP_OK\` nei log |
+| \`wifi status\` | Mostra stato connessione |
+| \`wifi off\` | Disconnette il Wi-Fi |
+| \`radio list\` | Elenca le stazioni definite nel firmware |
+| \`radio play\` / \`radio play 1\` | Avvia lo streaming della prima stazione, solo con Wi-Fi connesso |
+| \`radio play 2\` | Avvia la stazione numero 2, se esiste |
+| \`radio stop\` | Ferma la riproduzione **mentre è in esecuzione**; a riproduzione inattiva segnala che non sta suonando |
+| \`radio volume 20\` | Durante lo streaming imposta il volume (range 0–100); non è comando principale del prompt inattivo |
+
+**Diagnosi:** se \`wifi status\` non risponde, controllare la modalità radio attiva, la porta COM e il terminatore di linea. Se il Wi-Fi non si connette, verificare frequenza 2,4 GHz, password, copertura e messaggio \`Wi-Fi connect result: ...\`. Se \`radio play\` non produce suono, verificare i messaggi \`HTTP status\`, \`MP3 decoder\`, \`Speaker opened\` e memoria disponibile: il percorso decoder/audio è sperimentale e potrebbe non funzionare anche con risposta HTTP 200. Non cancellare NVS per tentativi, perché contiene credenziali e altre configurazioni.
+
+**Sicurezza:** la console può mostrare in chiaro la password digitata, e le credenziali NVS potrebbero non essere cifrate. Per prove e screenshot/log usare solo una rete di test; non pubblicare password, SSID personali o log con dati sensibili. **Non eseguire streaming radio in parallelo alla navigazione.**
+
+## 8. Promemoria rapido
 
 | Operazione | File / comando |
 | --- | --- |
@@ -456,7 +512,8 @@ Con esptool 4.x usare `read_flash` al posto di `read-flash`.
 | Grafo Valhalla | WSL2/Ubuntu, `pyvalhalla==3.9.1`, 2 thread → **.tar.zst** |
 | Log diagnostici attuali | Android → Condividi diagnostica → **.zip** |
 | Log ESP32 storici | `read-flash` e decoder; soltanto firmware precedenti |
+| Console radio sperimentale | Modalità isolata con pulsante Wi-Fi; COM3 (se corrisponde alla porta USB), 115200, `wifi help`, `wifi set`, `wifi test`, `radio list`, `radio play` |
 
-Il vecchio backend/gateway e la modalità radio seriale non fanno parte del flusso operativo corrente del branch di test. Per lo storico consultare i commit precedenti, non tentare i comandi radio sulla normale schermata GPS.
+Il vecchio backend/gateway è fuori uso. La **radio seriale di test è ancora presente nel codice firmware**, ma si usa esclusivamente dopo il passaggio alla **modalità radio isolata** (sezione 7), mai nella normale schermata GPS. Non considerarla una funzione audio stabile o contemporanea alla navigazione.
 
 **Prima del flash:** leggere `PROJECT_STATE.md`, controllare commit e run degli artifact. CI verde non equivale a test su strada.
