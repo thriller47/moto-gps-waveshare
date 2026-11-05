@@ -1,5 +1,23 @@
 # Moto GPS — Project State
 
+## Roadmap: modalità Pausa Caffè — standby BLE e riattivazione da Android — 2026-11-05
+
+**Richiesta e obiettivo motociclistico:** dopo l'autospegnimento già realizzato, prevedere una **sosta breve a basso consumo** per una pausa caffè, con riattivazione del navigatore dal telefono senza dover premere il pulsante PWR. **Funzionalità proposta, NON implementata** da questa annotazione.
+
+**Schema di comportamento da prototipare:**
+1. Dopo i 120 secondi attualmente usati come timeout dopo arrivo a destinazione oppure disconnessione BLE (il timer si arma solo dopo una prima connessione), **entrare prima in standby** anziché spegnere immediatamente. Valutare eventuale sospensione anticipata tramite comando esplicito dell'utente, senza compromettere l'uso in marcia.
+2. Nello standby spegnere in modo sicuro il pannello **CO5300 AMOLED** (non è una retroilluminazione), sospendere rendering LVGL, flush DMA/TE e sensori/attività non necessari, ridurre il carico CPU. Mantenere NimBLE operativo in modalità idonea, con advertising a basso consumo quando scollegato: **questo non è deep sleep** e l'assorbimento residuo deve essere misurato fisicamente.
+3. **Risveglio via Android:** alla riapertura dell'app o alla ripresa di una navigazione, Android rileva/riconnette l'ESP32 ancora alimentato e invia un comando di wake autorizzato oppure un messaggio di sessione appropriato (protocollo da definire e collaudare). Ripristinare pannello/LVGL, stato UI e ordine geometry → snapshot, senza reintrodurre il vecchio problema di navigazione non ripresa dopo riconnessione. Evitare wake spurii da scansioni BLE di altri dispositivi.
+4. **Sosta prolungata:** durata proposta di **15 minuti di standby**, preferibilmente configurabile da Android, poi spegnimento completo mediante **AXP2101** con fallback deep sleep come nel percorso di power-off esistente. A spegnimento PMIC avvenuto, **Android non può più svegliare via BLE**: resta necessario il tasto PWR, salvo una futura modifica hardware da studiare separatamente. Possibile spegnimento immediato sotto una soglia di batteria sicura.
+5. Qualsiasi risveglio deve annullare correttamente il timer di autospegnimento; gestire con priorità l'avvio rotta e la pressione PWR, gli arrivi, la chiusura app, Bluetooth Android spento, timeout e carica USB. Non permettere che un timer vecchio spenga l'ESP32 dopo una riconnessione riuscita.
+
+**Punti tecnici da verificare nel sorgente prima di implementare:** `platforms/esp32/main/app_main.cpp` oggi chiama `power_down()` dopo 120s e usa `board_port_power_off()` AXP2101, con fallback `esp_deep_sleep_start()` e wake su PWR/GPIO3; `board_port_waveshare_1_75c.cpp` gestisce pannello/TE/DMA; BLE è NimBLE e il display usa LVGL. Verificare API CO5300 display on/off, sincronizzazione LVGL worker e sicurezza thread/lock, advertising e parametri NimBLE di risparmio, opzioni sleep CPU che **mantengano effettivamente BLE**, stato di carica e riaccensione del PMIC. Nessuna stima di consumo/risveglio va dichiarata validata prima di misure.
+
+**Test richiesti:** test nativi per la macchina a stati `ACTIVE → STANDBY → ACTIVE / POWER_OFF`, annullamento timeout e comandi autorizzati; test Android per riconnessione/wake; prove su hardware con amperometro a display acceso/spento, BLE connesso/in advertising, batteria e alimentazione USB; cicli ripetuti di sospensione/risveglio, route BLE e ricostruzione completa scena, verifica FPS/lock dopo wake e spegnimento dopo 15 minuti. Prima del merge ottenere test hardware positivo; `valhalla` deve rimanere invariato.
+
+**Collocazione roadmap:** sviluppo isolato dopo il banco prova Windows e il primo consolidamento delle migliorie grafiche, con priorità relativamente alta come funzione d'uso quotidiano in moto. Le procedure utente del manuale non cambiano finché la funzione non esiste. **Questa sessione modifica solo `PROJECT_STATE.md`**, senza test, build o flash; documento versionato con commit `[skip ci]`. **Prossima azione specifica di questa funzione:** definire la macchina a stati e misurare l'assorbimento attuale per stabilire obiettivi realistici di risparmio.
+
+
 ## Decisione di prodotto: solo moto; simulatore, zoom intelligente, routing panoramico/ad anello — 2026-11-05
 
 **Ambito vincolante:** Moto Chat GPS rimane un navigatore **dedicato esclusivamente alle motociclette**. Non sviluppare profili camper, funzioni per veicoli pesanti o restrizioni di sagoma/peso come requisito di prodotto. Il camper era stato menzionato **solo come eventuale mezzo per una prova di lunga percorrenza (long-range test)**, utile a raccogliere log estesi di autonomia, stabilità BLE, GPS, routing e rendering; non cambia l'utenza prevista.
