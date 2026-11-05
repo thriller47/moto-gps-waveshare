@@ -61,7 +61,9 @@ internal object RoadContextJunctions {
         val confidence: Int,
         val gpsDistanceM: Double,
         val upcomingDistanceM: Double,
-        val key: String
+        val key: String,
+        val rawExitWays: Int,
+        val distinctExitBranches: Int
     )
     data class Analysis(
         val focus: Priority?,
@@ -75,6 +77,100 @@ internal object RoadContextJunctions {
         val lengthM: Double
     )
     private data class Step(val index: Int, val forward: Boolean)
+    /** A connected outgoing direction, not simply one arbitrary OSM way. */
+    private data class ExitBranch(
+        val road: MapRoadSegment,
+        val nodeId: Long,
+        val attachment: GeoPointE6,
+        val bearingRad: Double,
+        val relevanceM: Double
+    )
+    private data class ExitChoices(
+        val selected: List<ExitBranch>,
+        val connectedWays: Int,
+        val distinctBranches: Int
+    )
+
+    private fun chooseExits(
+        roads: List<MapRoadSegment>,
+        members: Set<MapRoadSegment>,
+        ringPoints: List<GeoPointE6>,
+        nodeIds: List<Long>,
+        gps: GeoPointE6,
+        upcoming: GeoPointE6?,
+        metric: Metric
+    ): ExitChoices {
+        if (nodeIds.size != ringPoints.size) return ExitChoices(emptyList(), 0, 0)
+        val attachments = LinkedHashMap<Long, GeoPointE6>()
+        nodeIds.forEachIndexed { index, id ->
+            if (id > 0L) attachments.putIfAbsent(id, ringPoints[index])
+        }
+        if (attachments.isEmpty()) return ExitChoices(emptyList(), 0, 0)
+        val candidates = ArrayList<ExitBranch>()
+        var ways = 0
+        for (road in roads) {
+            if (road in members || road.points.size < 2 ||
+                road.nodeIds.size != road.points.size) continue
+            val connected = road.nodeIds.indices.filter { road.nodeIds[it] in attachments }
+            if (connected.isEmpty()) continue
+            ways++
+            // A way may touch the ring at more than one vertex. Use its
+            // closest verifiable attachment and an outward tangent.
+            val index = connected.minByOrNull { ix ->
+                val anchor = attachments.getValue(road.nodeIds[ix])
+                minOf(metric.distance(anchor, gps),
+                    upcoming?.let { metric.distance(anchor, it) }
+                        ?: Double.POSITIVE_INFINITY)
+            } ?: continue
+            val attach = attachments.getValue(road.nodeIds[index])
+            val neighbour = when {
+                index < road.points.lastIndex &&
+                    road.nodeIds[index + 1] !in attachments -> index + 1
+                index > 0 && road.nodeIds[index - 1] !in attachments -> index - 1
+                index < road.points.lastIndex -> index + 1
+                else -> index - 1
+            }
+            val (dx, dy) = metric.toXY(road.points[neighbour], road.points[index])
+            if (hypot(dx, dy) < 0.8) continue
+            val relevance = minOf(metric.distance(attach, gps),
+                upcoming?.let { metric.distance(attach, it) }
+                    ?: Double.POSITIVE_INFINITY)
+            candidates.add(ExitBranch(road, road.nodeIds[index], attach,
+                kotlin.math.atan2(dy, dx), relevance))
+        }
+
+        // Multiple OSM ways may model the SAME departure. Group only when
+        // they meet at the same real node and depart in almost the same
+        // direction; different directions at one node remain separate.
+        val distinct = ArrayList<ExitBranch>()
+        for (candidate in candidates.sortedBy { it.relevanceM }) {
+            val duplicate = distinct.any { other ->
+                if (candidate.nodeId != other.nodeId) false
+                else {
+                    val delta = kotlin.math.abs(candidate.bearingRad - other.bearingRad)
+                    minOf(delta, 2 * PI - delta) <= Math.toRadians(25.0)
+                }
+            }
+            if (!duplicate) distinct.add(candidate)
+        }
+        if (distinct.size <= 5) return ExitChoices(distinct, ways, distinct.size)
+
+        // One near approach first, then distribute the limited five slots
+        // around the ring rather than filling them with neighbouring ways.
+        val chosen = ArrayList<ExitBranch>()
+        chosen.add(distinct.first())
+        while (chosen.size < 5) {
+            val next = distinct.filterNot { it in chosen }.maxByOrNull { branch ->
+                val separation = chosen.minOf {
+                    metric.distance(branch.attachment, it.attachment)
+                }
+                separation + (180.0 - branch.relevanceM.coerceAtMost(180.0)) * 0.15
+            } ?: break
+            chosen.add(next)
+        }
+        return ExitChoices(chosen, ways, distinct.size)
+    }
+
 
     private fun length(points: List<GeoPointE6>, metric: Metric): Double =
         points.zipWithNext().sumOf { (a, b) -> metric.distance(a, b) }
@@ -146,22 +242,12 @@ internal object RoadContextJunctions {
             val memberSet = members.toSet()
             val ringNodeIds = if (nodeIds.size == points.size)
                 nodeIds.filter { it > 0L }.toHashSet() else hashSetOf<Long>()
-            val exits = roads.asSequence().filter { road ->
-                road !in memberSet && road.nodeIds.size == road.points.size &&
-                    road.nodeIds.any { it > 0L && it in ringNodeIds }
-            }.distinct().sortedBy { road ->
-                val linked = road.points.filterIndexed { index, _ ->
-                    road.nodeIds[index] in ringNodeIds
-                }
-                linked.minOfOrNull { metric.nearest(points, it) }
-                    ?: Double.POSITIVE_INFINITY
-            }.take(8).toList()
-            val attachedIds = exits.flatMap { road ->
-                road.nodeIds.filter { it > 0L && it in ringNodeIds }
-            }.toHashSet()
-            val protected = if (nodeIds.size == points.size) {
-                points.filterIndexed { index, _ -> nodeIds[index] in attachedIds }.toSet()
-            } else emptySet()
+            val choices = chooseExits(roads, memberSet, points, nodeIds,
+                gps, upcoming, metric)
+            val exits = choices.selected.map { it.road }
+            // Preserve exactly the junction vertices we are drawing, not
+            // every connected way that could not fit the five exit slots.
+            val protected = choices.selected.map { it.attachment }.toSet()
 
             val topological = nodeIds.size == points.size && nodeIds.firstOrNull()?.let {
                 it > 0L && it == nodeIds.last()
@@ -199,7 +285,8 @@ internal object RoadContextJunctions {
                 points = points, nodeIds = nodeIds
             )
             val option = Priority(ring, members, exits, protected, score,
-                gpsDistance, aheadDistance, key)
+                gpsDistance, aheadDistance, key,
+                choices.connectedWays, choices.distinctBranches)
             val previous = best
             if (previous == null || option.confidence > previous.confidence ||
                 (option.confidence == previous.confidence &&

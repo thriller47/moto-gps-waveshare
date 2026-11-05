@@ -862,7 +862,9 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                         " score=" + (focus?.confidence ?: 0) +
                         " gps_m=" + (focus?.gpsDistanceM?.toInt() ?: -1) +
                         " ahead_m=" + (focus?.upcomingDistanceM?.takeIf { it.isFinite() }?.toInt() ?: -1) +
-                        " exits_found=" + (focus?.exits?.size ?: 0) +
+                        " exit_ways=" + (focus?.rawExitWays ?: 0) +
+                        " branches=" + (focus?.distinctExitBranches ?: 0) +
+                        " prioritized=" + (focus?.exits?.size ?: 0) +
                         " excluded=" + analysis.excluded.entries.joinToString(",") {
                             it.key + ":" + it.value
                         })

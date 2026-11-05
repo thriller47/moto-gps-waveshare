@@ -21,9 +21,9 @@ constexpr lv_color_t kGraphite = LV_COLOR_MAKE(0x30, 0x35, 0x39);
 // Real surrounding roads need to remain legible on the AMOLED's true-black
 // background.  LV_OPA_70 is 70/255 (not 70 percent), which made the previous
 // road layer effectively disappear on the physical display.
-constexpr lv_color_t kRoadGray = LV_COLOR_MAKE(0xBE, 0xC5, 0xC9);
-constexpr lv_color_t kRoadMajor = LV_COLOR_MAKE(0xE0, 0xE4, 0xE6);
-constexpr lv_color_t kRoadMinor = LV_COLOR_MAKE(0x92, 0x9C, 0xA2);
+constexpr lv_color_t kRoadGray = LV_COLOR_MAKE(0xA8, 0xB0, 0xB5);
+constexpr lv_color_t kRoadMajor = LV_COLOR_MAKE(0xD0, 0xD5, 0xD8);
+constexpr lv_color_t kRoadMinor = LV_COLOR_MAKE(0x78, 0x81, 0x88);
 constexpr lv_color_t kQuiet = LV_COLOR_MAKE(0x78, 0x7E, 0x7F);
 constexpr lv_color_t kSoft = LV_COLOR_MAKE(0xAE, 0xB2, 0xB0);
 constexpr lv_color_t kAmber = LV_COLOR_MAKE(0xE6, 0xC8, 0x4F);

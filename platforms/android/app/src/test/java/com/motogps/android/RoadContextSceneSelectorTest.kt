@@ -41,7 +41,10 @@ class RoadContextSceneSelectorTest {
         val result = RoadContextSceneSelector.select(roads, focus, 45.0, 8.0,
             p(240, 0), listOf(p(0, 0), p(1000, 0)))
         assertEquals(1, result.count(RoadContextSceneSelector.Role.RING))
-        assertEquals(5, result.count(RoadContextSceneSelector.Role.EXIT))
+        // Five OSM ways correspond to only three distinct outward branches.
+        assertEquals(3, result.count(RoadContextSceneSelector.Role.EXIT))
+        assertEquals(5, focus?.rawExitWays)
+        assertEquals(3, focus?.distinctExitBranches)
         assertTrue(result.count(RoadContextSceneSelector.Role.GPS) >= 6)
         assertTrue(result.slots <= 20)
         assertTrue(result.points <= 160)

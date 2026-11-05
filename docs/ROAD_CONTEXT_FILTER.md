@@ -1,5 +1,11 @@
 # MotoMap v3: connettività OSM per le strade di contesto
 
+## Raffinamento uscite e colori — prova successiva, 5 novembre 2026
+
+Le ways connesse ad un ring vengono ora raggruppate per **ID nodo OSM condiviso e direzione di partenza entro 25°**; ogni gruppo usa un solo slot prioritario (fino a cinque). Quando sono presenti più di cinque direzioni, si dà precedenza a un ramo vicino alla posizione/percorso imminente e si distribuiscono i rimanenti attorno all'anello. Non si inventano connessioni geometriche senza nodi OSM; direzioni opposte sullo stesso nodo restano distinte. Il ring conserva i nodi delle uscite selezionate. I contatori `OSM_RING` distinguono `exit_ways`, `branches`, `prioritized` e `OSM_SCENE_POLICY.exits_sent` indica gli slot realmente inviati. Il limite resta **20/160**, con minimo sei strade GPS locali quando disponibili; filtro livelli sempre **spento**.
+
+Il renderer ESP32 usa le nuove tinte: principali `#D0D5D8`, normali `#A8B0B5`, minori `#788188`. Non cambia il verde rotta. Per questa prova occorre aggiornare sia **Android** sia **firmware ESP32**; MotoMap v3 resta valido senza rigenerazione. Prova hardware e confronto con log ancora necessari.
+
 ## Esperimento attuale — 5 novembre 2026: rotonde multi-way e contesto sempre visibile
 
 Branch `test/road-contrast-cleanup-20261104` (**non integrato in `valhalla`**). Rispetto al test precedente `09d3aa8`, `RoadContextJunctions` rileva sia anelli completi su una way sia circuiti chiusi su più ways con estremi OSM condivisi. Ricerca limitata a 8 ways per ring, 90 way candidate, 3500 espansioni e 48 candidati ring per scena. La geometria deve essere chiusa entro 2,5 m, avere diametro 12–160 m, circonferenza 35–550 m e forma non degenerata. Il punteggio iniziale include chiusura OSM, geometria, prossimità, numero uscite connesse e classe stradale; richiede almeno 70 punti. **Si seleziona un solo ring**, altrimenti selezione strade ordinaria.
