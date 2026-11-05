@@ -134,6 +134,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
             return
         }
         _routeWaypoints.value = _routeWaypoints.value + place
+        DiagnosticLog.event("WAYPOINT_EDIT", "action=add count=${_routeWaypoints.value.size}")
         _waypointSearchResults.value = emptyList()
         _waypointSearchError.value = null
         previewRoute(destination)
@@ -143,6 +144,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         val destination = _routePreview.value ?: return
         if (_isNavigating.value || index !in _routeWaypoints.value.indices) return
         _routeWaypoints.value = _routeWaypoints.value.filterIndexed { i, _ -> i != index }
+        DiagnosticLog.event("WAYPOINT_EDIT", "action=remove count=${_routeWaypoints.value.size}")
         previewRoute(destination)
     }
 
@@ -153,6 +155,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         if (index !in list.indices || index + direction !in list.indices) return
         java.util.Collections.swap(list, index, index + direction)
         _routeWaypoints.value = list
+        DiagnosticLog.event("WAYPOINT_EDIT", "action=move count=${_routeWaypoints.value.size}")
         previewRoute(destination)
     }
 
@@ -318,6 +321,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
 
     fun previewRoute(place: PlaceSearchResult) {
         routePreviewJob?.cancel()
+        DiagnosticLog.event("ROUTE_PREVIEW", "begin stops=${_routeWaypoints.value.size}")
         _routePreview.value = place
         _routeOptions.value = emptyList()
         _selectedRouteIndex.value = 0
@@ -332,11 +336,15 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                     fetchRouteOptions(place)
                 }
                 _routeOptions.value = options
+                DiagnosticLog.event("ROUTE_PREVIEW",
+                    "ready stops=${_routeWaypoints.value.size} options=${options.size}")
                 _routingSource.value = if (options.isNotEmpty()) "Valhalla" else null
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 _routePreviewError.value = e.message ?: "Impossibile calcolare il percorso Valhalla"
+                DiagnosticLog.event("ROUTE_PREVIEW_ERROR",
+                    "stops=${_routeWaypoints.value.size} exception=${e.javaClass.simpleName}")
                 _errorMessage.value = "Impossibile recuperare opzioni percorso: ${e.message}"
             } finally {
                 _isLoading.value = false
@@ -389,6 +397,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         arrivalDetector.reset()
 
         navigationJob?.cancel()
+        DiagnosticLog.event("ROUTE_START", "begin stops=${_routeWaypoints.value.size}")
         navigationJob = viewModelScope.launch {
             _isLoading.value = true
             _errorMessage.value = null
@@ -406,6 +415,9 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                 currentSnapshot = snapshot
                 currentGeometry = geometry
                 turnPlan = guidance
+                DiagnosticLog.event("ROUTE_START",
+                    "ready stops=${activeWaypoints.size} route_m=${snapshot.totalDistanceM} " +
+                        "points=${geometry?.points?.size ?: 0} provider=${lastRoutingProvider.orEmpty()}")
                 routeDistanceGuard.reset()
                 routeProgressMatcher.reset(geometry?.points.orEmpty())
                 val (startLat, startLon) = currentLocation.value
@@ -520,6 +532,8 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                DiagnosticLog.event("ROUTE_START_ERROR",
+                    "stops=${activeWaypoints.size} exception=${e.javaClass.simpleName}")
                 _isNavigating.value = false
                 _hasArrived.value = false
                 arrivalDetector.reset()
@@ -1474,6 +1488,25 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                 state.contains("Ready", ignoreCase = true) ||
                 state.contains("Online", ignoreCase = true)
         if (isConnected) {
+            // A fresh BLE handshake resets ESP32-side session state. Replaying only
+            // the periodic maneuver snapshots can leave the display without its
+            // route window after a reconnect (especially with intermediate stops).
+            val replay = NavigationReconnectPolicy.actions(
+                _isNavigating.value, _hasArrived.value,
+                currentSnapshot != null, currentGeometry != null)
+            if (replay.snapshot) {
+                DiagnosticLog.event("BLE_NAV_RESYNC",
+                    "session=${bleManager.getCurrentSessionId()} geometry=${replay.geometry} " +
+                        "stops_pending=${activeWaypoints.size - nextWaypointIndex}")
+                try {
+                    if (replay.geometry) currentGeometry?.let { sendNearbyRouteGeometry(it) }
+                    currentSnapshot?.let { bleManager.sendNavigationSnapshot(it) }
+                } catch (e: Exception) {
+                    DiagnosticLog.event("BLE_NAV_RESYNC_ERROR",
+                        "exception=${e.javaClass.simpleName}")
+                    Log.w("NavigationVM", "Unable to restore BLE navigation session", e)
+                }
+            }
             startTelemetryLoop()
         } else {
             telemetryJob?.cancel()

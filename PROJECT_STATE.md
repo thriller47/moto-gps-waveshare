@@ -1,5 +1,14 @@
 # Moto GPS — Project State
 
+## Disconnessione BLE con tappa intermedia e ripristino rotta — 2026-11-05
+
+**Segnalazione utente:** attivando una tappa intermedia l'ESP32 si disconnette; riconnettendolo la navigazione non riprende, finché non si riavvia senza tappe. ZIP diagnostico `motogps-android-diagnostics.zip` (17:44:52–17:46:59): disconnessioni BLE 17:46:35 e 17:46:45, seguite da handshake riusciti alle 17:46:39 e 17:46:49; `NAV_SNAPSHOT` continua su Android dopo entrambe. Un `REROUTE` Valhalla locale riesce alle 17:46:47; questo non dimostra che l'ESP abbia ripristinato la geometria. Nel log non è registrato l'evento di inserimento della tappa, quindi la **causa della disconnessione resta da accertare**: non attribuirla senza prova a Valhalla o al traffico BLE.
+
+**Correzione su `test/road-contrast-cleanup-20261104`:** all'evento BLE `Connesso` e con navigazione già attiva, ritrasmettere la finestra geometrica della rotta prima dello snapshot attivo, usando la stessa politica del sender iniziale e senza cambiare codec, payload o limiti 20 strade/160 punti. Non riprodurre navigazione quando lo stato è idle, né geometria dopo arrivo; mantenere il solo snapshot per rotte senza geometria. Aggiungere eventi diagnostici `BLE_GATT` (stato e status Android), `BLE_WRITE_FAILURE` (GATT), `WAYPOINT_EDIT`, `ROUTE_PREVIEW`/`ROUTE_PREVIEW_ERROR`, `ROUTE_START`/`ROUTE_START_ERROR`, `BLE_NAV_RESYNC`/`BLE_NAV_RESYNC_ERROR`, senza coordinate. Test JVM mirati per la policy di replay; rilascio previsto con unica CI consolidata.
+
+**Validazione hardware ancora indispensabile:** riprodurre la navigazione verso una destinazione con una tappa, disconnettere/riconnettere ESP32 durante la rotta, verificare che torni la linea verde senza riavvio; esportare log includendo l'istante esatto in cui si aggiunge la tappa, i codici `BLE_GATT`, il replay `BLE_NAV_RESYNC`, l'eventuale `ROUTE_*_ERROR`. Se BLE cade ancora, analizzare motivo GATT/ESP32 separatamente. Nessuna rigenerazione MotoMap/Valhalla, nessun nuovo flash ESP32 per questa sola modifica Android; `valhalla` invariato. Il manuale operativo non necessita aggiornamenti. **Prossima azione:** verificare l'esito della CI Android e effettuare prova di riconnessione con tappa sul dispositivo.
+
+
 > **Updated: 2026-11-04** (Europe/Rome). Living project handoff; branch-specific outcomes are marked below. **Code/CI success is not proof of on-road hardware stability.**
 
 ## Aumento priorità rotonde/uscite e zoom manovre 4,0× — 2026-11-05
