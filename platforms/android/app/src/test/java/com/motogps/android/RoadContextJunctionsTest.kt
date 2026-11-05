@@ -140,7 +140,16 @@ class RoadContextJunctionsTest {
         assertEquals(8, selection?.distinctExitBranches)
         assertEquals(5, selection?.exits?.size)
         assertEquals(5, selection?.junctionPoints?.size)
-        assertTrue(selection?.exits?.first() == approaches.first())
+        // Geographic coordinates are not a metric circle: the first radial
+        // OSM way is not guaranteed to be the closest to the GPS.
+        val closest = approaches.minByOrNull { way ->
+            val attach = way.points.first()
+            val dy = (attach.latitudeE6 - 45_000_000) / 1e6 * 111_320.0
+            val dx = (attach.longitudeE6 - 8_000_000) / 1e6 * 111_320.0 *
+                kotlin.math.cos(Math.toRadians(45.0))
+            dx * dx + dy * dy
+        }
+        assertEquals(closest, selection?.exits?.first())
         assertTrue(selection!!.exits.any { it in approaches.subList(3, 6) })
     }
 

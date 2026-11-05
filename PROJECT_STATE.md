@@ -2,6 +2,10 @@
 
 > **Updated: 2026-11-04** (Europe/Rome). Living project handoff; branch-specific outcomes are marked below. **Code/CI success is not proof of on-road hardware stability.**
 
+## Correzione test selezione uscite più vicine — 2026-11-05
+
+**CI iniziale commit `4eb35bc`:** run [42020202806](https://github.com/thriller47/moto-gps-waveshare/actions/runs/42020202806), `native` verde e `Android` fallito per **un solo test** su 135, `RoadContextJunctionsTest.eightConnectedBranchesAreDistributedAroundRingWithinFiveSlots` (riga 143). Il fixture ottagonale usa coordinate lat/lon; la prima uscita nell'array non è necessariamente quella metrica più vicina al GPS. La nuova asserzione verifica la scelta rispetto alla **distanza quadratica metrica corretta**, senza dipendere dall'ordine nominale di generazione. Nessuna modifica alla logica runtime in questa correzione. Nuova CI consolidata da verificare; non installare APK di commit `4eb35bc` senza esito verde. **Prossima azione:** CI completa Android/native/ESP32 e poi test hardware su strada.
+
 ## Raffinamento uscite raggruppate e palette grigia — 2026-11-05
 
 **Branch:** `test/road-contrast-cleanup-20261104`, a partire dalla versione `abc7ae6`. Dopo la nuova prova (utente: situazione decisamente migliorata ma non perfetta), il log `motogps-android-diagnostics(20261105-112340).zip` mostrava 114 scene, 91 al massimo di 20 strade, 80 con focus ring, 112/112 corrispondenze Android/ESP32 nel periodo confrontabile, 5 ricalcoli Valhalla riusciti e zero timeout grafici ESP32 rilevati. In 72 scene il ring aveva 6–8 ways connesse ma solo 5 slot uscite: **ways collegate non equivalgono necessariamente a uscite fisiche**. Multi-way nel giro non osservato come focus scelto (chiavi `s:`); resta da collaudare sul campo.
