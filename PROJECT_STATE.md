@@ -1,5 +1,14 @@
 # Moto GPS — Project State
 
+## Decisione UI: tappa visibile sul percorso e conferma di raggiungimento — 2026-11-06
+
+**Richiesta utente confermata:** quando la tappa intermedia viene raggiunta, mostrare sull'ESP32 una conferma discreta per **5–10 secondi** (proposta iniziale: **7 secondi**, da validare), non i 2 secondi della prima bozza. Durante la conferma la mappa, la rotta verde e la guida devono restare leggibili; non sostituire la schermata di navigazione e non usare la bandiera di arrivo finale.
+
+**Tappa sulla linea verde:** visualizzare un piccolo marcatore riconoscibile (proposta: cerchietto chiaro con numero progressivo) nella posizione geografica della prossima tappa, proiettato con la medesima trasformazione di rotta e strade, davanti alla linea verde. Non inventare la posizione se fuori campo; gestire clipping sul display circolare e sovrapposizioni con la distanza di manovra. Dopo il raggiungimento, confermare la tappa e poi rimuovere o attenuare il marcatore; la navigazione prosegue alla destinazione senza cambi arbitrari di zoom, senza frecce.
+
+**Stato:** solo requisito progettuale, non implementato né collaudato. Il test del 6 novembre ha registrato WAYPOINT_REACHED in Android/replay ma nessuna notifica sul display; l'attuale evento non equivale a un messaggio BLE di avviso. Prima dell'implementazione verificare gli spazi del protocollo BLE, i dati georeferenziati del waypoint, il rendering LVGL e i test di replay/simulatore; collaudo su dispositivo dopo un'unica CI consolidata.
+
+
 ## Audit upstream Android cinese — 2026-11-06
 
 **Richiesta utente:** dopo la fase simulator/registratore, valutare se la prima app Android del fork originale "mx3353672833-debug/moto-gps-waveshare" contenga spunti utili. Verifica iniziale già eseguita senza cambiare codice. Upstream branch "main": commit "2ba1737b5eb521edd6f58ced6a6c27f93539a03c" del **2026-10-30 04:01 UTC**; Android package "top.maler.motogps", Kotlin + Compose, JNI condiviso con iOS, gateway AMap e demo cinese. Da non importare come blocco: differisce dal nostro Android "com.motogps.android" con routing Valhalla offline + MotoMap, e conserva gateway/iOS/media e funzioni escluse.
