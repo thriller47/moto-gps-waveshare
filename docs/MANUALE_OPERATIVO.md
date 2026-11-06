@@ -502,7 +502,9 @@ Il separatore `|` mantiene gli spazi nel nome rete: ad esempio `wifi set Hotspot
 
 ## 8. Simulatore browser Windows e registrazione GPS Android
 
-**Sperimentale, branch test/road-contrast-cleanup-20261104, 6 novembre 2026.** Si utilizza il vero LVGL e NavPresenter del firmware, compilati in WebAssembly: non serve un ESP32 fisico. La compilazione Emscripten e la prova nel browser NON sono ancora state convalidate.
+**Sperimentale, branch test/road-contrast-cleanup-20261104, 6 novembre 2026.** Sono disponibili una **anteprima 2D browser senza compilatore** (non è la UI LVGL) e il renderer vero **LVGL + NavPresenter** tramite WebAssembly quando compilato. Non serve un ESP32 fisico. La compilazione Emscripten e la prova del vero renderer nel browser NON sono ancora state convalidate.
+
+**Prima prova veloce Windows:** nel checkout del branch di test aprire `platforms\\web\\simulator\\index.html` con Chrome/Edge, caricare il file `.jsonl` registrato ed esaminare la cronologia degli eventi. Senza runtime appare chiaramente `ANTEPRIMA 2D · NON LVGL`; questo permette di esaminare percorso, scene e zoom prima di compilare Emscripten.
 
 **WSL Ubuntu**, dalla radice del checkout del branch di test, con Git, CMake, emcmake/em++ già installati e attivati:
 
@@ -515,13 +517,13 @@ python3 -m http.server 4173 --directory .
 
 Da Windows aprire nel browser: http://127.0.0.1:4173/platforms/web/simulator/index.html
 
-Con Emscripten attivo in PowerShell Windows si può compilare anche con emcmake cmake -S . -B build/web -DMOTO_BUILD_WEB=ON -DMOTO_BUILD_TESTS=OFF, poi cmake --build build/web --parallel e avviare il server con py -m http.server 4173; questa variante non è ancora stata provata sul PC. Non aprire il sito mediante file://. Il runtime viene compilato nella cartella platforms/web/shell/runtime/.
+Con Emscripten attivo in PowerShell Windows si può compilare anche con emcmake cmake -S . -B build/web -DMOTO_BUILD_WEB=ON -DMOTO_BUILD_TESTS=OFF, poi cmake --build build/web --parallel e avviare il server con py -m http.server 4173; questa variante non è ancora stata provata sul PC. Per il renderer LVGL usare il server HTTP: `file://` è ammesso soltanto per la modalità di anteprima 2D. Il runtime viene compilato nella cartella platforms/web/shell/runtime/.
 
 **Registrare (APK di test):** nell'app aprire LOG, premere "Avvia registrazione GPS", compiere il tratto da testare, premere "Ferma registrazione GPS" e "Esporta tracciato simulatore (.jsonl)". Il file contiene coordinate e velocità GPS, geometrie della rotta e delle strade MotoMap inviate su BLE, snapshot di manovra/distanza e waypoint raggiunti. È separato dal normale ZIP diagnostico, che continua a NON contenere coordinate; l'opzione è OFF di default e dura al massimo 60 minuti / 24 MiB. Il registratore non richiede di accendere DEBUG ESP32.
 
 **Privacy:** non condividere file GPS pubblicamente: rivelano tragitti, orari e luoghi personali. Il browser legge il file localmente senza upload. Il trace documenta l'invio BLE tentato, non il ricevimento radio sull'ESP32.
 
-**Riprodurre:** caricare il file JSONL, usare play/pausa, frame precedente/successivo, cursore, velocità 0,25–4×. "Esempio sintetico" serve soltanto a verificare l'interfaccia: non è una mappa OSM reale. La funzione PNG può dipendere dal framebuffer WebGL. Il player non ricalcola Valhalla o il selettore MotoMap: per cambiare i punteggi delle strade servirà una seconda modalità con anche le candidate non selezionate. I precedenti ZIP senza geometrie non si possono riprodurre come mappe fedeli.
+**Riprodurre:** caricare il file JSONL, usare play/pausa, frame precedente/successivo, cursore, velocità 0,25–4×, gli **eventi cliccabili** e il grafico di velocità per raggiungere subito tappa, rotatorie, cambi rotta e arrivo. Lo zoom mostrato accanto alla manovra riproduce il calcolo attuale del presenter. "Esempio sintetico" serve soltanto a verificare l'interfaccia: non è una mappa OSM reale. La funzione PNG può dipendere dal framebuffer WebGL. Il player non ricalcola Valhalla o il selettore MotoMap: per cambiare i punteggi delle strade servirà una seconda modalità con anche le candidate non selezionate. I precedenti ZIP senza geometrie non si possono riprodurre come mappe fedeli.
 
 Guida completa: platforms/web/simulator/README.md. La vecchia platforms/web/shell/index.html resta la demo storica e non il nuovo banco prova.
 
