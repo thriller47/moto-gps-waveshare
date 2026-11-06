@@ -1,5 +1,20 @@
 # Moto GPS — Project State
 
+## Primo simulatore browser LVGL e registratore Android — 2026-11-06
+
+**Branch:** test/road-contrast-cleanup-20261104; valhalla invariato, nessun merge autorizzato. L'utente ha richiesto di riutilizzare l'emulatore esistente in platforms/web come primo banco prova per lo zoom intelligente.
+
+**Implementato:** nuovo platforms/web/wasm/replay_web.cpp e aggiornamento CMakeLists.txt: API Emscripten per iniettare route BLE (max 24 punti), scene MotoMap (max 24 polilinee / 192 punti) e snapshot in NavPresenter e nel vero moto_nav_ui. Nuovo platforms/web/simulator/index.html + player.js: interfaccia italiana, importazione locale JSON/JSONL moto-replay-v1, demo sintetica, pausa/play, cursore, frame singolo, velocità 0,25–4× e screenshot PNG subordinato a WebGL. La vecchia demo web cinese/Jinan resta isolata.
+
+**Registratore Android a consenso esplicito:** diagnostics/ReplayTraceRecorder.kt salva JSONL in worker privato, limiti 60 minuti e 24 MiB. Contiene fix GNSS accettati, snapshot navigazione con posizione predetta, finestre rotta, scene MotoMap selezionate per BLE e waypoint raggiunti. MainActivity e NavigationScreen espongono "Avvia/Ferma registrazione GPS" ed esportazione separata tramite FileProvider. Il normale ZIP DiagnosticLog non include geometrie/coordinate. Nuovo evento WAYPOINT_REACHED nel log Android standard per verificare le tappe. Nessuna modifica al protocollo BLE ESP32 o al firmware.
+
+**Limiti:** replay del contenuto tentato in trasmissione Android, non prova della ricezione BLE; non ricalcola il motore Valhalla né il selettore Android. Per analizzare la rotatoria delle 07:49 e confrontare nuovi punteggi occorre poi registrare le candidate MotoMap non selezionate e ricomputare le scene a parità di fix. Demo sintetica non rappresenta una strada OSM. I limiti del browser non misurano FPS e tempi ESP32. File GPS altamente personali: solo esportazione esplicita, nessun caricamento a server.
+
+**Build/test:** integrazione sorgente commit 25efe935c7300a85c68ff8f806c59345d1c0d629; GitHub Actions run 42193449565 partita per Android, esito da verificare. Job native e ESP32 risultavano skipped, perché i file web erano in commit intermedi [skip ci]; il controllo node --check aggiunto nel workflow non è ancora stato eseguito. Build target Emscripten NON eseguita su macchina dotata dell'SDK, nessun test browser né hardware svolto. Il manuale operativo è stato aggiornato con la nuova sezione 8 e quick reference sezione 9. Le note relative alla demo Jinan restano storiche.
+
+**Prossima azione:** verificare la CI Android; testare in WSL l'esecuzione scripts/build_web.sh con Emscripten, poi aprire il simulatore Windows, verificare la demo sintetica e registrare un breve tratto con l'APK aggiornato per collaudare la riproduzione delle scene e lo zoom. Nessun merge senza approvazione.
+
+
 ## Feedback sul passaggio tappa 2026-11-06 — navigazione proseguita, nessun avviso visivo
 
 **Riscontro diretto utente sul giro mattutino con tappa:** «sono passato per la strada della tappa e ho continuato verso la destinazione. android ed esp non mi hanno segnalato niente». Quindi il percorso è proseguito senza interruzioni apparenti e senza interventi del motociclista, **ma non si può ancora provare dal log che il passaggio alla tappa sia stato riconosciuto dal relativo contatore**.

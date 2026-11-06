@@ -3,7 +3,7 @@
 **Riferimento:** repository thriller47/moto-gps-waveshare, branch principale **valhalla**. 
 **Scheda:** Waveshare ESP32-S3-Touch-AMOLED-1.75C, 32 MB flash, 8 MB PSRAM.
 **Porta negli esempi:** **COM3**. I blocchi sono etichettati **PowerShell** o **CMD**: usare la shell indicata. 
-**Aggiornato:** 5 novembre 2026 (ripristino console radio sperimentale; piano simulatore Windows in PROJECT_STATE.md). Controllare prima PROJECT_STATE.md e AGENTS.md.
+**Aggiornato:** 6 novembre 2026 (primo simulatore browser e registratore GPS privato sperimentali). Controllare prima PROJECT_STATE.md e AGENTS.md.
 
 > **Attenzione:** il branch main è stato eliminato; signal resta solo come storico OSM online. Non usare né main né NoOta come base. Effettuare il flash soltanto con immagini della scheda 1.75C.
 
@@ -500,7 +500,33 @@ Il separatore `|` mantiene gli spazi nel nome rete: ad esempio `wifi set Hotspot
 
 **Sicurezza:** la console può mostrare in chiaro la password digitata, e le credenziali NVS potrebbero non essere cifrate. Per prove e screenshot/log usare solo una rete di test; non pubblicare password, SSID personali o log con dati sensibili. **Non eseguire streaming radio in parallelo alla navigazione.**
 
-## 8. Promemoria rapido
+## 8. Simulatore browser Windows e registrazione GPS Android
+
+**Sperimentale, branch test/road-contrast-cleanup-20261104, 6 novembre 2026.** Si utilizza il vero LVGL e NavPresenter del firmware, compilati in WebAssembly: non serve un ESP32 fisico. La compilazione Emscripten e la prova nel browser NON sono ancora state convalidate.
+
+**WSL Ubuntu**, dalla radice del checkout del branch di test, con Git, CMake, emcmake/em++ già installati e attivati:
+
+~~~bash
+git submodule update --init --recursive
+command -v emcmake
+./scripts/build_web.sh
+python3 -m http.server 4173 --directory .
+~~~
+
+Da Windows aprire nel browser: http://127.0.0.1:4173/platforms/web/simulator/index.html
+
+Con Emscripten attivo in PowerShell Windows si può compilare anche con emcmake cmake -S . -B build/web -DMOTO_BUILD_WEB=ON -DMOTO_BUILD_TESTS=OFF, poi cmake --build build/web --parallel e avviare il server con py -m http.server 4173; questa variante non è ancora stata provata sul PC. Non aprire il sito mediante file://. Il runtime viene compilato nella cartella platforms/web/shell/runtime/.
+
+**Registrare (APK di test):** nell'app aprire LOG, premere "Avvia registrazione GPS", compiere il tratto da testare, premere "Ferma registrazione GPS" e "Esporta tracciato simulatore (.jsonl)". Il file contiene coordinate e velocità GPS, geometrie della rotta e delle strade MotoMap inviate su BLE, snapshot di manovra/distanza e waypoint raggiunti. È separato dal normale ZIP diagnostico, che continua a NON contenere coordinate; l'opzione è OFF di default e dura al massimo 60 minuti / 24 MiB. Il registratore non richiede di accendere DEBUG ESP32.
+
+**Privacy:** non condividere file GPS pubblicamente: rivelano tragitti, orari e luoghi personali. Il browser legge il file localmente senza upload. Il trace documenta l'invio BLE tentato, non il ricevimento radio sull'ESP32.
+
+**Riprodurre:** caricare il file JSONL, usare play/pausa, frame precedente/successivo, cursore, velocità 0,25–4×. "Esempio sintetico" serve soltanto a verificare l'interfaccia: non è una mappa OSM reale. La funzione PNG può dipendere dal framebuffer WebGL. Il player non ricalcola Valhalla o il selettore MotoMap: per cambiare i punteggi delle strade servirà una seconda modalità con anche le candidate non selezionate. I precedenti ZIP senza geometrie non si possono riprodurre come mappe fedeli.
+
+Guida completa: platforms/web/simulator/README.md. La vecchia platforms/web/shell/index.html resta la demo storica e non il nuovo banco prova.
+
+
+## 9. Promemoria rapido
 
 | Operazione | File / comando |
 | --- | --- |
@@ -511,6 +537,7 @@ Il separatore `|` mantiene gli spazi nel nome rete: ad esempio `wifi set Hotspot
 | MotoMap offline | `pbf_to_motomap.py` → **.motomap.zip**; `italy.poly` per copertura v2/v3 |
 | Grafo Valhalla | WSL2/Ubuntu, `pyvalhalla==3.9.1`, 2 thread → **.tar.zst** |
 | Log diagnostici attuali | Android → Condividi diagnostica → **.zip** |
+| Replay GPS riservato | Android → LOG → Avvia/Ferma → Esporta JSONL; Windows → platforms/web/simulator/ |
 | Log ESP32 storici | `read-flash` e decoder; soltanto firmware precedenti |
 | Console radio sperimentale | Modalità isolata con pulsante Wi-Fi; COM3 (se corrisponde alla porta USB), 115200, `wifi help`, `wifi set`, `wifi test`, `radio list`, `radio play` |
 
