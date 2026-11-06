@@ -1,5 +1,16 @@
 # Moto GPS — Project State
 
+## Feedback sul passaggio tappa 2026-11-06 — navigazione proseguita, nessun avviso visivo
+
+**Riscontro diretto utente sul giro mattutino con tappa:** «sono passato per la strada della tappa e ho continuato verso la destinazione. android ed esp non mi hanno segnalato niente». Quindi il percorso è proseguito senza interruzioni apparenti e senza interventi del motociclista, **ma non si può ancora provare dal log che il passaggio alla tappa sia stato riconosciuto dal relativo contatore**.
+
+**Verifica del codice corrente:** `ValhallaRouteLocations.nextIndex()` incrementa `nextWaypointIndex` quando la posizione GNSS è entro **60 m** dalla successiva tappa ordinata, durante `NavigationViewModel` (circa righe 755–762). In caso di incremento emette solo `Log.i("NavigationVM", "Tappa completata: ...")`, **non** un `DiagnosticLog.event` e non una notifica UI/BLE ESP32. La rotta Valhalla contiene le tappe `type=break` e rimane una navigazione unica; ai ricalcoli vengono passate solo le tappe non ancora riconosciute con `activeWaypoints.drop(nextWaypointIndex)`. Il log ZIP `motogps-android-diagnostics(20261106-072929).zip` non riporta né `WAYPOINT_EDIT`/`ROUTE_START` né `Tappa completata`, quindi la continuità osservata è **positiva ma non dimostra automaticamente il corretto avanzamento** della tappa. In particolare «passare per la strada» non garantisce di essersi avvicinati a meno di 60m alle coordinate puntuali del waypoint.
+
+**Miglioramento candidato (non ancora approvato per implementazione):** registrare un evento diagnostico `WAYPOINT_REACHED index=… remaining=…` al momento dell'avanzamento, possibilmente con soglie robuste a GPS impreciso o mancato fix; valutare una segnalazione **breve e discreta** «Tappa raggiunta» su Android e/o ESP32 senza togliere la rotta verde, senza frecce e senza forzare uno zoom. Non introdurre automaticamente nuovo messaggio BLE prima di valutare l'impatto del protocollo: potrebbe bastare un campo transitorio nello snapshot esistente o una UI Android; verificare le alternative con i test. Il funzionamento della destinazione finale e della bandiera d'arrivo rimane invariato.
+
+**Stato:** solo feedback e audit del codice annotati sul branch `test/road-contrast-cleanup-20261104`; nessun sorgente/protocollo/firmware modificato e nessuna nuova build/test eseguita, `valhalla` invariato. Aggiornamento documentale `[skip ci]`. **Prossima azione:** confermare sul prossimo giro che l'APK sia aggiornato e registrare esplicitamente il cambio del contatore waypoint, senza confondere la prosecuzione normale della navigazione con una prova certa di riconoscimento della tappa.
+
+
 ## Analisi log 2026-11-06 — tappa, scena rotatorie e possibile APK non aggiornato
 
 **Fonte test utente:** `motogps-android-diagnostics(20261106-072929).zip` (log Android e diagnostica ESP32). L'utente segnala che **alla prima rotonda circa alle 07:49** alcune strade grigie erano irrilevanti e uno svincolo è diventato visibile soltanto con lo zoom. Questa osservazione visiva è reale feedback del collaudo, ma il trace corrente è **solo metadati**, senza polilinee GPS/OSM: non consente di identificare geometricamente l'uscita mancante.
