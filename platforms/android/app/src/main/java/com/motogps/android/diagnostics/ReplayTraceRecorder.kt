@@ -79,8 +79,8 @@ object ReplayTraceRecorder {
             headingDeg: Float?, accuracyM: Float) {
         if (!active || !lat.isFinite() || !lon.isFinite()) return
         val e = JSONObject().put("type", "fix").put("lat", lat).put("lon", lon)
-            .put("speed_mps", speedMps.toDouble())
-            .put("accuracy_m", accuracyM.toDouble())
+            .put("speed_mps", if (speedMps.isFinite()) speedMps.toDouble() else 0.0)
+            .put("accuracy_m", if (accuracyM.isFinite()) accuracyM.toDouble() else -1.0)
         if (headingDeg != null && headingDeg.isFinite())
             e.put("heading_deg", headingDeg.toDouble())
         write(e)

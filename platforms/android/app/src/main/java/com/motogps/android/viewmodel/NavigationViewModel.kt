@@ -11,6 +11,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.motogps.android.ble.MotoBLEManager
 import com.motogps.android.diagnostics.DiagnosticLog
+import com.motogps.android.diagnostics.ReplayTraceRecorder
 import com.motogps.android.jni.GeoPointE6
 import com.motogps.android.jni.MotoBLEMapRoadPolyline
 import com.motogps.android.jni.MotoBLEMapScene
@@ -249,6 +250,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     private fun sendNearbyRouteGeometry(route: MotoBLERouteGeometry) {
         val (lat, lon) = currentLocation.value
         val window = RouteGeometryWindow.around(route, lat, lon)
+        ReplayTraceRecorder.route(window)
         bleManager.sendRouteGeometry(window)
         val endpoint = route.points.lastOrNull()
         val endMeters = endpoint?.let {
@@ -488,6 +490,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                             "fix_age_ms=$ageMs received_ago_ms=${SystemClock.elapsedRealtime() - lastAcceptedFixArrivalMs} " +
                             "predicted_m=${estimated.extrapolatedMeters.toInt()}")
                     }
+                    ReplayTraceRecorder.snapshot(activeSnap, estimated.latitude, estimated.longitude)
                     bleManager.sendNavigationSnapshot(activeSnap)
 
                     // A stationary GPS provider may stop emitting fixes. Keep
@@ -727,6 +730,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
             lastDiagnosticFixMs = now
         }
 
+        ReplayTraceRecorder.fix(latitude, longitude, speedMs, gpsBearingDeg, lastFixAccuracyM)
         prevLat = latitude
         prevLon = longitude
 
@@ -759,6 +763,9 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
             if (reachedIndex != nextWaypointIndex) {
                 nextWaypointIndex = reachedIndex
                 Log.i("NavigationVM", "Tappa completata: $nextWaypointIndex/${activeWaypoints.size}")
+                DiagnosticLog.event("WAYPOINT_REACHED",
+                    "index=$nextWaypointIndex total=${activeWaypoints.size}")
+                ReplayTraceRecorder.waypointReached(nextWaypointIndex, activeWaypoints.size)
             }
             val destination = requireNotNull(activeDestination)
             val distanceToEnd = calculateDistanceMeters(
@@ -927,6 +934,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                 DiagnosticLog.event("BLE_MAP_SCENE",
                     "revision=$lastMapSceneRevision roads=${roadPolylines.size} points=${roadPolylines.sumOf { it.points.size }} " +
                         "candidates=${segments.size} capacity=20/160")
+                ReplayTraceRecorder.scene(scene)
                 bleManager.sendMapScene(scene)
             } catch (e: Exception) {
                 Log.w("NavigationVM", "Error updating map scene and speed limit: ${e.message}")

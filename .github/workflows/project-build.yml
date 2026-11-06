@@ -72,6 +72,7 @@ jobs:
               - 'src/**'
               - 'include/**'
               - 'tests/native/**'
+              - 'platforms/web/**'
               - 'scripts/generate_jinan_demo_fixture.mjs'
               - 'scripts/fixture_coordinates.mjs'
               - 'scripts/offline_map/**'
@@ -114,6 +115,9 @@ jobs:
 
       - name: Run native tests
         run: ctest --test-dir build/native --output-on-failure
+
+      - name: Check browser simulator JavaScript syntax
+        run: node --check platforms/web/simulator/player.js
 
       - name: Verify public demo map fixture
         run: node scripts/generate_jinan_demo_fixture.mjs --check

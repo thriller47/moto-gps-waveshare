@@ -477,6 +477,9 @@ fun NavigationScreen(
     onCancelDownload: () -> Unit = {},
     onRefreshMaps: () -> Unit = {},
     onExportDiagnostics: () -> Unit = {},
+    replayRecording: Boolean = false,
+    onReplayRecordingChange: (Boolean) -> Unit = {},
+    onExportReplay: () -> Unit = {},
     diagnosticMode: Int = 0,
     onDiagnosticModeChange: (Int) -> Unit = {}
 ) {
@@ -564,6 +567,17 @@ fun NavigationScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("OFF per la navigazione ordinaria. BASE registra eventi critici, DEBUG include rendering e BLE. Solo PSRAM: nessuna scrittura flash. Spegnimento automatico dopo 60 minuti.")
+                    Text("Registrazione GPS per simulatore: contiene coordinate, percorso e strade. Rimane sul telefono finché non la esporti. Max 60 minuti / 24 MB. Disattivata per impostazione predefinita.")
+                    OutlinedButton(onClick = { onReplayRecordingChange(!replayRecording) },
+                        modifier = Modifier.fillMaxWidth()) {
+                        Text(if (replayRecording) "■ Ferma registrazione GPS"
+                            else "● Avvia registrazione GPS")
+                    }
+                    OutlinedButton(onClick = { onExportReplay() },
+                        modifier = Modifier.fillMaxWidth()) {
+                        Text("Esporta tracciato simulatore (.jsonl)")
+                    }
+                    Text("Diagnostica ESP32 (indipendente dalla registrazione GPS):")
                     for ((mode, label) in listOf(0 to "OFF", 1 to "BASE", 2 to "DEBUG")) {
                         OutlinedButton(
                             onClick = {
