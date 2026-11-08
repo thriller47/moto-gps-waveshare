@@ -1,5 +1,14 @@
 # Moto GPS — Project State
 
+## Simulatore: scatti persistenti con 48–64 WASM/s, profilazione LVGL — 2026-11-08
+
+**Riscontro utente:** dopo l'interpolazione fino a circa 60 Hz, `48–64 WASM/s`, la mappa è ancora visibilmente scattosa. Non attribuire più il problema semplicemente al limite di 25 Hz; lo zoom tornanti è coerente (primo ~1,96×, successivi ~2,78×) ed è rimasto invariato. Sconosciuto il numero di frame effettivi presentati da SDL.
+
+**Intervento solo branch sperimentale `test/road-contrast-cleanup-20261104`:** `platforms/web/wasm/main_web.cpp` misura separatamente frequenza di invocazione e tempo medio/massimo del `lv_timer_handler()` e conta intervalli >50 ms fra chiamate; quattro funzioni WebAssembly `moto_web_lvgl_handler_*` sono esportate in `platforms/web/wasm/CMakeLists.txt`; `platforms/web/simulator/player.js` mostra i nuovi numeri sotto la diagnostica JS in `platforms/web/simulator/index.html`. Si tratta di **handler LVGL, non di SDL_RenderPresent, flush o fps GPU reali**: in caso di 60 handler/s con mappa ancora scattosa servono verifiche su tick LVGL, flush/present, ritmo dei dati e comportamento del renderer. `valhalla`, firmware, Android, BLE, routing e algoritmo zoom invariati.
+
+**Test:** sorgenti ispezionati e commit remoti effettuati; compilazione WebAssembly, test Node/native, CI e prova effettiva sul PC utente **non ancora verificati**. Aggiornato `docs/MANUALE_OPERATIVO.md` con i comandi. **Prossima azione:** ricompilare WASM in WSL (`source ~/emsdk/emsdk_env.sh; ./scripts/build_web.sh`), Ctrl+F5 e confrontare i due riquadri diagnostici sullo stesso replay delle 12:10:50, prima di cambiare il codice del rendering o dell'interpolazione. Nessun merge senza consenso.
+
+
 ## Misura degli scatti e correzione della cadenza replay — 2026-11-08
 
 **Misura fornita dall'utente, vera esecuzione su Windows/WSL:** `60 RAF/s · 25 WASM/s · 0,1 ms medi · 0,2 ms max · 0 ritardi` sul simulatore LVGL. Indica requestAnimationFrame stabile e aggiornamento dati veloce, ma la precedente soglia `now-lastMotionPaint<40` in `platforms/web/simulator/player.js` imponeva un tetto di 25 interpolazioni al secondo nonostante il browser a 60 Hz. Non misura il costo del rendering/flush LVGL-SDL, che resta una possibilità distinta.
