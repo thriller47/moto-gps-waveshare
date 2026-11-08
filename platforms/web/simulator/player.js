@@ -31,6 +31,7 @@
   let diagStart = 0, diagRaf = 0, diagUpdates = 0, diagCost = 0;
   let diagMaxCost = 0, diagSlowRaf = 0, diagLastRaf = 0;
   let diagInterpolated = 0, diagNoSpan = 0;
+  let diagGapReasons = Object.create(null);
   function status(text, error = false) {
     ui.status.textContent = text;
     ui.status.dataset.error = String(error);
@@ -141,11 +142,11 @@
     ctx.fillText("Velocità 0–"+maxSpeed+" km/h",8,h-4);
     ctx.textAlign="right";ctx.fillText(timeLabel(dataset.lastMs-t0),w-6,h-4);
   }
-  function display(i) {
+  function display(i, project = true) {
     if (!frames.length) return;
     index = Math.max(0,Math.min(frames.length-1,Math.trunc(Number(i)||0)));
     const f=frames[index],s=f.snapshot;
-    if (api) projectWithLvgl(f,index);
+    if (api) { if (project) projectWithLvgl(f,index); }
     else fallback.draw(ui.preview,f,annotation(f.t));
     ui.timeline.value=String(index);
     ui.time.textContent=clock(f.t)+" · +"+timeLabel(f.t-dataset.firstMs);
@@ -187,6 +188,7 @@
     diagStart=0;diagRaf=0;diagUpdates=0;diagCost=0;
     diagMaxCost=0;diagSlowRaf=0;diagLastRaf=0;
     diagInterpolated=0;diagNoSpan=0;
+    diagGapReasons=Object.create(null);
     ui.performance.textContent="—";
     ui["lvgl-performance"].textContent="—";
     lastProfilePaint=-Infinity;
@@ -219,11 +221,17 @@
     // One interpolation attempt per browser RAF, not a second 14 ms clock.
     // Near 60 Hz that threshold skipped otherwise-valid alternate frames.
     const motion=model.interpolateMotion(frames,motionSpans,index,target);
-    if(!motion){diagNoSpan++;return;}
+    if(!motion){
+      diagNoSpan++;
+      const reason=model.motionGapReason(motionSpans,index,target,frames);
+      diagGapReasons[reason]=(diagGapReasons[reason]||0)+1;
+      return false;
+    }
     diagInterpolated++;
     const frame=frames[index];
     projectWithLvgl({snapshot:{...frame.snapshot,...motion},
       route:frame.route,scene:frame.scene},index);
+    return true;
   }
   function tick(now){
     if (playing && frames.length) {
@@ -238,8 +246,14 @@
       const target=frames[0].t+base+(now-started)*numeric(ui.speed.value,1);
       let next=model.findFrameAtOrAfter(frames,target);
       if(next>0&&frames[next].t>target)next--;
-      if(next!==index)display(next);
-      smoothMotion(target);
+      // One WASM snapshot per RAF. Previously the original recorded sample
+      // was sent first and immediately overwritten by interpolation, creating
+      // two competing motion targets on each recorded-frame transition.
+      const changed=next!==index;
+      if(changed)display(next,false);
+      if(!smoothMotion(target) && changed && api) {
+        projectWithLvgl(frames[index],index);
+      }
       if(now-diagStart>=1000){
         const seconds=(now-diagStart)/1000;
         ui.performance.textContent=
@@ -248,10 +262,14 @@
           (diagUpdates?diagCost/diagUpdates:0).toFixed(1)+" ms medi · "+
           diagMaxCost.toFixed(1)+" ms max · "+
           diagSlowRaf+" ritardi · "+
-          diagInterpolated+" interp/s · "+diagNoSpan+" senza interp";
+          diagInterpolated+" interp/s · "+diagNoSpan+" senza interp"+
+          (diagNoSpan ? " ("+Object.entries(diagGapReasons)
+            .sort((a,b)=>b[1]-a[1]).slice(0,3)
+            .map(([reason,count])=>reason+":"+count).join(", ")+")" : "");
         diagStart=now;diagRaf=0;diagUpdates=0;diagCost=0;
         diagMaxCost=0;diagSlowRaf=0;
         diagInterpolated=0;diagNoSpan=0;
+        diagGapReasons=Object.create(null);
         if (api?.lvglHz) {
           ui["lvgl-performance"].textContent=
             api.lvglHz()+" handler/s · "+
