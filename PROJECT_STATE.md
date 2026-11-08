@@ -1,5 +1,14 @@
 # Moto GPS — Project State
 
+## Simulatore: LVGL handler veloce ma scatti persistenti; misurazione render/flush — 2026-11-08
+
+**Misure utente realmente verificate:** replay `60 RAF/s · 47 WASM/s · 0,1 ms medi · 0,2 ms max · 0 ritardi`; ciclo LVGL `60 handler/s · 0,6 ms medi · 1,5 ms max · 0 ritardi`. Mappa **ancora a scatti**. Questi numeri escludono ragionevolmente blocchi significativi nei cicli misurati, ma non dimostrano 60 rendering/flush o presentazioni SDL. Zoom tornanti accettato (~1,96× nel primo e ~2,78× negli altri), **non modificato**.
+
+**Intervento solo sul branch `test/road-contrast-cleanup-20261104`:** registrati sull'oggetto display LVGL eventi `LV_EVENT_RENDER_START` e `LV_EVENT_FLUSH_START` in `platforms/web/wasm/main_web.cpp`, contati e pubblicati attraverso nuove funzioni C WASM `moto_web_lvgl_render_hz` e `moto_web_lvgl_flush_hz`, esportate in `platforms/web/wasm/CMakeLists.txt`. La nuova diagnostica in `platforms/web/simulator/player.js` espone render/s e flush/s insieme a handler/s e tempi; non si tratta di contatori di frame GPU, e più flush possono riferirsi a un rendering. Nessun cambiamento a firmware, Android, BLE, routing o branch `valhalla`. Manuale aggiornato con necessità di ricompilare WASM.
+
+**Test:** compilazione WebAssembly WSL, CTest/Node e prova visiva con tracciato reale non eseguiti in questa sessione; CI consolidata ancora da verificare. **Prossima azione:** compilare `./scripts/build_web.sh` in WSL, Ctrl+F5, riportare `handler/s`, `render/s`, `flush/s`, insieme a replay WASM/s sul tratto 12:10:50–12:12:30. Se render/s è basso, indagare refresh/invalidazione LVGL; se render/s e flush/s sono entrambi regolari, guardare la presentazione SDL/browser e la continuità effettiva dei dati GPS/interpolati. Non merge senza approvazione.
+
+
 ## Simulatore: scatti persistenti con 48–64 WASM/s, profilazione LVGL — 2026-11-08
 
 **Riscontro utente:** dopo l'interpolazione fino a circa 60 Hz, `48–64 WASM/s`, la mappa è ancora visibilmente scattosa. Non attribuire più il problema semplicemente al limite di 25 Hz; lo zoom tornanti è coerente (primo ~1,96×, successivi ~2,78×) ed è rimasto invariato. Sconosciuto il numero di frame effettivi presentati da SDL.
