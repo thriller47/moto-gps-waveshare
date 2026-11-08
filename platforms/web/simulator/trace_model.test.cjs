@@ -86,3 +86,44 @@ test("modifiche reali con revisioni uguali restano visibili",()=>{
   assert.notEqual(f[0].scene,f[1].scene);
   assert.notEqual(f[1].route,f[2].route);
 });
+
+test("interpolazione tra fix distinti con snapshot duplicati",()=>{
+  const f=model.parse([
+    route(0,1),
+    snapshot(0,{lat:44,lon:7,heading_deg:350}),
+    snapshot(200,{lat:44,lon:7,heading_deg:350}),
+    snapshot(400,{lat:44,lon:7,heading_deg:350}),
+    snapshot(1000,{lat:44.0001,lon:7,heading_deg:10}),
+    snapshot(1200,{lat:44.0001,lon:7,heading_deg:10})
+  ].join("\n")).frames;
+  const spans=model.buildMotionSpans(f);
+  assert.deepEqual(spans[0],{from:0,to:3});
+  assert.deepEqual(spans[1],{from:0,to:3});
+  assert.deepEqual(spans[2],{from:0,to:3});
+  const mid=model.interpolateMotion(f,spans,2,500);
+  assert.ok(mid);
+  assert.ok(Math.abs(mid.lat-44.00005)<1e-8);
+  assert.ok(Math.abs(mid.heading_deg-0)<1e-5);
+});
+
+test("interpolazione non attraversa ricalcoli o buchi GPS",()=>{
+  const frames=model.parse([
+    route(0,1),snapshot(0,{lat:44,lon:7}),
+    snapshot(200,{lat:44,lon:7}),
+    route(300,2),snapshot(400,{lat:44.0001,lon:7}),
+    snapshot(3800,{lat:44.0002,lon:7})
+  ].join("\n")).frames;
+  const spans=model.buildMotionSpans(frames);
+  assert.equal(spans[0],null); // Different route identity.
+  assert.equal(spans[2],null); // Greater than 3 seconds.
+  assert.equal(model.interpolateMotion(frames,spans,0,100),null);
+});
+
+test("interpolazione ignora salti GPS implausibili",()=>{
+  const f=model.parse([
+    route(0,1),snapshot(0,{lat:44,lon:7}),
+    snapshot(200,{lat:44,lon:7}),
+    snapshot(1000,{lat:44.01,lon:7})
+  ].join("\n")).frames;
+  assert.deepEqual(model.buildMotionSpans(f),[null,null,null]);
+});
