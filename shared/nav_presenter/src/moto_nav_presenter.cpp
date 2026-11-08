@@ -247,8 +247,13 @@ MapTransform map_transform(const NavSnapshot& snapshot, double zoom_factor) {
   };
 }
 
-moto_ui_point_t project_map_point(const Gcj02Point& point,
-                                  const MapTransform& transform) {
+struct ProjectedMapPoint {
+  float x;
+  float y;
+};
+
+ProjectedMapPoint project_map_point_precise(const Gcj02Point& point,
+                                           const MapTransform& transform) {
   // Subtract geographic doubles before converting to screen-space floats.
   // Casting lat/lon first would lose metres of precision; after subtraction,
   // float is precise well below one pixel and avoids software-double rotation
@@ -268,12 +273,13 @@ moto_ui_point_t project_map_point(const Gcj02Point& point,
                          north * transform.cos_heading;
   const float x = static_cast<float>(kVehicleX) + right;
   const float y = static_cast<float>(kVehicleY) - forward;
-  return {
-      static_cast<std::int16_t>(
-          std::clamp(std::lround(x), -2'000L, 2'000L)),
-      static_cast<std::int16_t>(
-          std::clamp(std::lround(y), -2'000L, 2'000L)),
-  };
+  return {std::clamp(x, -2'000.0F, 2'000.0F),
+          std::clamp(y, -2'000.0F, 2'000.0F)};
+}
+
+moto_ui_point_t round_projected_map_point(const ProjectedMapPoint& p) {
+  return {static_cast<std::int16_t>(std::lround(p.x)),
+          static_cast<std::int16_t>(std::lround(p.y))};
 }
 
 void project_route_view(const NavSnapshot& snapshot,
@@ -287,8 +293,12 @@ void project_route_view(const NavSnapshot& snapshot,
   const std::size_t count = std::min<std::size_t>(
       snapshot.route_view_point_count, MOTO_UI_ROUTE_POINT_CAPACITY);
   for (std::size_t i = 0; i < count; ++i) {
-    output.route_points[i] =
-        project_map_point(snapshot.route_view_points[i], transform);
+    const auto p = project_map_point_precise(snapshot.route_view_points[i],
+                                              transform);
+    output.route_points[i] = round_projected_map_point(p);
+#ifdef __EMSCRIPTEN__
+    output.web_route_points[i] = {p.x, p.y};
+#endif
   }
   output.route_point_count = static_cast<std::uint8_t>(count);
 }
@@ -310,8 +320,12 @@ void project_road_context(const NavSnapshot& snapshot,
       snapshot.road_context_polyline_count,
       MOTO_UI_ROAD_POLYLINE_CAPACITY);
   for (std::size_t index = 0; index < point_count; ++index) {
-    output.road_points[index] =
-        project_map_point(snapshot.road_context_points[index], transform);
+    const auto p = project_map_point_precise(snapshot.road_context_points[index],
+                                              transform);
+    output.road_points[index] = round_projected_map_point(p);
+#ifdef __EMSCRIPTEN__
+    output.web_road_points[index] = {p.x, p.y};
+#endif
   }
 
   std::size_t accepted_polylines = 0;
