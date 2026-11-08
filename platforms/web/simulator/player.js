@@ -26,6 +26,7 @@
   let index = 0, rendered = -1, appliedRoute = null, appliedScene = null;
   let playing = false, base = 0, started = 0;
   let lastProfilePaint = -Infinity, lastActiveEventFrame = null;
+  let profileSpeeds = [], profileMaxSpeed = 40;
   // Separate JS-to-WASM update cost from browser animation-frame pacing.
   let diagStart = 0, diagRaf = 0, diagUpdates = 0, diagCost = 0;
   let diagMaxCost = 0, diagSlowRaf = 0, diagLastRaf = 0;
@@ -120,8 +121,8 @@
     ctx.clearRect(0,0,w,h);
     ctx.fillStyle="#0a151a";ctx.fillRect(0,0,w,h);
     const top=9,bottom=h-19,plotH=bottom-top;
-    const speeds=frames.map(f=>Math.max(0,numeric(f.snapshot.speed_mps)*3.6));
-    const maxSpeed=Math.max(40,Math.ceil(speeds.reduce((a,b)=>Math.max(a,b),0)/20)*20);
+    const speeds=profileSpeeds;
+    const maxSpeed=profileMaxSpeed;
     ctx.strokeStyle="#34464f";ctx.lineWidth=1;
     for(let k=0;k<=4;k++){const y=top+k*plotH/4;
       ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke();}
@@ -177,6 +178,9 @@
   function load(source,name) {
     const result=model.parse(source);
     pause();dataset=result;frames=result.frames;events=result.events;index=0;
+    profileSpeeds=frames.map(f=>Math.max(0,numeric(f.snapshot.speed_mps)*3.6));
+    profileMaxSpeed=Math.max(40,Math.ceil(
+      profileSpeeds.reduce((a,b)=>Math.max(a,b),0)/20)*20);
     resetRenderer();
     lastMotionPaint=-Infinity;
     diagStart=0;diagRaf=0;diagUpdates=0;diagCost=0;
