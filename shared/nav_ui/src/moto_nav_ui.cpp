@@ -11,6 +11,16 @@
 
 LV_FONT_DECLARE(moto_font_nav_16);
 
+// Both default and experimental firmware must preserve the BLE-facing
+// integer point representation. Fractional map points are an internal,
+// opt-in view that must have a predictable two-float layout.
+static_assert(sizeof(moto_ui_point_t) == 2 * sizeof(std::int16_t),
+              "Production map point must remain two 16-bit coordinates");
+#if defined(__EMSCRIPTEN__) || defined(MOTO_ESP_SUBPIXEL_EXPERIMENT)
+static_assert(sizeof(moto_ui_web_precise_point_t) == 2 * sizeof(float),
+              "Fractional map point must remain two float coordinates");
+#endif
+
 
 namespace {
 
