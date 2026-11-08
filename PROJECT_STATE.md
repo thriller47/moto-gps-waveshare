@@ -1,5 +1,14 @@
 # Moto GPS — Project State
 
+## Prova 15 ms insufficiente: sincronizzazione LVGL al RAF — 2026-11-08
+
+**Misure fornite dall'utente:** dopo cambio timer refresh WebAssembly da 25 a 15 ms, replay `60 RAF/s · 62 WASM/s · 0,1 ms medi · 0,9 ms max · 0 ritardi`; LVGL `60 handler/s · 45 render/s · 45 flush/s · 0,9 ms medi · 1,4 ms max · 0 ritardi`, ma render/flush talvolta calano ancora a 25/s. Lo scarto RAF/handler vs render è migliorato ma non è risolto; presumibile sfasamento tra scadenza timer LVGL 15 ms e RAF ~16,7 ms. Non asserire di avere 60 fps confermati. Zoom tornanti rimane coerente e non viene modificato.
+
+**Intervento limitato a WebAssembly:** `platforms/web/wasm/main_web.cpp` ora conserva il timer display SDL restituito da `lv_display_get_refr_timer(display)` e lo marca pronto mediante `lv_timer_ready(browser_display_refresh_timer)` immediatamente prima di ogni `lv_timer_handler()`, dentro la callback `frame()` già schedulata su `EM_TIMING_RAF`. Non si modifica `config/lv_conf.h` né ESP32; nessun cambiamento a Android, BLE, routing, Zoom o `valhalla`. Il refresh è richiesto a cadenza RAF ma LVGL non genera necessariamente un flush se nessuna area è invalidata. Contatori render/s e flush/s preservati. Aggiornato manuale operativo.
+
+**Test:** modifiche su branch `test/road-contrast-cleanup-20261104`; prova browser, build WASM locale, test nativi e CI **non ancora verificati**. **Prossima azione:** compilare con `./scripts/build_web.sh` in WSL, Ctrl+F5, ripetere lo stesso tratto di tornanti 12:10:50–12:12:30 a 1× e riportare render/s, flush/s e fluidità. Se ancora 25–45/s o sfarfallii, occorre analizzare le invalidazioni e presentazione SDL senza alterare lo zoom.
+
+
 ## Replay WebAssembly: scatti dovuti a fix GPS duplicati negli snapshot — 2026-11-08
 
 **Nuova evidenza utente:** video di circa 19 secondi del simulatore Chrome con il tracciato reale. Sullo schermo si leggono circa **60 RAF/s, 50 WASM/s e 60 handler LVGL/s** con bassi tempi di esecuzione, mentre la mappa verde procede visibilmente a scatti. Il replay ha **4.732 snapshot UI** ma solo **1.178 fix GPS**; quindi più snapshot consecutivi ripetono la stessa posizione. Non è una prova diretta del frame pacing SDL/GPU, ma costituisce una spiegazione concreta degli avanzamenti discreti. La precedente `smoothMotion` interpolava unicamente `frames[index]` e `frames[index+1]`: con coordinate uguali restituiva un punto fermo, poi scattava al cambio GPS. La correzione del refresh LVGL a 15 ms è separata e viene preservata.
