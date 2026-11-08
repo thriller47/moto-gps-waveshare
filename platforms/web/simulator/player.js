@@ -170,6 +170,7 @@
     const result=model.parse(source);
     pause();dataset=result;frames=result.frames;events=result.events;index=0;
     resetRenderer();
+    lastMotionPaint=-Infinity;
     lastProfilePaint=-Infinity;
     lastActiveEventFrame=null;
     ui.timeline.max=String(frames.length-1);
@@ -192,12 +193,41 @@
     const candidate=delta>0?events.find(e=>e.t>now+1):events.toReversed().find(e=>e.t<now-1);
     if(candidate){pause();display(candidate.frameIndex);}
   }
+  // Replay snapshots are sparse/irregular compared with display refresh.
+  // Interpolate ONLY screen motion between adjacent recorded GPS snapshots.
+  // Manual stepping and seek always render unmodified recorded samples.
+  let lastMotionPaint=-Infinity;
+  function smoothMotion(target,now){
+    if(!api || now-lastMotionPaint<40 || index>=frames.length-1)return;
+    const a=frames[index],b=frames[index+1],dt=b.t-a.t;
+    if(dt<70||dt>1500||a.route!==b.route||a.scene!==b.scene||
+       a.snapshot.state!=="navigating"||b.snapshot.state!=="navigating")return;
+    const u=Math.min(1,Math.max(0,(target-a.t)/dt));
+    if(u<=0.001||u>=0.999)return;
+    const sa=a.snapshot,sb=b.snapshot;
+    const lat0=numeric(sa.lat,NaN),lon0=numeric(sa.lon,NaN);
+    const lat1=numeric(sb.lat,NaN),lon1=numeric(sb.lon,NaN);
+    if(![lat0,lon0,lat1,lon1].every(Number.isFinite))return;
+    const meters=Math.hypot((lat1-lat0)*111195,
+      (lon1-lon0)*111195*Math.cos(lat0*Math.PI/180));
+    // No interpolation across a jump, reroute or uncertain GPS position.
+    if(meters>35)return;
+    const lerp=(x,y)=>x+(y-x)*u;
+    const h0=numeric(sa.heading_deg),h1=numeric(sb.heading_deg);
+    const dh=((h1-h0+540)%360)-180;
+    const interpolated={...sa,lat:lerp(lat0,lat1),lon:lerp(lon0,lon1),
+      heading_deg:(h0+u*dh+360)%360,
+      speed_mps:lerp(numeric(sa.speed_mps),numeric(sb.speed_mps))};
+    projectWithLvgl({snapshot:interpolated,route:a.route,scene:a.scene},index);
+    lastMotionPaint=now;
+  }
   function tick(now){
     if(playing&&frames.length){
       const target=frames[0].t+base+(now-started)*numeric(ui.speed.value,1);
       let next=model.findFrameAtOrAfter(frames,target);
       if(next>0&&frames[next].t>target)next--;
       if(next!==index)display(next);
+      smoothMotion(target,now);
       if(index===frames.length-1)pause();
     }
     requestAnimationFrame(tick);
