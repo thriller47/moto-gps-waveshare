@@ -1,5 +1,13 @@
 # Moto GPS — Project State
 
+## CI VERDE: firmware ESP32 sperimentale compilato — 2026-11-08
+
+**Verifica completata:** run GitHub Actions [42518522738](https://github.com/thriller47/moto-gps-waveshare/actions/runs/42518522738), commit `a5a9ed83528c0d2e59a6dddd81b64aebe1feb4a2`: `detect-changes`, `native`, `android`, `esp32` tutti **success**. Native **13/13 CTest**, JavaScript **15/15**. Log ESP32 conferma comando `idf.py -DMOTO_ESP_CURVE_ZOOM_EXPERIMENT=ON -DMOTO_ESP_SUBPIXEL_EXPERIMENT=ON build` con IDF 5.5.5 del runner e immagine `moto_gps_esp32.bin` generata. Artifacts disponibili: `ESP32-Firmware-EXPERIMENTAL` e `Glimpse-MOTO-GPS-Android-Final.apk`. All'utente non serve sostituire l'APK se vuole soltanto testare il display ESP32.
+
+**Attenzione:** sono presenti warning vendor (initializer parziali, funzioni UI obsolete non usate) e `MBEDTLS_DEFAULT_CERTIFICATE_BUNDLE` sconosciuto in sdkconfig.defaults; non hanno impedito la compilazione. Test fisico, BLE, FPS AMOLED, RAM runtime e correttezza grafica su hardware **non** ancora confermati. Non considerare la build una garanzia di fluidità. La diagnostica `NAV_EXP` è seriale solo nella variante sperimentale, non un log persistente.
+
+**Prossima azione:** flashare opzionalmente l'artifact ESP32 sperimentale seguendo la normale procedura (offset app `0x20000`), avviare `idf.py -p COM3 monitor`, verificare `ESP NAV EXPERIMENT curve=1 subpixel=1` e inviare 20–30 secondi di righe `NAV_EXP` assieme a un breve video della mappa in navigazione. Verificare tornanti, rotonde, cambi rotta e BLE; se si notano regressioni ripristinare il firmware normale con entrambe le opzioni OFF. Nessun merge in `valhalla` senza approvazione.
+
 ## ESP32: due opzioni sperimentali per zoom tornanti e geometria subpixel — 2026-11-08
 
 **Scopo:** su richiesta dell'utente, preparare la trasposizione del simulatore al dispositivo reale senza alterare il firmware normale, protocollo BLE, la rotta Valhalla, l'interfaccia, il timer UI 25 ms/alpha 0,39 o il programma Android. Si opera soltanto su `test/road-contrast-cleanup-20261104`; `valhalla` invariato.
