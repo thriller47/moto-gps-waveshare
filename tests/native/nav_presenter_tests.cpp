@@ -245,6 +245,32 @@ void test_heading_up_route_projection_keeps_rider_fixed() {
   CHECK(state.route_points[1].y < state.route_points[0].y);
 }
 
+void test_native_projection_stays_pixel_quantized_and_layers_aligned() {
+  NavPresenter presenter;
+  NavSnapshot snapshot;
+  snapshot.state = NavState::Navigating;
+  snapshot.has_route_view = true;
+  snapshot.route_view_origin = {44.4, 7.8};
+  snapshot.route_view_point_count = 2;
+  snapshot.route_view_points[0] = snapshot.route_view_origin;
+  // A 0.1 m displacement at 1x is subpixel on the physical display.
+  snapshot.route_view_points[1] = {44.4 + 0.1 / 111195.0, 7.8};
+  snapshot.has_road_context = true;
+  snapshot.road_context_point_count = 2;
+  snapshot.road_context_points[0] = snapshot.route_view_points[0];
+  snapshot.road_context_points[1] = snapshot.route_view_points[1];
+  snapshot.road_context_polyline_count = 1;
+  snapshot.road_context_polylines[0] = {0, 2};
+  presenter.update(snapshot);
+  const auto& ui = presenter.ui_state();
+  CHECK(ui.route_point_count == 2);
+  CHECK(ui.road_point_count == 2);
+  CHECK(ui.route_points[0].x == ui.route_points[1].x);
+  CHECK(ui.route_points[0].y == ui.route_points[1].y);
+  CHECK(ui.road_points[0].x == ui.route_points[0].x);
+  CHECK(ui.road_points[1].y == ui.route_points[1].y);
+}
+
 void test_non_finite_heading_keeps_map_projection_finite() {
   NavPresenter presenter;
   NavSnapshot snapshot;
@@ -664,6 +690,7 @@ int main() {
   test_all_traffic_levels();
   test_metrics_are_rounded_clamped_and_deterministic();
   test_heading_up_route_projection_keeps_rider_fixed();
+  test_native_projection_stays_pixel_quantized_and_layers_aligned();
   test_non_finite_heading_keeps_map_projection_finite();
   test_real_road_context_uses_the_same_heading_up_transform();
   test_map_scene_classes_and_capacity_share_route_transform();
