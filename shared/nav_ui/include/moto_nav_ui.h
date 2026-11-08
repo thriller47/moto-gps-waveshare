@@ -71,6 +71,14 @@ typedef struct {
     int16_t x;
     int16_t y;
 } moto_ui_point_t;
+#ifdef __EMSCRIPTEN__
+/* Experimental browser-only fractional map vertices. Keep the production
+ * ESP32 UI state and its integer projection unchanged. */
+typedef struct {
+    float x;
+    float y;
+} moto_ui_web_precise_point_t;
+#endif
 
 /**
  * A span inside moto_ui_state_t::road_points. Background roads are kept as
@@ -127,6 +135,10 @@ typedef struct {
     moto_ui_point_t route_points[MOTO_UI_ROUTE_POINT_CAPACITY];
     uint8_t road_point_count;
     moto_ui_point_t road_points[MOTO_UI_ROAD_POINT_CAPACITY];
+#ifdef __EMSCRIPTEN__
+    moto_ui_web_precise_point_t web_route_points[MOTO_UI_ROUTE_POINT_CAPACITY];
+    moto_ui_web_precise_point_t web_road_points[MOTO_UI_ROAD_POINT_CAPACITY];
+#endif
     uint8_t road_polyline_count;
     moto_ui_polyline_span_t
         road_polylines[MOTO_UI_ROAD_POLYLINE_CAPACITY];
