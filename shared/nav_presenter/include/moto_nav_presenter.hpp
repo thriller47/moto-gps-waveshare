@@ -35,6 +35,14 @@ class NavPresenter {
   moto_ui_state_t ui_state_{};
   bool experimental_curve_zoom_enabled_ = false;
   double applied_zoom_factor_ = 1.0;
+  // Simulator-only spatial hysteresis. Distance, not snapshot count, prevents
+  // an irregular GPS cadence from releasing a hairpin in its middle.
+  double curve_zoom_held_ = 1.0;
+  double curve_distance_since_detection_m_ = 0.0;
+  double curve_prev_lat_ = 0.0;
+  double curve_prev_lon_ = 0.0;
+  std::uint32_t curve_route_identity_ = 0;
+  bool curve_prev_fix_ = false;
 };
 
 }  // namespace moto::nav
