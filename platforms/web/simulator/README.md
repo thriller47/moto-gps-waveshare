@@ -14,6 +14,12 @@ Dopo aver aggiornato il branch di test, **ricompilare** il runtime con `source ~
 
 Inizia dal tratto **12:10:50 e successivi**, confrontando lo stesso frame con OFF e ON. Il rilevamento non si basa sui waypoint, non ricalcola la rotta Valhalla, non invia nulla al BLE e **non è abilitato nel firmware ESP32**. Rimane una prova esplorativa: può essere sensibile a finestre geometriche parziali, rotonde e curve a S. Non considerarlo validato su strada finché non lo avremo testato.
 
+## Movimento a scatti con snapshot GPS ripetuti (8 novembre 2026)
+
+Una registrazione reale conteneva **4.732 snapshot UI ma soltanto 1.178 fix GPS**. Il vecchio player interpolava solo due snapshot adiacenti: se riportavano coordinate identiche la mappa restava ferma, poi saltava alla successiva posizione GPS anche con RAF/WASM/LVGL regolari. Il player ora precalcola gli intervalli tra **fix GPS distinti** e interpola posizione, rotta angolare breve e velocità durante Play; conserva gli snapshot originali con Step/Seek. Non interpola attraverso ricalcoli/cambi di rotta, navigazione non attiva, buchi GPS oltre 3 s o spostamenti anomali oltre 100 m. Lo zoom tornanti e l'algoritmo LVGL non sono cambiati.
+
+**Prova veloce:** sul branch `test/road-contrast-cleanup-20261104` fare `git pull --ff-only`, poi in Chrome `Ctrl+F5` e ricaricare il replay privato. **Questa correzione è solo JavaScript:** non richiede ricompilare WebAssembly se è già stato ricompilato dopo la modifica al timer di refresh LVGL da 15 ms. Confrontare alle 12:10:50 a 1×; se restano scatti, registrare entrambi i riquadri di diagnostica e distinguere jerk del GPS da irregolarità del disegno. Nessuna modifica a ESP32, Android, BLE o `valhalla`.
+
 ## Compilazione con Emscripten
 
 Servono Git, CMake, Emscripten/emcmake attivati e il submodule LVGL.
