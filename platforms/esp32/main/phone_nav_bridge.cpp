@@ -1132,8 +1132,10 @@ void PhoneNavBridge::render_pending() {
   const std::uint64_t projection_done_us =
       static_cast<std::uint64_t>(esp_timer_get_time());
   const std::uint64_t projection_us = projection_done_us - measurement_start_us;
-  projection_total_us += projection_us;
-  projection_max_us = std::max(projection_max_us, projection_us);
+  if (navigation || motion) {
+    projection_total_us += projection_us;
+    projection_max_us = std::max(projection_max_us, projection_us);
+  }
 #endif
 #ifdef ESP_PLATFORM
   if (trace_render) moto_diag_event(MotoDiagEvent::RenderPhase, 3); // wait LVGL
