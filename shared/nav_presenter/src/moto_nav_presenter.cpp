@@ -296,7 +296,7 @@ void project_route_view(const NavSnapshot& snapshot,
     const auto p = project_map_point_precise(snapshot.route_view_points[i],
                                               transform);
     output.route_points[i] = round_projected_map_point(p);
-#ifdef __EMSCRIPTEN__
+#if defined(__EMSCRIPTEN__) || defined(MOTO_ESP_SUBPIXEL_EXPERIMENT)
     output.web_route_points[i] = {p.x, p.y};
 #endif
   }
@@ -323,7 +323,7 @@ void project_road_context(const NavSnapshot& snapshot,
     const auto p = project_map_point_precise(snapshot.road_context_points[index],
                                               transform);
     output.road_points[index] = round_projected_map_point(p);
-#ifdef __EMSCRIPTEN__
+#if defined(__EMSCRIPTEN__) || defined(MOTO_ESP_SUBPIXEL_EXPERIMENT)
     output.web_road_points[index] = {p.x, p.y};
 #endif
   }
