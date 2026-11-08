@@ -501,6 +501,26 @@ void test_experimental_curve_zoom_does_not_change_default_or_roundabouts() {
   CHECK(presenter.applied_zoom_factor() > 1.05);
   CHECK(presenter.applied_zoom_factor() <= 3.0);
 
+  // When Android slides its 24-point window away from the hairpin,
+  // zoom must not collapse at the apex. Simulate movement along a
+  // straight local replacement window in 10 m GPS steps.
+  s.route_view_point_count = 2;
+  s.route_view_points[0] = {latitude + 40.0/lat_scale,
+                            longitude + 15.0/lon_scale};
+  s.route_view_points[1] = {latitude + 180.0/lat_scale,
+                            longitude + 15.0/lon_scale};
+  s.heading_deg = 0.0F;
+  for (int step=1; step<=5; ++step) {
+    s.route_view_origin.latitude_deg = latitude + (40.0+step*10.0)/lat_scale;
+    presenter.update(s);
+  }
+  CHECK(presenter.applied_zoom_factor() > 1.05);
+  for (int step=6; step<=15; ++step) {
+    s.route_view_origin.latitude_deg = latitude + (40.0+step*10.0)/lat_scale;
+    presenter.update(s);
+  }
+  CHECK(std::abs(presenter.applied_zoom_factor()-1.0) < 0.001);
+
   s.has_next_maneuver = true;
   s.next_maneuver.type = ManeuverType::Roundabout;
   s.distance_to_next_maneuver_m = 0;
