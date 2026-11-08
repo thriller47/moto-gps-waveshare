@@ -1,5 +1,9 @@
 # Moto GPS — Project State
 
+## CI validata dopo esperimento precisione subpixel — 2026-11-08
+
+**Commit:** `5fc9451294ad6ea59f170b165ee2d734f72976eb` su `test/road-contrast-cleanup-20261104`. Project Build run [42517322903](https://github.com/thriller47/moto-gps-waveshare/actions/runs/42517322903): job `native` **success**, dal log `nav_presenter_tests Passed`, `100% tests passed out of 13`, Node `15 pass / 0 fail`. Workflow ha **skippato ESP32 e Android**, poiché il suo filtro sul push confronta il solo ultimo commit (un test nativo), mentre modifiche al codice condiviso erano state inserite in commit intermedi con `[skip ci]`; pertanto NON interpretare la run come build ESP32/Android. La compilazione Emscripten non è parte del job native: prova WebAssembly via `./scripts/build_web.sh` sul PC dell'utente rimane necessaria. **Prossima azione:** riprodurre in browser il tracciato reale confrontando riscontri visivi e `bersagli/s`, `movimenti pixel/s`, `px ritardo`; se la prova è positiva, valutare separatamente un esperimento ESP32 con build dedicata, controlli RAM/CPU e successiva prova su strada. Nessun merge in `valhalla` senza consenso.
+
 ## Esperimento subpixel nel replay WebAssembly; ESP32 preservato — 2026-11-08
 
 **Decisione utente:** procedere con il miglioramento della fluidità sul simulatore prima di valutare la trasposizione sull'ESP32. L'ultimo video e la diagnostica indicano soltanto ~10–13 cambi del primo target verde/s pur con ~60 interpolazioni GPS/s; le coordinate del presenter arrivavano alla UI già arrotondate in int16 pixel. Non dedurre che questa sia l'unica causa degli scatti, né considerare automaticamente vantaggioso 60 render/s.
