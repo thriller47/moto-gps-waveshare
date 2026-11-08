@@ -502,7 +502,7 @@ void test_experimental_curve_zoom_does_not_change_default_or_roundabouts() {
   };
   s.heading_deg = 270.0F;
   presenter.update(s);
-  CHECK(presenter.applied_zoom_factor() > 1.05);
+  CHECK(presenter.applied_zoom_factor() >= 1.5); // hold gate remains active
   CHECK(presenter.applied_zoom_factor() <= 3.0);
 
   // When Android slides its 24-point window away from the hairpin,
