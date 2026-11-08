@@ -257,7 +257,13 @@ jobs:
           esp_idf_version: v5.5.5
           target: esp32s3
           path: platforms/esp32
-          command: 'idf.py set-target esp32s3 && idf.py build'
+          # On the experimental test branch compile BOTH ESP32 options, so
+          # the CI actually type-checks the opt-in float geometry and zoom
+          # paths. The production valhalla branch retains its normal build.
+          command: >-
+            ${{ startsWith(github.ref, 'refs/heads/test/') &&
+                'idf.py set-target esp32s3 && idf.py -DMOTO_ESP_CURVE_ZOOM_EXPERIMENT=ON -DMOTO_ESP_SUBPIXEL_EXPERIMENT=ON build' ||
+                'idf.py set-target esp32s3 && idf.py build' }}
 
       - name: Rename output binary
         run: |
@@ -275,7 +281,7 @@ jobs:
           }}
         uses: actions/upload-artifact@v6
         with:
-          name: ESP32-Firmware
+          name: ${{ startsWith(github.ref, 'refs/heads/test/') && 'ESP32-Firmware-EXPERIMENTAL' || 'ESP32-Firmware' }}
           path: |
             platforms/esp32/build/bootloader/bootloader.bin
             platforms/esp32/build/partition_table/partition-table.bin
