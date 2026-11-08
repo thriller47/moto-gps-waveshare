@@ -73,3 +73,16 @@ test("ritrasmissioni identiche non ricreano route e scene tra snapshot",()=>{
   assert.notEqual(f[1].route,f[2].route);
   assert.notEqual(f[2].scene,f[3].scene);
 });
+
+test("modifiche reali con revisioni uguali restano visibili",()=>{
+  const f=model.parse([
+    route(1,5),event("scene",1,{revision:2,roads:[{road_class:3,
+      points:[[44,7],[44.001,7]]}]}),snapshot(2),
+    event("scene",3,{revision:2,roads:[{road_class:3,
+      points:[[44,7],[44.002,7]]}]}),snapshot(4),
+    event("route",5,{route_token:5,generation:2,origin:[44,7],
+      points:[[44,7],[44.1,7.1]]}),snapshot(6)
+  ].join("\n")).frames;
+  assert.notEqual(f[0].scene,f[1].scene);
+  assert.notEqual(f[1].route,f[2].route);
+});
