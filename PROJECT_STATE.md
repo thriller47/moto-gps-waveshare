@@ -1,5 +1,14 @@
 # Moto GPS — Project State
 
+## Replay 33–60 WASM/s dopo refresh sincronizzato: rimosso secondo limitatore — 2026-11-08
+
+**Riscontro utente:** con timer display `lv_timer_ready` il simulatore è meno scattoso ma l'oscillazione persiste: `60 RAF/s · 33 WASM/s · 0,1 ms medi · 0,4 ms max · 0 ritardi`, `60 handler/s · 31 render/s · 31 flush/s · 0,7 ms medi · 1,7 ms max · 0 ritardi`, con passaggi occasionali da ~33 a ~60 sia di WASM che di render/flush. Ciò suggerisce che LVGL produce nuovi render quando arriva una nuova posizione, non necessariamente un problema di prestazioni del renderer. Il replay usa già intervalli precalcolati fra GPS distinti (fix ripetuti negli snapshot UI).
+
+**Correzione solo `platforms/web/simulator/player.js`:** tolto il filtro indipendente `now-lastMotionPaint<14` da `smoothMotion`, perché l'interpolazione è già richiamata dal browser RAF e quel secondo timer può saltare interi callback per differenze di fase/jitter. Ora tenta interpolazione a ogni RAF, ma applica aggiornamenti solo se `model.interpolateMotion` restituisce un segmento valido; non inventa posizioni nei buchi del tracciato o durante ricalcoli. Nuovi contatori `interp/s` (RAF con interpolazione valida) e `senza interp` (RAF senza segmento, inclusi estremi) per distinguere presenza di dati da frequenza render. Zoom, WebAssembly, ESP32, Android, BLE, routing e `valhalla` invariati. Manuale aggiornato.
+
+**Test ancora da verificare:** Node/sintassi JS, CI e riproduzione visiva del trace privato dopo commit finale. La modifica è solo JS e non richiede nuova build WASM: aggiornare il branch di test, ricaricare Ctrl+F5 e osservare le cifre al medesimo tornante a 1×. **Prossima azione:** verificare insieme `interp/s`, `senza interp`, `WASM/s`, `render/s` e percezione visiva. Se senza interp è alto e continuano scatti, ispezionare limiti e copertura degli archi di GPS distinti, senza ritoccare LVGL o zoom alla cieca.
+
+
 ## Prova 15 ms insufficiente: sincronizzazione LVGL al RAF — 2026-11-08
 
 **Misure fornite dall'utente:** dopo cambio timer refresh WebAssembly da 25 a 15 ms, replay `60 RAF/s · 62 WASM/s · 0,1 ms medi · 0,9 ms max · 0 ritardi`; LVGL `60 handler/s · 45 render/s · 45 flush/s · 0,9 ms medi · 1,4 ms max · 0 ritardi`, ma render/flush talvolta calano ancora a 25/s. Lo scarto RAF/handler vs render è migliorato ma non è risolto; presumibile sfasamento tra scadenza timer LVGL 15 ms e RAF ~16,7 ms. Non asserire di avere 60 fps confermati. Zoom tornanti rimane coerente e non viene modificato.
