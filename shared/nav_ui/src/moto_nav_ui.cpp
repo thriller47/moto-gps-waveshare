@@ -503,11 +503,19 @@ bool apply_road_geometry_frame(bool rebind_lines = true) {
 void route_motion_tick(lv_timer_t *) {
     if(ui.page != MOTO_UI_PAGE_NAVIGATION) return;
     if(ui.nav_route_target_count < 2 || ui.nav_route_point_count < 2) return;
-    // 0.39 at 25 ms has approximately the same smoothing time constant as
-    // the old 0.56 at 40 ms, but supplies smaller and more frequent steps.
+    // This timer is independent of both the browser's RAF and LVGL's display
+    // refresh timer. Its original 25 ms cadence aliases against 60 Hz RAF,
+    // leaving a moving map unchanged for alternate browser frames.
+    // On WebAssembly it runs at most once per LVGL handler (~60 Hz). Choose
+    // alpha 0.28 at 16.7 ms to preserve the ~50 ms time constant of 0.39
+    // at 25 ms. The ESP32 keeps the proven 25 ms / 0.39 behavior.
     // Screen coordinates need subpixel precision, not geographic doubles.
-    // Float uses the ESP32-S3 FPU for every point in this 40 Hz hot loop.
-    const float blend = ui.reduce_motion ? 1.0F : 0.39F;
+#ifdef __EMSCRIPTEN__
+    constexpr float kMotionBlend = 0.28F;
+#else
+    constexpr float kMotionBlend = 0.39F;
+#endif
+    const float blend = ui.reduce_motion ? 1.0F : kMotionBlend;
     bool route_moved = false;
     for(std::uint8_t i = 0; i < ui.nav_route_point_count; ++i) {
         const float dx = ui.nav_route_target_x[i] - ui.nav_route_x[i];
@@ -1298,8 +1306,16 @@ void create_navigation_page() {
     lv_obj_set_style_line_width(ui.nav_route, px(7), 0);
     lv_obj_set_style_line_color(ui.nav_route, lv_color_hex(0x39FF14), 0);
     lv_obj_set_style_line_rounded(ui.nav_route, true, 0);
+    // Keep the 40 Hz motion timer on physical hardware. In the browser
+    // LVGL's handler is synchronized to RAF, so request a timer tick for each
+    // handler instead of quantizing movement to 25 ms (~30 Hz on 60 Hz RAF).
+#ifdef __EMSCRIPTEN__
+    constexpr std::uint32_t kPlatformMotionFrameMs = 1;
+#else
+    constexpr std::uint32_t kPlatformMotionFrameMs = kRouteMotionFrameMs;
+#endif
     ui.nav_route_motion_timer = lv_timer_create(route_motion_tick,
-                                                 kRouteMotionFrameMs,
+                                                 kPlatformMotionFrameMs,
                                                  nullptr);
 
     ui.nav_marker = lv_obj_create(ui.nav_map);
