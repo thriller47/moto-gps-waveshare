@@ -1,5 +1,14 @@
 # Moto GPS — Project State
 
+## Misura degli scatti e correzione della cadenza replay — 2026-11-08
+
+**Misura fornita dall'utente, vera esecuzione su Windows/WSL:** `60 RAF/s · 25 WASM/s · 0,1 ms medi · 0,2 ms max · 0 ritardi` sul simulatore LVGL. Indica requestAnimationFrame stabile e aggiornamento dati veloce, ma la precedente soglia `now-lastMotionPaint<40` in `platforms/web/simulator/player.js` imponeva un tetto di 25 interpolazioni al secondo nonostante il browser a 60 Hz. Non misura il costo del rendering/flush LVGL-SDL, che resta una possibilità distinta.
+
+**Correzione solo simulatore:** soglia di interpolazione abbassata da 40 a 14 ms (tipicamente fino a 60 Hz su browser 60 Hz). Conservate restrizioni GPS plausibile, stesso route/scene, snapshot Navigating, nessuna interpolazione ricalcoli e step/seek originali. Zoom geometrico tornanti lasciato invariato e già giudicato coerente dall'utente (~1,96× primo e ~2,78× altri); priorità Valhalla rotatoria 4× invariata. `valhalla`, firmware ESP32, Android, BLE e Valhalla non modificati. Aggiornato il manuale con il test: questa variazione è soltanto JS, quindi `git pull` e Ctrl+F5 senza ricompilazione WASM.
+
+**Test:** il replay visivo successivo alla modifica, test Node e CI del commit finale non ancora verificati; non dichiarare la fluidità risolta finché l'utente non conferma. **Prossima azione:** sul medesimo replay 12:10:50–12:12:30 misurare WASM/s (atteso avvicinarsi a 60 con interpolazioni valide) e osservare il movimento. Se resta scattoso con RAF e WASM entrambi ~60 e 0 ritardi, profilare callback grafico LVGL/SDL/flush e scheduling GPU anziché modificare ancora algoritmo tornanti.
+
+
 ## Simulatore: zoom tornanti accettabile, scatti ancora presenti — 2026-11-08
 
 **Conferma dell'utente:** l'ultimo algoritmo di zoom geometrico con mantenimento a distanza è visivamente coerente: primo tornante ~1,96×, altri ~2,78×, senza interruzione prematura segnalata. **Non modificare ulteriormente le soglie geometriche sulla base di questo feedback.** Rimane invece la riproduzione WASM a scatti sul PC, anche dopo l'interpolazione del GPS. Nessun riscontro che il firmware ESP32 abbia lo stesso problema.
