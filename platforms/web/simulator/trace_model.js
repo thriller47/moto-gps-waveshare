@@ -83,6 +83,25 @@
     }
     return lo;
   }
+  // Android may re-send identical BLE route/scene packets hundreds of times.
+  // Reuse the immutable geometry object when content is unchanged, so the
+  // WASM renderer does not reset route smoothing or rebuild LVGL polylines.
+  function samePoint(a,b) {
+    return a[0] === b[0] && a[1] === b[1];
+  }
+  function samePoints(a,b) {
+    return a.length === b.length && a.every((p,i)=>samePoint(p,b[i]));
+  }
+  function sameRoute(a,b) {
+    return a && b && a.token===b.token && a.generation===b.generation &&
+      samePoint(a.origin,b.origin) && samePoints(a.points,b.points);
+  }
+  function sameScene(a,b) {
+    return a && b && a.revision===b.revision &&
+      a.roads.length===b.roads.length && a.roads.every((road,i)=>
+        road.clazz===b.roads[i].clazz &&
+        samePoints(road.points,b.roads[i].points));
+  }
   function parse(source) {
     const records = readRecords(source);
     const counts = {fix:0, route:0, scene:0, snapshot:0, waypoint:0};
@@ -105,9 +124,10 @@
             routeId === null ? "Avvio della rotta" : "Cambio rotta (token BLE)");
           routeId = id;
         }
-        route = next;
+        if (!sameRoute(route,next)) route = next;
       } else if (e.type === "scene") {
-        scene = sceneFrom(e);
+        const next = sceneFrom(e);
+        if (!sameScene(scene,next)) scene = next;
       } else if (e.type === "waypoint") {
         mark("waypoint", t, "Tappa " + finite(e.reached) + "/" + finite(e.total) + " raggiunta");
       } else if (e.type === "snapshot") {
