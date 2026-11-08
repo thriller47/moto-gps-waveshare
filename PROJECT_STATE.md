@@ -1,5 +1,16 @@
 # Moto GPS — Project State
 
+## Zoom intelligente: prima sperimentazione geometrica nel simulatore — 2026-11-08
+
+**Evidenza reale:** l'utente ha compilato Emscripten 7.0.0 su Ubuntu 24.04 WSL, generato `moto-gps-device.js` (~197 KiB) e `.wasm` (~1,3 MiB), aperto il simulatore tramite `python3 -m http.server 4173` e verificato che LVGL gira. Nel giro del 6 novembre lo zoom resta **1× sui tornanti** successivi a ~12:10:50 e aumenta correttamente a **4× soltanto presso la rotatoria**. È il comportamento atteso dal codice precedente: inizia a ingrandire entro 100 m dalla manovra Valhalla e non guarda la curvatura.
+
+**Intervento sperimentale:** A/B attivabile dal checkbox «Zoom tornanti sperimentale» nella pagina Web, **soltanto quando è caricato il runtime WASM LVGL**. `moto_curve_zoom.hpp` analizza la finestra locale di linea verde in coordinate provider (max 24 punti), sceglie il segmento più prossimo al motociclista con controllo della direzione, confronta corde di 40 m a monte/a valle, e produce un ingrandimento continuo in prossimità di curve marcate (max 3×). `NavPresenter` mantiene disabilitata per default la sperimentazione, e usa il **massimo** dello zoom geometrico e dello zoom di manovra preesistente 1–4×; rotta verde e strade di contesto conservano la stessa trasformazione. Esposte al solo replay WASM le funzioni per abilitare/disabilitare e leggere l'effettivo zoom C++; nessuna modifica al protocollo, ai dati Android, all'app o alla logica di Valhalla; **non attivo su ESP32**. I limiti sono visibili: curva a S, tratti paralleli ravvicinati, geometria campionata e zoom eventualmente instabile da collaudare prima di un futuro porting.
+
+**Test iniziali:** l'algoritmo puro è stato compilato localmente con `g++ -std=c++17 -Wall -Wextra -Wpedantic -Werror` su un tornante sintetico e un rettilineo (OK). Il test nativo estende `nav_presenter_tests` per verificare OFF=1×, ON superiore a 1× sul tornante, priorità zoom rotatoria 4× e protezione con geometria mancante. **Non** è ancora stata eseguita qui la build Emscripten completa né la prova visiva del nuovo toggle sulla macchina dell'utente; servirà aggiornare il branch test e ricompilare `./scripts/build_web.sh`. Non dichiarare superati i nuovi test CI prima di controllare la run effettiva.
+
+**Prossimo test preciso:** sull'Ubuntu WSL dell'utente `git pull --ff-only origin test/road-contrast-cleanup-20261104`, `source ~/emsdk/emsdk_env.sh`, `./scripts/build_web.sh`; browser Ctrl+F5, riaprire il replay 6 novembre e confrontare con checkbox OFF/ON i fotogrammi da 12:10:50 a 12:12:30, oltre alla rotatoria finale e ai tre ricalcoli 12:09. Non fare merge in `valhalla` senza validazione e permesso.
+
+
 ## Primo feedback utente sul simulatore — replay ricalcoli 12:09 e tornanti 12:10:50 (2026-11-08)
 
 **Verifica sul PC dell'utente:** l'anteprima 2D del simulatore si apre e riproduce in maniera coerente con quanto era apparso sull'ESP32 reale i ricalcoli attorno alle **12:09:23**. L'utente osserva **un piccolo salto grafico** durante il cambio itinerario. Valhalla proponeva un'**inversione su una stradina secondaria** che l'utente ha deciso di non eseguire, proseguendo invece sulla strada verso i **tornanti dalle ~12:10:50 in poi**. Non descrivere più il tratto delle 12:09 come parcheggio o tornanti: sono separati temporalmente.

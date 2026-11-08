@@ -523,6 +523,8 @@ Con Emscripten attivo in PowerShell Windows si può compilare anche con emcmake 
 
 **Privacy:** non condividere file GPS pubblicamente: rivelano tragitti, orari e luoghi personali. Il browser legge il file localmente senza upload. Il trace documenta l'invio BLE tentato, non il ricevimento radio sull'ESP32.
 
+**Zoom tornanti (prototipo WASM):** sul branch di test aggiornato, dopo `source ~/emsdk/emsdk_env.sh` e `./scripts/build_web.sh` ricaricare il browser con Ctrl+F5. Il checkbox **Zoom tornanti sperimentale** funziona soltanto con renderer LVGL reale: OFF mantiene lo zoom originale; ON prova a ingrandire fino a 3× le curvature marcate della linea verde. La rotatoria conserva il suo zoom fino a 4×. Controllare i frame dopo **12:10:50**. Il firmware ESP32 reale non cambia.
+
 **Riprodurre:** caricare il file JSONL, usare play/pausa, frame precedente/successivo, cursore, velocità 0,25–4×, gli **eventi cliccabili** e il grafico di velocità per raggiungere subito tappa, rotatorie, cambi rotta e arrivo. Lo zoom mostrato accanto alla manovra riproduce il calcolo attuale del presenter. "Esempio sintetico" serve soltanto a verificare l'interfaccia: non è una mappa OSM reale. La funzione PNG può dipendere dal framebuffer WebGL. Il player non ricalcola Valhalla o il selettore MotoMap: per cambiare i punteggi delle strade servirà una seconda modalità con anche le candidate non selezionate. I precedenti ZIP senza geometrie non si possono riprodurre come mappe fedeli.
 
 Guida completa: platforms/web/simulator/README.md. La vecchia platforms/web/shell/index.html resta la demo storica e non il nuovo banco prova.

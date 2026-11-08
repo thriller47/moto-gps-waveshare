@@ -7,7 +7,7 @@
   const $ = id => document.getElementById(id);
   const names = ["trace-file","sample","snapshot","status","play","previous","next",
     "prev-event","next-event","speed","timeline","time","frame","maneuver",
-    "roads","zoom","speed-kph","events","profile","canvas","preview","summary"];
+    "roads","zoom","speed-kph","events","profile","canvas","preview","summary","curve-zoom"];
   const ui = Object.fromEntries(names.map(id=>[id,$(id)]));
   const required = names.filter(id=>!ui[id]);
   if (required.length) throw Error("Controlli simulator mancanti: " + required.join(", "));
@@ -144,7 +144,8 @@
       Math.round(numeric(s.turn_m))+" m";
     ui.roads.textContent=(f.scene?f.scene.roads.length:0)+" strade / "+
       (f.route?f.route.points.length:0)+" vertici rotta";
-    ui.zoom.textContent=fallback.zoomFactor(s,!!f.route).toFixed(2)+"×";
+    ui.zoom.textContent=(api?api.zoomFactor():
+      fallback.zoomFactor(s,!!f.route)).toFixed(2)+"×";
     ui["speed-kph"].textContent=Math.round(numeric(s.speed_mps)*3.6)+" km/h";
     const current=events.filter(e=>e.frameIndex<=index).at(-1);
     for(const button of ui.events.children){
@@ -238,8 +239,12 @@
           routePoint:fn("route_point",["number","number"]),
           sceneBegin:fn("scene_begin",["number"]),roadBegin:fn("road_begin",[]),
           roadPoint:fn("road_point",["number","number"]),roadEnd:fn("road_end",["number"]),
-          snapshot:fn("snapshot",Array(15).fill("number"))};
+          snapshot:fn("snapshot",Array(15).fill("number")),
+          curveZoom:fn("set_curve_zoom_enabled",["number"]),
+          zoomFactor:mod.cwrap("moto_web_replay_zoom_factor","number",[])};
         ui.preview.hidden=true;ui.canvas.hidden=false;
+        ui["curve-zoom"].disabled=false;
+        api.curveZoom(ui["curve-zoom"].checked?1:0);
         resetRenderer();
         if(frames.length)display(index);else load(synthetic(),"Esempio sintetico");
       } catch(error){api=null;ui.preview.hidden=false;
@@ -250,6 +255,11 @@
     const file=ui["trace-file"].files[0];if(!file)return;
     try{load(await file.text(),file.name);}
     catch(error){pause();status("Importazione fallita: "+error.message,true);}
+  });
+  ui["curve-zoom"].addEventListener("change",()=>{
+    if (!api) return;
+    api.curveZoom(ui["curve-zoom"].checked?1:0);
+    if(frames.length)display(index);
   });
   ui.sample.addEventListener("click",()=>{
     try{load(synthetic(),"Esempio sintetico");}

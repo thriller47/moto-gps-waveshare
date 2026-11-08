@@ -457,6 +457,54 @@ void test_near_turn_zooms_route_and_roads_together_and_restores_scale() {
   CHECK(presenter.ui_state().route_point_count == 0);
 }
 
+
+void test_experimental_curve_zoom_does_not_change_default_or_roundabouts() {
+  NavPresenter presenter;
+  NavSnapshot s;
+  s.state = NavState::Navigating;
+  s.heading_deg = 90.0F;
+  s.speed_mps = 9.0F;
+  s.has_route_view = true;
+  s.route_view_origin = {44.4, 7.8};
+
+  const double latitude = 44.4, longitude = 7.8;
+  const double lat_scale = 111194.9266;
+  const double lon_scale = lat_scale * std::cos(latitude * 3.14159265358979323846 / 180.0);
+  const std::array<std::array<double, 2>, 9> xy{{
+      {{-30,0}},{{0,0}},{{40,0}},{{55,8}},{{60,20}},
+      {{55,32}},{{40,40}},{{15,40}},{{-20,40}}
+  }};
+  s.route_view_point_count = static_cast<std::uint8_t>(xy.size());
+  for (std::size_t i=0;i<xy.size();++i) {
+    s.route_view_points[i] = {
+        latitude + xy[i][1]/lat_scale,
+        longitude + xy[i][0]/lon_scale
+    };
+  }
+
+  presenter.update(s);
+  CHECK(presenter.applied_zoom_factor() == 1.0);  // simulator OFF by default
+  presenter.set_experimental_curve_zoom_enabled(true);
+  presenter.update(s);
+  CHECK(presenter.applied_zoom_factor() > 1.15);
+  CHECK(presenter.applied_zoom_factor() <= 3.0);
+
+  s.has_next_maneuver = true;
+  s.next_maneuver.type = ManeuverType::Roundabout;
+  s.distance_to_next_maneuver_m = 0;
+  presenter.update(s);
+  CHECK(std::abs(presenter.applied_zoom_factor()-4.0) < 0.001);
+
+  presenter.set_experimental_curve_zoom_enabled(false);
+  s.has_next_maneuver = false;
+  presenter.update(s);
+  CHECK(presenter.applied_zoom_factor() == 1.0);
+  s.has_route_view = false;
+  presenter.set_experimental_curve_zoom_enabled(true);
+  presenter.update(s);
+  CHECK(presenter.applied_zoom_factor() == 1.0);
+}
+
 void test_missing_or_incomplete_geometry_stays_empty() {
   NavPresenter presenter;
   NavSnapshot snapshot;
@@ -585,6 +633,7 @@ int main() {
   test_map_scene_classes_and_capacity_share_route_transform();
   test_map_scale_does_not_jump_at_maneuver_distance_thresholds();
   test_near_turn_zooms_route_and_roads_together_and_restores_scale();
+  test_experimental_curve_zoom_does_not_change_default_or_roundabouts();
   test_missing_or_incomplete_geometry_stays_empty();
   test_presenter_owns_road_name_storage();
   test_street_arc_rejects_instructions_and_overlong_names();

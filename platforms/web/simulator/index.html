@@ -13,7 +13,9 @@ h1{font-size:1.8rem;margin:.25em 0}h2{font-size:1.1rem;margin:0 0 10px}p{color:#
 .bezel{border:9px solid #3b484f;border-radius:50%;box-shadow:0 12px 32px #0009;padding:0;max-width:100%}
 .screen{position:relative;border-radius:50%;overflow:hidden;width:466px;height:466px;max-width:100%;aspect-ratio:1;background:#000}
 .screen canvas{position:absolute;inset:0;width:100%;height:100%}canvas[hidden]{display:none!important}
-input[type=range]{width:100%;accent-color:#4fc18c}input[type=file]{width:100%;margin:8px 0}
+input[type=range]{width:100%;accent-color:#4fc18c}
+.curve-control{display:flex;align-items:center;gap:8px;padding:10px 0;color:#bdf0cb;font-weight:600}
+.curve-control input{width:18px;height:18px;accent-color:#4fc18c}input[type=file]{width:100%;margin:8px 0}
 button,select{padding:9px 12px;border-radius:9px;color:#edf3f4;background:#294047;border:1px solid #5e737d;cursor:pointer;font:inherit}
 button:disabled{opacity:.4;cursor:default}button:hover:enabled{background:#33565f}
 .toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:12px 0}
@@ -52,6 +54,8 @@ code{background:#0b151a;padding:2px 4px;border-radius:3px}a{color:#90d8ff}
 <div class="toolbar"><button id="sample">Esempio sintetico</button><button id="snapshot">Salva PNG</button></div>
 <p id="status" role="status" aria-live="polite">Preparazione del riproduttore…</p>
 <div class="separator"><h2>Riproduzione</h2>
+<label class="curve-control"><input id="curve-zoom" type="checkbox" disabled> Zoom tornanti sperimentale (renderer LVGL)</label>
+<p class="hint">Confronto A/B: disattivato = zoom originale; attivato = curva rilevata dalla geometria della linea verde fino a 3×. La rotatoria resta fino a 4×. Ricompila WebAssembly dopo l'aggiornamento.</p>
 <input id="timeline" aria-label="Posizione nel tracciato" type="range" min="0" max="0" value="0" disabled>
 <div class="toolbar">
 <button id="previous" disabled title="Snapshot precedente">◀ Frame</button>
@@ -64,7 +68,7 @@ code{background:#0b151a;padding:2px 4px;border-radius:3px}a{color:#90d8ff}
 <div><small>Snapshot</small><b id="frame">—</b></div>
 <div><small>Manovra</small><b id="maneuver">—</b></div>
 <div><small>Strade e percorso</small><b id="roads">—</b></div>
-<div><small>Zoom attuale calcolato</small><b id="zoom">—</b></div>
+<div><small>Zoom applicato al display</small><b id="zoom">—</b></div>
 <div><small>Velocità GNSS/snapshot</small><b id="speed-kph">—</b></div>
 </div>
 <p id="summary" aria-live="polite">—</p>

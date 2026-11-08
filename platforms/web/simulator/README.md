@@ -8,6 +8,12 @@ Su Windows, dopo aver aggiornato il branch di test, aprire direttamente `platfor
 
 Caricare il file `motogps-replay.jsonl` esportato dall'app tramite **Tracciato GPS**. Il file resta nel browser sul proprio PC. L'anteprima è utilizzabile anche senza Python o Emscripten; per il **renderer LVGL reale** servono invece la compilazione e un server HTTP locale, come segue.
 
+## Nuova prova: zoom intelligente tornanti (sperimentale, solo nel simulatore LVGL)
+
+Dopo aver aggiornato il branch di test, **ricompilare** il runtime con `source ~/emsdk/emsdk_env.sh` e `./scripts/build_web.sh`, ricaricare la pagina con **Ctrl+F5**, poi caricare il tracciato del 6 novembre. L'interruttore **Zoom tornanti sperimentale** si abilita solo quando il vero WASM è caricato. A parità di frame, OFF mostra lo zoom originale (1× lontano dalle manovre; fino a 4× sulla rotatoria), ON cerca nella finestra della **linea verde** un cambio di direzione marcato, lo ingrandisce progressivamente fino a 3× e mantiene il massimo fra quello e lo zoom tradizionale. Lo zoom mostrato nella pagina, con LVGL attivo, proviene dal **NavPresenter C++** (non da una formula JavaScript).
+
+Inizia dal tratto **12:10:50 e successivi**, confrontando lo stesso frame con OFF e ON. Il rilevamento non si basa sui waypoint, non ricalcola la rotta Valhalla, non invia nulla al BLE e **non è abilitato nel firmware ESP32**. Rimane una prova esplorativa: può essere sensibile a finestre geometriche parziali, rotonde e curve a S. Non considerarlo validato su strada finché non lo avremo testato.
+
 ## Compilazione con Emscripten
 
 Servono Git, CMake, Emscripten/emcmake attivati e il submodule LVGL.

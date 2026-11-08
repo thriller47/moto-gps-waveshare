@@ -46,16 +46,15 @@ bool maneuver_zoom_available(const NavSnapshot& snapshot) {
   }
 }
 
-double map_pixels_per_meter(const NavSnapshot& snapshot) {
-  if (!maneuver_zoom_available(snapshot)) return kMapPixelsPerMeter;
+double maneuver_zoom_factor(const NavSnapshot& snapshot) {
+  if (!maneuver_zoom_available(snapshot)) return 1.0;
   const double fraction = std::clamp(
       (kManeuverZoomStartM - snapshot.distance_to_next_maneuver_m) /
           kManeuverZoomStartM,
       0.0, 1.0);
-  // Continuous scale: no jumps at 100 m or while crossing a roundabout.
-  // Keep the entire nearby road context recognizable on the circular map.
-  return kMapPixelsPerMeter *
-      (1.0 + (kMaximumManeuverZoom - 1.0) * fraction);
+  // Original 1..4x maneuver zoom, unchanged. Geometry can only increase
+  // magnification when the explicit simulator experiment is enabled.
+  return 1.0 + (kMaximumManeuverZoom - 1.0) * fraction;
 }
 
 // A curved 466 px street label must contain an actual road name. Valhalla
@@ -231,12 +230,12 @@ struct MapTransform {
   float cos_heading = 1.0F;
 };
 
-MapTransform map_transform(const NavSnapshot& snapshot) {
+MapTransform map_transform(const NavSnapshot& snapshot, double zoom_factor) {
   const double finite_heading =
       std::isfinite(snapshot.heading_deg) ? snapshot.heading_deg : 0.0;
   const double heading = radians(finite_heading);
   const double latitude_pixels_per_degree =
-      (kPi / 180.0 * kEarthRadiusM * map_pixels_per_meter(snapshot));
+      (kPi / 180.0 * kEarthRadiusM * kMapPixelsPerMeter * zoom_factor);
   return {
       snapshot.route_view_origin.latitude_deg,
       snapshot.route_view_origin.longitude_deg,
@@ -340,6 +339,14 @@ void project_road_context(const NavSnapshot& snapshot,
 
 NavPresenter::NavPresenter() { update(NavSnapshot{}); }
 
+void NavPresenter::set_experimental_curve_zoom_enabled(bool enabled) noexcept {
+  experimental_curve_zoom_enabled_ = enabled;
+}
+
+double NavPresenter::applied_zoom_factor() const noexcept {
+  return applied_zoom_factor_;
+}
+
 void NavPresenter::update(const NavSnapshot& snapshot) {
   road_name_.clear();
   next_road_name_.clear();
@@ -397,7 +404,26 @@ void NavPresenter::update(const NavSnapshot& snapshot) {
   // The route and roads share one rider-centred transform. Besides
   // guaranteeing exact layer alignment, this avoids repeating trigonometry
   // hundreds of times on every high-rate IMU frame.
-  const MapTransform transform = map_transform(snapshot);
+  double curve_zoom = 1.0;
+  if (experimental_curve_zoom_enabled_ &&
+      snapshot.state == NavState::Navigating && snapshot.has_route_view &&
+      snapshot.route_view_point_count >= 4 &&
+      snapshot.route_view_point_count <= kRouteViewPointCapacity) {
+    std::array<CurveZoomPoint, kRouteViewPointCapacity> points{};
+    for (std::size_t i = 0; i < snapshot.route_view_point_count; ++i) {
+      points[i] = {snapshot.route_view_points[i].latitude_deg,
+                   snapshot.route_view_points[i].longitude_deg};
+    }
+    curve_zoom = experimental_curve_zoom(
+        snapshot.route_view_origin.latitude_deg,
+        snapshot.route_view_origin.longitude_deg,
+        snapshot.heading_deg, points.data(),
+        snapshot.route_view_point_count, snapshot.speed_mps >= 2.0F);
+  }
+  // Preserve the original maneuver zoom (including the 4x roundabout).
+  // Both road context and green route use the same final map transform.
+  applied_zoom_factor_ = std::max(maneuver_zoom_factor(snapshot), curve_zoom);
+  const MapTransform transform = map_transform(snapshot, applied_zoom_factor_);
   project_route_view(snapshot, transform, ui_state_);
   project_road_context(snapshot, transform, ui_state_);
   ui_state_.road_name = road_name_.empty() ? nullptr : road_name_.c_str();

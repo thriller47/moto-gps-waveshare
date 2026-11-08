@@ -45,6 +45,16 @@ EMSCRIPTEN_KEEPALIVE void moto_web_replay_reset() {
   paint();
 }
 
+// A/B comparison of geometry-aware zoom, only for the browser replay.
+// Turning the experiment off restores exactly the existing maneuver zoom.
+EMSCRIPTEN_KEEPALIVE void moto_web_replay_set_curve_zoom_enabled(int enabled) {
+  replay_presenter.set_experimental_curve_zoom_enabled(enabled != 0);
+  paint();
+}
+EMSCRIPTEN_KEEPALIVE double moto_web_replay_zoom_factor() {
+  return replay_presenter.applied_zoom_factor();
+}
+
 // Route geometry is an Android->BLE local view, not the full Valhalla route.
 // Coordinates are copied unchanged from the trace (no GCJ02 conversion).
 EMSCRIPTEN_KEEPALIVE void moto_web_replay_route_begin(
