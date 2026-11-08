@@ -1,5 +1,14 @@
 # Moto GPS — Project State
 
+## Causa probabile scatti: refresh LVGL 25 ms su browser 60 Hz — 2026-11-08
+
+**Misura reale dell'utente:** `60 RAF/s · 64 WASM/s · 0,1 ms medi · 0,2 ms max · 0 ritardi` e `60 handler/s · 30 render/s · 30 flush/s · 0,7 ms medi · 1,7 ms max · 0 ritardi`; render oscillante a 23–25. Il ciclo JS e l'handler LVGL sono veloci, ma i render sono circa la metà. Il controllo del sorgente `config/lv_conf.h` ha individuato `LV_DEF_REFR_PERIOD 25`, condiviso con ESP32. Con 60 controlli handler/s a intervalli ~16,7 ms, un periodo di 25 ms può produrre refresh a intervalli di due callback (~30/s). LVGL documenta che il timer di refresh del display è indipendente dalla frequenza di `lv_timer_handler`.
+
+**Correzione solamente per il browser sperimentale** `test/road-contrast-cleanup-20261104`: in `platforms/web/wasm/main_web.cpp` dopo la creazione del display SDL si usa `lv_display_get_refr_timer(display)` e `lv_timer_set_period(refresh, 15)` per consentire una scadenza ogni RAF 60 Hz; non si altera `config/lv_conf.h`, né firmware ESP32, Android, routing, BLE, zoom tornanti o branch `valhalla`. I contatori render/s e flush/s già implementati restano visibili. Manuale aggiornato con istruzioni.
+
+**Validazione ancora necessaria:** compilazione WebAssembly su WSL, test browser e CI non verificati in questa sessione. Un refresh/s non equivale ai frame effettivamente presentati da SDL/GPU. **Prossima azione:** aggiornare il branch test, ricompilare con `./scripts/build_web.sh`, Ctrl+F5; ripetere replay dalle 12:10:50 a 1× e controllare render/s, flush/s e fluidità. Se persistono scatti nonostante render regolari, approfondire timing dei dati GPS e SDL present; non cambiare algoritmi di zoom senza evidenza.
+
+
 ## Simulatore: LVGL handler veloce ma scatti persistenti; misurazione render/flush — 2026-11-08
 
 **Misure utente realmente verificate:** replay `60 RAF/s · 47 WASM/s · 0,1 ms medi · 0,2 ms max · 0 ritardi`; ciclo LVGL `60 handler/s · 0,6 ms medi · 1,5 ms max · 0 ritardi`. Mappa **ancora a scatti**. Questi numeri escludono ragionevolmente blocchi significativi nei cicli misurati, ma non dimostrano 60 rendering/flush o presentazioni SDL. Zoom tornanti accettato (~1,96× nel primo e ~2,78× negli altri), **non modificato**.
