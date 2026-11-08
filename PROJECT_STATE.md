@@ -1,5 +1,16 @@
 # Moto GPS — Project State
 
+## Fluidità replay: secondo timer movimento UI disaccoppiato da RAF — 2026-11-08
+
+**Evidenza verificata dall'utente:** dopo i fix JS di interpolazione GPS e `lv_timer_ready` del display, la diagnostica indica `60 RAF/s · 65 WASM/s · 0,1 ms medi · 0,2 ms max · 0 ritardi · 61 interp/s · 0 senza interp` e `60 handler/s · 45 render/s · 45 flush/s · 1,0 ms medi · 1,6 ms max · 0 ritardi`. Il video utente di 39 secondi mostra cambi di geometria intermittenti pur con 60 interpolazioni/s. La frequenza del display da sola non spiega il comportamento.
+
+**Analisi codice:** `shared/nav_ui/src/moto_nav_ui.cpp` mantiene un **timer di movimento delle polilinee** `route_motion_tick` indipendente dal refresh SDL. Il suo periodo comune 25 ms può produrre avanzamento visivo a circa 30 Hz quando l'handler LVGL del browser è chiamato a 60 Hz; i vertici sono infine arrotondati a pixel interi e un tick senza variazione del pixel non invalida la mappa. Nessuna prova che tale effetto avvenga nel firmware ESP32.
+
+**Esperimento limitato a WebAssembly su `test/road-contrast-cleanup-20261104`:** `#ifdef __EMSCRIPTEN__` nel solo `shared/nav_ui/src/moto_nav_ui.cpp` imposta il timer di movimento a 1 ms (LVGL lo esegue comunque **al massimo una volta per chiamata handler**, circa 60/s) e coefficiente di smorzamento a 0,28 al posto di 0,39, conservando approssimativamente una costante temporale di 50 ms a 60 Hz. Per ESP32 rimangono 25 ms e 0,39; nessuna modifica all'algoritmo di zoom (tornanti ~1,96×/~2,78× già approvati), Android, BLE, routing o `valhalla`. Riservare il cambiamento grafico alla build WebAssembly, senza mutare le API.
+
+**Verifiche:** codice letto e modifiche pushate nel repository; nessun compilatore Emscripten, test C++ o prova video successiva eseguiti in questa sessione. Non affermare 60 fps raggiunti: LVGL può non renderizzare se i punti arrotondati restano identici. Il manuale è aggiornato con WSL `source ~/emsdk/emsdk_env.sh` e `./scripts/build_web.sh`. **Prossima verifica:** compilare WASM, Ctrl+F5, ripetere alle 12:10:50–12:12:30 a 1×; confrontare salti delle linee verdi/grigie e diagnostica. CI del commit finale da verificare; non integrare in `valhalla` senza approvazione.
+
+
 ## Replay 33–60 WASM/s dopo refresh sincronizzato: rimosso secondo limitatore — 2026-11-08
 
 **Riscontro utente:** con timer display `lv_timer_ready` il simulatore è meno scattoso ma l'oscillazione persiste: `60 RAF/s · 33 WASM/s · 0,1 ms medi · 0,4 ms max · 0 ritardi`, `60 handler/s · 31 render/s · 31 flush/s · 0,7 ms medi · 1,7 ms max · 0 ritardi`, con passaggi occasionali da ~33 a ~60 sia di WASM che di render/flush. Ciò suggerisce che LVGL produce nuovi render quando arriva una nuova posizione, non necessariamente un problema di prestazioni del renderer. Il replay usa già intervalli precalcolati fra GPS distinti (fix ripetuti negli snapshot UI).
