@@ -587,6 +587,18 @@ source ~/emsdk/emsdk_env.sh
 ```
 Dopo `Ctrl+F5`, ripetere lo stesso tratto a 1×. Nella riga `Movimento mappa` i `bersagli/s` misurano ora anche le variazioni subpixel del primo vertice verde; `movimenti pixel/s` indica i tick di modifica dei punti grafici, **non** presentazioni reali GPU né cambi di pixel interi. Registrare una nuova prova per confrontare fluidità e tempi LVGL prima di accettare la modifica. Il test native protegge la precedente quantizzazione a pixel interi e l'allineamento percorso/contesto su ESP32.
 
+**Firmware ESP32 sperimentale (8 novembre 2026):** sul branch `test/road-contrast-cleanup-20261104` sono disponibili due opzioni CMake **OFF di default**. `MOTO_ESP_CURVE_ZOOM_EXPERIMENT` abilita il rilevatore di tornanti con mantenimento 55 m + rilascio 80 m già testato nel simulatore. `MOTO_ESP_SUBPIXEL_EXPERIMENT` conserva anche i 216 vertici frazionari `float` nella UI ESP32 (circa **1.728 byte aggiuntivi** nel presenter). Non vengono modificati BLE, cadenza IMU 40 Hz, timer UI 25 ms, zoom manovra fino a 4× e layout.
+
+**PowerShell Windows** (dopo aver attivato ESP-IDF 5.5.6 con `moto`, sul checkout del branch sperimentale):
+```powershell
+git switch test/road-contrast-cleanup-20261104
+git pull --ff-only origin test/road-contrast-cleanup-20261104
+cd platforms/esp32
+idf.py -DMOTO_ESP_CURVE_ZOOM_EXPERIMENT=ON -DMOTO_ESP_SUBPIXEL_EXPERIMENT=ON build
+```
+Per provarle separatamente impostare una delle due opzioni a `OFF`. I valori CMake rimangono nella cartella build: **per tornare alla versione normale** compilare esplicitamente con entrambe `OFF` (eventualmente `idf.py fullclean` se la cache è incoerente). In CI, sul branch test entrambe sono ON e l'artifact è `ESP32-Firmware-EXPERIMENTAL`. Sul branch `valhalla` restano OFF e l'artifact conserva il nome `ESP32-Firmware`.
+
+Nel monitor seriale `idf.py -p COM3 monitor` controllare all'avvio `ESP NAV EXPERIMENT curve=1 subpixel=1`; durante la navigazione appare ogni ~5 secondi `NAV_EXP render=... hz=... projection_avg=...us max=...us lock_max=...us zoom_x100=... int_free=... psram_free=...`. `render/hz` indica **frame della task**, non flush o FPS AMOLED. Confrontare memoria, fluidità, BLE e latenza; lasciare disattivata la diagnostica persistente durante il test (in passato provocava blocchi). Firmware da validare con flash e prova fisica prima di qualsiasi merge.
 **Riprodurre:** caricare il file JSONL, usare play/pausa, frame precedente/successivo, cursore, velocità 0,25–4×, gli **eventi cliccabili** e il grafico di velocità per raggiungere subito tappa, rotatorie, cambi rotta e arrivo. Lo zoom mostrato accanto alla manovra riproduce il calcolo attuale del presenter. "Esempio sintetico" serve soltanto a verificare l'interfaccia: non è una mappa OSM reale. La funzione PNG può dipendere dal framebuffer WebGL. Il player non ricalcola Valhalla o il selettore MotoMap: per cambiare i punteggi delle strade servirà una seconda modalità con anche le candidate non selezionate. I precedenti ZIP senza geometrie non si possono riprodurre come mappe fedeli.
 
 Guida completa: platforms/web/simulator/README.md. La vecchia platforms/web/shell/index.html resta la demo storica e non il nuovo banco prova.
