@@ -57,3 +57,19 @@ test("ricerca binaria del frame: prima posizione maggiore o uguale al tempo",()=
   assert.equal(model.findFrameAtOrAfter(frames,300),2);
   assert.equal(model.findFrameAtOrAfter([],100),-1);
 });
+
+test("ritrasmissioni identiche non ricreano route e scene tra snapshot",()=>{
+  const a=[event("meta",0,{schema:"moto-replay-v1"}),
+    route(1,42),event("scene",1,{revision:7,roads:[{road_class:3,
+      points:[[44,7],[44.0001,7.0001]]}]}),snapshot(2),
+    route(3,42),event("scene",3,{revision:7,roads:[{road_class:3,
+      points:[[44,7],[44.0001,7.0001]]}]}),snapshot(4),
+    route(5,42,[[44,7],[44.2,7.1]]),snapshot(6),
+    event("scene",7,{revision:8,roads:[{road_class:3,
+      points:[[44,7],[44.0001,7.0001]]}]}),snapshot(8)];
+  const f=model.parse(a.join("\n")).frames;
+  assert.equal(f[0].route,f[1].route);
+  assert.equal(f[0].scene,f[1].scene);
+  assert.notEqual(f[1].route,f[2].route);
+  assert.notEqual(f[2].scene,f[3].scene);
+});
