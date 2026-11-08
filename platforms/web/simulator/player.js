@@ -30,6 +30,7 @@
   // Separate JS-to-WASM update cost from browser animation-frame pacing.
   let diagStart = 0, diagRaf = 0, diagUpdates = 0, diagCost = 0;
   let diagMaxCost = 0, diagSlowRaf = 0, diagLastRaf = 0;
+  let diagInterpolated = 0, diagNoSpan = 0;
   function status(text, error = false) {
     ui.status.textContent = text;
     ui.status.dataset.error = String(error);
@@ -179,14 +180,13 @@
     const result=model.parse(source);
     pause();dataset=result;frames=result.frames;events=result.events;index=0;
     motionSpans=model.buildMotionSpans(frames);
-    lastMotionPaint=-Infinity;
     profileSpeeds=frames.map(f=>Math.max(0,numeric(f.snapshot.speed_mps)*3.6));
     profileMaxSpeed=Math.max(40,Math.ceil(
       profileSpeeds.reduce((a,b)=>Math.max(a,b),0)/20)*20);
     resetRenderer();
-    lastMotionPaint=-Infinity;
     diagStart=0;diagRaf=0;diagUpdates=0;diagCost=0;
     diagMaxCost=0;diagSlowRaf=0;diagLastRaf=0;
+    diagInterpolated=0;diagNoSpan=0;
     ui.performance.textContent="—";
     ui["lvgl-performance"].textContent="—";
     lastProfilePaint=-Infinity;
@@ -214,15 +214,16 @@
   // The log contains several identical-position UI snapshots per GPS fix.
   // Interpolate between distinct recorded fixes, preserving the current
   // route/scene and the experimental maneuver/curve zoom untouched.
-  let lastMotionPaint=-Infinity;
-  function smoothMotion(target,now){
-    if(!api || now-lastMotionPaint<14)return;
+  function smoothMotion(target){
+    if(!api)return;
+    // One interpolation attempt per browser RAF, not a second 14 ms clock.
+    // Near 60 Hz that threshold skipped otherwise-valid alternate frames.
     const motion=model.interpolateMotion(frames,motionSpans,index,target);
-    if(!motion)return;
+    if(!motion){diagNoSpan++;return;}
+    diagInterpolated++;
     const frame=frames[index];
     projectWithLvgl({snapshot:{...frame.snapshot,...motion},
       route:frame.route,scene:frame.scene},index);
-    lastMotionPaint=now;
   }
   function tick(now){
     if (playing && frames.length) {
@@ -238,7 +239,7 @@
       let next=model.findFrameAtOrAfter(frames,target);
       if(next>0&&frames[next].t>target)next--;
       if(next!==index)display(next);
-      smoothMotion(target,now);
+      smoothMotion(target);
       if(now-diagStart>=1000){
         const seconds=(now-diagStart)/1000;
         ui.performance.textContent=
@@ -246,9 +247,11 @@
           diagUpdates+" WASM/s · "+
           (diagUpdates?diagCost/diagUpdates:0).toFixed(1)+" ms medi · "+
           diagMaxCost.toFixed(1)+" ms max · "+
-          diagSlowRaf+" ritardi";
+          diagSlowRaf+" ritardi · "+
+          diagInterpolated+" interp/s · "+diagNoSpan+" senza interp";
         diagStart=now;diagRaf=0;diagUpdates=0;diagCost=0;
         diagMaxCost=0;diagSlowRaf=0;
+        diagInterpolated=0;diagNoSpan=0;
         if (api?.lvglHz) {
           ui["lvgl-performance"].textContent=
             api.lvglHz()+" handler/s · "+
