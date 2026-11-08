@@ -1,5 +1,16 @@
 # Moto GPS — Project State
 
+## Zoom tornanti: feedback e intervento anti-scatti — 2026-11-08
+
+**Feedback verificato dall'utente nel simulatore LVGL/WASM:** il rilevamento geometrico funziona e lo zoom sale fino a 3× nel tornante, ma la mappa avanza a scatti e lo zoom diminuisce a metà curva. Non è dimostrato che gli scatti provengano dall'algoritmo anziché dal browser; il comportamento non è stato testato sul display ESP32.
+
+**Branch sperimentale:** `test/road-contrast-cleanup-20261104`; `valhalla`, firmware ESP32, APK Android, protocollo BLE e routing invariati. Modificato `shared/nav_presenter/include/moto_curve_zoom.hpp`: la finestra retrospettiva per il riconoscimento curva passa da 40 a 95 metri con uscita progressiva, mantenendo il limite geometrico 3× e il massimo con la manovra Valhalla 4×. Modificato `platforms/web/simulator/player.js`: durante play il profilo della velocità e la selezione evento (operazioni DOM/Canvas secondarie) sono aggiornati ogni ~120 ms anziché a ogni snapshot, mentre la mappa LVGL continua a ricevere gli snapshot. Aggiunto scenario nativo `nav_presenter_tests.cpp` con motociclista dopo l'apice sul ramo di ritorno; manuale aggiornato con procedura di restart server e confronto A/B.
+
+**Verifiche:** ispezionato codice remoto; controllo numerico indipendente dell'esempio sintetico (rider dopo vertice: zoom >1×). Test completo CTest, build WebAssembly, CI e prova sul trace originale **non eseguiti in questa sessione**: da verificare sul commit finale e sul PC utente. Il replay originale non viene committato. **Rischi:** il campionamento della finestra locale, la scelta del ramo più vicino e la frequenza irregolare del GPS possono ancora causare variazioni; una futura isteresi temporale/di avanzamento potrà essere necessaria se il problema persiste.
+
+**Prossima azione:** verificare CI dell'ultimo commit, ricompilare WebAssembly in WSL, confrontare lo stesso giro fra 12:10:50 e 12:12:30 con toggle OFF/ON, osservando la seconda metà del tornante e la rotatoria 4×. Non integrare in `valhalla` senza conferma.
+
+
 ## Zoom intelligente: prima sperimentazione geometrica nel simulatore — 2026-11-08
 
 **Evidenza reale:** l'utente ha compilato Emscripten 7.0.0 su Ubuntu 24.04 WSL, generato `moto-gps-device.js` (~197 KiB) e `.wasm` (~1,3 MiB), aperto il simulatore tramite `python3 -m http.server 4173` e verificato che LVGL gira. Nel giro del 6 novembre lo zoom resta **1× sui tornanti** successivi a ~12:10:50 e aumenta correttamente a **4× soltanto presso la rotatoria**. È il comportamento atteso dal codice precedente: inizia a ingrandire entro 100 m dalla manovra Valhalla e non guarda la curvatura.
