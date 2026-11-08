@@ -36,6 +36,11 @@ constexpr int kDesignWidth = 360;
 constexpr std::uint32_t kPageDotsVisibleMs = 5'000;
 constexpr std::uint16_t MOTO_UI_ROAD_LINE_WIDGET_LIMIT = 40;
 constexpr std::uint32_t kRouteMotionFrameMs = 25;
+#ifdef __EMSCRIPTEN__
+// Simulator-only counters: requested route geometry versus pixel movement.
+std::uint32_t web_route_target_changes = 0;
+std::uint32_t web_map_pixel_changes = 0;
+#endif
 constexpr std::uint32_t kConnectionSuccessHoldMs = 920;
 
 enum class LifecycleVisual : std::uint8_t {
@@ -549,7 +554,12 @@ void route_motion_tick(lv_timer_t *) {
     if(route_moved) {
         pixels_changed = apply_route_geometry_frame(false) || pixels_changed;
     }
-    if(pixels_changed) lv_obj_invalidate(ui.nav_map);
+    if(pixels_changed) {
+#ifdef __EMSCRIPTEN__
+        ++web_map_pixel_changes;
+#endif
+        lv_obj_invalidate(ui.nav_map);
+    }
 }
 
 void update_road_geometry(const moto_ui_state_t *state) {
@@ -632,6 +642,13 @@ void update_route_geometry(const moto_ui_state_t *state) {
         return;
     }
 
+#ifdef __EMSCRIPTEN__
+    if(ui.nav_route_target_count != count ||
+       ui.nav_route_target_x[0] != state->route_points[0].x ||
+       ui.nav_route_target_y[0] != state->route_points[0].y) {
+        ++web_route_target_changes;
+    }
+#endif
     for(std::uint8_t i = 0; i < count; ++i) {
         ui.nav_route_target_x[i] = state->route_points[i].x;
         ui.nav_route_target_y[i] = state->route_points[i].y;
@@ -1897,3 +1914,19 @@ extern "C" void moto_nav_ui_set_demo_change_callback(
     ui.demo_callback_context = context;
 }
 
+
+#ifdef __EMSCRIPTEN__
+// Query-only diagnostics. No memory/payload impact on the physical ESP32.
+extern "C" std::uint32_t moto_nav_ui_web_target_changes(void) {
+    return web_route_target_changes;
+}
+extern "C" std::uint32_t moto_nav_ui_web_pixel_changes(void) {
+    return web_map_pixel_changes;
+}
+extern "C" double moto_nav_ui_web_route_lag_px(void) {
+    if(ui.nav_route_target_count < 2 || ui.nav_route_point_count < 2) return 0.0;
+    return std::hypot(
+        static_cast<double>(ui.nav_route_target_x[0]-ui.nav_route_x[0]),
+        static_cast<double>(ui.nav_route_target_y[0]-ui.nav_route_y[0]));
+}
+#endif
