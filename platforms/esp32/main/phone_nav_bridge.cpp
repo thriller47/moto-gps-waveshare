@@ -1053,6 +1053,18 @@ void PhoneNavBridge::render_pending() {
   const bool navigation = (requested & RenderNavigation) != 0U;
   const bool motion = !navigation && (requested & RenderMotion) != 0U;
   const bool media = (requested & RenderMedia) != 0U;
+#if defined(ESP_PLATFORM) && (defined(MOTO_ESP_CURVE_ZOOM_EXPERIMENT) || defined(MOTO_ESP_SUBPIXEL_EXPERIMENT))
+  // Experiment-only serial telemetry, once per five seconds, no persistent
+  // diagnostics or extra work in NimBLE/IMU callbacks.
+  static std::uint64_t telemetry_window_us = 0;
+  static std::uint64_t projection_total_us = 0;
+  static std::uint64_t projection_max_us = 0;
+  static std::uint64_t lock_wait_max_us = 0;
+  static std::uint32_t telemetry_frames = 0;
+  const std::uint64_t measurement_start_us =
+      static_cast<std::uint64_t>(esp_timer_get_time());
+  if (telemetry_window_us == 0) telemetry_window_us = measurement_start_us;
+#endif
 #ifdef ESP_PLATFORM
   // Trace the exact stage reached by the renderer. These samples stay in the
   // persistent flash log even when BLE RX continues but the screen freezes.
@@ -1116,6 +1128,13 @@ void PhoneNavBridge::render_pending() {
     }
     presenter_.update(render_snapshot_);
   }
+#if defined(ESP_PLATFORM) && (defined(MOTO_ESP_CURVE_ZOOM_EXPERIMENT) || defined(MOTO_ESP_SUBPIXEL_EXPERIMENT))
+  const std::uint64_t projection_done_us =
+      static_cast<std::uint64_t>(esp_timer_get_time());
+  const std::uint64_t projection_us = projection_done_us - measurement_start_us;
+  projection_total_us += projection_us;
+  projection_max_us = std::max(projection_max_us, projection_us);
+#endif
 #ifdef ESP_PLATFORM
   if (trace_render) moto_diag_event(MotoDiagEvent::RenderPhase, 3); // wait LVGL
   // A stalled display worker must not trap the render task forever. Coalesce
@@ -1140,6 +1159,12 @@ void PhoneNavBridge::render_pending() {
     request_render(requested);
     return;
   }
+#if defined(ESP_PLATFORM) && (defined(MOTO_ESP_CURVE_ZOOM_EXPERIMENT) || defined(MOTO_ESP_SUBPIXEL_EXPERIMENT))
+  const std::uint64_t lock_done_us =
+      static_cast<std::uint64_t>(esp_timer_get_time());
+  lock_wait_max_us = std::max(lock_wait_max_us,
+                             lock_done_us - projection_done_us);
+#endif
 #ifdef ESP_PLATFORM
   if (trace_render) moto_diag_event(MotoDiagEvent::RenderPhase, 4); // LVGL acquired
 #endif
@@ -1180,6 +1205,35 @@ void PhoneNavBridge::render_pending() {
   }
 #endif
   board_port_unlock();
+#if defined(ESP_PLATFORM) && (defined(MOTO_ESP_CURVE_ZOOM_EXPERIMENT) || defined(MOTO_ESP_SUBPIXEL_EXPERIMENT))
+  if (navigation || motion) ++telemetry_frames;
+  const std::uint64_t end_us =
+      static_cast<std::uint64_t>(esp_timer_get_time());
+  if (end_us - telemetry_window_us >= 5'000'000ULL) {
+    const std::uint64_t elapsed_us = end_us - telemetry_window_us;
+    ESP_LOGI(kTag,
+             "NAV_EXP render=%lu/5s hz=%lu projection_avg=%luus max=%luus "
+             "lock_max=%luus zoom_x100=%lu int_free=%lu psram_free=%lu",
+             static_cast<unsigned long>(telemetry_frames),
+             static_cast<unsigned long>(
+                 telemetry_frames * 1'000'000ULL / elapsed_us),
+             static_cast<unsigned long>(
+                 telemetry_frames ? projection_total_us / telemetry_frames : 0),
+             static_cast<unsigned long>(projection_max_us),
+             static_cast<unsigned long>(lock_wait_max_us),
+             static_cast<unsigned long>(
+                 std::lround(presenter_.applied_zoom_factor() * 100.0)),
+             static_cast<unsigned long>(
+                 heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+             static_cast<unsigned long>(
+                 heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)));
+    telemetry_window_us = end_us;
+    telemetry_frames = 0;
+    projection_total_us = 0;
+    projection_max_us = 0;
+    lock_wait_max_us = 0;
+  }
+#endif
 }
 
 #ifdef ESP_PLATFORM
