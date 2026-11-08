@@ -108,6 +108,7 @@
   // Precompute spans once: per-frame playback must stay O(1).
   function buildMotionSpans(frames) {
     const spans = new Array(frames.length).fill(null);
+    const gapReasons = new Array(frames.length).fill("end");
     const sameFix = (a,b) => a.route===b.route &&
       a.snapshot.state===b.snapshot.state &&
       finite(a.snapshot.lat, NaN)===finite(b.snapshot.lat, NaN) &&
@@ -116,21 +117,32 @@
       let end=first+1;
       while(end<frames.length && sameFix(frames[first],frames[end])) end++;
       const a=frames[first],b=frames[end];
-      if (b && a.route && a.route===b.route &&
-          a.snapshot.state==="navigating" &&
-          b.snapshot.state==="navigating") {
+      // Classify the reason once per group of repeated positions. Playback
+      // remains O(1) per RAF, even for large Android recordings.
+      let reason = "end";
+      if (!a.route) reason = "no-route";
+      else if (a.snapshot.state!=="navigating" ||
+               (b && b.snapshot.state!=="navigating")) reason = "state";
+      else if (b && a.route!==b.route) reason = "reroute";
+      else if (b) {
         const dt=b.t-a.t;
         const lat=finite(a.snapshot.lat),lat2=finite(b.snapshot.lat);
         const lon=finite(a.snapshot.lon),lon2=finite(b.snapshot.lon);
         const meters=Math.hypot((lat2-lat)*111195,
           (lon2-lon)*111195*Math.cos(lat*Math.PI/180));
-        // No smoothing through long dropouts or implausible GPS jumps.
-        if (dt>=70 && dt<=3000 && meters>0 && meters<=100) {
+        if (dt<70 || dt>3000) reason = "gap";
+        else if (meters>100) reason = "jump";
+        else if (meters===0) reason = "stationary";
+        else {
+          reason = "";
           for(let i=first;i<end;i++)spans[i]={from:first,to:end};
         }
       }
+      for(let i=first;i<end;i++)gapReasons[i]=reason;
       first=end;
     }
+    // Metadata is not an array element, preserving legacy tests/consumers.
+    Object.defineProperty(spans,"gapReasons",{value:gapReasons});
     return spans;
   }
   function interpolateMotion(frames, spans, index, target) {
@@ -149,6 +161,15 @@
       heading_deg:(h0+u*dh+360)%360,
       speed_mps:lerp(finite(sa.speed_mps),finite(sb.speed_mps))
     };
+  }
+  // Reasons for invalid interpolation, never an instruction to
+  // extrapolate through a reroute, GPS dropout or physically implausible jump.
+  function motionGapReason(spans, index, target, frames) {
+    if (!spans[index]) return spans.gapReasons?.[index] || "unknown";
+    const span=spans[index];
+    const a=frames[span.from],b=frames[span.to];
+    const u=(target-a.t)/(b.t-a.t);
+    return u<=0.001||u>=0.999 ? "boundary" : "unknown";
   }
   function parse(source) {
     const records = readRecords(source);
@@ -198,5 +219,5 @@
       firstMs: frames[0].t, lastMs: frames.at(-1).t};
   }
   return {parse, findFrameAtOrAfter, finite, position, routeFrom, sceneFrom,
-    buildMotionSpans, interpolateMotion};
+    buildMotionSpans, interpolateMotion, motionGapReason};
 });
