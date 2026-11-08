@@ -102,6 +102,54 @@
         road.clazz===b.roads[i].clazz &&
         samePoints(road.points,b.roads[i].points));
   }
+  // A replay can contain several UI snapshots for every real GPS fix.
+  // Smooth between DISTINCT fixes, not neighbouring UI snapshots, otherwise
+  // repeated coordinates make the map freeze and leap once per GPS second.
+  // Precompute spans once: per-frame playback must stay O(1).
+  function buildMotionSpans(frames) {
+    const spans = new Array(frames.length).fill(null);
+    const sameFix = (a,b) => a.route===b.route &&
+      a.snapshot.state===b.snapshot.state &&
+      finite(a.snapshot.lat, NaN)===finite(b.snapshot.lat, NaN) &&
+      finite(a.snapshot.lon, NaN)===finite(b.snapshot.lon, NaN);
+    for (let first=0;first<frames.length;) {
+      let end=first+1;
+      while(end<frames.length && sameFix(frames[first],frames[end])) end++;
+      const a=frames[first],b=frames[end];
+      if (b && a.route && a.route===b.route &&
+          a.snapshot.state==="navigating" &&
+          b.snapshot.state==="navigating") {
+        const dt=b.t-a.t;
+        const lat=finite(a.snapshot.lat),lat2=finite(b.snapshot.lat);
+        const lon=finite(a.snapshot.lon),lon2=finite(b.snapshot.lon);
+        const meters=Math.hypot((lat2-lat)*111195,
+          (lon2-lon)*111195*Math.cos(lat*Math.PI/180));
+        // No smoothing through long dropouts or implausible GPS jumps.
+        if (dt>=70 && dt<=3000 && meters>0 && meters<=100) {
+          for(let i=first;i<end;i++)spans[i]={from:first,to:end};
+        }
+      }
+      first=end;
+    }
+    return spans;
+  }
+  function interpolateMotion(frames, spans, index, target) {
+    const span=spans[index];
+    if (!span) return null;
+    const a=frames[span.from],b=frames[span.to];
+    const u=Math.max(0,Math.min(1,(target-a.t)/(b.t-a.t)));
+    if (u<=0.001 || u>=0.999) return null;
+    const sa=a.snapshot,sb=b.snapshot;
+    const lerp=(x,y)=>x+(y-x)*u;
+    const h0=finite(sa.heading_deg),h1=finite(sb.heading_deg);
+    const dh=((h1-h0+540)%360)-180;
+    return {
+      lat:lerp(finite(sa.lat),finite(sb.lat)),
+      lon:lerp(finite(sa.lon),finite(sb.lon)),
+      heading_deg:(h0+u*dh+360)%360,
+      speed_mps:lerp(finite(sa.speed_mps),finite(sb.speed_mps))
+    };
+  }
   function parse(source) {
     const records = readRecords(source);
     const counts = {fix:0, route:0, scene:0, snapshot:0, waypoint:0};
@@ -149,5 +197,6 @@
       durationMs: frames.at(-1).t - frames[0].t,
       firstMs: frames[0].t, lastMs: frames.at(-1).t};
   }
-  return {parse, findFrameAtOrAfter, finite, position, routeFrom, sceneFrom};
+  return {parse, findFrameAtOrAfter, finite, position, routeFrom, sceneFrom,
+    buildMotionSpans, interpolateMotion};
 });
