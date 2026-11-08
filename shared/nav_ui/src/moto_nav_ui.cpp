@@ -462,7 +462,7 @@ bool apply_route_geometry_frame(bool rebind_lines = true) {
     if(ui.nav_route_point_count < 2) return false;
     bool pixels_changed = false;
     for(std::uint8_t i = 0; i < ui.nav_route_point_count; ++i) {
-#ifdef __EMSCRIPTEN__
+#if defined(__EMSCRIPTEN__) || defined(MOTO_ESP_SUBPIXEL_EXPERIMENT)
         const auto x = static_cast<lv_value_precise_t>(ui.nav_route_x[i]);
         const auto y = static_cast<lv_value_precise_t>(ui.nav_route_y[i]);
 #else
@@ -490,7 +490,7 @@ bool apply_road_geometry_frame(bool rebind_lines = true) {
     }
     bool pixels_changed = false;
     for(std::uint8_t i = 0; i < ui.nav_road_point_count; ++i) {
-#ifdef __EMSCRIPTEN__
+#if defined(__EMSCRIPTEN__) || defined(MOTO_ESP_SUBPIXEL_EXPERIMENT)
         const auto x = static_cast<lv_value_precise_t>(ui.nav_road_x[i]);
         const auto y = static_cast<lv_value_precise_t>(ui.nav_road_y[i]);
 #else
@@ -592,7 +592,7 @@ void update_road_geometry(const moto_ui_state_t *state) {
         ui.nav_road_point_count != point_count ||
         ui.nav_road_polyline_count != polyline_count;
     for(std::uint8_t i = 0; i < point_count; ++i) {
-#ifdef __EMSCRIPTEN__
+#if defined(__EMSCRIPTEN__) || defined(MOTO_ESP_SUBPIXEL_EXPERIMENT)
         ui.nav_road_target_x[i] = state->web_road_points[i].x;
         ui.nav_road_target_y[i] = state->web_road_points[i].y;
 #else
@@ -665,7 +665,7 @@ void update_route_geometry(const moto_ui_state_t *state) {
     }
 #endif
     for(std::uint8_t i = 0; i < count; ++i) {
-#ifdef __EMSCRIPTEN__
+#if defined(__EMSCRIPTEN__) || defined(MOTO_ESP_SUBPIXEL_EXPERIMENT)
         ui.nav_route_target_x[i] = state->web_route_points[i].x;
         ui.nav_route_target_y[i] = state->web_route_points[i].y;
 #else
