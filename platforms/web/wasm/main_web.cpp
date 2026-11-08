@@ -78,6 +78,10 @@ EM_JS(void, emit_live_traffic_request,
 
 // Diagnostic for the *LVGL main-loop handler*, not an SDL present/flush
 // counter. JS replay calls can be fast while LVGL timers are scheduled slowly.
+// The browser main loop is already synchronized to requestAnimationFrame.
+// Make the display refresh timer ready on each RAF instead of depending on
+// 15 ms LVGL timer expiry, which aliases against 16.7 ms browser intervals.
+lv_timer_t* browser_display_refresh_timer = nullptr;
 std::uint32_t lvgl_diag_handlers = 0;
 std::uint32_t lvgl_diag_delays = 0;
 double lvgl_diag_sum_ms = 0.0;
@@ -107,6 +111,9 @@ void frame(void*) {
   lvgl_diag_previous_start = now;
   if (lvgl_diag_window_start == 0.0) lvgl_diag_window_start = now;
   const double started = emscripten_get_now();
+  if (browser_display_refresh_timer != nullptr) {
+    lv_timer_ready(browser_display_refresh_timer);
+  }
   lv_timer_handler();
   const double cost = emscripten_get_now() - started;
   ++lvgl_diag_handlers;
@@ -769,14 +776,11 @@ int main() {
   lv_display_t* display = lv_sdl_window_create(
       MOTO_UI_CANVAS_WIDTH, MOTO_UI_CANVAS_HEIGHT);
   if (display != nullptr) {
-    // Browser RAF is ~16.7 ms at 60 Hz. The shared LVGL default is 25 ms
-    // (preserved for ESP32): with one handler per RAF, 25 ms can only
-    // expire every other frame (~30 renders/s). Override the display's
-    // refresh timer for WebAssembly only. Use 15 ms to avoid missing a
-    // browser vsync because of fractional frame timing.
-    if (lv_timer_t* refresh = lv_display_get_refr_timer(display)) {
-      lv_timer_set_period(refresh, 15);
-    }
+    // The shared 25 ms LVGL refresh period remains untouched for ESP32.
+    // WebAssembly instead makes this display's refresh timer ready on every
+    // browser RAF. With ~60 RAF/s, period-based expiry (even 15 ms) misses
+    // some frames because browser and LVGL ticks are not phase-locked.
+    browser_display_refresh_timer = lv_display_get_refr_timer(display);
     lv_display_add_event_cb(display, lvgl_diagnostic_event,
                             LV_EVENT_RENDER_START, nullptr);
     lv_display_add_event_cb(display, lvgl_diagnostic_event,
