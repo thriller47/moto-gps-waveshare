@@ -268,6 +268,8 @@
         if (api?.lvglHz) {
           ui["lvgl-performance"].textContent=
             api.lvglHz()+" handler/s · "+
+            api.lvglRender()+" render/s · "+
+            api.lvglFlush()+" flush/s · "+
             api.lvglAvg().toFixed(1)+" ms medi · "+
             api.lvglMax().toFixed(1)+" ms max · "+
             api.lvglDelays()+" ritardi";
@@ -331,6 +333,8 @@
           snapshot:fn("snapshot",Array(15).fill("number")),
           curveZoom:fn("set_curve_zoom_enabled",["number"]),
           zoomFactor:mod.cwrap("moto_web_replay_zoom_factor","number",[]),
+          lvglRender:mod.cwrap("moto_web_lvgl_render_hz","number",[]),
+          lvglFlush:mod.cwrap("moto_web_lvgl_flush_hz","number",[]),
           lvglHz:mod.cwrap("moto_web_lvgl_handler_hz","number",[]),
           lvglDelays:mod.cwrap("moto_web_lvgl_handler_delays","number",[]),
           lvglAvg:mod.cwrap("moto_web_lvgl_handler_avg_ms","number",[]),
