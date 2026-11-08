@@ -535,6 +535,15 @@ Con Emscripten attivo in PowerShell Windows si può compilare anche con emcmake 
 
 **Misura reale del simulatore (8 novembre):** l'utente ha rilevato `60 RAF/s · 25 WASM/s · 0,1 ms medi · 0,2 ms max · 0 ritardi`. Il ciclo browser è regolare e la chiamata C++ è leggera, ma il limite artificiale dell'interpolazione GPS a 40 ms forniva solo 25 nuove posizioni al secondo. Il limite è stato abbassato a 14 ms per seguire tipicamente il display del browser (fino a circa 60 aggiornamenti/s su pannello 60 Hz), **senza modificare il rilevatore geometrico** o la semantica dei ricalcoli. Eseguire `git pull --ff-only` sul branch test, Ctrl+F5 (nessuna ricompilazione WASM necessaria perché questa modifica è solo in `player.js`), provare ancora lo stesso replay alle 12:10:50 a velocità 1× e confrontare fluidità e diagnostica. Se persiste lo scatto anche con circa 60 WASM/s e 0 ritardi, indagare il tempo di flush LVGL/SDL e la presentazione dei frame separatamente: le attuali metriche **non** misurano quel lavoro.
 
+**Nuova diagnostica ciclo LVGL (8 novembre, solo browser):** l'utente riferisce ancora scatti con replay `48–64 WASM/s` dopo l'eliminazione del limite 25 Hz. Viene aggiunto sotto i numeri JS un secondo riquadro «Diagnostica ciclo LVGL», che mostra `handler/s`, durata media e massima di `lv_timer_handler()` in millisecondi e numero di intervalli del ciclo oltre 50 ms. È **il ciclo LVGL**, non il numero effettivo di flush SDL/immagini mostrate a schermo; un valore vicino a 60 handler/s non prova che la GPU presenti 60 immagini distinte. Poiché la modifica include C++ WebAssembly, per vedere il riquadro con dati validi **ricompilare**:
+```bash
+cd ~/MotoGPS/moto-gps-waveshare
+git pull --ff-only origin test/road-contrast-cleanup-20261104
+source ~/emsdk/emsdk_env.sh
+./scripts/build_web.sh
+```
+Lasciare in esecuzione il server `python3 -m http.server 4173 --directory .` se è già attivo e premere `Ctrl+F5` in Chrome. Ripetere il percorso alle 12:10:50 a 1×, riportando sia diagnostica replay WASM sia diagnostica ciclo LVGL. Modifica solo per browser, senza cambiare zoom, APK o firmware. Test visivo e nuova compilazione WSL da convalidare.
+
 **Riprodurre:** caricare il file JSONL, usare play/pausa, frame precedente/successivo, cursore, velocità 0,25–4×, gli **eventi cliccabili** e il grafico di velocità per raggiungere subito tappa, rotatorie, cambi rotta e arrivo. Lo zoom mostrato accanto alla manovra riproduce il calcolo attuale del presenter. "Esempio sintetico" serve soltanto a verificare l'interfaccia: non è una mappa OSM reale. La funzione PNG può dipendere dal framebuffer WebGL. Il player non ricalcola Valhalla o il selettore MotoMap: per cambiare i punteggi delle strade servirà una seconda modalità con anche le candidate non selezionate. I precedenti ZIP senza geometrie non si possono riprodurre come mappe fedeli.
 
 Guida completa: platforms/web/simulator/README.md. La vecchia platforms/web/shell/index.html resta la demo storica e non il nuovo banco prova.
