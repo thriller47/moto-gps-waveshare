@@ -7,7 +7,7 @@
   const $ = id => document.getElementById(id);
   const names = ["trace-file","sample","snapshot","status","play","previous","next",
     "prev-event","next-event","speed","timeline","time","frame","maneuver",
-    "roads","zoom","speed-kph","performance","events","profile","canvas","preview","summary","curve-zoom"];
+    "roads","zoom","speed-kph","performance","lvgl-performance","events","profile","canvas","preview","summary","curve-zoom"];
   const ui = Object.fromEntries(names.map(id=>[id,$(id)]));
   const required = names.filter(id=>!ui[id]);
   if (required.length) throw Error("Controlli simulator mancanti: " + required.join(", "));
@@ -186,6 +186,7 @@
     diagStart=0;diagRaf=0;diagUpdates=0;diagCost=0;
     diagMaxCost=0;diagSlowRaf=0;diagLastRaf=0;
     ui.performance.textContent="—";
+    ui["lvgl-performance"].textContent="—";
     lastProfilePaint=-Infinity;
     lastActiveEventFrame=null;
     ui.timeline.max=String(frames.length-1);
@@ -264,6 +265,13 @@
           diagSlowRaf+" ritardi";
         diagStart=now;diagRaf=0;diagUpdates=0;diagCost=0;
         diagMaxCost=0;diagSlowRaf=0;
+        if (api?.lvglHz) {
+          ui["lvgl-performance"].textContent=
+            api.lvglHz()+" handler/s · "+
+            api.lvglAvg().toFixed(1)+" ms medi · "+
+            api.lvglMax().toFixed(1)+" ms max · "+
+            api.lvglDelays()+" ritardi";
+        }
       }
       if(index===frames.length-1)pause();
     }
@@ -322,7 +330,11 @@
           roadPoint:fn("road_point",["number","number"]),roadEnd:fn("road_end",["number"]),
           snapshot:fn("snapshot",Array(15).fill("number")),
           curveZoom:fn("set_curve_zoom_enabled",["number"]),
-          zoomFactor:mod.cwrap("moto_web_replay_zoom_factor","number",[])};
+          zoomFactor:mod.cwrap("moto_web_replay_zoom_factor","number",[]),
+          lvglHz:mod.cwrap("moto_web_lvgl_handler_hz","number",[]),
+          lvglDelays:mod.cwrap("moto_web_lvgl_handler_delays","number",[]),
+          lvglAvg:mod.cwrap("moto_web_lvgl_handler_avg_ms","number",[]),
+          lvglMax:mod.cwrap("moto_web_lvgl_handler_max_ms","number",[])};
         ui.preview.hidden=true;ui.canvas.hidden=false;
         ui["curve-zoom"].disabled=false;
         api.curveZoom(ui["curve-zoom"].checked?1:0);
