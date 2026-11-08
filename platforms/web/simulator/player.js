@@ -7,7 +7,7 @@
   const $ = id => document.getElementById(id);
   const names = ["trace-file","sample","snapshot","status","play","previous","next",
     "prev-event","next-event","speed","timeline","time","frame","maneuver",
-    "roads","zoom","speed-kph","events","profile","canvas","preview","summary","curve-zoom"];
+    "roads","zoom","speed-kph","performance","events","profile","canvas","preview","summary","curve-zoom"];
   const ui = Object.fromEntries(names.map(id=>[id,$(id)]));
   const required = names.filter(id=>!ui[id]);
   if (required.length) throw Error("Controlli simulator mancanti: " + required.join(", "));
@@ -26,6 +26,9 @@
   let index = 0, rendered = -1, appliedRoute = null, appliedScene = null;
   let playing = false, base = 0, started = 0;
   let lastProfilePaint = -Infinity, lastActiveEventFrame = null;
+  // Separate JS-to-WASM update cost from browser animation-frame pacing.
+  let diagStart = 0, diagRaf = 0, diagUpdates = 0, diagCost = 0;
+  let diagMaxCost = 0, diagSlowRaf = 0, diagLastRaf = 0;
   function status(text, error = false) {
     ui.status.textContent = text;
     ui.status.dataset.error = String(error);
@@ -52,6 +55,7 @@
   }
   function projectWithLvgl(frame, nextIndex) {
     if (!api) return;
+    const updateStarted=performance.now();
     if (nextIndex < rendered || rendered === -1) resetRenderer();
     const {snapshot:s,route,scene} = frame;
     // Non ricostruire centinaia di vertici ad ogni snapshot: una geometria
@@ -78,6 +82,10 @@
       numeric(s.progress_m),numeric(s.speed_limit),numeric(s.exit),
       networks[s.network] ?? 0,s.has_turn===false?0:1);
     rendered = nextIndex;
+    const cost=performance.now()-updateStarted;
+    diagUpdates++;
+    diagCost+=cost;
+    diagMaxCost=Math.max(diagMaxCost,cost);
   }
   function annotation(t) {
     // Prototipo della conferma per 7 s, sul SOLO renderer geometrico 2D.
@@ -171,6 +179,9 @@
     pause();dataset=result;frames=result.frames;events=result.events;index=0;
     resetRenderer();
     lastMotionPaint=-Infinity;
+    diagStart=0;diagRaf=0;diagUpdates=0;diagCost=0;
+    diagMaxCost=0;diagSlowRaf=0;diagLastRaf=0;
+    ui.performance.textContent="—";
     lastProfilePaint=-Infinity;
     lastActiveEventFrame=null;
     ui.timeline.max=String(frames.length-1);
@@ -222,12 +233,31 @@
     lastMotionPaint=now;
   }
   function tick(now){
+    if (playing && frames.length) {
+      diagRaf++;
+      if (diagLastRaf && now-diagLastRaf>50) diagSlowRaf++;
+      diagLastRaf=now;
+      if (!diagStart) diagStart=now;
+    } else if (!playing) {
+      diagLastRaf=0;
+    }
     if(playing&&frames.length){
       const target=frames[0].t+base+(now-started)*numeric(ui.speed.value,1);
       let next=model.findFrameAtOrAfter(frames,target);
       if(next>0&&frames[next].t>target)next--;
       if(next!==index)display(next);
       smoothMotion(target,now);
+      if(now-diagStart>=1000){
+        const seconds=(now-diagStart)/1000;
+        ui.performance.textContent=
+          (diagRaf/seconds).toFixed(0)+" RAF/s · "+
+          diagUpdates+" WASM/s · "+
+          (diagUpdates?diagCost/diagUpdates:0).toFixed(1)+" ms medi · "+
+          diagMaxCost.toFixed(1)+" ms max · "+
+          diagSlowRaf+" ritardi";
+        diagStart=now;diagRaf=0;diagUpdates=0;diagCost=0;
+        diagMaxCost=0;diagSlowRaf=0;
+      }
       if(index===frames.length-1)pause();
     }
     requestAnimationFrame(tick);
