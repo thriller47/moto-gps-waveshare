@@ -1,5 +1,16 @@
 # Moto GPS — Project State
 
+## CI native: corretto test del mantenimento zoom tornante — 2026-11-08
+
+**CI realmente consultata:** Project Build run [42515960875](https://github.com/thriller47/moto-gps-waveshare/actions/runs/42515960875), commit `caee61a`, job native `128838919985` fallito con 12/13 CTest passati, un solo `nav_presenter_tests` fallito alla **riga 517**: `CHECK(presenter.applied_zoom_factor() > 1.05)`. I log mostrano che il compilatore aveva completato i target e gli altri 12 test erano superati. La suite JS successiva al CTest non è partita: non dichiararla superata in questa CI.
+
+**Causa riprodotta in un calcolo indipendente:** il test `test_experimental_curve_zoom_does_not_change_default_or_roundabouts` costruiva una curva molto larga che, con la formula esatta dell'algoritmo, genera circa **1,253×** all'avvicinamento e **1,270×** appena dopo l'apice. Il codice del presenter trattiene lo zoom sulla finestra stradale successiva soltanto se il rilevatore raggiunge **1,5×**; dopo il cambio a una linea retta, lo zoom torna quindi a 1×, contraddicendo un'aspettativa errata del test. Nessuna modifica di player/LVGL recente è responsabile dell'asserzione.
+
+**Correzione conservativa:** aggiornato **solo il fixture sintetico** in `tests/native/nav_presenter_tests.cpp` con un tornante più stretto (curva di raggio minore), che nei calcoli indipendenti genera **~1,777×** prima e **~1,739×** dopo l'apice; il test verifica esplicitamente la soglia `>=1.5×` prima del tratto rettilineo e può verificare realmente hold 55 m + rilascio 80 m. La verifica numerica della formula prevede zoom ancora >1,05× dopo 50 m e 1× dopo 150 m. Nessuna modifica al presenter, ai valori di zoom approvati, a Android, BLE, ESP32 o `valhalla`. Modifiche solo su `test/road-contrast-cleanup-20261104`.
+
+**Test:** calcolo geometrico e stima hold/rilascio verificati, nessuna compilazione CTest locale disponibile nel runtime (checkout remoto non montato). Prossima azione: **un'unica CI consolidata sul commit finale non `[skip ci]`** per verificare `nav_presenter_tests` e gli altri test; se fallisse analizzare il log puntuale. Il manuale operativo non richiede variazioni perché i comandi di compilazione non cambiano. Non fare merge senza approvazione.
+
+
 ## Simulatore: diagnosi intervalli GPS e correzione doppio snapshot LVGL — 2026-11-08
 
 **Scopo e branch:** solo `test/road-contrast-cleanup-20261104`; non modificare `valhalla`, Android, BLE, ESP32, zoom tornanti approvato né routing. Dopo due video, il movimento è migliorato ma rimangono piccoli scatti: il filmato più recente indica replay a ~52–54 WASM/s, 48–50 interpolazioni/s e ~10–13 RAF/s senza interpolazione in alcuni tratti; render LVGL variabile ~47–58/s. Dati dal video, non garanzia di prestazioni costanti.
