@@ -80,7 +80,9 @@ inline double experimental_curve_zoom(
     return poly[count-1];
   };
   double max_zoom = 1.0;
-  const double first = std::max(kChordM, rider_s - 40.0);
+  // Scan a longer section behind the rider: the bend is not finished at
+  // its apex, particularly on a narrow hairpin with parallel legs.
+  const double first = std::max(kChordM, rider_s - 95.0);
   const double last = std::min(along[count-1] - kChordM, rider_s + 110.0);
   for (double center = first; center <= last; center += 8.0) {
     const XY before = position(center-kChordM), at = position(center),
@@ -97,7 +99,7 @@ inline double experimental_curve_zoom(
     const double ahead = center - rider_s;
     const double proximity = ahead >= 0.0
         ? std::clamp((110.0-ahead)/90.0, 0.0, 1.0)
-        : std::clamp((40.0+ahead)/40.0, 0.0, 1.0);
+        : std::clamp((95.0+ahead)/95.0, 0.0, 1.0);
     max_zoom = std::max(max_zoom, 1.0 + 2.0*severity*proximity);
   }
   return max_zoom;
