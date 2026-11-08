@@ -576,6 +576,17 @@ source ~/emsdk/emsdk_env.sh
 ```
 Lasciare avviato il server `python3 -m http.server 4173 --directory .` dalla radice del repository, aprire `http://127.0.0.1:4173/platforms/web/simulator/index.html`, ricaricare con `Ctrl+F5`, importare la registrazione privata e riprodurre i tornanti alle 12:10:50 a 1×. Confrontare replay WASM, ciclo LVGL, movimento mappa e sensazione visiva. La modifica è **da verificare sul PC utente**; i 13 test del parser sono stati eseguiti in V8 con adattatore minimo (non ancora con `node --test`), nessuna compilazione WSL o CI confermata.
 
+**Esperimento precisione subpixel solo simulatore (8 novembre 2026):** nella compilazione Emscripten il presenter conserva in `moto_ui_state_t` due buffer supplementari di punti `float` (rotta selezionata e contesto), generati dallo stesso calcolo geografico che alimenta i punti `int16_t` di produzione. La UI browser usa i `float` come bersagli di movimento e li passa al disegno LVGL senza arrotondare prima a pixel interi. Sul firmware ESP32 i buffer aggiuntivi non sono compilati (`__EMSCRIPTEN__`), la UI continua a usare esclusivamente punti interi e il timer collaudato 25 ms/0,39. **Non è stata attivata una nuova funzionalità sull'ESP32:** questa prova misura se mantenere le frazioni nel simulatore riduce i salti; solo dopo un riscontro visivo e una verifica di RAM/FPS sul dispositivo si valuterà il trasferimento.
+
+Ricompilare WASM perché cambiano C++ e struct della build web:
+```bash
+cd ~/MotoGPS/moto-gps-waveshare
+git pull --ff-only origin test/road-contrast-cleanup-20261104
+source ~/emsdk/emsdk_env.sh
+./scripts/build_web.sh
+```
+Dopo `Ctrl+F5`, ripetere lo stesso tratto a 1×. Nella riga `Movimento mappa` i `bersagli/s` misurano ora anche le variazioni subpixel del primo vertice verde; `movimenti pixel/s` indica i tick di modifica dei punti grafici, **non** presentazioni reali GPU né cambi di pixel interi. Registrare una nuova prova per confrontare fluidità e tempi LVGL prima di accettare la modifica. Il test native protegge la precedente quantizzazione a pixel interi e l'allineamento percorso/contesto su ESP32.
+
 **Riprodurre:** caricare il file JSONL, usare play/pausa, frame precedente/successivo, cursore, velocità 0,25–4×, gli **eventi cliccabili** e il grafico di velocità per raggiungere subito tappa, rotatorie, cambi rotta e arrivo. Lo zoom mostrato accanto alla manovra riproduce il calcolo attuale del presenter. "Esempio sintetico" serve soltanto a verificare l'interfaccia: non è una mappa OSM reale. La funzione PNG può dipendere dal framebuffer WebGL. Il player non ricalcola Valhalla o il selettore MotoMap: per cambiare i punteggi delle strade servirà una seconda modalità con anche le candidate non selezionate. I precedenti ZIP senza geometrie non si possono riprodurre come mappe fedeli.
 
 Guida completa: platforms/web/simulator/README.md. La vecchia platforms/web/shell/index.html resta la demo storica e non il nuovo banco prova.
