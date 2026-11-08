@@ -86,6 +86,17 @@ double lvgl_diag_window_start = 0.0;
 double lvgl_diag_previous_start = 0.0;
 int lvgl_diag_rate = 0;
 int lvgl_diag_slow = 0;
+// Display callbacks count actual LVGL render passes and flush calls,
+// unlike handler invocation counts; neither is a GPU-present counter.
+std::uint32_t lvgl_diag_render_events = 0;
+std::uint32_t lvgl_diag_flush_events = 0;
+int lvgl_diag_render_hz = 0;
+int lvgl_diag_flush_hz = 0;
+void lvgl_diagnostic_event(lv_event_t* event) {
+  const lv_event_code_t code = lv_event_get_code(event);
+  if (code == LV_EVENT_RENDER_START) ++lvgl_diag_render_events;
+  else if (code == LV_EVENT_FLUSH_START) ++lvgl_diag_flush_events;
+}
 double lvgl_diag_average = 0.0;
 double lvgl_diag_maximum = 0.0;
 
@@ -104,6 +115,10 @@ void frame(void*) {
   if (now - lvgl_diag_window_start >= 1000.0) {
     const double seconds = (now - lvgl_diag_window_start) / 1000.0;
     lvgl_diag_rate = static_cast<int>(lvgl_diag_handlers / seconds + 0.5);
+    lvgl_diag_render_hz = static_cast<int>(lvgl_diag_render_events / seconds + 0.5);
+    lvgl_diag_flush_hz = static_cast<int>(lvgl_diag_flush_events / seconds + 0.5);
+    lvgl_diag_render_events = 0;
+    lvgl_diag_flush_events = 0;
     lvgl_diag_slow = static_cast<int>(lvgl_diag_delays);
     lvgl_diag_average = lvgl_diag_sum_ms / lvgl_diag_handlers;
     lvgl_diag_maximum = lvgl_diag_max_ms;
@@ -717,6 +732,12 @@ extern "C" EMSCRIPTEN_KEEPALIVE void moto_web_set_heading_offset(int degrees) {
 
 // These are LVGL handler diagnostics. They do not count SDL flushes or
 // frames displayed by the browser GPU.
+extern "C" EMSCRIPTEN_KEEPALIVE int moto_web_lvgl_render_hz(void) {
+  return lvgl_diag_render_hz;
+}
+extern "C" EMSCRIPTEN_KEEPALIVE int moto_web_lvgl_flush_hz(void) {
+  return lvgl_diag_flush_hz;
+}
 extern "C" EMSCRIPTEN_KEEPALIVE int moto_web_lvgl_handler_hz(void) {
   return lvgl_diag_rate;
 }
@@ -747,7 +768,12 @@ int main() {
   emscripten_set_main_loop_arg(frame, nullptr, 0, false);
   lv_display_t* display = lv_sdl_window_create(
       MOTO_UI_CANVAS_WIDTH, MOTO_UI_CANVAS_HEIGHT);
-  (void)display;
+  if (display != nullptr) {
+    lv_display_add_event_cb(display, lvgl_diagnostic_event,
+                            LV_EVENT_RENDER_START, nullptr);
+    lv_display_add_event_cb(display, lvgl_diagnostic_event,
+                            LV_EVENT_FLUSH_START, nullptr);
+  }
   lv_sdl_mouse_create();
   moto_nav_ui_create();
 
