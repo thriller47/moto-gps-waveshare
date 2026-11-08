@@ -268,6 +268,8 @@ void test_native_projection_stays_pixel_quantized_and_layers_aligned() {
   CHECK(ui.route_points[0].x == ui.route_points[1].x);
   CHECK(ui.route_points[0].y == ui.route_points[1].y);
   CHECK(ui.road_points[0].x == ui.route_points[0].x);
+  CHECK(ui.road_points[0].y == ui.route_points[0].y);
+  CHECK(ui.road_points[1].x == ui.route_points[1].x);
   CHECK(ui.road_points[1].y == ui.route_points[1].y);
 }
 
