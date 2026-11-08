@@ -22,7 +22,7 @@
   const states = {idle:0,acquiring:1,planning:2,navigating:3,rerouting:4,arrived:5};
   const networks = {offline:0,connecting:1,online:2};
   const numeric = model.finite;
-  let api = null, dataset = null, frames = [], events = [];
+  let api = null, dataset = null, frames = [], events = [], motionSpans = [];
   let index = 0, rendered = -1, appliedRoute = null, appliedScene = null;
   let playing = false, base = 0, started = 0;
   let lastProfilePaint = -Infinity, lastActiveEventFrame = null;
@@ -178,6 +178,8 @@
   function load(source,name) {
     const result=model.parse(source);
     pause();dataset=result;frames=result.frames;events=result.events;index=0;
+    motionSpans=model.buildMotionSpans(frames);
+    lastMotionPaint=-Infinity;
     profileSpeeds=frames.map(f=>Math.max(0,numeric(f.snapshot.speed_mps)*3.6));
     profileMaxSpeed=Math.max(40,Math.ceil(
       profileSpeeds.reduce((a,b)=>Math.max(a,b),0)/20)*20);
@@ -209,35 +211,17 @@
     const candidate=delta>0?events.find(e=>e.t>now+1):events.toReversed().find(e=>e.t<now-1);
     if(candidate){pause();display(candidate.frameIndex);}
   }
-  // Replay snapshots are sparse/irregular compared with display refresh.
-  // Interpolate ONLY screen motion between adjacent recorded GPS snapshots.
-  // Manual stepping and seek always render unmodified recorded samples.
+  // The log contains several identical-position UI snapshots per GPS fix.
+  // Interpolate between distinct recorded fixes, preserving the current
+  // route/scene and the experimental maneuver/curve zoom untouched.
   let lastMotionPaint=-Infinity;
   function smoothMotion(target,now){
-    // Follow the browser refresh cadence (typically 60 Hz). The previous
-    // 40 ms gate forced only 25 distinct map positions per second even while
-    // requestAnimationFrame ran at 60 Hz; measured WASM calls cost ~0.1 ms.
-    if(!api || now-lastMotionPaint<14 || index>=frames.length-1)return;
-    const a=frames[index],b=frames[index+1],dt=b.t-a.t;
-    if(dt<70||dt>1500||a.route!==b.route||a.scene!==b.scene||
-       a.snapshot.state!=="navigating"||b.snapshot.state!=="navigating")return;
-    const u=Math.min(1,Math.max(0,(target-a.t)/dt));
-    if(u<=0.001||u>=0.999)return;
-    const sa=a.snapshot,sb=b.snapshot;
-    const lat0=numeric(sa.lat,NaN),lon0=numeric(sa.lon,NaN);
-    const lat1=numeric(sb.lat,NaN),lon1=numeric(sb.lon,NaN);
-    if(![lat0,lon0,lat1,lon1].every(Number.isFinite))return;
-    const meters=Math.hypot((lat1-lat0)*111195,
-      (lon1-lon0)*111195*Math.cos(lat0*Math.PI/180));
-    // No interpolation across a jump, reroute or uncertain GPS position.
-    if(meters>35)return;
-    const lerp=(x,y)=>x+(y-x)*u;
-    const h0=numeric(sa.heading_deg),h1=numeric(sb.heading_deg);
-    const dh=((h1-h0+540)%360)-180;
-    const interpolated={...sa,lat:lerp(lat0,lat1),lon:lerp(lon0,lon1),
-      heading_deg:(h0+u*dh+360)%360,
-      speed_mps:lerp(numeric(sa.speed_mps),numeric(sb.speed_mps))};
-    projectWithLvgl({snapshot:interpolated,route:a.route,scene:a.scene},index);
+    if(!api || now-lastMotionPaint<14)return;
+    const motion=model.interpolateMotion(frames,motionSpans,index,target);
+    if(!motion)return;
+    const frame=frames[index];
+    projectWithLvgl({snapshot:{...frame.snapshot,...motion},
+      route:frame.route,scene:frame.scene},index);
     lastMotionPaint=now;
   }
   function tick(now){
