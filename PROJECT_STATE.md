@@ -1,5 +1,9 @@
 # Moto GPS — Project State
 
+## CI VERDE: test tornante corretto — 2026-11-08
+
+**Risultato verificato:** dopo il commit di codice `d84a1e371e6b5581fbf74a1856cbbbf8e81bb3e8`, la singola CI consolidata Project Build run [42516755352](https://github.com/thriller47/moto-gps-waveshare/actions/runs/42516755352), job native `128841375064`, è terminata **success**. Dal log: `nav_presenter_tests ... Passed`, `100% tests passed out of 13` e suite `node --test` con **15 pass, 0 fail**. Resta valido quanto riportato nella sezione successiva: è stata cambiata esclusivamente la geometria sintetica del test, non l'algoritmo. Job ESP32 e Android **skipped** da paths-filter; non dichiarare che siano stati compilati. Nessuna prova hardware o browser aggiornata per questo fix test. `valhalla` invariato, merge non autorizzato. **Prossima azione:** tornare alla diagnosi subpixel del replay solo su branch test, senza build multiple.
+
 ## CI native: corretto test del mantenimento zoom tornante — 2026-11-08
 
 **CI realmente consultata:** Project Build run [42515960875](https://github.com/thriller47/moto-gps-waveshare/actions/runs/42515960875), commit `caee61a`, job native `128838919985` fallito con 12/13 CTest passati, un solo `nav_presenter_tests` fallito alla **riga 517**: `CHECK(presenter.applied_zoom_factor() > 1.05)`. I log mostrano che il compilatore aveva completato i target e gli altri 12 test erano superati. La suite JS successiva al CTest non è partita: non dichiararla superata in questa CI.
