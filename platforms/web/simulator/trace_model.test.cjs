@@ -127,3 +127,36 @@ test("interpolazione ignora salti GPS implausibili",()=>{
   ].join("\n")).frames;
   assert.deepEqual(model.buildMotionSpans(f),[null,null,null]);
 });
+
+test("motivi di mancata interpolazione: ricalcolo e intervallo GPS lungo",()=>{
+  const f=model.parse([
+    route(0,1),snapshot(0,{lat:44,lon:7}),
+    snapshot(200,{lat:44,lon:7}),
+    route(300,2),snapshot(400,{lat:44.0001,lon:7}),
+    snapshot(3800,{lat:44.0002,lon:7})
+  ].join("\n")).frames;
+  const spans=model.buildMotionSpans(f);
+  assert.equal(model.motionGapReason(spans,0,100,f),"reroute");
+  assert.equal(model.motionGapReason(spans,2,1000,f),"gap");
+});
+
+test("salto geografico e finale tracciato non vengono interpolati",()=>{
+  const f=model.parse([
+    route(0,1),snapshot(0,{lat:44,lon:7}),
+    snapshot(1000,{lat:44.02,lon:7})
+  ].join("\n")).frames;
+  const spans=model.buildMotionSpans(f);
+  assert.equal(model.motionGapReason(spans,0,100,f),"jump");
+  assert.equal(model.motionGapReason(spans,1,1200,f),"end");
+  assert.equal(model.interpolateMotion(f,spans,0,500),null);
+});
+
+test("interpolazione valida non segnala un buco GPS",()=>{
+  const f=model.parse([
+    route(0,1),snapshot(0,{lat:44,lon:7}),
+    snapshot(1000,{lat:44.0001,lon:7})
+  ].join("\n")).frames;
+  const spans=model.buildMotionSpans(f);
+  assert.ok(model.interpolateMotion(f,spans,0,500));
+  assert.equal(model.motionGapReason(spans,0,1000,f),"boundary");
+});
