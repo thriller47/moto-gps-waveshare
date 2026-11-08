@@ -213,7 +213,10 @@
   // Manual stepping and seek always render unmodified recorded samples.
   let lastMotionPaint=-Infinity;
   function smoothMotion(target,now){
-    if(!api || now-lastMotionPaint<40 || index>=frames.length-1)return;
+    // Follow the browser refresh cadence (typically 60 Hz). The previous
+    // 40 ms gate forced only 25 distinct map positions per second even while
+    // requestAnimationFrame ran at 60 Hz; measured WASM calls cost ~0.1 ms.
+    if(!api || now-lastMotionPaint<14 || index>=frames.length-1)return;
     const a=frames[index],b=frames[index+1],dt=b.t-a.t;
     if(dt<70||dt>1500||a.route!==b.route||a.scene!==b.scene||
        a.snapshot.state!=="navigating"||b.snapshot.state!=="navigating")return;
