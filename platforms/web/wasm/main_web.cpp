@@ -769,6 +769,14 @@ int main() {
   lv_display_t* display = lv_sdl_window_create(
       MOTO_UI_CANVAS_WIDTH, MOTO_UI_CANVAS_HEIGHT);
   if (display != nullptr) {
+    // Browser RAF is ~16.7 ms at 60 Hz. The shared LVGL default is 25 ms
+    // (preserved for ESP32): with one handler per RAF, 25 ms can only
+    // expire every other frame (~30 renders/s). Override the display's
+    // refresh timer for WebAssembly only. Use 15 ms to avoid missing a
+    // browser vsync because of fractional frame timing.
+    if (lv_timer_t* refresh = lv_display_get_refr_timer(display)) {
+      lv_timer_set_period(refresh, 15);
+    }
     lv_display_add_event_cb(display, lvgl_diagnostic_event,
                             LV_EVENT_RENDER_START, nullptr);
     lv_display_add_event_cb(display, lvgl_diagnostic_event,
