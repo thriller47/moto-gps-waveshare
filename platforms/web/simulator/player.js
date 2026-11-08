@@ -25,6 +25,7 @@
   let api = null, dataset = null, frames = [], events = [];
   let index = 0, rendered = -1, appliedRoute = null, appliedScene = null;
   let playing = false, base = 0, started = 0;
+  let lastProfilePaint = -Infinity, lastActiveEventFrame = null;
   function status(text, error = false) {
     ui.status.textContent = text;
     ui.status.dataset.error = String(error);
@@ -147,17 +148,30 @@
     ui.zoom.textContent=(api?api.zoomFactor():
       fallback.zoomFactor(s,!!f.route)).toFixed(2)+"×";
     ui["speed-kph"].textContent=Math.round(numeric(s.speed_mps)*3.6)+" km/h";
-    const current=events.filter(e=>e.frameIndex<=index).at(-1);
-    for(const button of ui.events.children){
-      const eventFrame=Number(button.dataset.frame);
-      button.classList.toggle("active",current?.frameIndex===eventFrame);
+    // The LVGL canvas is the priority during playback. Redrawing the entire
+    // speed profile (thousands of vertices) every GPS snapshot causes jank
+    // in browsers, especially on older Windows machines.
+    const now=performance.now();
+    if (!playing || now-lastProfilePaint>=120) {
+      const current=events.filter(e=>e.frameIndex<=index).at(-1);
+      const activeFrame=current?.frameIndex ?? -1;
+      if (lastActiveEventFrame!==activeFrame) {
+        for(const button of ui.events.children){
+          const eventFrame=Number(button.dataset.frame);
+          button.classList.toggle("active",activeFrame===eventFrame);
+        }
+        lastActiveEventFrame=activeFrame;
+      }
+      drawProfile();
+      lastProfilePaint=now;
     }
-    drawProfile();
   }
   function load(source,name) {
     const result=model.parse(source);
     pause();dataset=result;frames=result.frames;events=result.events;index=0;
     resetRenderer();
+    lastProfilePaint=-Infinity;
+    lastActiveEventFrame=null;
     ui.timeline.max=String(frames.length-1);
     ["play","previous","next","timeline","prev-event","next-event"].forEach(k=>ui[k].disabled=false);
     renderEventList();
