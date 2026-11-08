@@ -1,5 +1,16 @@
 # Moto GPS — Project State
 
+## Simulatore: zoom tornanti accettabile, scatti ancora presenti — 2026-11-08
+
+**Conferma dell'utente:** l'ultimo algoritmo di zoom geometrico con mantenimento a distanza è visivamente coerente: primo tornante ~1,96×, altri ~2,78×, senza interruzione prematura segnalata. **Non modificare ulteriormente le soglie geometriche sulla base di questo feedback.** Rimane invece la riproduzione WASM a scatti sul PC, anche dopo l'interpolazione del GPS. Nessun riscontro che il firmware ESP32 abbia lo stesso problema.
+
+**Branch:** `test/road-contrast-cleanup-20261104`; `valhalla`, Android, BLE, ESP32 e routing Valhalla invariati. Analisi del replay: la registrazione contiene ripetute ritrasmissioni della geometria (documentate precedentemente 624 route per 4.732 snapshot); il parser `platforms/web/simulator/trace_model.js` ora riutilizza lo stesso oggetto se token, generazione, origine e punti sono identici, e analogamente scene con revisione, classi e vertici uguali. Il player già applica la geometria solo quando cambia il riferimento dell'oggetto, quindi questo evita di ricostruire linee LVGL per payload ripetuti. Aggiunto test Node che verifica identità riutilizzata e variazioni effettive conservate. Il profilo di velocità è precalcolato al caricamento anziché rimappato per ogni aggiornamento del grafico.
+
+**Diagnostica visibile:** `platforms/web/simulator/index.html` e `player.js` mostrano durante Play circa ogni secondo callback requestAnimationFrame/s, numero di aggiornamenti C++/WASM per secondo, costo JS→WASM medio e massimo in ms e intervalli RAF >50 ms. La misura include la chiamata snapshot e gli eventuali caricamenti di route/scene, ma **non** equivale agli FPS LVGL/SDL o agli FPS ESP32. Permette di distinguere sovraccarico/ritardi browser da geometria riemessa e snapshot irregolari. Confermare con lo stesso replay privato 12:10:50–12:12:30, confrontando eventualmente anteprima 2D e LVGL. Non committare i dati GPS.
+
+**Test non eseguiti in questa sessione:** Node, CTest, Emscripten WSL, browser/replay reale ed eventuale CI GitHub finale non ancora confermata. **Prossima azione:** verificare un solo run CI consolidato e sul PC dell'utente misurare i nuovi indicatori con il replay, senza modificare nuovamente lo zoom geometrico.
+
+
 ## Tornanti: terza iterazione dopo secondo feedback — 2026-11-08
 
 **Feedback utente:** sul replay 6 novembre il primo fix 40→95 m non basta: la mappa continua ad andare a scatti, e lo zoom scende prima della conclusione del tornante. Differenziare scatto del replay da salto zoom. Branch sperimentale `test/road-contrast-cleanup-20261104`, mai integrare senza autorizzazione; `valhalla`, firmware ESP32, Android, BLE e Valhalla routing invariati.
