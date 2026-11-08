@@ -563,6 +563,19 @@ source ~/emsdk/emsdk_env.sh
 ```
 Verificare alle 12:10:50–12:12:30 a 1×, osservando soprattutto i salti delle linee verdi e grigie, oltre a render/s, flush/s e interpolazioni valide. Compilazione e test visivo successivi ancora da confermare.
 
+**Replay, diagnostica avanzata e correzione del doppio bersaglio — 8 novembre 2026 (sperimentale):** durante Play, quando il cursore attraversava uno snapshot registrato, il simulatore chiamava WASM due volte nello stesso RAF: prima con la posizione grezza, poi con quella interpolata. Il player ora invia **una sola posizione per RAF** (interpolata, oppure grezza se l'intervallo non è interpolabile). I comandi Pausa, Step e Seek continuano a visualizzare fedelmente gli snapshot originali. `trace_model.js` distingue le ragioni del mancato movimento: `reroute` (cambio percorso), `gap` (intervallo GPS fuori 70–3000 ms), `jump` (salto oltre 100 m), `state` (non navigazione), `no-route`, `boundary` ed `end`; nessuna estrapolazione attraverso ricalcoli o salti anomali.
+
+La nuova riga **Movimento mappa (solo WASM)** confronta `bersagli/s` (variazioni delle coordinate richieste della prima linea di percorso), `movimenti pixel/s` (tick che hanno realmente spostato i pixel della rotta o delle strade di contesto) e `px ritardo` (distanza del primo vertice verde dal suo bersaglio, in pixel). Non interpretare `movimenti pixel/s` come FPS GPU né richiedere 60 aggiornamenti quando lo spostamento è subpixel. I contatori C++ sono confinati in `#ifdef __EMSCRIPTEN__`, senza modificare le build ESP32.
+
+**Ricompilazione obbligatoria** per le nuove funzioni di diagnostica C++/WASM:
+```bash
+cd ~/MotoGPS/moto-gps-waveshare
+git pull --ff-only origin test/road-contrast-cleanup-20261104
+source ~/emsdk/emsdk_env.sh
+./scripts/build_web.sh
+```
+Lasciare avviato il server `python3 -m http.server 4173 --directory .` dalla radice del repository, aprire `http://127.0.0.1:4173/platforms/web/simulator/index.html`, ricaricare con `Ctrl+F5`, importare la registrazione privata e riprodurre i tornanti alle 12:10:50 a 1×. Confrontare replay WASM, ciclo LVGL, movimento mappa e sensazione visiva. La modifica è **da verificare sul PC utente**; i 13 test del parser sono stati eseguiti in V8 con adattatore minimo (non ancora con `node --test`), nessuna compilazione WSL o CI confermata.
+
 **Riprodurre:** caricare il file JSONL, usare play/pausa, frame precedente/successivo, cursore, velocità 0,25–4×, gli **eventi cliccabili** e il grafico di velocità per raggiungere subito tappa, rotatorie, cambi rotta e arrivo. Lo zoom mostrato accanto alla manovra riproduce il calcolo attuale del presenter. "Esempio sintetico" serve soltanto a verificare l'interfaccia: non è una mappa OSM reale. La funzione PNG può dipendere dal framebuffer WebGL. Il player non ricalcola Valhalla o il selettore MotoMap: per cambiare i punteggi delle strade servirà una seconda modalità con anche le candidate non selezionate. I precedenti ZIP senza geometrie non si possono riprodurre come mappe fedeli.
 
 Guida completa: platforms/web/simulator/README.md. La vecchia platforms/web/shell/index.html resta la demo storica e non il nuovo banco prova.
