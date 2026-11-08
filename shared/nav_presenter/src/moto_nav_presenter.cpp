@@ -340,7 +340,11 @@ void project_road_context(const NavSnapshot& snapshot,
 NavPresenter::NavPresenter() { update(NavSnapshot{}); }
 
 void NavPresenter::set_experimental_curve_zoom_enabled(bool enabled) noexcept {
+  if (experimental_curve_zoom_enabled_ == enabled) return;
   experimental_curve_zoom_enabled_ = enabled;
+  curve_zoom_held_ = 1.0;
+  curve_distance_since_detection_m_ = 0.0;
+  curve_prev_fix_ = false;
 }
 
 double NavPresenter::applied_zoom_factor() const noexcept {
@@ -419,6 +423,58 @@ void NavPresenter::update(const NavSnapshot& snapshot) {
         snapshot.route_view_origin.longitude_deg,
         snapshot.heading_deg, points.data(),
         snapshot.route_view_point_count, snapshot.speed_mps >= 2.0F);
+  }
+  // The local 24-point route window can slide or shorten while the rider
+  // is midway through a hairpin. Never let that single snapshot abruptly
+  // release the zoom. Hold through the apex, then decay by distance travelled,
+  // not by frames (GPS/replay cadence is irregular). This is opt-in only.
+  const bool valid_fix = std::isfinite(snapshot.route_view_origin.latitude_deg) &&
+      std::isfinite(snapshot.route_view_origin.longitude_deg) &&
+      std::abs(snapshot.route_view_origin.latitude_deg) <= 90.0 &&
+      std::abs(snapshot.route_view_origin.longitude_deg) <= 180.0;
+  if (!experimental_curve_zoom_enabled_ ||
+      snapshot.state != NavState::Navigating || !snapshot.has_route_view ||
+      snapshot.route_view_point_count < 2 || !valid_fix) {
+    curve_zoom_held_ = 1.0;
+    curve_distance_since_detection_m_ = 0.0;
+    curve_prev_fix_ = false;
+  } else {
+    if (curve_route_identity_ != ui_state_.route_identity) {
+      curve_zoom_held_ = 1.0;
+      curve_distance_since_detection_m_ = 0.0;
+      curve_prev_fix_ = false;
+      curve_route_identity_ = ui_state_.route_identity;
+    }
+    if (curve_prev_fix_) {
+      const double lat_delta = (snapshot.route_view_origin.latitude_deg -
+          curve_prev_lat_) * (kPi / 180.0) * kEarthRadiusM;
+      const double lon_delta = (snapshot.route_view_origin.longitude_deg -
+          curve_prev_lon_) * (kPi / 180.0) * kEarthRadiusM *
+          std::cos(radians(snapshot.route_view_origin.latitude_deg));
+      const double step = std::hypot(lat_delta, lon_delta);
+      // Reject implausible GPS jumps rather than draining the curve hold.
+      if (std::isfinite(step) && step < 25.0) {
+        curve_distance_since_detection_m_ += step;
+      }
+    }
+    curve_prev_lat_ = snapshot.route_view_origin.latitude_deg;
+    curve_prev_lon_ = snapshot.route_view_origin.longitude_deg;
+    curve_prev_fix_ = true;
+
+    if (curve_zoom >= 1.5) {
+      curve_zoom_held_ = std::max(curve_zoom_held_, curve_zoom);
+      curve_distance_since_detection_m_ = 0.0;
+    }
+    // Hold for the entire apex, then progressively release over a further
+    // 80 m. A continuous 1x baseline is eventually restored on straight road.
+    constexpr double kHoldDistanceM = 55.0;
+    constexpr double kReleaseDistanceM = 80.0;
+    const double release = std::clamp(
+        (curve_distance_since_detection_m_ - kHoldDistanceM) /
+            kReleaseDistanceM, 0.0, 1.0);
+    const double retained = 1.0 + (curve_zoom_held_ - 1.0) * (1.0 - release);
+    curve_zoom = std::max(curve_zoom, retained);
+    if (release >= 1.0) curve_zoom_held_ = 1.0;
   }
   // Preserve the original maneuver zoom (including the 4x roundabout).
   // Both road context and green route use the same final map transform.
