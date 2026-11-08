@@ -1,5 +1,18 @@
 # Moto GPS — Project State
 
+## Simulatore: diagnosi intervalli GPS e correzione doppio snapshot LVGL — 2026-11-08
+
+**Scopo e branch:** solo `test/road-contrast-cleanup-20261104`; non modificare `valhalla`, Android, BLE, ESP32, zoom tornanti approvato né routing. Dopo due video, il movimento è migliorato ma rimangono piccoli scatti: il filmato più recente indica replay a ~52–54 WASM/s, 48–50 interpolazioni/s e ~10–13 RAF/s senza interpolazione in alcuni tratti; render LVGL variabile ~47–58/s. Dati dal video, non garanzia di prestazioni costanti.
+
+**Correzione del player:** `platforms/web/simulator/player.js` non invia più a WASM prima il fix grezzo e subito dopo quello interpolato sul medesimo RAF quando cambia indice; `display(next,false)` aggiorna soltanto la pagina di controllo e `smoothMotion(target)` invia una sola posizione per RAF. Se l'interpolazione è assente si invia il fix originale solo all'avanzamento di indice, senza estrapolazione. Step, Seek e Pausa mantengono la posizione originale. Il parser `trace_model.js` precalcola per ogni gruppo di fix ripetuti le ragioni di assenza dell'interpolazione (`reroute`, `gap`, `jump`, `state`, `no-route`, `end`; `boundary` all'estremo temporale), senza costi O(n) durante il replay. I contatori `interp/s` e `senza interp` ora mostrano anche le prime tre cause principali, quando presenti.
+
+**Nuova diagnostica solo WebAssembly:** `shared/nav_ui/src/moto_nav_ui.cpp` sotto `#ifdef __EMSCRIPTEN__` conta le variazioni del bersaglio del primo vertice verde e i tick che producono effettivi spostamenti pixel (percorso verde o contesto grigio), ed espone il ritardo del primo vertice rispetto al target. Le tre funzioni `moto_nav_ui_web_*` sono esportate da `platforms/web/wasm/CMakeLists.txt` e interrogate da `player.js`. `platforms/web/simulator/index.html` mostra `Movimento mappa (solo WASM)` con bersagli/s, movimenti pixel/s e ritardo in px. Non sono FPS GPU né rappresentano necessariamente l'intera geometria. I timer sul firmware e `config/lv_conf.h` restano invariati.
+
+**Test realmente eseguiti:** script `trace_model.js` e `player.js` caricati/analizzati in V8; eseguiti **13 test su 13, tutti superati** tramite adattatore locale del runner `node:test`/assert per V8, inclusi tre nuovi test diagnosi di ricalcolo, intervallo lungo, salto geografico e boundary. Ulteriori 4 verifiche mirate in V8 tutte positive. **Non eseguiti:** test nativi C++, `node --test` in Node reale, compilazione WebAssembly WSL, replay della registrazione privata dopo questa modifica, verifiche fisiche ESP32. Non considerare fluidità o build C++ confermate. Aggiornato `docs/MANUALE_OPERATIVO.md` con comandi WSL e interpretazione nuovi numeri.
+
+**Prossima azione:** l'utente aggiorna il branch sperimentale, ricompila `./scripts/build_web.sh` con emsdk, Ctrl+F5 sul simulatore, replay 12:10:50–12:12:30 a 1×; riportare riga replay, riga LVGL, riga movimento e fluidità percepita. Un unico controllo CI finale se il workflow lo prevede, non creare build ripetute; non fare merge senza esplicita autorizzazione.
+
+
 ## Fluidità replay: secondo timer movimento UI disaccoppiato da RAF — 2026-11-08
 
 **Evidenza verificata dall'utente:** dopo i fix JS di interpolazione GPS e `lv_timer_ready` del display, la diagnostica indica `60 RAF/s · 65 WASM/s · 0,1 ms medi · 0,2 ms max · 0 ritardi · 61 interp/s · 0 senza interp` e `60 handler/s · 45 render/s · 45 flush/s · 1,0 ms medi · 1,6 ms max · 0 ritardi`. Il video utente di 39 secondi mostra cambi di geometria intermittenti pur con 60 interpolazioni/s. La frequenza del display da sola non spiega il comportamento.
