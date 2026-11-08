@@ -1,5 +1,16 @@
 # Moto GPS — Project State
 
+## Tornanti: terza iterazione dopo secondo feedback — 2026-11-08
+
+**Feedback utente:** sul replay 6 novembre il primo fix 40→95 m non basta: la mappa continua ad andare a scatti, e lo zoom scende prima della conclusione del tornante. Differenziare scatto del replay da salto zoom. Branch sperimentale `test/road-contrast-cleanup-20261104`, mai integrare senza autorizzazione; `valhalla`, firmware ESP32, Android, BLE e Valhalla routing invariati.
+
+**Implementazione:** `moto_nav_presenter.hpp/.cpp` mantiene uno stato geometrico **solo quando l'esperimento è attivato**, conserva il massimo rilevato durante la curva e, anche se la finestra rotta GPS diventa rettilinea, non rilascia il valore per 55 m, poi ritorna progressivamente verso 1× nell'arco di 80 m aggiuntivi. Distanziali GPS implausibili >=25 m per snapshot sono ignorati per il countdown; cambio route identity, mancanza di geometria e disattivazione esperimento azzerano lo stato. Zoom Valhalla rotatoria 4× continua ad avere priorità come massimo. Test nativo esteso al cambio finestra a metà tornante e al ritorno a 1× dopo 150 m in passi da 10 m.
+
+`platforms/web/simulator/player.js`: durante riproduzione automatica interpola latitudine, longitudine, heading e velocità nel tratto **fra** due snapshot su stessa rotta e scena, entrambi Navigating, intervallo 70–1500 ms e distanza <=35 m; massimo un nuovo frame interpolato ogni 40 ms (25 Hz). Step manuale e seek riproducono snapshot originali. Non interpolare i ricalcoli: il loro salto geometrico è reale e deve restare diagnosticabile. Il precedente throttling del grafico della velocità resta attivo. Limite: il renderer WASM e il PC possono ancora perdere frame se il carico è eccessivo; non è prova di fluidità su ESP32.
+
+**Verifiche:** analisi sorgenti e modifiche remote completate. La compilazione nativa, WebAssembly su WSL, CI finale e replay visivo sono **ancora da verificare**; non dichiararli superati. Tracciato GPS privato non committato. Manuale operativo aggiornato. **Prossima azione:** verificare CI consolidata, ricompilare WASM (`source ~/emsdk/emsdk_env.sh && ./scripts/build_web.sh`), Ctrl+F5, confrontare sullo stesso replay 12:10:50–12:12:30 e rotatoria 4×; riportare scatti e zoom effettivi prima del merge.
+
+
 ## Zoom tornanti: feedback e intervento anti-scatti — 2026-11-08
 
 **Feedback verificato dall'utente nel simulatore LVGL/WASM:** il rilevamento geometrico funziona e lo zoom sale fino a 3× nel tornante, ma la mappa avanza a scatti e lo zoom diminuisce a metà curva. Non è dimostrato che gli scatti provengano dall'algoritmo anziché dal browser; il comportamento non è stato testato sul display ESP32.
