@@ -489,6 +489,18 @@ void test_experimental_curve_zoom_does_not_change_default_or_roundabouts() {
   CHECK(presenter.applied_zoom_factor() > 1.15);
   CHECK(presenter.applied_zoom_factor() <= 3.0);
 
+  // The rider has passed the apex and is travelling west along the return
+  // leg. Zoom must remain active through the second half of the hairpin.
+  // Previously the 40 m backward window dropped the bend too early.
+  s.route_view_origin = {
+      latitude + 40.0/lat_scale,
+      longitude + 15.0/lon_scale
+  };
+  s.heading_deg = 270.0F;
+  presenter.update(s);
+  CHECK(presenter.applied_zoom_factor() > 1.05);
+  CHECK(presenter.applied_zoom_factor() <= 3.0);
+
   s.has_next_maneuver = true;
   s.next_maneuver.type = ManeuverType::Roundabout;
   s.distance_to_next_maneuver_m = 0;
