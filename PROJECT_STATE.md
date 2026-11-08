@@ -1,5 +1,14 @@
 # Moto GPS — Project State
 
+## Primo feedback utente sul simulatore — replay ricalcoli 12:09 e tornanti 12:10:50 (2026-11-08)
+
+**Verifica sul PC dell'utente:** l'anteprima 2D del simulatore si apre e riproduce in maniera coerente con quanto era apparso sull'ESP32 reale i ricalcoli attorno alle **12:09:23**. L'utente osserva **un piccolo salto grafico** durante il cambio itinerario. Valhalla proponeva un'**inversione su una stradina secondaria** che l'utente ha deciso di non eseguire, proseguendo invece sulla strada verso i **tornanti dalle ~12:10:50 in poi**. Non descrivere più il tratto delle 12:09 come parcheggio o tornanti: sono separati temporalmente.
+
+**Controllo quantitativo del replay locale (il trace GPS rimane privato, non committare):** cambi token rotta alle **12:09:18.617**, **12:09:27.605**, **12:09:36.608** (CET). Attorno alle 12:09:22.913, mentre il telefono registra ~66 km/h, viene segnalata svolta a sinistra a 16 m; attorno alle 12:09:26.940 vengono registrati ~72 km/h. Dopo il terzo ricalcolo la distanza residua aumenta da circa **7,16 km a 9,16 km**, coerente con una geometria di rotta diversa. Alle ~12:10:50 la stessa nuova rotta è ancora attiva e la velocità/heading iniziano a cambiare in modo coerente con il tratto tortuoso riferito dall'utente. Il replay non dimostra da solo se la proposta d'inversione fosse un errore di Valhalla o una scelta legittima in funzione delle preferenze; né dimostra che il salto dipenda da interpolazione grafica anziché dal cambio immediato di rotta.
+
+**Implicazioni per sviluppo:** preservare come scenario di regressione il passaggio 12:09:15–12:09:40 (sostituzione rapida di tre geometrie e inversione ignorata), oltre al tratto **12:10:50 e successivi** per lo zoom intelligente sui tornanti. Prima di cambiare il motore di routing confrontare la geometria dei tre ricalcoli con il GPS; per il salto confrontare WASM LVGL reale e anteprima 2D, evitando interpolazioni che disegnino strade inesistenti. Non modificare le soglie di ricalcolo sulla sola base del replay. **Stato:** sola analisi e annotazione progettuale, nessuna modifica all'algoritmo, nessun test hardware nuovo.
+
+
 ## Simulatore: primo replay reale verificato in anteprima 2D — 2026-11-06
 
 **Autorizzazione utente:** iniziare lo sviluppo del simulatore usando i dati del giro registrato, lavorando sul solo branch sperimentale `test/road-contrast-cleanup-20261104`. Non cambiare il firmware ESP32, l'APK, il routing Valhalla o `valhalla` senza successive verifiche. **Privacy:** i file del percorso reale (`motogps-replay.jsonl` e ZIP diagnostico) restano personali, non sono aggiunti né incorporati nel repository.
