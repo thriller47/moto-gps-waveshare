@@ -7,7 +7,7 @@
   const $ = id => document.getElementById(id);
   const names = ["trace-file","sample","snapshot","status","play","previous","next",
     "prev-event","next-event","speed","timeline","time","frame","maneuver",
-    "roads","zoom","speed-kph","performance","lvgl-performance","events","profile","canvas","preview","summary","curve-zoom"];
+    "roads","zoom","speed-kph","performance","lvgl-performance","map-motion","events","profile","canvas","preview","summary","curve-zoom"];
   const ui = Object.fromEntries(names.map(id=>[id,$(id)]));
   const required = names.filter(id=>!ui[id]);
   if (required.length) throw Error("Controlli simulator mancanti: " + required.join(", "));
@@ -32,6 +32,7 @@
   let diagMaxCost = 0, diagSlowRaf = 0, diagLastRaf = 0;
   let diagInterpolated = 0, diagNoSpan = 0;
   let diagGapReasons = Object.create(null);
+  let lastMapTargets = null, lastMapPixels = null;
   function status(text, error = false) {
     ui.status.textContent = text;
     ui.status.dataset.error = String(error);
@@ -191,6 +192,8 @@
     diagGapReasons=Object.create(null);
     ui.performance.textContent="—";
     ui["lvgl-performance"].textContent="—";
+    ui["map-motion"].textContent="—";
+    lastMapTargets=null;lastMapPixels=null;
     lastProfilePaint=-Infinity;
     lastActiveEventFrame=null;
     ui.timeline.max=String(frames.length-1);
@@ -270,6 +273,16 @@
         diagMaxCost=0;diagSlowRaf=0;
         diagInterpolated=0;diagNoSpan=0;
         diagGapReasons=Object.create(null);
+        if (api?.mapTargets) {
+          const targets=api.mapTargets(),pixels=api.mapPixels();
+          if(lastMapTargets!==null && lastMapPixels!==null) {
+            const dt=Math.max(0,targets-lastMapTargets);
+            const dp=Math.max(0,pixels-lastMapPixels);
+            ui["map-motion"].textContent=dt+" bersagli/s · "+
+              dp+" movimenti pixel/s · "+api.mapLag().toFixed(1)+" px ritardo";
+          }
+          lastMapTargets=targets;lastMapPixels=pixels;
+        }
         if (api?.lvglHz) {
           ui["lvgl-performance"].textContent=
             api.lvglHz()+" handler/s · "+
@@ -340,6 +353,9 @@
           zoomFactor:mod.cwrap("moto_web_replay_zoom_factor","number",[]),
           lvglRender:mod.cwrap("moto_web_lvgl_render_hz","number",[]),
           lvglFlush:mod.cwrap("moto_web_lvgl_flush_hz","number",[]),
+          mapTargets:mod.cwrap("moto_nav_ui_web_target_changes","number",[]),
+          mapPixels:mod.cwrap("moto_nav_ui_web_pixel_changes","number",[]),
+          mapLag:mod.cwrap("moto_nav_ui_web_route_lag_px","number",[]),
           lvglHz:mod.cwrap("moto_web_lvgl_handler_hz","number",[]),
           lvglDelays:mod.cwrap("moto_web_lvgl_handler_delays","number",[]),
           lvglAvg:mod.cwrap("moto_web_lvgl_handler_avg_ms","number",[]),
