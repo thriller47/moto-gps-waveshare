@@ -462,10 +462,15 @@ bool apply_route_geometry_frame(bool rebind_lines = true) {
     if(ui.nav_route_point_count < 2) return false;
     bool pixels_changed = false;
     for(std::uint8_t i = 0; i < ui.nav_route_point_count; ++i) {
+#ifdef __EMSCRIPTEN__
+        const auto x = static_cast<lv_value_precise_t>(ui.nav_route_x[i]);
+        const auto y = static_cast<lv_value_precise_t>(ui.nav_route_y[i]);
+#else
         const auto x = static_cast<lv_value_precise_t>(
             std::lround(ui.nav_route_x[i]));
         const auto y = static_cast<lv_value_precise_t>(
             std::lround(ui.nav_route_y[i]));
+#endif
         pixels_changed = pixels_changed || ui.nav_route_points[i].x != x ||
                          ui.nav_route_points[i].y != y;
         ui.nav_route_points[i] = {x, y};
@@ -485,10 +490,15 @@ bool apply_road_geometry_frame(bool rebind_lines = true) {
     }
     bool pixels_changed = false;
     for(std::uint8_t i = 0; i < ui.nav_road_point_count; ++i) {
+#ifdef __EMSCRIPTEN__
+        const auto x = static_cast<lv_value_precise_t>(ui.nav_road_x[i]);
+        const auto y = static_cast<lv_value_precise_t>(ui.nav_road_y[i]);
+#else
         const auto x = static_cast<lv_value_precise_t>(
             std::lround(ui.nav_road_x[i]));
         const auto y = static_cast<lv_value_precise_t>(
             std::lround(ui.nav_road_y[i]));
+#endif
         pixels_changed = pixels_changed || ui.nav_road_points[i].x != x ||
                          ui.nav_road_points[i].y != y;
         ui.nav_road_points[i] = {x, y};
@@ -582,8 +592,13 @@ void update_road_geometry(const moto_ui_state_t *state) {
         ui.nav_road_point_count != point_count ||
         ui.nav_road_polyline_count != polyline_count;
     for(std::uint8_t i = 0; i < point_count; ++i) {
+#ifdef __EMSCRIPTEN__
+        ui.nav_road_target_x[i] = state->web_road_points[i].x;
+        ui.nav_road_target_y[i] = state->web_road_points[i].y;
+#else
         ui.nav_road_target_x[i] = state->road_points[i].x;
         ui.nav_road_target_y[i] = state->road_points[i].y;
+#endif
     }
     for(std::uint8_t i = 0; i < polyline_count; ++i) {
         const moto_ui_polyline_span_t next = state->road_polylines[i];
@@ -644,14 +659,19 @@ void update_route_geometry(const moto_ui_state_t *state) {
 
 #ifdef __EMSCRIPTEN__
     if(ui.nav_route_target_count != count ||
-       ui.nav_route_target_x[0] != state->route_points[0].x ||
-       ui.nav_route_target_y[0] != state->route_points[0].y) {
+       ui.nav_route_target_x[0] != state->web_route_points[0].x ||
+       ui.nav_route_target_y[0] != state->web_route_points[0].y) {
         ++web_route_target_changes;
     }
 #endif
     for(std::uint8_t i = 0; i < count; ++i) {
+#ifdef __EMSCRIPTEN__
+        ui.nav_route_target_x[i] = state->web_route_points[i].x;
+        ui.nav_route_target_y[i] = state->web_route_points[i].y;
+#else
         ui.nav_route_target_x[i] = state->route_points[i].x;
         ui.nav_route_target_y[i] = state->route_points[i].y;
+#endif
     }
 
     // A new route or a wholesale reroute should appear immediately. Ordinary
