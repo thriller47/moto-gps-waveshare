@@ -470,9 +470,13 @@ void test_experimental_curve_zoom_does_not_change_default_or_roundabouts() {
   const double latitude = 44.4, longitude = 7.8;
   const double lat_scale = 111194.9266;
   const double lon_scale = lat_scale * std::cos(latitude * 3.14159265358979323846 / 180.0);
+  // Tight synthetic hairpin: geometry must produce >=1.5x so the
+  // presenter's deliberate curve-hold gate is actually exercised.
+  // The previous shallow fixture only produced ~1.25x, so expecting
+  // the 55 m hold after switching to a straight window was incorrect.
   const std::array<std::array<double, 2>, 9> xy{{
-      {{-30,0}},{{0,0}},{{40,0}},{{55,8}},{{60,20}},
-      {{55,32}},{{40,40}},{{15,40}},{{-20,40}}
+      {{-30,0}},{{0,0}},{{30,0}},{{39,6}},{{40,15}},
+      {{39,24}},{{30,30}},{{5,30}},{{-25,30}}
   }};
   s.route_view_point_count = static_cast<std::uint8_t>(xy.size());
   for (std::size_t i=0;i<xy.size();++i) {
@@ -486,7 +490,7 @@ void test_experimental_curve_zoom_does_not_change_default_or_roundabouts() {
   CHECK(presenter.applied_zoom_factor() == 1.0);  // simulator OFF by default
   presenter.set_experimental_curve_zoom_enabled(true);
   presenter.update(s);
-  CHECK(presenter.applied_zoom_factor() > 1.15);
+  CHECK(presenter.applied_zoom_factor() >= 1.5);
   CHECK(presenter.applied_zoom_factor() <= 3.0);
 
   // The rider has passed the apex and is travelling west along the return
