@@ -701,6 +701,18 @@ void route_motion_tick(lv_timer_t *) {
     }
 }
 
+// The phone may announce a new route before all its BLE geometry fragments
+// arrive. Roads remain valid across that handoff, so never replace the live
+// map with the full-screen Ready/Planning cover merely because the green
+// polyline temporarily has fewer than two points.
+bool has_live_road_map(const moto_ui_state_t *state) {
+    return state->has_destination != 0 &&
+           state->road_point_count >= 2 && state->road_polyline_count > 0 &&
+           (state->mode == MOTO_UI_NAVIGATING ||
+            state->mode == MOTO_UI_REROUTING ||
+            state->mode == MOTO_UI_OFFLINE);
+}
+
 void update_road_geometry(const moto_ui_state_t *state) {
     const std::uint8_t point_count = std::min<std::uint8_t>(
         state->road_point_count, MOTO_UI_ROAD_POINT_CAPACITY);
@@ -782,7 +794,13 @@ void update_route_geometry(const moto_ui_state_t *state) {
         ui.nav_route_generation = state->route_generation;
         lv_obj_add_flag(ui.nav_route_shadow, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(ui.nav_route, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(ui.nav_marker, LV_OBJ_FLAG_HIDDEN);
+        // Keep the rider marker and the last valid gray road scene visible
+        // while waiting for the new route geometry; do not invent a green path.
+        if(has_live_road_map(state)) {
+            lv_obj_remove_flag(ui.nav_marker, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(ui.nav_marker, LV_OBJ_FLAG_HIDDEN);
+        }
         return;
     }
 
@@ -803,12 +821,49 @@ void update_route_geometry(const moto_ui_state_t *state) {
 #endif
     }
 
-    // A new route or a wholesale reroute should appear immediately. Ordinary
-    // GNSS/IMU updates are blended at 40 Hz so the road glides under the fixed
-    // rider marker instead of jumping from one phone fix to the next.
-    const bool snap = ui.nav_route_identity != state->route_identity ||
-                      ui.nav_route_generation != state->route_generation ||
-                      ui.nav_route_point_count != count || ui.reduce_motion;
+    // A genuine reroute uses a different identity and must replace the green
+    // route immediately (never morph between unrelated roads). By contrast,
+    // the *same* 550 m route window routinely changes from 9 to 20 vertices as
+    // the rider advances. Previously this count difference snapped the entire
+    // green line every second. Reparameterize the currently drawn polyline by
+    // arc length BEFORE changing its point count, then blend to the new
+    // projected targets. The first visible frame is the old line, not a jump.
+    const std::uint8_t previous_count = ui.nav_route_point_count;
+    const bool same_route = ui.nav_route_identity == state->route_identity &&
+                            ui.nav_route_generation == state->route_generation;
+    const bool count_changed = previous_count != count;
+    if(same_route && count_changed && previous_count >= 2 &&
+       !ui.reduce_motion) {
+        float cumulative[MOTO_UI_ROUTE_POINT_CAPACITY]{};
+        float resampled_x[MOTO_UI_ROUTE_POINT_CAPACITY]{};
+        float resampled_y[MOTO_UI_ROUTE_POINT_CAPACITY]{};
+        for(std::uint8_t i = 1; i < previous_count; ++i) {
+            cumulative[i] = cumulative[i - 1] +
+                std::hypot(ui.nav_route_x[i] - ui.nav_route_x[i - 1],
+                           ui.nav_route_y[i] - ui.nav_route_y[i - 1]);
+        }
+        const float total = cumulative[previous_count - 1];
+        std::uint8_t segment = 1;
+        for(std::uint8_t i = 0; i < count; ++i) {
+            const float along = total * static_cast<float>(i) /
+                                static_cast<float>(count - 1);
+            while(segment + 1 < previous_count &&
+                  cumulative[segment] < along) ++segment;
+            const float length = cumulative[segment] - cumulative[segment - 1];
+            const float fraction = length > 0.001F
+                ? std::clamp((along - cumulative[segment - 1]) / length, 0.0F, 1.0F)
+                : 0.0F;
+            resampled_x[i] = ui.nav_route_x[segment - 1] +
+                fraction * (ui.nav_route_x[segment] - ui.nav_route_x[segment - 1]);
+            resampled_y[i] = ui.nav_route_y[segment - 1] +
+                fraction * (ui.nav_route_y[segment] - ui.nav_route_y[segment - 1]);
+        }
+        for(std::uint8_t i = 0; i < count; ++i) {
+            ui.nav_route_x[i] = resampled_x[i];
+            ui.nav_route_y[i] = resampled_y[i];
+        }
+    }
+    const bool snap = !same_route || previous_count < 2 || ui.reduce_motion;
     ui.nav_route_target_count = count;
     ui.nav_route_point_count = count;
     ui.nav_route_identity = state->route_identity;
@@ -823,7 +878,9 @@ void update_route_geometry(const moto_ui_state_t *state) {
     lv_obj_remove_flag(ui.nav_route_shadow, LV_OBJ_FLAG_HIDDEN);
     lv_obj_remove_flag(ui.nav_route, LV_OBJ_FLAG_HIDDEN);
     lv_obj_remove_flag(ui.nav_marker, LV_OBJ_FLAG_HIDDEN);
-    if(snap) apply_route_geometry_frame();
+    // LVGL's polyline points pointer is unchanged, but its vertex count must
+    // be rebound as soon as we resample, not after the next motion tick.
+    if(snap || count_changed) apply_route_geometry_frame();
 }
 
 // This is the ONLY maneuver-related glyph left in the ESP32 UI.
@@ -1263,7 +1320,8 @@ void update_navigation(const moto_ui_state_t *state) {
     // a connection state, not actionable navigation guidance.
     const bool has_guidance = ui.demo_active ||
                               state->mode == MOTO_UI_ARRIVED ||
-                              state->route_point_count >= 2;
+                              state->route_point_count >= 2 ||
+                              has_live_road_map(state);
     ui.navigation_has_guidance = has_guidance;
     ui.navigation_route_request_in_flight =
         state->route_request_in_flight != 0;

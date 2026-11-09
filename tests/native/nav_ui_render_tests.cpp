@@ -642,6 +642,64 @@ void test_small_motion_invalidates_only_swept_tiles() {
 }
 #endif
 
+void test_reroute_without_geometry_preserves_road_map() {
+  moto_nav_ui_set_reduce_motion(1);
+  moto_nav_ui_set_phone_connection(MOTO_UI_PHONE_ONLINE);
+  moto_ui_state_t awaiting = base_state();
+  awaiting.mode = MOTO_UI_REROUTING;
+  awaiting.route_request_in_flight = 1;
+  awaiting.route_point_count = 0;
+  fill_streets(awaiting);
+  moto_nav_ui_set_state(&awaiting);
+  pump(260);
+  const Frame with_roads = capture();
+
+  // A first-ever request with no road data may use the Planning overlay.
+  moto_ui_state_t no_roads = awaiting;
+  no_roads.road_point_count = 0;
+  no_roads.road_polyline_count = 0;
+  moto_nav_ui_set_state(&no_roads);
+  pump(260);
+  const Frame planning = capture();
+  CHECK(with_roads.hash != planning.hash);
+
+  // When matching geometry arrives, navigation resumes normally.
+  fill_route(awaiting, 12);
+  awaiting.mode = MOTO_UI_NAVIGATING;
+  awaiting.route_request_in_flight = 0;
+  moto_nav_ui_set_state(&awaiting);
+  pump(260);
+  CHECK(capture().hash != planning.hash);
+}
+
+void test_same_route_window_count_change_is_interpolated() {
+  moto_nav_ui_set_reduce_motion(1);
+  moto_nav_ui_set_phone_connection(MOTO_UI_PHONE_ONLINE);
+  moto_ui_state_t initial = base_state();
+  fill_route(initial, 3);
+  fill_streets(initial);
+  moto_nav_ui_set_state(&initial);
+  pump(260);
+
+  moto_ui_state_t updated = initial;
+  fill_route(updated, 8);
+  for(int i = 0; i < updated.route_point_count; ++i) {
+    updated.route_points[i].x += 38;
+    updated.route_points[i].y += 16;
+  }
+  // Freeze time before the first interpolation tick. With the old bug, a
+  // point-count change snaps directly to this new geometry.
+  moto_nav_ui_set_reduce_motion(0);
+  moto_nav_ui_set_state(&updated);
+  lv_refr_now(lv_display_get_default());
+  const Frame first_transition{frame_hash(), shadow_frame};
+
+  moto_nav_ui_set_reduce_motion(1);
+  moto_nav_ui_set_state(&updated);
+  const Frame snapped = capture();
+  CHECK(first_transition.hash != snapped.hash);
+}
+
 void test_diagonal_map_pixels_are_independent_of_partial_buffer_height() {
   moto_nav_ui_set_reduce_motion(1);
   moto_nav_ui_set_phone_connection(MOTO_UI_PHONE_ONLINE);
@@ -711,6 +769,8 @@ int main(int argc, char **argv) {
   test_demo_mode_visual_contract();
   test_capacity_payloads_render_stably();
   test_motion_frames_interpolate_then_settle_without_residue();
+  test_reroute_without_geometry_preserves_road_map();
+  test_same_route_window_count_change_is_interpolated();
 #ifdef MOTO_UI_DIRTY_TILE_TEST
   test_small_motion_invalidates_only_swept_tiles();
 #endif
