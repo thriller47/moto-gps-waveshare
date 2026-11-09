@@ -9,8 +9,6 @@ import com.motogps.android.jni.MotoBLERouteGeometry
 import java.io.File
 import java.util.concurrent.Executors
 import java.util.Locale
-import java.util.zip.ZipEntry
-import java.util.zip.ZipOutputStream
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -192,50 +190,12 @@ object ReplayTraceRecorder {
     }
 
     /**
-     * Export on a background thread. One part remains a plain .jsonl; two or
-     * more are a ZIP of chronological, independently replayable JSONL parts.
-     * No file-count or session-duration limit (device storage still applies).
-     * The ordinary DiagnosticLog.exportZip intentionally excludes all parts.
+     * Export after pending events on the same worker. Large ZIPs are streamed,
+     * so an arbitrarily long recording does not require a large RAM buffer.
+     * Caller must invoke this from a background thread, never the UI.
      */
     fun export(context: Context): File {
         val root = File(context.applicationContext.filesDir, "diagnostics")
-        return worker.submit<File> {
-            val files = root.listFiles()?.filter {
-                it.isFile && it.name.startsWith("replay-current-part-") &&
-                    it.name.endsWith(".jsonl")
-            }?.sortedBy { it.name }.orEmpty().ifEmpty {
-                // Preserve export compatibility with an older unsegmented
-                // recording if the user has not started a newer session yet.
-                listOf(File(root, "replay-current.jsonl")).filter { it.isFile }
-            }
-            require(files.isNotEmpty() && files.all { it.length() > 0L }) {
-                "Tracciato GPS vuoto: avvia prima una registrazione"
-            }
-            val dir = File(root, "exports")
-            require(dir.mkdirs() || dir.isDirectory)
-            if (files.size == 1) {
-                val copy = File(dir, "motogps-replay.jsonl")
-                files.first().copyTo(copy, overwrite = true)
-                copy
-            } else {
-                val zipFile = File(dir, "motogps-replay-parts.zip")
-                ZipOutputStream(zipFile.outputStream().buffered()).use { zip ->
-                    for (file in files) {
-                        val entry = file.name.replace("replay-current", "motogps-replay")
-                        zip.putNextEntry(ZipEntry(entry))
-                        file.inputStream().use { it.copyTo(zip) }
-                        zip.closeEntry()
-                    }
-                    zip.putNextEntry(ZipEntry("README.txt"))
-                    zip.write(("Moto GPS private replay. Contains GPS coordinates.\n" +
-                        "Unzip; load each numbered .jsonl into the simulator " +
-                        "in chronological order. Each part starts at t_ms=0.\n" +
-                        "Files remain local until you explicitly share them.\n")
-                        .toByteArray(Charsets.UTF_8))
-                    zip.closeEntry()
-                }
-                zipFile
-            }
-        }.get()
+        return worker.submit<File> { ReplayTraceArchive.export(root) }.get()
     }
 }
