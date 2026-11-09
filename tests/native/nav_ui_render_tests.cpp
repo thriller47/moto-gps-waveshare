@@ -36,6 +36,9 @@ constexpr std::size_t kFrameBytes = static_cast<std::size_t>(kWidth) *
 
 std::vector<std::uint8_t> shadow_frame;
 std::uint64_t flush_count = 0;
+#ifdef MOTO_UI_DIRTY_TILE_TEST
+std::uint64_t flush_area_pixels = 0;
+#endif
 
 void flush_cb(lv_display_t* display, const lv_area_t* area,
               std::uint8_t* px_map) {
@@ -54,6 +57,10 @@ void flush_cb(lv_display_t* display, const lv_area_t* area,
     std::memcpy(shadow_frame.data() + dst, px_map + src, row_bytes);
   }
   ++flush_count;
+#ifdef MOTO_UI_DIRTY_TILE_TEST
+  flush_area_pixels += static_cast<std::uint64_t>(area->x2 - area->x1 + 1) *
+                       static_cast<std::uint64_t>(area->y2 - area->y1 + 1);
+#endif
   lv_display_flush_ready(display);
 }
 
@@ -587,6 +594,52 @@ void test_motion_frames_interpolate_then_settle_without_residue() {
                    settled_bytes.begin()));
 }
 
+#ifdef MOTO_UI_DIRTY_TILE_TEST
+void test_small_motion_invalidates_only_swept_tiles() {
+  moto_nav_ui_set_phone_connection(MOTO_UI_PHONE_ONLINE);
+  moto_nav_ui_set_reduce_motion(1);
+  auto state = base_state();
+  state.route_identity = 9'109;
+  state.route_generation = 1;
+  state.map_scene_revision = 9'109;
+  state.route_point_count = 3;
+  state.route_points[0] = {75, 65};
+  state.route_points[1] = {110, 90};
+  state.route_points[2] = {145, 105};
+  state.road_point_count = 0;
+  state.road_polyline_count = 0;
+  moto_nav_ui_set_state(&state);
+  pump(260);
+  const auto before = capture().hash;
+
+  // Smooth 8px move of one local polyline. The old and new strokes fit into
+  // at most four of the sixteen map tiles (unlike a full-screen invalidation).
+  moto_nav_ui_set_reduce_motion(0);
+  state.route_points[1].x += 8;
+  state.route_points[2].x += 8;
+  flush_area_pixels = 0;
+  moto_nav_ui_set_motion_state(&state);
+  pump(12);
+  const auto partial = flush_area_pixels;
+  CHECK(frame_hash() != before);
+  CHECK(partial > 0);
+  CHECK(partial < static_cast<std::uint64_t>(kWidth) * kHeight / 2);
+
+  // After easing settles, refreshing the *entire* screen must produce exactly
+  // the same pixels as an instantaneous direct geometry update. This catches
+  // erased old pixels, missing caps, shadows and boundary-clipped diagonals.
+  pump(240);
+  const auto settled = shadow_frame;
+  moto_nav_ui_set_reduce_motion(1);
+  moto_nav_ui_set_state(&state);
+  const auto direct = capture();
+  constexpr int map_height = (232 * kWidth + 180) / 360;
+  constexpr std::size_t map_bytes = kWidth * map_height * (LV_COLOR_DEPTH / 8);
+  CHECK(std::equal(direct.bytes.begin(), direct.bytes.begin() + map_bytes,
+                   settled.begin()));
+}
+#endif
+
 void test_diagonal_map_pixels_are_independent_of_partial_buffer_height() {
   moto_nav_ui_set_reduce_motion(1);
   moto_nav_ui_set_phone_connection(MOTO_UI_PHONE_ONLINE);
@@ -656,6 +709,9 @@ int main(int argc, char **argv) {
   test_demo_mode_visual_contract();
   test_capacity_payloads_render_stably();
   test_motion_frames_interpolate_then_settle_without_residue();
+#ifdef MOTO_UI_DIRTY_TILE_TEST
+  test_small_motion_invalidates_only_swept_tiles();
+#endif
   test_diagonal_map_pixels_are_independent_of_partial_buffer_height();
 
   // Terminal screens run last: they tear the full UI down.
