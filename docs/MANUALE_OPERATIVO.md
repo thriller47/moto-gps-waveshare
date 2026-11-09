@@ -502,33 +502,34 @@ Il separatore `|` mantiene gli spazi nel nome rete: ad esempio `wifi set Hotspot
 
 ## 8. Simulatore browser Windows e registrazione GPS Android
 
-**Sperimentale, branch test/road-contrast-cleanup-20261104, 6 novembre 2026.** Sono disponibili una **anteprima 2D browser senza compilatore** (non è la UI LVGL) e il renderer vero **LVGL + NavPresenter** tramite WebAssembly quando compilato. Non serve un ESP32 fisico. La compilazione Emscripten e la prova del vero renderer nel browser NON sono ancora state convalidate.
+**Branch corrente:** il simulatore browser (anteprima 2D e renderer reale LVGL/WebAssembly) è integrato su **\`valhalla\`** dalla PR #73. Le correzioni ai ricalcoli Android e la registrazione GPS senza limite complessivo sono invece ancora sul branch **\`test/esp32-map-dirty-tiles-20261109\`**, da verificare prima del merge. Non usare il branch \`test/road-contrast-cleanup-20261104\`, ormai eliminato.
 
-**Prima prova veloce Windows:** nel checkout del branch di test aprire `platforms\\web\\simulator\\index.html` con Chrome/Edge, caricare il file `.jsonl` registrato ed esaminare la cronologia degli eventi. Senza runtime appare chiaramente `ANTEPRIMA 2D · NON LVGL`; questo permette di esaminare percorso, scene e zoom prima di compilare Emscripten.
+**Avvio simulatore WSL Ubuntu:** dopo l'aggiornamento del checkout \`valhalla\` (o del branch test, se vuoi riprodurre gli ultimi cambi Android) e dopo aver installato Emscripten in \`~/emsdk\`:
 
-**WSL Ubuntu**, dalla radice del checkout del branch di test, con Git, CMake, emcmake/em++ già installati e attivati:
-
-~~~bash
+\`\`\`bash
+cd ~/MotoGPS/moto-gps-waveshare
+git switch valhalla
+git pull --ff-only origin valhalla
 git submodule update --init --recursive
-command -v emcmake
+source ~/emsdk/emsdk_env.sh
 ./scripts/build_web.sh
-python3 -m http.server 4173 --directory .
-~~~
+\`\`\`
 
-Da Windows aprire nel browser: http://127.0.0.1:4173/platforms/web/simulator/index.html
+In un secondo terminale WSL, da \`~/MotoGPS/moto-gps-waveshare\`, avviare \`python3 -m http.server 4173 --directory .\` se il server non è già attivo. Aprire **http://127.0.0.1:4173/platforms/web/simulator/index.html** da Chrome/Edge su Windows, poi \`Ctrl+F5\` dopo gli aggiornamenti. Il doppio clic su \`index.html\` mostra soltanto l'anteprima 2D se il runtime WASM non è disponibile. I comandi PowerShell nativi con \`emcmake\` non sono stati verificati sul PC dell'utente.
 
-Con Emscripten attivo in PowerShell Windows si può compilare anche con emcmake cmake -S . -B build/web -DMOTO_BUILD_WEB=ON -DMOTO_BUILD_TESTS=OFF, poi cmake --build build/web --parallel e avviare il server con py -m http.server 4173; questa variante non è ancora stata provata sul PC. Per il renderer LVGL usare il server HTTP: `file://` è ammesso soltanto per la modalità di anteprima 2D. Il runtime viene compilato nella cartella platforms/web/shell/runtime/.
+### Registrare il GPS senza durata massima — APK sperimentale
 
-**Registrare (APK di test):** nell'app aprire LOG, premere "Avvia registrazione GPS", compiere il tratto da testare, premere "Ferma registrazione GPS" e "Esporta tracciato simulatore (.jsonl)". Il file contiene coordinate e velocità GPS, geometrie della rotta e delle strade MotoMap inviate su BLE, snapshot di manovra/distanza e waypoint raggiunti. È separato dal normale ZIP diagnostico, che continua a NON contenere coordinate; l'opzione è OFF di default e dura al massimo 60 minuti / 24 MiB. Il registratore non richiede di accendere DEBUG ESP32.
+La registrazione del trace GPS rimane **OFF per impostazione predefinita** e si attiva manualmente dal pannello **LOG → Avvia registrazione GPS**. Non si interrompe automaticamente dopo 60 minuti; salva file consecutivi \`replay-current-part-00001.jsonl\`, \`00002.jsonl\`, ecc. La rotazione avviene ogni **30 minuti o circa 12 MiB per singolo file**, senza un limite fissato al numero di file o alla durata totale della sessione (resta il limite fisico dello spazio disponibile sul telefono). La scrittura resta su thread privato, senza carico di I/O nel callback GPS/BLE.
 
-**Privacy:** non condividere file GPS pubblicamente: rivelano tragitti, orari e luoghi personali. Il browser legge il file localmente senza upload. Il trace documenta l'invio BLE tentato, non il ricevimento radio sull'ESP32.
+Al termine premere **Ferma registrazione GPS → Esporta tracciato simulatore**: con una sola parte si condivide \`motogps-replay.jsonl\`; con più parti, \`motogps-replay-parts.zip\` che contiene **tutti i .jsonl numerati** e un README. Su Windows, estrarre lo ZIP e caricare i file \`.jsonl\` nel simulatore **uno alla volta, in ordine numerico**: ogni parte è autonoma e ricomincia da \`t_ms=0\`, ma contiene \`part_index\`, \`session_elapsed_ms\` e data iniziale per riallineare le prove. Non passare direttamente lo ZIP al selettore \`.jsonl\` del simulatore.
+
+**Attenzione a sicurezza e dati:** il file GPS contiene coordinate, posizioni previste, velocità, geometrie della rotta verde e delle strade MotoMap e manovre. Rimane privato finché non viene esportato volontariamente. Lo ZIP ordinario di **diagnostica Android non include i replay né coordinate**. L'avvio di una **nuova** registrazione sostituisce le parti locali della sessione precedente: esportare la sessione precedente prima di riavviare la registrazione. Se la memoria del telefono si esaurisce, la scrittura fallirà e la registrazione si interromperà; non esiste spazio di archiviazione infinito. Non maneggiare il telefono mentre si guida, né usare DEBUG ESP32 approfondito solo per registrare il GPS.
 
 **Zoom tornanti (prototipo WASM):** sul branch di test aggiornato, dopo `source ~/emsdk/emsdk_env.sh` e `./scripts/build_web.sh` ricaricare il browser con Ctrl+F5. Il checkbox **Zoom tornanti sperimentale** funziona soltanto con renderer LVGL reale: OFF mantiene lo zoom originale; ON prova a ingrandire fino a 3× le curvature marcate della linea verde. La rotatoria conserva il suo zoom fino a 4×. Controllare i frame dopo **12:10:50**. Il firmware ESP32 reale non cambia.
 
 **Confronto tornanti (8 novembre, correzione scatti):** sul replay reale delle 12:10:50, il rilevatore geometrico raggiunge 3× ma l'utente ha osservato una riduzione prematura a metà tornante e movimento a scatti. In questa versione sperimentale la finestra geometrica dopo il vertice è estesa da 40 a 95 metri e il player limita a circa 8 aggiornamenti al secondo il **solo grafico velocità/cronologia secondaria**, lasciando la mappa LVGL aggiornata a ogni frame GPS. Confrontare OFF/ON sullo stesso tratto, e controllare la rotatoria 4×. I miglioramenti visivi sono **ancora da verificare nel browser**; non sono abilitati nel firmware ESP32.
 
-**Ripartenza WSL verificabile:** dalla cartella `~/MotoGPS/moto-gps-waveshare` eseguire `git switch test/road-contrast-cleanup-20261104`, `git switch valhalla
-git pull --ff-only origin valhalla`, `source ~/emsdk/emsdk_env.sh`, `./scripts/build_web.sh`. Se il server è già attivo non riavviarlo: fare `Ctrl+F5` nel browser dopo la build. Se è spento, avviarlo con `python3 -m http.server 4173 --directory .`; per arrestarlo usare `Ctrl+C` nella finestra WSL che lo ospita. URL Windows: `http://127.0.0.1:4173/platforms/web/simulator/index.html`. Se la porta è occupata verificare prima che non sia rimasto un server attivo, invece di aprirne un secondo.
+**Ripartenza WSL (attuale):** utilizzare i comandi aggiornati all'inizio del capitolo 8 sul branch `valhalla`, quindi `Ctrl+F5` nel browser. Se il server è spento, avviarlo in una seconda finestra WSL; per arrestarlo usare `Ctrl+C`. Le descrizioni sotto sono note storiche delle prove del 6–8 novembre, non istruzioni di checkout dei branch eliminati.
 
 **Secondo intervento (8 novembre, da collaudare):** dopo la seconda prova l'utente riferisce ancora mappa a scatti e zoom terminato prima della fine del tornante. La sola estensione della finestra 40→95 m non ha risolto. La nuova sperimentazione conserva il valore zoom riconosciuto durante l'attraversamento e lo rilascia in base alla **distanza effettivamente percorsa** (prima 55 m di mantenimento, poi 80 m di riduzione) anche se la finestra GPS/rotta verde cambia. Il player Web interpola il movimento fra snapshot registrati compatibili a non più di 25 Hz; evita interpolazioni per salto GPS >35 m, intervallo >1,5 s, cambio rotta/scena o stato. Le funzioni sono **solo per il simulatore** e la riproduzione frame per frame conserva il dato originale. Non confondere la fluidità del replay interpolato con una misurazione degli FPS hardware. Ripetere il medesimo confronto ON/OFF alle 12:10:50–12:12:30 e verificare che la rotatoria raggiunga ancora 4×. Ricompilazione WASM e ricaricamento Ctrl+F5 necessari.
 
