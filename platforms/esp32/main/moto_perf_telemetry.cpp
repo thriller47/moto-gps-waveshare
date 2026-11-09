@@ -2,8 +2,8 @@
 #include "sdkconfig.h"
 
 #if defined(MOTO_ESP_PERF_TELEMETRY_EXPERIMENT)
-#if !CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS || !CONFIG_FREERTOS_RUN_TIME_STATS_USING_ESP_TIMER
-#error "Enable ESP_TIMER FreeRTOS runtime stats via sdkconfig.perf.defaults"
+#if !CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS || !CONFIG_FREERTOS_RUN_TIME_STATS_USING_ESP_TIMER || !CONFIG_FREERTOS_VTASKLIST_INCLUDE_COREID
+#error "Enable ESP_TIMER FreeRTOS runtime stats and VTASKLIST_INCLUDE_COREID via sdkconfig.perf.defaults"
 #endif
 
 #include <cstdint>
