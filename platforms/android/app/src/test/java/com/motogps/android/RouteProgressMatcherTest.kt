@@ -50,6 +50,16 @@ class RouteProgressMatcherTest {
         assertNull(tracker.reverseCandidate(lat(95), lon(8), 0f, 12f))
     }
 
+    @Test fun ambiguousNearbyOppositeLegYieldsToForwardLeg() {
+        val tracker = RouteProgressMatcher()
+        tracker.reset(listOf(point(0), point(60), point(60, 7),
+            point(0, 7), point(0, 20)))
+        tracker.remaining(lat(30), lon(0), 0f, 10f)
+        // The return leg is only 1m away and lies within the progress
+        // window, but the forward leg is still a plausible match at 6m.
+        assertNull(tracker.reverseCandidate(lat(30), lon(6), 0f, 10f))
+    }
+
     @Test fun remoteLoopEdgeCannotTriggerReverseNearOldProgress() {
         val tracker = RouteProgressMatcher()
         tracker.reset(listOf(point(0), point(150), point(150, 9),
