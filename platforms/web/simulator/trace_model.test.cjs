@@ -1,0 +1,162 @@
+"use strict";
+const assert = require("node:assert/strict");
+const test = require("node:test");
+const model = require("./trace_model.js");
+const event = (type, t_ms, extras = {}) => JSON.stringify({type, t_ms, ...extras});
+const route = (t, token, points = [[44, 7],[44.1,7.1]]) =>
+  event("route", t, {route_token:token, generation:1, origin:[44,7], points});
+const snapshot = (t, extras = {}) => event("snapshot", t, {
+  lat:44, lon:7, state:"navigating", maneuver:"turn_left", turn_m:20,
+  speed_mps:8, heading_deg:0, ...extras
+});
+
+test("la stessa rotta trasmessa piu volte non conta come ricalcolo", () => {
+  const s = [event("meta",0,{schema:"moto-replay-v1"}), route(2,42),
+    snapshot(3), route(4,42), snapshot(5), route(6,99), snapshot(7)].join("\n");
+  const result = model.parse(s);
+  assert.equal(result.frames.length,3);
+  assert.deepEqual(result.events.map(e=>e.kind),["start","reroute"]);
+  assert.equal(result.events[1].frameIndex,2);
+  assert.equal(result.frames[0].route.token,42);
+  assert.equal(result.frames[2].route.token,99);
+});
+
+test("tappa, rotatoria e arrivo mantengono ordine e tempo", () => {
+  const data = {schema:"moto-replay-v1",events:[
+    {type:"meta",t_ms:0,schema:"moto-replay-v1"},
+    {type:"route",t_ms:1,route_token:7,generation:1,points:[[44,7],[44.1,7]]},
+    {type:"snapshot",t_ms:10,lat:44,lon:7,state:"navigating",maneuver:"roundabout"},
+    {type:"waypoint",t_ms:11,reached:1,total:2},
+    {type:"snapshot",t_ms:20,lat:44,lon:7,state:"arrived",maneuver:"arrive"}
+  ]};
+  const r = model.parse(JSON.stringify(data));
+  assert.deepEqual(r.events.map(x=>x.kind),["start","roundabout","waypoint","arrived"]);
+  assert.equal(r.events[2].frameIndex,1);
+  assert.equal(r.durationMs,10);
+});
+
+test("scene limitata a 24 strade e 192 vertici, senza inventare dati", () => {
+  const roads = Array.from({length:30},()=>({road_class:3,
+    points:Array.from({length:20},(_,i)=>[44+i/10000,7])}));
+  const scene = model.sceneFrom({revision:1,roads});
+  assert.ok(scene.roads.length <= 24);
+  assert.ok(scene.points <= 192);
+  assert.equal(scene.points,192);
+  assert.ok(scene.roads.every(r=>r.points.length>=2));
+});
+
+test("rifiuta schema estraneo e snapshot senza coordinate valide", () => {
+  assert.throws(()=>model.parse('{"schema":"altra-v1","events":[]}'),/Schema/);
+  assert.throws(()=>model.parse([route(0,3),snapshot(1,{lat:120})].join("\n")),/Nessuno snapshot/);
+});
+
+test("ricerca binaria del frame: prima posizione maggiore o uguale al tempo",()=>{
+  const frames=[{t:100},{t:220},{t:260}];
+  assert.equal(model.findFrameAtOrAfter(frames,200),1);
+  assert.equal(model.findFrameAtOrAfter(frames,260),2);
+  assert.equal(model.findFrameAtOrAfter(frames,300),2);
+  assert.equal(model.findFrameAtOrAfter([],100),-1);
+});
+
+test("ritrasmissioni identiche non ricreano route e scene tra snapshot",()=>{
+  const a=[event("meta",0,{schema:"moto-replay-v1"}),
+    route(1,42),event("scene",1,{revision:7,roads:[{road_class:3,
+      points:[[44,7],[44.0001,7.0001]]}]}),snapshot(2),
+    route(3,42),event("scene",3,{revision:7,roads:[{road_class:3,
+      points:[[44,7],[44.0001,7.0001]]}]}),snapshot(4),
+    route(5,42,[[44,7],[44.2,7.1]]),snapshot(6),
+    event("scene",7,{revision:8,roads:[{road_class:3,
+      points:[[44,7],[44.0001,7.0001]]}]}),snapshot(8)];
+  const f=model.parse(a.join("\n")).frames;
+  assert.equal(f[0].route,f[1].route);
+  assert.equal(f[0].scene,f[1].scene);
+  assert.notEqual(f[1].route,f[2].route);
+  assert.notEqual(f[2].scene,f[3].scene);
+});
+
+test("modifiche reali con revisioni uguali restano visibili",()=>{
+  const f=model.parse([
+    route(1,5),event("scene",1,{revision:2,roads:[{road_class:3,
+      points:[[44,7],[44.001,7]]}]}),snapshot(2),
+    event("scene",3,{revision:2,roads:[{road_class:3,
+      points:[[44,7],[44.002,7]]}]}),snapshot(4),
+    event("route",5,{route_token:5,generation:2,origin:[44,7],
+      points:[[44,7],[44.1,7.1]]}),snapshot(6)
+  ].join("\n")).frames;
+  assert.notEqual(f[0].scene,f[1].scene);
+  assert.notEqual(f[1].route,f[2].route);
+});
+
+test("interpolazione tra fix distinti con snapshot duplicati",()=>{
+  const f=model.parse([
+    route(0,1),
+    snapshot(0,{lat:44,lon:7,heading_deg:350}),
+    snapshot(200,{lat:44,lon:7,heading_deg:350}),
+    snapshot(400,{lat:44,lon:7,heading_deg:350}),
+    snapshot(1000,{lat:44.0001,lon:7,heading_deg:10}),
+    snapshot(1200,{lat:44.0001,lon:7,heading_deg:10})
+  ].join("\n")).frames;
+  const spans=model.buildMotionSpans(f);
+  assert.deepEqual(spans[0],{from:0,to:3});
+  assert.deepEqual(spans[1],{from:0,to:3});
+  assert.deepEqual(spans[2],{from:0,to:3});
+  const mid=model.interpolateMotion(f,spans,2,500);
+  assert.ok(mid);
+  assert.ok(Math.abs(mid.lat-44.00005)<1e-8);
+  assert.ok(Math.abs(mid.heading_deg-0)<1e-5);
+});
+
+test("interpolazione non attraversa ricalcoli o buchi GPS",()=>{
+  const frames=model.parse([
+    route(0,1),snapshot(0,{lat:44,lon:7}),
+    snapshot(200,{lat:44,lon:7}),
+    route(300,2),snapshot(400,{lat:44.0001,lon:7}),
+    snapshot(3800,{lat:44.0002,lon:7})
+  ].join("\n")).frames;
+  const spans=model.buildMotionSpans(frames);
+  assert.equal(spans[0],null); // Different route identity.
+  assert.equal(spans[2],null); // Greater than 3 seconds.
+  assert.equal(model.interpolateMotion(frames,spans,0,100),null);
+});
+
+test("interpolazione ignora salti GPS implausibili",()=>{
+  const f=model.parse([
+    route(0,1),snapshot(0,{lat:44,lon:7}),
+    snapshot(200,{lat:44,lon:7}),
+    snapshot(1000,{lat:44.01,lon:7})
+  ].join("\n")).frames;
+  assert.deepEqual(model.buildMotionSpans(f),[null,null,null]);
+});
+
+test("motivi di mancata interpolazione: ricalcolo e intervallo GPS lungo",()=>{
+  const f=model.parse([
+    route(0,1),snapshot(0,{lat:44,lon:7}),
+    snapshot(200,{lat:44,lon:7}),
+    route(300,2),snapshot(400,{lat:44.0001,lon:7}),
+    snapshot(3800,{lat:44.0002,lon:7})
+  ].join("\n")).frames;
+  const spans=model.buildMotionSpans(f);
+  assert.equal(model.motionGapReason(spans,0,100,f),"reroute");
+  assert.equal(model.motionGapReason(spans,2,1000,f),"gap");
+});
+
+test("salto geografico e finale tracciato non vengono interpolati",()=>{
+  const f=model.parse([
+    route(0,1),snapshot(0,{lat:44,lon:7}),
+    snapshot(1000,{lat:44.02,lon:7})
+  ].join("\n")).frames;
+  const spans=model.buildMotionSpans(f);
+  assert.equal(model.motionGapReason(spans,0,100,f),"jump");
+  assert.equal(model.motionGapReason(spans,1,1200,f),"end");
+  assert.equal(model.interpolateMotion(f,spans,0,500),null);
+});
+
+test("interpolazione valida non segnala un buco GPS",()=>{
+  const f=model.parse([
+    route(0,1),snapshot(0,{lat:44,lon:7}),
+    snapshot(1000,{lat:44.0001,lon:7})
+  ].join("\n")).frames;
+  const spans=model.buildMotionSpans(f);
+  assert.ok(model.interpolateMotion(f,spans,0,500));
+  assert.equal(model.motionGapReason(spans,0,1000,f),"boundary");
+});

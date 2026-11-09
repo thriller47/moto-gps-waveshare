@@ -72,8 +72,10 @@ jobs:
               - 'src/**'
               - 'include/**'
               - 'tests/native/**'
+              - 'platforms/web/**'
               - 'scripts/generate_jinan_demo_fixture.mjs'
               - 'scripts/fixture_coordinates.mjs'
+              - 'scripts/offline_map/**'
               - 'third_party/**'
             android:
               - '.github/workflows/project-build.yml'
@@ -114,8 +116,18 @@ jobs:
       - name: Run native tests
         run: ctest --test-dir build/native --output-on-failure
 
+      - name: Check browser simulator JavaScript syntax and replay model tests
+        run: |
+          node --check platforms/web/simulator/player.js
+          node --check platforms/web/simulator/trace_model.js
+          node --check platforms/web/simulator/fallback_map.js
+          node --test platforms/web/simulator/trace_model.test.cjs platforms/web/simulator/fallback_map.test.cjs
+
       - name: Verify public demo map fixture
         run: node scripts/generate_jinan_demo_fixture.mjs --check
+
+      - name: Verify MotoMap v3 converter contract
+        run: python3 -m unittest discover -s scripts/offline_map -p 'test_motomap_v3.py'
 
 
 
@@ -245,7 +257,13 @@ jobs:
           esp_idf_version: v5.5.5
           target: esp32s3
           path: platforms/esp32
-          command: 'idf.py set-target esp32s3 && idf.py build'
+          # On the experimental test branch compile BOTH ESP32 options, so
+          # the CI actually type-checks the opt-in float geometry and zoom
+          # paths. The production valhalla branch retains its normal build.
+          command: >-
+            ${{ startsWith(github.ref, 'refs/heads/test/') &&
+                'idf.py set-target esp32s3 && idf.py -DMOTO_ESP_CURVE_ZOOM_EXPERIMENT=ON -DMOTO_ESP_SUBPIXEL_EXPERIMENT=ON build' ||
+                'idf.py set-target esp32s3 && idf.py build' }}
 
       - name: Rename output binary
         run: |
@@ -263,7 +281,7 @@ jobs:
           }}
         uses: actions/upload-artifact@v6
         with:
-          name: ESP32-Firmware
+          name: ${{ startsWith(github.ref, 'refs/heads/test/') && 'ESP32-Firmware-EXPERIMENTAL' || 'ESP32-Firmware' }}
           path: |
             platforms/esp32/build/bootloader/bootloader.bin
             platforms/esp32/build/partition_table/partition-table.bin

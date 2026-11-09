@@ -98,6 +98,23 @@ if(MOTO_SIGNAL_WIFI_LAB_BOOT AND NOT MOTO_SIGNAL_MODE_SWITCH)
     target_compile_definitions(${COMPONENT_LIB} PRIVATE MOTO_SIGNAL_WIFI_LAB_BOOT=1)
 endif()
 
+# Experimental navigation rendering for the ESP32 test branch. These are
+# deliberately OFF by default: normal releases keep their original geometry
+# layout, zoom behavior and 25 ms / 0.39 motion timer. For one test firmware,
+# enable either option independently with idf.py -D<OPTION>=ON build.
+option(MOTO_ESP_CURVE_ZOOM_EXPERIMENT
+    "Opt in to the simulator's hairpin zoom on ESP32" OFF)
+option(MOTO_ESP_SUBPIXEL_EXPERIMENT
+    "Opt in to float subpixel route/context vertices on ESP32" OFF)
+if(MOTO_ESP_CURVE_ZOOM_EXPERIMENT)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE
+        MOTO_ESP_CURVE_ZOOM_EXPERIMENT=1)
+endif()
+if(MOTO_ESP_SUBPIXEL_EXPERIMENT)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE
+        MOTO_ESP_SUBPIXEL_EXPERIMENT=1)
+endif()
+
 # Verified speaker test (Waveshare BSP); only used in GPS-integrated builds.
 option(MOTO_SIGNAL_AUDIO_BOOT_TEST "Run one-shot speaker test with GPS UI" OFF)
 if(MOTO_SIGNAL_AUDIO_BOOT_TEST AND NOT MOTO_SIGNAL_WIFI_LAB_BOOT)

@@ -11,6 +11,16 @@
 
 LV_FONT_DECLARE(moto_font_nav_16);
 
+// Both default and experimental firmware must preserve the BLE-facing
+// integer point representation. Fractional map points are an internal,
+// opt-in view that must have a predictable two-float layout.
+static_assert(sizeof(moto_ui_point_t) == 2 * sizeof(std::int16_t),
+              "Production map point must remain two 16-bit coordinates");
+#if defined(__EMSCRIPTEN__) || defined(MOTO_ESP_SUBPIXEL_EXPERIMENT)
+static_assert(sizeof(moto_ui_web_precise_point_t) == 2 * sizeof(float),
+              "Fractional map point must remain two float coordinates");
+#endif
+
 
 namespace {
 
@@ -21,11 +31,9 @@ constexpr lv_color_t kGraphite = LV_COLOR_MAKE(0x30, 0x35, 0x39);
 // Real surrounding roads need to remain legible on the AMOLED's true-black
 // background.  LV_OPA_70 is 70/255 (not 70 percent), which made the previous
 // road layer effectively disappear on the physical display.
-constexpr lv_color_t kRoadGray = LV_COLOR_MAKE(0x42, 0x47, 0x4B);
-constexpr lv_color_t kRoadMajor = LV_COLOR_MAKE(0x62, 0x69, 0x6D);
-constexpr lv_color_t kRoadMinor = LV_COLOR_MAKE(0x2B, 0x30, 0x33);
-constexpr lv_color_t kBuildingGray = LV_COLOR_MAKE(0x24, 0x29, 0x2C);
-constexpr lv_color_t kBuildingLandmark = LV_COLOR_MAKE(0x38, 0x40, 0x44);
+constexpr lv_color_t kRoadGray = LV_COLOR_MAKE(0xA8, 0xB0, 0xB5);
+constexpr lv_color_t kRoadMajor = LV_COLOR_MAKE(0xD0, 0xD5, 0xD8);
+constexpr lv_color_t kRoadMinor = LV_COLOR_MAKE(0x78, 0x81, 0x88);
 constexpr lv_color_t kQuiet = LV_COLOR_MAKE(0x78, 0x7E, 0x7F);
 constexpr lv_color_t kSoft = LV_COLOR_MAKE(0xAE, 0xB2, 0xB0);
 constexpr lv_color_t kAmber = LV_COLOR_MAKE(0xE6, 0xC8, 0x4F);
@@ -38,6 +46,11 @@ constexpr int kDesignWidth = 360;
 constexpr std::uint32_t kPageDotsVisibleMs = 5'000;
 constexpr std::uint16_t MOTO_UI_ROAD_LINE_WIDGET_LIMIT = 40;
 constexpr std::uint32_t kRouteMotionFrameMs = 25;
+#ifdef __EMSCRIPTEN__
+// Simulator-only counters: requested route geometry versus pixel movement.
+std::uint32_t web_route_target_changes = 0;
+std::uint32_t web_map_pixel_changes = 0;
+#endif
 constexpr std::uint32_t kConnectionSuccessHoldMs = 920;
 
 enum class LifecycleVisual : std::uint8_t {
@@ -76,20 +89,6 @@ struct Ui {
     bool page_dots_visible = true;
 
     lv_obj_t *nav_map = nullptr;
-    lv_obj_t *nav_buildings[MOTO_UI_BUILDING_FOOTPRINT_CAPACITY]{};
-    MapPolyline nav_building_lines[MOTO_UI_BUILDING_FOOTPRINT_CAPACITY]{};
-    lv_point_precise_t nav_building_points[
-        MOTO_UI_BUILDING_POINT_CAPACITY +
-        MOTO_UI_BUILDING_FOOTPRINT_CAPACITY]{};
-    float nav_building_x[MOTO_UI_BUILDING_POINT_CAPACITY]{};
-    float nav_building_y[MOTO_UI_BUILDING_POINT_CAPACITY]{};
-    float nav_building_target_x[MOTO_UI_BUILDING_POINT_CAPACITY]{};
-    float nav_building_target_y[MOTO_UI_BUILDING_POINT_CAPACITY]{};
-    moto_ui_building_span_t
-        nav_building_spans[MOTO_UI_BUILDING_FOOTPRINT_CAPACITY]{};
-    std::uint8_t nav_building_point_count = 0;
-    std::uint8_t nav_building_footprint_count = 0;
-    std::uint32_t nav_building_scene_revision = 0;
     lv_obj_t *nav_roads[MOTO_UI_ROAD_LINE_WIDGET_LIMIT]{};
     MapPolyline nav_road_lines[MOTO_UI_ROAD_POLYLINE_CAPACITY]{};
     lv_point_precise_t nav_road_points[MOTO_UI_ROAD_POINT_CAPACITY]{};
@@ -201,7 +200,6 @@ void reset_ui_state() {
     ui.nav_route_generation = ~std::uint32_t{0};
     ui.nav_route_identity = ~std::uint32_t{0};
     ui.nav_road_scene_revision = ~std::uint32_t{0};
-    ui.nav_building_scene_revision = ~std::uint32_t{0};
 }
 
 lv_obj_t *make_layer(lv_obj_t *parent) {
@@ -474,10 +472,15 @@ bool apply_route_geometry_frame(bool rebind_lines = true) {
     if(ui.nav_route_point_count < 2) return false;
     bool pixels_changed = false;
     for(std::uint8_t i = 0; i < ui.nav_route_point_count; ++i) {
+#if defined(__EMSCRIPTEN__) || defined(MOTO_ESP_SUBPIXEL_EXPERIMENT)
+        const auto x = static_cast<lv_value_precise_t>(ui.nav_route_x[i]);
+        const auto y = static_cast<lv_value_precise_t>(ui.nav_route_y[i]);
+#else
         const auto x = static_cast<lv_value_precise_t>(
             std::lround(ui.nav_route_x[i]));
         const auto y = static_cast<lv_value_precise_t>(
             std::lround(ui.nav_route_y[i]));
+#endif
         pixels_changed = pixels_changed || ui.nav_route_points[i].x != x ||
                          ui.nav_route_points[i].y != y;
         ui.nav_route_points[i] = {x, y};
@@ -497,10 +500,15 @@ bool apply_road_geometry_frame(bool rebind_lines = true) {
     }
     bool pixels_changed = false;
     for(std::uint8_t i = 0; i < ui.nav_road_point_count; ++i) {
+#if defined(__EMSCRIPTEN__) || defined(MOTO_ESP_SUBPIXEL_EXPERIMENT)
+        const auto x = static_cast<lv_value_precise_t>(ui.nav_road_x[i]);
+        const auto y = static_cast<lv_value_precise_t>(ui.nav_road_y[i]);
+#else
         const auto x = static_cast<lv_value_precise_t>(
             std::lround(ui.nav_road_x[i]));
         const auto y = static_cast<lv_value_precise_t>(
             std::lround(ui.nav_road_y[i]));
+#endif
         pixels_changed = pixels_changed || ui.nav_road_points[i].x != x ||
                          ui.nav_road_points[i].y != y;
         ui.nav_road_points[i] = {x, y};
@@ -517,54 +525,22 @@ bool apply_road_geometry_frame(bool rebind_lines = true) {
     return pixels_changed || rebind_lines;
 }
 
-bool apply_building_geometry_frame(bool rebind_lines = true) {
-    if(ui.nav_building_point_count < 3 ||
-       ui.nav_building_footprint_count == 0) return false;
-    bool pixels_changed = false;
-    std::size_t packed_index = 0;
-    for(std::uint8_t footprint_index = 0;
-        footprint_index < ui.nav_building_footprint_count;
-        ++footprint_index) {
-        const moto_ui_building_span_t span =
-            ui.nav_building_spans[footprint_index];
-        for(std::uint8_t point_index = 0; point_index < span.point_count;
-            ++point_index) {
-            const std::size_t source = span.first_point_index + point_index;
-            const auto x = static_cast<lv_value_precise_t>(
-                std::lround(ui.nav_building_x[source]));
-            const auto y = static_cast<lv_value_precise_t>(
-                std::lround(ui.nav_building_y[source]));
-            pixels_changed = pixels_changed ||
-                ui.nav_building_points[packed_index].x != x ||
-                ui.nav_building_points[packed_index].y != y;
-            ui.nav_building_points[packed_index++] = {x, y};
-        }
-        // BLE omits the duplicate closing point; LVGL needs it explicitly.
-        const auto closing =
-            ui.nav_building_points[packed_index - span.point_count];
-        pixels_changed = pixels_changed ||
-            ui.nav_building_points[packed_index].x != closing.x ||
-            ui.nav_building_points[packed_index].y != closing.y;
-        ui.nav_building_points[packed_index] = closing;
-        if(rebind_lines) {
-            set_map_polyline_points(
-                ui.nav_buildings[footprint_index],
-                &ui.nav_building_points[packed_index - span.point_count],
-                span.point_count + 1U);
-        }
-        ++packed_index;
-    }
-    return pixels_changed || rebind_lines;
-}
-
 void route_motion_tick(lv_timer_t *) {
     if(ui.page != MOTO_UI_PAGE_NAVIGATION) return;
     if(ui.nav_route_target_count < 2 || ui.nav_route_point_count < 2) return;
-    // 0.39 at 25 ms has approximately the same smoothing time constant as
-    // the old 0.56 at 40 ms, but supplies smaller and more frequent steps.
+    // This timer is independent of both the browser's RAF and LVGL's display
+    // refresh timer. Its original 25 ms cadence aliases against 60 Hz RAF,
+    // leaving a moving map unchanged for alternate browser frames.
+    // On WebAssembly it runs at most once per LVGL handler (~60 Hz). Choose
+    // alpha 0.28 at 16.7 ms to preserve the ~50 ms time constant of 0.39
+    // at 25 ms. The ESP32 keeps the proven 25 ms / 0.39 behavior.
     // Screen coordinates need subpixel precision, not geographic doubles.
-    // Float uses the ESP32-S3 FPU for every point in this 40 Hz hot loop.
-    const float blend = ui.reduce_motion ? 1.0F : 0.39F;
+#ifdef __EMSCRIPTEN__
+    constexpr float kMotionBlend = 0.28F;
+#else
+    constexpr float kMotionBlend = 0.39F;
+#endif
+    const float blend = ui.reduce_motion ? 1.0F : kMotionBlend;
     bool route_moved = false;
     for(std::uint8_t i = 0; i < ui.nav_route_point_count; ++i) {
         const float dx = ui.nav_route_target_x[i] - ui.nav_route_x[i];
@@ -591,34 +567,19 @@ void route_motion_tick(lv_timer_t *) {
         ui.nav_road_y[i] += dy * blend;
         roads_moved = true;
     }
-    bool buildings_moved = false;
-    for(std::uint8_t i = 0; i < ui.nav_building_point_count; ++i) {
-        const float dx = ui.nav_building_target_x[i] - ui.nav_building_x[i];
-        const float dy = ui.nav_building_target_y[i] - ui.nav_building_y[i];
-        if(std::abs(dx) < 0.08F && std::abs(dy) < 0.08F) {
-            ui.nav_building_x[i] = ui.nav_building_target_x[i];
-            ui.nav_building_y[i] = ui.nav_building_target_y[i];
-            continue;
-        }
-        ui.nav_building_x[i] += dx * blend;
-        ui.nav_building_y[i] += dy * blend;
-        buildings_moved = true;
-    }
-    // The line objects retain pointers to the mutable point arrays. Ordinary
-    // animation therefore only changes those arrays and invalidates the one
-    // common map layer. Rebinding every road/building used to invalidate the
-    // same 466x232 region dozens of times per frame.
     bool pixels_changed = false;
-    if(buildings_moved) {
-        pixels_changed = apply_building_geometry_frame(false) || pixels_changed;
-    }
     if(roads_moved) {
         pixels_changed = apply_road_geometry_frame(false) || pixels_changed;
     }
     if(route_moved) {
         pixels_changed = apply_route_geometry_frame(false) || pixels_changed;
     }
-    if(pixels_changed) lv_obj_invalidate(ui.nav_map);
+    if(pixels_changed) {
+#ifdef __EMSCRIPTEN__
+        ++web_map_pixel_changes;
+#endif
+        lv_obj_invalidate(ui.nav_map);
+    }
 }
 
 void update_road_geometry(const moto_ui_state_t *state) {
@@ -641,8 +602,13 @@ void update_road_geometry(const moto_ui_state_t *state) {
         ui.nav_road_point_count != point_count ||
         ui.nav_road_polyline_count != polyline_count;
     for(std::uint8_t i = 0; i < point_count; ++i) {
+#if defined(__EMSCRIPTEN__) || defined(MOTO_ESP_SUBPIXEL_EXPERIMENT)
+        ui.nav_road_target_x[i] = state->web_road_points[i].x;
+        ui.nav_road_target_y[i] = state->web_road_points[i].y;
+#else
         ui.nav_road_target_x[i] = state->road_points[i].x;
         ui.nav_road_target_y[i] = state->road_points[i].y;
+#endif
     }
     for(std::uint8_t i = 0; i < polyline_count; ++i) {
         const moto_ui_polyline_span_t next = state->road_polylines[i];
@@ -687,72 +653,6 @@ void update_road_geometry(const moto_ui_state_t *state) {
 }
 
 
-void update_building_geometry(const moto_ui_state_t *state) {
-    const std::uint8_t point_count = std::min<std::uint8_t>(
-        state->building_point_count, MOTO_UI_BUILDING_POINT_CAPACITY);
-    const std::uint8_t footprint_count = std::min<std::uint8_t>(
-        state->building_footprint_count,
-        MOTO_UI_BUILDING_FOOTPRINT_CAPACITY);
-    if(point_count < 3 || footprint_count == 0) {
-        ui.nav_building_point_count = 0;
-        ui.nav_building_footprint_count = 0;
-        ui.nav_building_scene_revision = state->map_scene_revision;
-        for(lv_obj_t *building : ui.nav_buildings) {
-            lv_obj_add_flag(building, LV_OBJ_FLAG_HIDDEN);
-        }
-        return;
-    }
-
-    bool spans_changed =
-        ui.nav_building_scene_revision != state->map_scene_revision ||
-        ui.nav_building_point_count != point_count ||
-        ui.nav_building_footprint_count != footprint_count;
-    for(std::uint8_t i = 0; i < point_count; ++i) {
-        ui.nav_building_target_x[i] = state->building_points[i].x;
-        ui.nav_building_target_y[i] = state->building_points[i].y;
-    }
-    for(std::uint8_t i = 0; i < footprint_count; ++i) {
-        const moto_ui_building_span_t next = state->building_footprints[i];
-        spans_changed = spans_changed ||
-                        ui.nav_building_spans[i].first_point_index !=
-                            next.first_point_index ||
-                        ui.nav_building_spans[i].point_count !=
-                            next.point_count ||
-                        ui.nav_building_spans[i].building_class !=
-                            next.building_class;
-        ui.nav_building_spans[i] = next;
-    }
-
-    const bool snap = spans_changed || ui.reduce_motion;
-    ui.nav_building_point_count = point_count;
-    ui.nav_building_footprint_count = footprint_count;
-    ui.nav_building_scene_revision = state->map_scene_revision;
-    if(snap) {
-        for(std::uint8_t i = 0; i < point_count; ++i) {
-            ui.nav_building_x[i] = ui.nav_building_target_x[i];
-            ui.nav_building_y[i] = ui.nav_building_target_y[i];
-        }
-    }
-    if(spans_changed) {
-        for(std::uint8_t i = 0;
-            i < MOTO_UI_BUILDING_FOOTPRINT_CAPACITY; ++i) {
-            if(i < footprint_count) {
-                const bool landmark =
-                    ui.nav_building_spans[i].building_class == 1U;
-                lv_obj_set_style_line_color(
-                    ui.nav_buildings[i],
-                    landmark ? kBuildingLandmark : kBuildingGray, 0);
-                lv_obj_set_style_line_width(
-                    ui.nav_buildings[i], px(landmark ? 2 : 1), 0);
-                lv_obj_remove_flag(ui.nav_buildings[i], LV_OBJ_FLAG_HIDDEN);
-            } else {
-                lv_obj_add_flag(ui.nav_buildings[i], LV_OBJ_FLAG_HIDDEN);
-            }
-        }
-    }
-    if(snap) apply_building_geometry_frame();
-}
-
 void update_route_geometry(const moto_ui_state_t *state) {
     const std::uint8_t count = std::min<std::uint8_t>(
         state->route_point_count, MOTO_UI_ROUTE_POINT_CAPACITY);
@@ -767,9 +667,21 @@ void update_route_geometry(const moto_ui_state_t *state) {
         return;
     }
 
+#ifdef __EMSCRIPTEN__
+    if(ui.nav_route_target_count != count ||
+       ui.nav_route_target_x[0] != state->web_route_points[0].x ||
+       ui.nav_route_target_y[0] != state->web_route_points[0].y) {
+        ++web_route_target_changes;
+    }
+#endif
     for(std::uint8_t i = 0; i < count; ++i) {
+#if defined(__EMSCRIPTEN__) || defined(MOTO_ESP_SUBPIXEL_EXPERIMENT)
+        ui.nav_route_target_x[i] = state->web_route_points[i].x;
+        ui.nav_route_target_y[i] = state->web_route_points[i].y;
+#else
         ui.nav_route_target_x[i] = state->route_points[i].x;
         ui.nav_route_target_y[i] = state->route_points[i].y;
+#endif
     }
 
     // A new route or a wholesale reroute should appear immediately. Ordinary
@@ -1224,7 +1136,6 @@ void update_nav_status(const moto_ui_state_t *state) {
 }
 
 void update_navigation(const moto_ui_state_t *state) {
-    update_building_geometry(state);
     update_road_geometry(state);
     update_route_geometry(state);
     update_nav_status(state);
@@ -1418,21 +1329,6 @@ void create_navigation_page() {
     lv_obj_add_flag(ui.nav_map, LV_OBJ_FLAG_GESTURE_BUBBLE);
     lv_obj_set_height(ui.nav_map, px(232));
 
-    // Real building footprints are quiet closed outlines beneath both roads
-    // and the selected route. No inferred rectangles or decorative fill is
-    // generated on-device.
-    for(std::uint8_t i = 0;
-        i < MOTO_UI_BUILDING_FOOTPRINT_CAPACITY; ++i) {
-        ui.nav_buildings[i] = create_map_polyline(ui.nav_map,
-                                                  ui.nav_building_lines[i]);
-        lv_obj_set_size(ui.nav_buildings[i], MOTO_UI_CANVAS_WIDTH, px(232));
-        lv_obj_set_style_line_width(ui.nav_buildings[i], px(1), 0);
-        lv_obj_set_style_line_color(ui.nav_buildings[i], kBuildingGray, 0);
-        lv_obj_set_style_line_opa(ui.nav_buildings[i], LV_OPA_COVER, 0);
-        lv_obj_set_style_line_rounded(ui.nav_buildings[i], false, 0);
-        lv_obj_add_flag(ui.nav_buildings[i], LV_OBJ_FLAG_HIDDEN);
-    }
-
     // Quiet, real street context sits behind the selected route. Each road is
     // its own LVGL line so disconnected streets are never joined by a fake
     // diagonal. The bundled Jinan fixture uses all eight bounded slots; a
@@ -1457,8 +1353,16 @@ void create_navigation_page() {
     lv_obj_set_style_line_width(ui.nav_route, px(7), 0);
     lv_obj_set_style_line_color(ui.nav_route, lv_color_hex(0x39FF14), 0);
     lv_obj_set_style_line_rounded(ui.nav_route, true, 0);
+    // Keep the 40 Hz motion timer on physical hardware. In the browser
+    // LVGL's handler is synchronized to RAF, so request a timer tick for each
+    // handler instead of quantizing movement to 25 ms (~30 Hz on 60 Hz RAF).
+#ifdef __EMSCRIPTEN__
+    constexpr std::uint32_t kPlatformMotionFrameMs = 1;
+#else
+    constexpr std::uint32_t kPlatformMotionFrameMs = kRouteMotionFrameMs;
+#endif
     ui.nav_route_motion_timer = lv_timer_create(route_motion_tick,
-                                                 kRouteMotionFrameMs,
+                                                 kPlatformMotionFrameMs,
                                                  nullptr);
 
     ui.nav_marker = lv_obj_create(ui.nav_map);
@@ -1916,7 +1820,6 @@ extern "C" void moto_nav_ui_set_motion_state(const moto_ui_state_t *state) {
     // compass rose actually changes with yaw; labels, arcs and hidden pages
     // remain untouched so LVGL submits a small, bounded dirty region.
     if(ui.page == MOTO_UI_PAGE_NAVIGATION) {
-        update_building_geometry(state);
         update_road_geometry(state);
         update_route_geometry(state);
     } else if(ui.page == MOTO_UI_PAGE_COMPASS) {
@@ -2041,3 +1944,19 @@ extern "C" void moto_nav_ui_set_demo_change_callback(
     ui.demo_callback_context = context;
 }
 
+
+#ifdef __EMSCRIPTEN__
+// Query-only diagnostics. No memory/payload impact on the physical ESP32.
+extern "C" std::uint32_t moto_nav_ui_web_target_changes(void) {
+    return web_route_target_changes;
+}
+extern "C" std::uint32_t moto_nav_ui_web_pixel_changes(void) {
+    return web_map_pixel_changes;
+}
+extern "C" double moto_nav_ui_web_route_lag_px(void) {
+    if(ui.nav_route_target_count < 2 || ui.nav_route_point_count < 2) return 0.0;
+    return std::hypot(
+        static_cast<double>(ui.nav_route_target_x[0]-ui.nav_route_x[0]),
+        static_cast<double>(ui.nav_route_target_y[0]-ui.nav_route_y[0]));
+}
+#endif

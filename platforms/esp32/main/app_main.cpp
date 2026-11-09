@@ -237,6 +237,25 @@ extern "C" void app_main(void) {
            static_cast<unsigned long>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)));
 
   MOTO_PSRAM_BSS static moto::nav::NavPresenter presenter;
+#ifdef MOTO_ESP_CURVE_ZOOM_EXPERIMENT
+  // Test-only firmware: use the identical detector and 55 m / 80 m
+  // hysteresis already exercised by browser replay/native tests.
+  presenter.set_experimental_curve_zoom_enabled(true);
+#endif
+#if defined(MOTO_ESP_CURVE_ZOOM_EXPERIMENT) || defined(MOTO_ESP_SUBPIXEL_EXPERIMENT)
+  ESP_LOGW(kTag, "ESP NAV EXPERIMENT curve=%d subpixel=%d (test branch only)",
+#ifdef MOTO_ESP_CURVE_ZOOM_EXPERIMENT
+           1,
+#else
+           0,
+#endif
+#ifdef MOTO_ESP_SUBPIXEL_EXPERIMENT
+           1
+#else
+           0
+#endif
+  );
+#endif
   MOTO_PSRAM_BSS static PhoneNavBridge phone_bridge(presenter);
   MOTO_PSRAM_BSS static BleNavTransport transport;
   static MotionHeadingSensor motion_sensor;

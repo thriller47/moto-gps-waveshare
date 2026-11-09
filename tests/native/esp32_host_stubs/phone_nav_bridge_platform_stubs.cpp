@@ -25,9 +25,6 @@ uint8_t last_route_point_count = 0;
 uint8_t last_road_point_count = 0;
 uint8_t last_road_polyline_count = 0;
 uint8_t last_road_class = 0;
-uint8_t last_building_point_count = 0;
-uint8_t last_building_footprint_count = 0;
-uint8_t last_building_class = 0;
 uint8_t last_demo_active = 0;
 moto_maneuver_t last_maneuver = MOTO_MANEUVER_STRAIGHT;
 uint32_t last_distance_to_maneuver_m = 0;
@@ -87,11 +84,6 @@ extern "C" void moto_nav_ui_set_state(const moto_ui_state_t* state) {
   last_road_class = state->road_polyline_count == 0
                         ? 0
                         : state->road_polylines[0].road_class;
-  last_building_point_count = state->building_point_count;
-  last_building_footprint_count = state->building_footprint_count;
-  last_building_class = state->building_footprint_count == 0
-                            ? 0
-                            : state->building_footprints[0].building_class;
   last_maneuver = state->maneuver;
   last_distance_to_maneuver_m = state->distance_to_maneuver_m;
 }
@@ -169,9 +161,6 @@ void reset_phone_nav_bridge_probe() {
   last_road_point_count = 0;
   last_road_polyline_count = 0;
   last_road_class = 0;
-  last_building_point_count = 0;
-  last_building_footprint_count = 0;
-  last_building_class = 0;
   last_demo_active = 0;
   last_maneuver = MOTO_MANEUVER_STRAIGHT;
   last_distance_to_maneuver_m = 0;
@@ -271,21 +260,6 @@ uint8_t phone_nav_bridge_last_road_polyline_count() {
 uint8_t phone_nav_bridge_last_road_class() {
   const std::lock_guard<std::mutex> lock(probe_mutex);
   return last_road_class;
-}
-
-uint8_t phone_nav_bridge_last_building_point_count() {
-  const std::lock_guard<std::mutex> lock(probe_mutex);
-  return last_building_point_count;
-}
-
-uint8_t phone_nav_bridge_last_building_footprint_count() {
-  const std::lock_guard<std::mutex> lock(probe_mutex);
-  return last_building_footprint_count;
-}
-
-uint8_t phone_nav_bridge_last_building_class() {
-  const std::lock_guard<std::mutex> lock(probe_mutex);
-  return last_building_class;
 }
 
 moto_ui_phone_connection_t phone_nav_bridge_last_phone_connection() {

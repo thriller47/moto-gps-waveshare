@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import androidx.core.content.FileProvider
 import com.motogps.android.diagnostics.DiagnosticLog
+import com.motogps.android.diagnostics.ReplayTraceRecorder
 import android.content.pm.PackageManager
 import android.hardware.Sensor
 import android.hardware.SensorEvent
@@ -53,6 +54,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     private var lastBackPressTime = 0L
     private var foregroundLocationCallback: ((Location) -> Unit)? = null
     private var diagnosticMode by mutableStateOf(0)
+    private var replayRecording by mutableStateOf(false)
     private val diagnosticTimeoutHandler = Handler(Looper.getMainLooper())
     private val diagnosticTimeout = Runnable { diagnosticMode = 0 }
 
@@ -72,6 +74,28 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             } catch (e: Exception) {
                 runOnUiThread {
                     Toast.makeText(this, "Esportazione non riuscita: ${e.message}",
+                        Toast.LENGTH_LONG).show()
+                }
+            }
+        }.start()
+    }
+
+    private fun exportReplay() {
+        Thread {
+            try {
+                val file = ReplayTraceRecorder.export(this)
+                val uri = FileProvider.getUriForFile(this, "$packageName.diagnostics", file)
+                runOnUiThread {
+                    val send = Intent(Intent.ACTION_SEND).apply {
+                        type = "application/x-ndjson"
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    startActivity(Intent.createChooser(send, "Esporta tracciato GPS privato"))
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    Toast.makeText(this, "Esportazione GPS non riuscita: ${e.message}",
                         Toast.LENGTH_LONG).show()
                 }
             }
@@ -210,6 +234,18 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             MaterialTheme(colorScheme = lightColorScheme()) {
                 NavigationScreen(
                     onExportDiagnostics = { exportDiagnostics() },
+                    replayRecording = replayRecording,
+                    onReplayRecordingChange = { shouldRecord ->
+                        try {
+                            if (shouldRecord) ReplayTraceRecorder.start(this@MainActivity)
+                            else ReplayTraceRecorder.stop()
+                            replayRecording = ReplayTraceRecorder.isRecording()
+                        } catch (e: Exception) {
+                            Toast.makeText(this@MainActivity,
+                                "Registratore GPS: ${e.message}", Toast.LENGTH_LONG).show()
+                        }
+                    },
+                    onExportReplay = { exportReplay() },
                     onCorridorTileCount = { viewModel.corridorTileCount(this@MainActivity) },
                     onDownloadCorridor = { viewModel.downloadOpenFreeMapCorridor(this@MainActivity) },
                     diagnosticMode = diagnosticMode,

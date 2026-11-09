@@ -144,9 +144,6 @@ void add_demo_road_context(moto::nav::NavSnapshot& output) {
     };
   }
   output.has_road_context = true;
-  output.has_building_context = false;
-  output.building_context_point_count = 0;
-  output.building_context_footprint_count = 0;
   output.map_scene_revision = 0;
 }
 
@@ -156,26 +153,14 @@ void clear_road_context(moto::nav::NavSnapshot& output) {
   output.road_context_polyline_count = 0;
 }
 
-void clear_building_context(moto::nav::NavSnapshot& output) {
-  output.has_building_context = false;
-  output.building_context_point_count = 0;
-  output.building_context_footprint_count = 0;
-}
-
 void clear_map_context(moto::nav::NavSnapshot& output) {
   clear_road_context(output);
-  clear_building_context(output);
   output.map_scene_revision = 0;
 }
 
 moto::nav::RoadContextClass map_road_class(
     moto::ble::MapRoadClass road_class) {
   return static_cast<moto::nav::RoadContextClass>(road_class);
-}
-
-moto::nav::BuildingContextClass map_building_class(
-    moto::ble::MapBuildingClass building_class) {
-  return static_cast<moto::nav::BuildingContextClass>(building_class);
 }
 
 bool is_ios_demo_route_token(std::uint32_t route_token) {
@@ -954,22 +939,14 @@ moto::ble::AckStatus PhoneNavBridge::consume_map_scene(
   for (const auto& road : input.roads) {
     road_point_count += road.points.size();
   }
-  std::size_t building_point_count = 0;
-  for (const auto& building : input.buildings) {
-    building_point_count += building.points.size();
-  }
 #ifdef ESP_PLATFORM
   moto_diag_event(MotoDiagEvent::MapScene,
                   static_cast<int32_t>(input.scene_revision),
                   static_cast<int32_t>(input.roads.size()),
-                  static_cast<int32_t>(road_point_count),
-                  static_cast<int32_t>(input.buildings.size()));
+                  static_cast<int32_t>(road_point_count), 0);
 #endif
   if (input.roads.size() > moto::nav::kRoadContextPolylineCapacity ||
-      road_point_count > moto::nav::kRoadContextPointCapacity ||
-      input.buildings.size() >
-          moto::nav::kBuildingContextFootprintCapacity ||
-      building_point_count > moto::nav::kBuildingContextPointCapacity) {
+      road_point_count > moto::nav::kRoadContextPointCapacity) {
     return moto::ble::AckStatus::Unsupported;
   }
 
@@ -1006,42 +983,18 @@ moto::ble::AckStatus PhoneNavBridge::consume_map_scene(
       };
     }
 
-    std::size_t next_building_point = 0;
-    std::size_t next_building = 0;
-    for (const auto& building : input.buildings) {
-      const std::size_t first = next_building_point;
-      for (const auto& point : building.points) {
-        target.building_context_points[next_building_point++] = {
-            static_cast<double>(point.latitude_e6) / 1'000'000.0,
-            static_cast<double>(point.longitude_e6) / 1'000'000.0,
-        };
-      }
-      target.building_context_footprints[next_building++] = {
-          static_cast<std::uint8_t>(first),
-          static_cast<std::uint8_t>(building.points.size()),
-          map_building_class(building.building_class),
-      };
-    }
-
     target.road_context_point_count =
         static_cast<std::uint8_t>(next_road_point);
     target.road_context_polyline_count =
         static_cast<std::uint8_t>(next_road);
     target.has_road_context = next_road > 0;
-    target.building_context_point_count =
-        static_cast<std::uint8_t>(next_building_point);
-    target.building_context_footprint_count =
-        static_cast<std::uint8_t>(next_building);
-    target.has_building_context = next_building > 0;
     target.map_scene_revision = input.scene_revision;
   }
   ESP_LOGI(kTag,
-           "map scene committed: revision=%lu roads=%u/%u buildings=%u/%u",
+           "map scene committed: revision=%lu roads=%u/%u",
            static_cast<unsigned long>(input.scene_revision),
            static_cast<unsigned>(input.roads.size()),
-           static_cast<unsigned>(road_point_count),
-           static_cast<unsigned>(input.buildings.size()),
-           static_cast<unsigned>(building_point_count));
+           static_cast<unsigned>(road_point_count));
   present_navigation();
   return moto::ble::AckStatus::Ok;
 }
@@ -1100,6 +1053,18 @@ void PhoneNavBridge::render_pending() {
   const bool navigation = (requested & RenderNavigation) != 0U;
   const bool motion = !navigation && (requested & RenderMotion) != 0U;
   const bool media = (requested & RenderMedia) != 0U;
+#if defined(ESP_PLATFORM) && (defined(MOTO_ESP_CURVE_ZOOM_EXPERIMENT) || defined(MOTO_ESP_SUBPIXEL_EXPERIMENT))
+  // Experiment-only serial telemetry, once per five seconds, no persistent
+  // diagnostics or extra work in NimBLE/IMU callbacks.
+  static std::uint64_t telemetry_window_us = 0;
+  static std::uint64_t projection_total_us = 0;
+  static std::uint64_t projection_max_us = 0;
+  static std::uint64_t lock_wait_max_us = 0;
+  static std::uint32_t telemetry_frames = 0;
+  const std::uint64_t measurement_start_us =
+      static_cast<std::uint64_t>(esp_timer_get_time());
+  if (telemetry_window_us == 0) telemetry_window_us = measurement_start_us;
+#endif
 #ifdef ESP_PLATFORM
   // Trace the exact stage reached by the renderer. These samples stay in the
   // persistent flash log even when BLE RX continues but the screen freezes.
@@ -1163,6 +1128,15 @@ void PhoneNavBridge::render_pending() {
     }
     presenter_.update(render_snapshot_);
   }
+#if defined(ESP_PLATFORM) && (defined(MOTO_ESP_CURVE_ZOOM_EXPERIMENT) || defined(MOTO_ESP_SUBPIXEL_EXPERIMENT))
+  const std::uint64_t projection_done_us =
+      static_cast<std::uint64_t>(esp_timer_get_time());
+  const std::uint64_t projection_us = projection_done_us - measurement_start_us;
+  if (navigation || motion) {
+    projection_total_us += projection_us;
+    projection_max_us = std::max(projection_max_us, projection_us);
+  }
+#endif
 #ifdef ESP_PLATFORM
   if (trace_render) moto_diag_event(MotoDiagEvent::RenderPhase, 3); // wait LVGL
   // A stalled display worker must not trap the render task forever. Coalesce
@@ -1187,6 +1161,12 @@ void PhoneNavBridge::render_pending() {
     request_render(requested);
     return;
   }
+#if defined(ESP_PLATFORM) && (defined(MOTO_ESP_CURVE_ZOOM_EXPERIMENT) || defined(MOTO_ESP_SUBPIXEL_EXPERIMENT))
+  const std::uint64_t lock_done_us =
+      static_cast<std::uint64_t>(esp_timer_get_time());
+  lock_wait_max_us = std::max(lock_wait_max_us,
+                             lock_done_us - projection_done_us);
+#endif
 #ifdef ESP_PLATFORM
   if (trace_render) moto_diag_event(MotoDiagEvent::RenderPhase, 4); // LVGL acquired
 #endif
@@ -1227,6 +1207,35 @@ void PhoneNavBridge::render_pending() {
   }
 #endif
   board_port_unlock();
+#if defined(ESP_PLATFORM) && (defined(MOTO_ESP_CURVE_ZOOM_EXPERIMENT) || defined(MOTO_ESP_SUBPIXEL_EXPERIMENT))
+  if (navigation || motion) ++telemetry_frames;
+  const std::uint64_t end_us =
+      static_cast<std::uint64_t>(esp_timer_get_time());
+  if (end_us - telemetry_window_us >= 5'000'000ULL) {
+    const std::uint64_t elapsed_us = end_us - telemetry_window_us;
+    ESP_LOGI(kTag,
+             "NAV_EXP render=%lu/5s hz=%lu projection_avg=%luus max=%luus "
+             "lock_max=%luus zoom_x100=%lu int_free=%lu psram_free=%lu",
+             static_cast<unsigned long>(telemetry_frames),
+             static_cast<unsigned long>(
+                 telemetry_frames * 1'000'000ULL / elapsed_us),
+             static_cast<unsigned long>(
+                 telemetry_frames ? projection_total_us / telemetry_frames : 0),
+             static_cast<unsigned long>(projection_max_us),
+             static_cast<unsigned long>(lock_wait_max_us),
+             static_cast<unsigned long>(
+                 std::lround(presenter_.applied_zoom_factor() * 100.0)),
+             static_cast<unsigned long>(
+                 heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+             static_cast<unsigned long>(
+                 heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)));
+    telemetry_window_us = end_us;
+    telemetry_frames = 0;
+    projection_total_us = 0;
+    projection_max_us = 0;
+    lock_wait_max_us = 0;
+  }
+#endif
 }
 
 #ifdef ESP_PLATFORM

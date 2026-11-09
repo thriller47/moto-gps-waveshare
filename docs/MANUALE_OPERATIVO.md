@@ -3,7 +3,7 @@
 **Riferimento:** repository thriller47/moto-gps-waveshare, branch principale **valhalla**. 
 **Scheda:** Waveshare ESP32-S3-Touch-AMOLED-1.75C, 32 MB flash, 8 MB PSRAM.
 **Porta negli esempi:** **COM3**. I blocchi sono etichettati **PowerShell** o **CMD**: usare la shell indicata. 
-**Aggiornato:** 2 novembre 2026. Controllare prima PROJECT_STATE.md e AGENTS.md.
+**Aggiornato:** 6 novembre 2026 (primo simulatore browser e registratore GPS privato sperimentali). Controllare prima PROJECT_STATE.md e AGENTS.md.
 
 > **Attenzione:** il branch main è stato eliminato; signal resta solo come storico OSM online. Non usare né main né NoOta come base. Effettuare il flash soltanto con immagini della scheda 1.75C.
 
@@ -249,23 +249,30 @@ python scripts\offline_map\pbf_to_motomap.py C:\MotoGPS\PBF\nord-ovest-latest.os
 
 Il convertitore Python è in memoria e l'intera Italia può usare diversi GB di RAM: chiudere programmi pesanti e controllare spazio disco. I PBF di Geofabrik **non sono** direttamente importabili come MotoMap.
 
-### MotoMap v2: indice di copertura e poligono Geofabrik
+### MotoMap v3: poligono di copertura e topologia dei cavalcavia (branch test)
 
-Per il file Italia `italy.poly` usare **la fonte ufficiale Geofabrik**:
-https://download.geofabrik.de/europe/italy.poly .
-È il poligono di ritaglio della regione, non un grafo Valhalla. Controllare che il PBF provenga dallo stesso estratto (Italia, non Nord-Ovest o altro).
+**Stato al 4 novembre 2026:** nel branch sperimentale `test/road-contrast-cleanup-20261104`, il convertitore genera **MotoMap v3** (`motomap_v3.json`). Oltre alle tile z15, conserva gli ID dei nodi OSM (base36) e il livello strada/ponte/galleria, disponibili per l'analisi topologica delle connessioni; **il filtro di livello/cavalcavia è attualmente disabilitato** dopo regressioni su strada, quindi questi metadati non vengono usati per nascondere strade. Il file `coverage_z14.txt` continua a certificare solo le celle interamente comprese nel perimetro Geofabrik. I pacchetti v2 restano supportati dall'app; `valhalla` rimane separato fino alla prova completa.
 
-**PowerShell:**
+Conservare PBF e `.poly` in `C:\MotoGPS\PBF` e usare lo **script del branch test**, non quello di `valhalla` finché il merge non sarà approvato. Esempio PowerShell:
 
 ~~~powershell
-New-Item -ItemType Directory -Force C:\MotoGPS\PBF | Out-Null
-Invoke-WebRequest "https://download.geofabrik.de/europe/italy.poly" -OutFile "C:\MotoGPS\PBF\italy.poly"
-Set-Location "C:\MotoGPS\moto-gps-waveshare"
+cd C:\MotoGPS\moto-gps-waveshare
+git switch test/road-contrast-cleanup-20261104
 python -m pip install osmium shapely
-python scripts\offline_map\pbf_to_motomap.py C:\MotoGPS\PBF\italy-261026.osm.pbf -o C:\MotoGPS\PBF\italy-v2.motomap.zip --coverage-poly C:\MotoGPS\PBF\italy.poly
+python scripts\offline_map\pbf_to_motomap.py C:\MotoGPS\PBF\italy-261101.osm.pbf -o C:\MotoGPS\PBF\italy-v3.motomap.zip --coverage-poly C:\MotoGPS\PBF\italy.poly
 ~~~
 
-Se si utilizza un PBF nuovo, sostituire il percorso. **Non rinominare un PBF regionale come Italia:** il poligono certifica solo celle z14 interamente interne all'estratto dichiarato. Se non esiste un `.poly` affidabile, omettere `--coverage-poly`: il pacchetto v2 funzionerà, ma non certificherà tile vuote. Con il file v2 Android può riconoscere aree elaborate prive di strade senza riscaricarle da OpenFreeMap. Conservare il precedente ZIP fino all'importazione e alla verifica della copertura.
+Sostituire il nome del PBF con quello reale: lo script non richiede una cartella diversa da `C:\MotoGPS\PBF`. **Non rigenerare** un pacchetto v3 già valido soltanto perché il file si chiama `italy-v2.motomap.zip`: la versione effettiva dipende dal metadata interno, non dal nome ZIP. Per controllare il file già prodotto:
+
+~~~powershell
+python -c "import zipfile,json; p=r'C:\MotoGPS\PBF\italy-v2.motomap.zip'; z=zipfile.ZipFile(p); print(json.dumps(json.loads(z.read('motomap_v3.json')),indent=2)); print('Coverage:', 'coverage_z14.txt' in z.namelist())"
+~~~
+
+**Pacchetto verificato dall'utente:** `version=3`, `zoom=15`, `topology=osm-node-ids-base36`, `level=osm-layer-or-bridge-tunnel`, 278.048 tile stradali e 214.320 celle z14 certificate. Dopo la correzione Android del controllo di copertura (commit `35a5e02`), sul percorso Cuneo → Reggio Calabria il conteggio è passato da **667 a 0 tile mancanti**. Nel successivo test su strada l'autostrada sotto un cavalcavia è stata correttamente esclusa dalla scena di contesto. Per sfruttare la v3 serve **un APK compilato dal branch test**; lo ZIP da solo non aggiorna Android.
+
+**Esperimento successivo (solo Android, ancora da collaudare):** commit `985700e` alza il limite della scena da 12/96 a **16 strade / 128 punti**, senza modificare firmware ESP32 o dati MotoMap. Resta sotto il massimo firmware di 24/192. Non è necessario rigenerare il PBF, reinstallare il grafo Valhalla o riflashare l'ESP32; compilare/installare Android dal branch test. Verificare sul campo la continuità delle strade grigie e l'assenza di congestione BLE prima del merge.
+
+**Attenzione:** il poligono `italy.poly` deve corrispondere all'estratto Italia. Non rinominare un PBF di sottoregione come Italia, né usarlo con la certificazione dell'intero Paese. Senza `--coverage-poly` l'archivio resta leggibile ma non certifica le aree prive di strade. Conservare lo ZIP precedente finché l'importazione e un percorso di prova non sono riusciti.
 
 ## 5. Creare o importare i grafi Valhalla
 
@@ -335,14 +342,14 @@ command -v valhalla_build_extract
 ~~~bash
 mkdir -p ~/motogps-build
 cp /mnt/c/MotoGPS/PBF/italy-261101.osm.pbf ~/motogps-build/
-# Se disponibile, conservare anche il perimetro usato da MotoMap v2:
+# Se disponibile, conservare anche il perimetro usato da MotoMap v2/v3:
 cp /mnt/c/MotoGPS/PBF/italy.poly ~/motogps-build/
 sha256sum /mnt/c/MotoGPS/PBF/italy-261101.osm.pbf ~/motogps-build/italy-261101.osm.pbf
 df -h ~
 free -h
 ~~~
 
-I due SHA256 del PBF devono corrispondere. `italy.poly` serve al convertitore MotoMap v2 e **non** alla compilazione Valhalla. Prevedere preferibilmente 30–40 GB di spazio libero per tile temporanee, TAR e compressione.
+I due SHA256 del PBF devono corrispondere. `italy.poly` serve al convertitore MotoMap v2/v3 e **non** alla compilazione Valhalla. Prevedere preferibilmente 30–40 GB di spazio libero per tile temporanee, TAR e compressione.
 
 **5. Costruire il grafo con due thread.** Lo script aggiornato usa **2 thread per default** e consente `--threads N`; lavorare in una directory nuova:
 
@@ -437,7 +444,167 @@ python scripts\diagnostics\decode_esp32_trace.py esp-diag.bin
 Il decoder produce `esp-diag.csv` con **solo** vecchi eventi.
 Con esptool 4.x usare `read_flash` al posto di `read-flash`.
 
-## 7. Promemoria rapido
+## 7. Radio Wi-Fi — console seriale di configurazione e prova (modalità isolata)
+
+**Sezione ripristinata dalle istruzioni del 30 ottobre 2026 e verificata contro il codice presente il 5 novembre.** I comandi sono realmente previsti da `platforms/esp32/main/signal_wifi_console.cpp` e `signal_radio_stream.cpp`, ma la radio resta **sperimentale**: la presenza del parser **non garantisce** che audio MP3, connettività Wi-Fi, touch e stabilità della riproduzione siano stati collaudati sul firmware corrente.
+
+### Come entrare nella modalità radio
+
+Il firmware di prova attuale definisce `MOTO_SIGNAL_MODE_SWITCH` in `platforms/esp32/main/CMakeLists.txt`. Nella pagina GPS, il pulsante rotondo con simbolo Wi-Fi a circa **ore 3** richiede un **riavvio software controllato in modalità radio**. GPS e BLE non lavorano contemporaneamente alla radio: durante il test il normale sistema di navigazione è disabilitato fino al ritorno alla modalità GPS. Non usare questa funzione durante la guida. La configurazione isolata `MOTO_SIGNAL_WIFI_LAB_BOOT` è una variante da laboratorio: non attivarla senza ricompilare intenzionalmente un firmware di test.
+
+Per tornare alla navigazione usare il controllo **GPS** dell'interfaccia radio, se disponibile e funzionante. Altrimenti, interrompere il test e riavviare normalmente il dispositivo: un'accensione da spento torna alla modalità GPS predefinita. Non presumere che una semplice riconnessione BLE basti mentre è attiva la radio.
+
+### Monitor seriale su Windows
+
+Collegare la scheda via USB e identificare la porta corretta nel Gestione dispositivi (negli esempi **COM3**, che può variare). Il parser riceve righe sul terminale seriale USB ESP-IDF. Aprire **un solo programma seriale alla volta**, a **115200 baud** con fine riga **LF/Newline** (in genere è accettato anche CRLF). **Esempio da CMD**, con Python già installato:
+
+~~~cmd
+python -m pip install pyserial
+python -m serial.tools.miniterm COM3 115200 --eol LF
+~~~
+
+Nel caso di monitor che non supportano input bidirezionale usare un terminale interattivo (ad esempio Arduino IDE Serial Monitor, con **Newline**). Per uscire da miniterm: **Ctrl+]**. I comandi qui sotto vanno digitati **dentro il monitor seriale, non nel CMD o PowerShell**.
+
+### Configurare hotspot e avviare radio
+
+Accendere un hotspot di prova **Wi-Fi 2,4 GHz** e annotarne nome e password. Nel monitor seriale, una riga alla volta:
+
+~~~text
+wifi help
+wifi status
+wifi set MotoGPS_Test|PasswordDiProva123
+wifi test
+wifi status
+radio list
+radio play 1
+radio stop
+wifi off
+~~~
+
+Il separatore `|` mantiene gli spazi nel nome rete: ad esempio `wifi set Hotspot di prova|PasswordDiProva123`. Sono accettate anche le varianti `wifi set SSID PASSWORD` e `wifi set "SSID con spazi" PASSWORD`. **SSID massimo 32 caratteri**; la password WPA2 deve avere normalmente **8–63 caratteri**. Le credenziali vengono salvate nella NVS e riutilizzate da `wifi test`, ma il salvataggio non dimostra la riuscita della connessione.
+
+| Comando da digitare | Significato / limitazione |
+| --- | --- |
+| `wifi help` | Elenca la sintassi disponibile |
+| `wifi set SSID`&#124;`PASSWORD` | Memorizza le credenziali (scrivere senza backtick né spazi attorno a `|`) |
+| `wifi test` | Tenta connessione alla rete salvata; controllare `ESP_OK` nei log |
+| `wifi status` | Mostra stato connessione |
+| `wifi off` | Disconnette il Wi-Fi |
+| `radio list` | Elenca le stazioni definite nel firmware |
+| `radio play` / `radio play 1` | Avvia lo streaming della prima stazione, solo con Wi-Fi connesso |
+| `radio play 2` | Avvia la stazione numero 2, se esiste |
+| `radio stop` | Ferma la riproduzione **mentre è in esecuzione**; a riproduzione inattiva segnala che non sta suonando |
+| `radio volume 20` | Durante lo streaming imposta il volume (range 0–100); non è comando principale del prompt inattivo |
+
+**Diagnosi:** se `wifi status` non risponde, controllare la modalità radio attiva, la porta COM e il terminatore di linea. Se il Wi-Fi non si connette, verificare frequenza 2,4 GHz, password, copertura e messaggio `Wi-Fi connect result: ...`. Se `radio play` non produce suono, verificare i messaggi `HTTP status`, `MP3 decoder`, `Speaker opened` e memoria disponibile: il percorso decoder/audio è sperimentale e potrebbe non funzionare anche con risposta HTTP 200. Non cancellare NVS per tentativi, perché contiene credenziali e altre configurazioni.
+
+**Sicurezza:** la console può mostrare in chiaro la password digitata, e le credenziali NVS potrebbero non essere cifrate. Per prove e screenshot/log usare solo una rete di test; non pubblicare password, SSID personali o log con dati sensibili. **Non eseguire streaming radio in parallelo alla navigazione.**
+
+## 8. Simulatore browser Windows e registrazione GPS Android
+
+**Sperimentale, branch test/road-contrast-cleanup-20261104, 6 novembre 2026.** Sono disponibili una **anteprima 2D browser senza compilatore** (non è la UI LVGL) e il renderer vero **LVGL + NavPresenter** tramite WebAssembly quando compilato. Non serve un ESP32 fisico. La compilazione Emscripten e la prova del vero renderer nel browser NON sono ancora state convalidate.
+
+**Prima prova veloce Windows:** nel checkout del branch di test aprire `platforms\\web\\simulator\\index.html` con Chrome/Edge, caricare il file `.jsonl` registrato ed esaminare la cronologia degli eventi. Senza runtime appare chiaramente `ANTEPRIMA 2D · NON LVGL`; questo permette di esaminare percorso, scene e zoom prima di compilare Emscripten.
+
+**WSL Ubuntu**, dalla radice del checkout del branch di test, con Git, CMake, emcmake/em++ già installati e attivati:
+
+~~~bash
+git submodule update --init --recursive
+command -v emcmake
+./scripts/build_web.sh
+python3 -m http.server 4173 --directory .
+~~~
+
+Da Windows aprire nel browser: http://127.0.0.1:4173/platforms/web/simulator/index.html
+
+Con Emscripten attivo in PowerShell Windows si può compilare anche con emcmake cmake -S . -B build/web -DMOTO_BUILD_WEB=ON -DMOTO_BUILD_TESTS=OFF, poi cmake --build build/web --parallel e avviare il server con py -m http.server 4173; questa variante non è ancora stata provata sul PC. Per il renderer LVGL usare il server HTTP: `file://` è ammesso soltanto per la modalità di anteprima 2D. Il runtime viene compilato nella cartella platforms/web/shell/runtime/.
+
+**Registrare (APK di test):** nell'app aprire LOG, premere "Avvia registrazione GPS", compiere il tratto da testare, premere "Ferma registrazione GPS" e "Esporta tracciato simulatore (.jsonl)". Il file contiene coordinate e velocità GPS, geometrie della rotta e delle strade MotoMap inviate su BLE, snapshot di manovra/distanza e waypoint raggiunti. È separato dal normale ZIP diagnostico, che continua a NON contenere coordinate; l'opzione è OFF di default e dura al massimo 60 minuti / 24 MiB. Il registratore non richiede di accendere DEBUG ESP32.
+
+**Privacy:** non condividere file GPS pubblicamente: rivelano tragitti, orari e luoghi personali. Il browser legge il file localmente senza upload. Il trace documenta l'invio BLE tentato, non il ricevimento radio sull'ESP32.
+
+**Zoom tornanti (prototipo WASM):** sul branch di test aggiornato, dopo `source ~/emsdk/emsdk_env.sh` e `./scripts/build_web.sh` ricaricare il browser con Ctrl+F5. Il checkbox **Zoom tornanti sperimentale** funziona soltanto con renderer LVGL reale: OFF mantiene lo zoom originale; ON prova a ingrandire fino a 3× le curvature marcate della linea verde. La rotatoria conserva il suo zoom fino a 4×. Controllare i frame dopo **12:10:50**. Il firmware ESP32 reale non cambia.
+
+**Confronto tornanti (8 novembre, correzione scatti):** sul replay reale delle 12:10:50, il rilevatore geometrico raggiunge 3× ma l'utente ha osservato una riduzione prematura a metà tornante e movimento a scatti. In questa versione sperimentale la finestra geometrica dopo il vertice è estesa da 40 a 95 metri e il player limita a circa 8 aggiornamenti al secondo il **solo grafico velocità/cronologia secondaria**, lasciando la mappa LVGL aggiornata a ogni frame GPS. Confrontare OFF/ON sullo stesso tratto, e controllare la rotatoria 4×. I miglioramenti visivi sono **ancora da verificare nel browser**; non sono abilitati nel firmware ESP32.
+
+**Ripartenza WSL verificabile:** dalla cartella `~/MotoGPS/moto-gps-waveshare` eseguire `git switch test/road-contrast-cleanup-20261104`, `git pull --ff-only origin test/road-contrast-cleanup-20261104`, `source ~/emsdk/emsdk_env.sh`, `./scripts/build_web.sh`. Se il server è già attivo non riavviarlo: fare `Ctrl+F5` nel browser dopo la build. Se è spento, avviarlo con `python3 -m http.server 4173 --directory .`; per arrestarlo usare `Ctrl+C` nella finestra WSL che lo ospita. URL Windows: `http://127.0.0.1:4173/platforms/web/simulator/index.html`. Se la porta è occupata verificare prima che non sia rimasto un server attivo, invece di aprirne un secondo.
+
+**Secondo intervento (8 novembre, da collaudare):** dopo la seconda prova l'utente riferisce ancora mappa a scatti e zoom terminato prima della fine del tornante. La sola estensione della finestra 40→95 m non ha risolto. La nuova sperimentazione conserva il valore zoom riconosciuto durante l'attraversamento e lo rilascia in base alla **distanza effettivamente percorsa** (prima 55 m di mantenimento, poi 80 m di riduzione) anche se la finestra GPS/rotta verde cambia. Il player Web interpola il movimento fra snapshot registrati compatibili a non più di 25 Hz; evita interpolazioni per salto GPS >35 m, intervallo >1,5 s, cambio rotta/scena o stato. Le funzioni sono **solo per il simulatore** e la riproduzione frame per frame conserva il dato originale. Non confondere la fluidità del replay interpolato con una misurazione degli FPS hardware. Ripetere il medesimo confronto ON/OFF alle 12:10:50–12:12:30 e verificare che la rotatoria raggiunga ancora 4×. Ricompilazione WASM e ricaricamento Ctrl+F5 necessari.
+
+**Diagnostica fluidità replay (8 novembre, sperimentale):** dopo il feedback dell'utente lo zoom tornanti è considerato visivamente coerente (primo tornante 1,96×; successivi fino a 2,78×), ma la mappa WASM scatta ancora. Il parser ora riutilizza le route e le scene *identiche* ritrasmesse da Android invece di ricostruirle a ogni ripetizione; conserva invece i cambi effettivi di geometria, token, generazione o revisione. Durante Play, nella scheda «Diagnostica replay WASM» sono visibili ogni secondo **RAF/s** (callback del browser), **WASM/s** (chiamate replay), costo medio/massimo della chiamata e **ritardi** (intervalli RAF oltre 50 ms). Questi dati non equivalgono agli FPS ESP32 e non includono necessariamente tutto il tempo di rendering SDL/LVGL. Per capire se gli scatti dipendono dal PC/browser, eseguire il tratto alle 12:10:50 in modalità 1×, annotare le cifre e confrontarle con l'anteprima 2D, sempre distinguendola dal renderer reale. Nessuna modifica allo zoom 3× dei tornanti né alle rotatorie 4×.
+
+**Misura reale del simulatore (8 novembre):** l'utente ha rilevato `60 RAF/s · 25 WASM/s · 0,1 ms medi · 0,2 ms max · 0 ritardi`. Il ciclo browser è regolare e la chiamata C++ è leggera, ma il limite artificiale dell'interpolazione GPS a 40 ms forniva solo 25 nuove posizioni al secondo. Il limite è stato abbassato a 14 ms per seguire tipicamente il display del browser (fino a circa 60 aggiornamenti/s su pannello 60 Hz), **senza modificare il rilevatore geometrico** o la semantica dei ricalcoli. Eseguire `git pull --ff-only` sul branch test, Ctrl+F5 (nessuna ricompilazione WASM necessaria perché questa modifica è solo in `player.js`), provare ancora lo stesso replay alle 12:10:50 a velocità 1× e confrontare fluidità e diagnostica. Se persiste lo scatto anche con circa 60 WASM/s e 0 ritardi, indagare il tempo di flush LVGL/SDL e la presentazione dei frame separatamente: le attuali metriche **non** misurano quel lavoro.
+
+**Nuova diagnostica ciclo LVGL (8 novembre, solo browser):** l'utente riferisce ancora scatti con replay `48–64 WASM/s` dopo l'eliminazione del limite 25 Hz. Viene aggiunto sotto i numeri JS un secondo riquadro «Diagnostica ciclo LVGL», che mostra `handler/s`, durata media e massima di `lv_timer_handler()` in millisecondi e numero di intervalli del ciclo oltre 50 ms. È **il ciclo LVGL**, non il numero effettivo di flush SDL/immagini mostrate a schermo; un valore vicino a 60 handler/s non prova che la GPU presenti 60 immagini distinte. Poiché la modifica include C++ WebAssembly, per vedere il riquadro con dati validi **ricompilare**:
+```bash
+cd ~/MotoGPS/moto-gps-waveshare
+git pull --ff-only origin test/road-contrast-cleanup-20261104
+source ~/emsdk/emsdk_env.sh
+./scripts/build_web.sh
+```
+Lasciare in esecuzione il server `python3 -m http.server 4173 --directory .` se è già attivo e premere `Ctrl+F5` in Chrome. Ripetere il percorso alle 12:10:50 a 1×, riportando sia diagnostica replay WASM sia diagnostica ciclo LVGL. Modifica solo per browser, senza cambiare zoom, APK o firmware. Test visivo e nuova compilazione WSL da convalidare.
+
+**Diagnostica render/flush LVGL (8 novembre):** con la versione precedente il test utente ha mostrato `60 RAF/s · 47 WASM/s · 0,1 ms medi · 0,2 ms max · 0 ritardi` e `60 handler/s · 0,6 ms medi · 1,5 ms max · 0 ritardi`, ma la mappa continuava a scattare. Il ciclo LVGL è regolare e leggero, però questo non dimostra che venga effettuato un render a ogni handler. La diagnostica LVGL ora conta **render/s** (evento `LV_EVENT_RENDER_START`) e **flush/s** (evento `LV_EVENT_FLUSH_START`) in aggiunta a handler/s, costi e ritardi. Il numero di flush può differire dai frame per aggiornamenti parziali; nessuna delle due misure conta necessariamente le immagini effettivamente presentate dalla GPU del browser. **Serve ricompilare WASM** dopo il pull: `source ~/emsdk/emsdk_env.sh && ./scripts/build_web.sh`, quindi `Ctrl+F5`. Riportare entrambi i riquadri sul solito tratto a 1× per decidere se il disegno LVGL è meno frequente rispetto agli aggiornamenti replay. Non variare ulteriormente lo zoom già approvato; nessuna modifica a ESP32, Android o Valhalla.
+
+**Refresh WebAssembly 60 Hz (8 novembre, sperimentale):** l'utente ha registrato `60 RAF/s · 64 WASM/s · 0,1 ms medi · 0,2 ms max · 0 ritardi` ma solo `60 handler/s · 30 render/s · 30 flush/s · 0,7 ms medi · 1,7 ms max · 0 ritardi`, con render/s talvolta 23–25 e mappa visivamente scattosa. Il valore condiviso `LV_DEF_REFR_PERIOD=25 ms` fa scadere il timer display meno spesso del browser a 60 Hz (~16,7 ms/frame); se il timer viene controllato soltanto una volta per frame, la scadenza può essere osservata ogni due callback, producendo circa 30 disegni/s. **Intervento mirato solo WebAssembly:** in `platforms/web/wasm/main_web.cpp` il timer del display SDL ottenuto da `lv_display_get_refr_timer(display)` viene configurato a **15 ms** con `lv_timer_set_period`. **Nessun cambio a `config/lv_conf.h` o ESP32**; zoom geometrico e routing invariati. Ricompilare in WSL dopo pull (`source ~/emsdk/emsdk_env.sh && ./scripts/build_web.sh`), poi Ctrl+F5. Verificare il numero di `render/s` e `flush/s` e la fluidità reale alle 12:10:50. I render LVGL possono comunque essere inferiori a RAF se non esistono aree invalidate; per questo test la mappa è in movimento. Risultato **ancora da collaudare**, non dichiarare 60 fps confermati.
+
+**Correzione degli scatti GPS del replay (8 novembre, JavaScript):** nel video sul PC appaiono circa 60 RAF/s, 50 WASM/s e 60 handler LVGL/s con 4.732 snapshot ma solo 1.178 fix GPS. Il player precedentemente interpolava i soli snapshot immediatamente successivi: molte coordinate erano identiche e la mappa avanzava per salti. Ora, durante Play, sono interpolati i fix GPS *distinti*, con salvaguardie su ricalcoli e buchi GPS; Step/Seek restano fedeli al log. Per provare la nuova correzione, nella shell WSL dentro `~/MotoGPS/moto-gps-waveshare` sul branch `test/road-contrast-cleanup-20261104` eseguire `git pull --ff-only`; lasciare il server HTTP già avviato e premere `Ctrl+F5` in Chrome. **Nessuna ricompilazione WASM è necessaria per questa sola modifica JS**, se il runtime era già aggiornato al refresh LVGL di 15 ms. Verificare lo stesso tratto a 1× e annotare fluidità, WASM/s, render/s e flush/s. Test visivo della correzione ancora da confermare; zoom tornanti non modificato.
+
+**Seconda correzione refresh WebAssembly (8 novembre):** con timer display a 15 ms il test utente ha registrato `60 RAF/s · 62 WASM/s · 0,1 ms medi · 0,9 ms max · 0 ritardi` e `60 handler/s · 45 render/s · 45 flush/s · 0,9 ms medi · 1,4 ms max · 0 ritardi`, con cali render/flush anche a ~25. Quindi il refresh a 15 ms ha migliorato 30→45 render/s ma rimangono occasionali scadenze perse fra il timer LVGL e `requestAnimationFrame` del browser. **Nuovo esperimento, solo simulatore:** la `frame()` in `platforms/web/wasm/main_web.cpp` marca esplicitamente pronto (`lv_timer_ready`) il timer di refresh del display ottenuto da `lv_display_get_refr_timer` prima di `lv_timer_handler`, una volta per RAF. Ciò sincronizza la richiesta di refresh al browser, senza toccare la configurazione condivisa di ESP32 e senza garantire un flush quando la scena non è invalidata. **Ricompilare WASM** dopo `git pull`: `source ~/emsdk/emsdk_env.sh && ./scripts/build_web.sh`; `Ctrl+F5` nel browser, riprovare alle 12:10:50 a 1× e riportare diagnosi e sensazione visiva. Non modificato l'algoritmo dei tornanti. Test visuale ancora da eseguire.
+
+**Eliminazione doppio orologio di interpolazione (8 novembre):** feedback dopo `lv_timer_ready`: scatti ridotti ma persistenti; `60 RAF/s · 33 WASM/s · 0,1 ms medi · 0,4 ms max · 0 ritardi` e `60 handler/s · 31 render/s · 31 flush/s · 0,7 ms medi · 1,7 ms max · 0 ritardi`, con render e WASM che oscillano da ~33 a 60. Il simulatore usava ancora un limitatore separato `now-lastMotionPaint<14` per interpolare il GPS: il secondo orologio poteva tagliare interi RAF quando la cadenza del browser non rispettava quella soglia. Rimosso il filtro: durante Play ora si tenta una interpolazione per ogni RAF. Nella diagnostica replay compaiono `interp/s` (interpolazioni valide) e `senza interp` (RAF senza arco GPS interpolabile); se il secondo resta alto significa che il registrato non consente una posizione nuova senza inventarla, non un problema di flush. Nessuna modifica a C++/WASM, zoom o firmware in questa iterazione: **basta `git pull --ff-only origin test/road-contrast-cleanup-20261104` e `Ctrl+F5`**, mantenendo aperto il server locale. Ripetere a 1× il tratto 12:10:50–12:12:30. Non dichiarare risolti gli scatti prima del test visivo.
+
+**Prova fluidità movimento mappa (8 novembre, sperimentale):** l'ultimo replay è risultato `60 RAF/s · 65 WASM/s · 0,1 ms medi · 0,2 ms max · 0 ritardi · 61 interp/s · 0 senza interp`, ma il ciclo grafico ha mostrato `60 handler/s · 45 render/s · 45 flush/s · 1,0 ms medi · 1,6 ms max · 0 ritardi`. Una registrazione video di 39 secondi mostra che i cambi di posizione della mappa non sono sempre regolari. Nel codice della UI condivisa è presente un **secondo timer di movimento** `route_motion_tick` a 25 ms, distinto dal refresh del display già allineato a RAF. Sulla compilazione WebAssembly del solo branch test quel timer è ora impostato a 1 ms, perché viene esaminato una volta per callback LVGL (~60 Hz, non genera 1000 esecuzioni/s), e il fattore di interpolazione passa da `0,39` a `0,28` per conservare circa la stessa costante di smorzamento nel tempo. Sull'ESP32 restano **25 ms e 0,39**, senza cambiare alcuna firma API, BLE, routing o zoom. I vertici grafici sono tuttora quantizzati a pixel interi, quindi `render/s` può rimanere inferiore a 60 anche con un movimento regolare; non usare i soli FPS come prova di fluidità. **Ricompilare WebAssembly** dopo l'aggiornamento del branch e ricaricare Chrome (`Ctrl+F5`):
+```bash
+cd ~/MotoGPS/moto-gps-waveshare
+git pull --ff-only origin test/road-contrast-cleanup-20261104
+source ~/emsdk/emsdk_env.sh
+./scripts/build_web.sh
+```
+Verificare alle 12:10:50–12:12:30 a 1×, osservando soprattutto i salti delle linee verdi e grigie, oltre a render/s, flush/s e interpolazioni valide. Compilazione e test visivo successivi ancora da confermare.
+
+**Replay, diagnostica avanzata e correzione del doppio bersaglio — 8 novembre 2026 (sperimentale):** durante Play, quando il cursore attraversava uno snapshot registrato, il simulatore chiamava WASM due volte nello stesso RAF: prima con la posizione grezza, poi con quella interpolata. Il player ora invia **una sola posizione per RAF** (interpolata, oppure grezza se l'intervallo non è interpolabile). I comandi Pausa, Step e Seek continuano a visualizzare fedelmente gli snapshot originali. `trace_model.js` distingue le ragioni del mancato movimento: `reroute` (cambio percorso), `gap` (intervallo GPS fuori 70–3000 ms), `jump` (salto oltre 100 m), `state` (non navigazione), `no-route`, `boundary` ed `end`; nessuna estrapolazione attraverso ricalcoli o salti anomali.
+
+La nuova riga **Movimento mappa (solo WASM)** confronta `bersagli/s` (variazioni delle coordinate richieste della prima linea di percorso), `movimenti pixel/s` (tick che hanno realmente spostato i pixel della rotta o delle strade di contesto) e `px ritardo` (distanza del primo vertice verde dal suo bersaglio, in pixel). Non interpretare `movimenti pixel/s` come FPS GPU né richiedere 60 aggiornamenti quando lo spostamento è subpixel. I contatori C++ sono confinati in `#ifdef __EMSCRIPTEN__`, senza modificare le build ESP32.
+
+**Ricompilazione obbligatoria** per le nuove funzioni di diagnostica C++/WASM:
+```bash
+cd ~/MotoGPS/moto-gps-waveshare
+git pull --ff-only origin test/road-contrast-cleanup-20261104
+source ~/emsdk/emsdk_env.sh
+./scripts/build_web.sh
+```
+Lasciare avviato il server `python3 -m http.server 4173 --directory .` dalla radice del repository, aprire `http://127.0.0.1:4173/platforms/web/simulator/index.html`, ricaricare con `Ctrl+F5`, importare la registrazione privata e riprodurre i tornanti alle 12:10:50 a 1×. Confrontare replay WASM, ciclo LVGL, movimento mappa e sensazione visiva. La modifica è **da verificare sul PC utente**; i 13 test del parser sono stati eseguiti in V8 con adattatore minimo (non ancora con `node --test`), nessuna compilazione WSL o CI confermata.
+
+**Esperimento precisione subpixel solo simulatore (8 novembre 2026):** nella compilazione Emscripten il presenter conserva in `moto_ui_state_t` due buffer supplementari di punti `float` (rotta selezionata e contesto), generati dallo stesso calcolo geografico che alimenta i punti `int16_t` di produzione. La UI browser usa i `float` come bersagli di movimento e li passa al disegno LVGL senza arrotondare prima a pixel interi. Sul firmware ESP32 i buffer aggiuntivi non sono compilati (`__EMSCRIPTEN__`), la UI continua a usare esclusivamente punti interi e il timer collaudato 25 ms/0,39. **Non è stata attivata una nuova funzionalità sull'ESP32:** questa prova misura se mantenere le frazioni nel simulatore riduce i salti; solo dopo un riscontro visivo e una verifica di RAM/FPS sul dispositivo si valuterà il trasferimento.
+
+Ricompilare WASM perché cambiano C++ e struct della build web:
+```bash
+cd ~/MotoGPS/moto-gps-waveshare
+git pull --ff-only origin test/road-contrast-cleanup-20261104
+source ~/emsdk/emsdk_env.sh
+./scripts/build_web.sh
+```
+Dopo `Ctrl+F5`, ripetere lo stesso tratto a 1×. Nella riga `Movimento mappa` i `bersagli/s` misurano ora anche le variazioni subpixel del primo vertice verde; `movimenti pixel/s` indica i tick di modifica dei punti grafici, **non** presentazioni reali GPU né cambi di pixel interi. Registrare una nuova prova per confrontare fluidità e tempi LVGL prima di accettare la modifica. Il test native protegge la precedente quantizzazione a pixel interi e l'allineamento percorso/contesto su ESP32.
+
+**Firmware ESP32 sperimentale (8 novembre 2026):** sul branch `test/road-contrast-cleanup-20261104` sono disponibili due opzioni CMake **OFF di default**. `MOTO_ESP_CURVE_ZOOM_EXPERIMENT` abilita il rilevatore di tornanti con mantenimento 55 m + rilascio 80 m già testato nel simulatore. `MOTO_ESP_SUBPIXEL_EXPERIMENT` conserva anche i 216 vertici frazionari `float` nella UI ESP32 (circa **1.728 byte aggiuntivi** nel presenter). Non vengono modificati BLE, cadenza IMU 40 Hz, timer UI 25 ms, zoom manovra fino a 4× e layout.
+
+**PowerShell Windows** (dopo aver attivato ESP-IDF 5.5.6 con `moto`, sul checkout del branch sperimentale):
+```powershell
+git switch test/road-contrast-cleanup-20261104
+git pull --ff-only origin test/road-contrast-cleanup-20261104
+cd platforms/esp32
+idf.py -DMOTO_ESP_CURVE_ZOOM_EXPERIMENT=ON -DMOTO_ESP_SUBPIXEL_EXPERIMENT=ON build
+```
+Per provarle separatamente impostare una delle due opzioni a `OFF`. I valori CMake rimangono nella cartella build: **per tornare alla versione normale** compilare esplicitamente con entrambe `OFF` (eventualmente `idf.py fullclean` se la cache è incoerente). In CI, sul branch test entrambe sono ON e l'artifact è `ESP32-Firmware-EXPERIMENTAL`. Sul branch `valhalla` restano OFF e l'artifact conserva il nome `ESP32-Firmware`.
+
+Nel monitor seriale `idf.py -p COM3 monitor` controllare all'avvio `ESP NAV EXPERIMENT curve=1 subpixel=1`; durante la navigazione appare ogni ~5 secondi `NAV_EXP render=... hz=... projection_avg=...us max=...us lock_max=...us zoom_x100=... int_free=... psram_free=...`. `render/hz` indica **frame della task**, non flush o FPS AMOLED. Confrontare memoria, fluidità, BLE e latenza; lasciare disattivata la diagnostica persistente durante il test (in passato provocava blocchi). Firmware da validare con flash e prova fisica prima di qualsiasi merge.
+**Riprodurre:** caricare il file JSONL, usare play/pausa, frame precedente/successivo, cursore, velocità 0,25–4×, gli **eventi cliccabili** e il grafico di velocità per raggiungere subito tappa, rotatorie, cambi rotta e arrivo. Lo zoom mostrato accanto alla manovra riproduce il calcolo attuale del presenter. "Esempio sintetico" serve soltanto a verificare l'interfaccia: non è una mappa OSM reale. La funzione PNG può dipendere dal framebuffer WebGL. Il player non ricalcola Valhalla o il selettore MotoMap: per cambiare i punteggi delle strade servirà una seconda modalità con anche le candidate non selezionate. I precedenti ZIP senza geometrie non si possono riprodurre come mappe fedeli.
+
+Guida completa: platforms/web/simulator/README.md. La vecchia platforms/web/shell/index.html resta la demo storica e non il nuovo banco prova.
+
+
+## 9. Promemoria rapido
 
 | Operazione | File / comando |
 | --- | --- |
@@ -445,11 +612,13 @@ Con esptool 4.x usare `read_flash` al posto di `read-flash`.
 | Firmware ESP32 GitHub | Artifact **ESP32-Firmware** della Project Build |
 | Flash completo | bootloader `0x0`, partizioni `0x8000`, app `0x20000` |
 | Flash solo app | `0x20000` |
-| MotoMap offline | `pbf_to_motomap.py` → **.motomap.zip**; `italy.poly` per copertura v2 |
+| MotoMap offline | `pbf_to_motomap.py` → **.motomap.zip**; `italy.poly` per copertura v2/v3 |
 | Grafo Valhalla | WSL2/Ubuntu, `pyvalhalla==3.9.1`, 2 thread → **.tar.zst** |
 | Log diagnostici attuali | Android → Condividi diagnostica → **.zip** |
+| Replay GPS riservato | Android → LOG → Avvia/Ferma → Esporta JSONL; Windows → platforms/web/simulator/ |
 | Log ESP32 storici | `read-flash` e decoder; soltanto firmware precedenti |
+| Console radio sperimentale | Modalità isolata con pulsante Wi-Fi; COM3 (se corrisponde alla porta USB), 115200, `wifi help`, `wifi set`, `wifi test`, `radio list`, `radio play` |
 
-Il vecchio backend/gateway e la modalità radio seriale non fanno parte del flusso operativo corrente del branch di test. Per lo storico consultare i commit precedenti, non tentare i comandi radio sulla normale schermata GPS.
+Il vecchio backend/gateway è fuori uso. La **radio seriale di test è ancora presente nel codice firmware**, ma si usa esclusivamente dopo il passaggio alla **modalità radio isolata** (sezione 7), mai nella normale schermata GPS. Non considerarla una funzione audio stabile o contemporanea alla navigazione.
 
 **Prima del flash:** leggere `PROJECT_STATE.md`, controllare commit e run degli artifact. CI verde non equivale a test su strada.

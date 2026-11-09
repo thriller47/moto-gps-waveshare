@@ -11,12 +11,14 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.motogps.android.ble.MotoBLEManager
 import com.motogps.android.diagnostics.DiagnosticLog
+import com.motogps.android.diagnostics.ReplayTraceRecorder
 import com.motogps.android.jni.GeoPointE6
 import com.motogps.android.jni.MotoBLEMapRoadPolyline
 import com.motogps.android.jni.MotoBLEMapScene
 import com.motogps.android.jni.MotoBLENavigationSnapshot
 import com.motogps.android.jni.MotoBLERouteGeometry
 import com.motogps.android.map.HybridMapRepository
+import com.motogps.android.map.RoadContextJunctions
 import com.motogps.android.map.OpenFreeMapTileProbe
 import com.motogps.android.map.OpenFreeMapRouteCorridor
 import com.motogps.android.map.SavedMapInfo
@@ -133,6 +135,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
             return
         }
         _routeWaypoints.value = _routeWaypoints.value + place
+        DiagnosticLog.event("WAYPOINT_EDIT", "action=add count=${_routeWaypoints.value.size}")
         _waypointSearchResults.value = emptyList()
         _waypointSearchError.value = null
         previewRoute(destination)
@@ -142,6 +145,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         val destination = _routePreview.value ?: return
         if (_isNavigating.value || index !in _routeWaypoints.value.indices) return
         _routeWaypoints.value = _routeWaypoints.value.filterIndexed { i, _ -> i != index }
+        DiagnosticLog.event("WAYPOINT_EDIT", "action=remove count=${_routeWaypoints.value.size}")
         previewRoute(destination)
     }
 
@@ -152,6 +156,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         if (index !in list.indices || index + direction !in list.indices) return
         java.util.Collections.swap(list, index, index + direction)
         _routeWaypoints.value = list
+        DiagnosticLog.event("WAYPOINT_EDIT", "action=move count=${_routeWaypoints.value.size}")
         previewRoute(destination)
     }
 
@@ -245,6 +250,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     private fun sendNearbyRouteGeometry(route: MotoBLERouteGeometry) {
         val (lat, lon) = currentLocation.value
         val window = RouteGeometryWindow.around(route, lat, lon)
+        ReplayTraceRecorder.route(window)
         bleManager.sendRouteGeometry(window)
         val endpoint = route.points.lastOrNull()
         val endMeters = endpoint?.let {
@@ -317,6 +323,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
 
     fun previewRoute(place: PlaceSearchResult) {
         routePreviewJob?.cancel()
+        DiagnosticLog.event("ROUTE_PREVIEW", "begin stops=${_routeWaypoints.value.size}")
         _routePreview.value = place
         _routeOptions.value = emptyList()
         _selectedRouteIndex.value = 0
@@ -331,11 +338,15 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                     fetchRouteOptions(place)
                 }
                 _routeOptions.value = options
+                DiagnosticLog.event("ROUTE_PREVIEW",
+                    "ready stops=${_routeWaypoints.value.size} options=${options.size}")
                 _routingSource.value = if (options.isNotEmpty()) "Valhalla" else null
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 _routePreviewError.value = e.message ?: "Impossibile calcolare il percorso Valhalla"
+                DiagnosticLog.event("ROUTE_PREVIEW_ERROR",
+                    "stops=${_routeWaypoints.value.size} exception=${e.javaClass.simpleName}")
                 _errorMessage.value = "Impossibile recuperare opzioni percorso: ${e.message}"
             } finally {
                 _isLoading.value = false
@@ -388,6 +399,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         arrivalDetector.reset()
 
         navigationJob?.cancel()
+        DiagnosticLog.event("ROUTE_START", "begin stops=${_routeWaypoints.value.size}")
         navigationJob = viewModelScope.launch {
             _isLoading.value = true
             _errorMessage.value = null
@@ -405,6 +417,9 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                 currentSnapshot = snapshot
                 currentGeometry = geometry
                 turnPlan = guidance
+                DiagnosticLog.event("ROUTE_START",
+                    "ready stops=${activeWaypoints.size} route_m=${snapshot.totalDistanceM} " +
+                        "points=${geometry?.points?.size ?: 0} provider=${lastRoutingProvider.orEmpty()}")
                 routeDistanceGuard.reset()
                 routeProgressMatcher.reset(geometry?.points.orEmpty())
                 val (startLat, startLon) = currentLocation.value
@@ -475,6 +490,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                             "fix_age_ms=$ageMs received_ago_ms=${SystemClock.elapsedRealtime() - lastAcceptedFixArrivalMs} " +
                             "predicted_m=${estimated.extrapolatedMeters.toInt()}")
                     }
+                    ReplayTraceRecorder.snapshot(activeSnap, estimated.latitude, estimated.longitude)
                     bleManager.sendNavigationSnapshot(activeSnap)
 
                     // A stationary GPS provider may stop emitting fixes. Keep
@@ -519,6 +535,8 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                DiagnosticLog.event("ROUTE_START_ERROR",
+                    "stops=${activeWaypoints.size} exception=${e.javaClass.simpleName}")
                 _isNavigating.value = false
                 _hasArrived.value = false
                 arrivalDetector.reset()
@@ -712,6 +730,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
             lastDiagnosticFixMs = now
         }
 
+        ReplayTraceRecorder.fix(latitude, longitude, speedMs, gpsBearingDeg, lastFixAccuracyM)
         prevLat = latitude
         prevLon = longitude
 
@@ -721,11 +740,13 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
             // but never at the 200 ms snapshot cadence: map scenes are large.
             val nearTurn = currentSnapshot?.let {
                 it.maneuverName !in setOf("continue", "none", "arrive") &&
-                    it.distanceToManeuverM <= 110L
+                    it.distanceToManeuverM <= 260L
             } ?: false
             val sinceSceneMs = now - lastMapSceneSendTimeMs
-            val minimumIntervalMs = if (nearTurn) 5_000L else 6_000L
-            val movementThresholdM = if (nearTurn) 40.0 else 60.0
+            // Refresh before the approach: one extra map scene at most every
+            // 3.5s near a genuine maneuver, never on every GPS update.
+            val minimumIntervalMs = if (nearTurn) 3_500L else 6_000L
+            val movementThresholdM = if (nearTurn) 30.0 else 60.0
             if (sinceSceneMs >= minimumIntervalMs &&
                 (distFromLastScene >= movementThresholdM || sinceSceneMs >= 25_000L)) {
                 lastMapSceneSendTimeMs = now
@@ -742,6 +763,9 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
             if (reachedIndex != nextWaypointIndex) {
                 nextWaypointIndex = reachedIndex
                 Log.i("NavigationVM", "Tappa completata: $nextWaypointIndex/${activeWaypoints.size}")
+                DiagnosticLog.event("WAYPOINT_REACHED",
+                    "index=$nextWaypointIndex total=${activeWaypoints.size}")
+                ReplayTraceRecorder.waypointReached(nextWaypointIndex, activeWaypoints.size)
             }
             val destination = requireNotNull(activeDestination)
             val distanceToEnd = calculateDistanceMeters(
@@ -836,51 +860,55 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
 
                     lastSpeedLimitKph = if (minDistance <= 50.0) bestSpeed else 0
 
-                    // Prefer actual nearby OSM roads and never exceed the ESP32's
-                    // aggregate 192-point / 24-polyline scene capacities.
-                    val roadSegments = segments.filter { it.roadClass in 0..3 && it.points.size >= 2 }
-                    fun roadDistance(seg: com.motogps.android.map.MapRoadSegment, centerLat: Double, centerLon: Double) =
-                        seg.points.minOf { pt ->
-                            calculateDistanceMeters(centerLat, centerLon,
-                                pt.latitudeE6 / 1e6, pt.longitudeE6 / 1e6)
-                        }
-                    val nearest = roadSegments.sortedBy { roadDistance(it, lat, lon) }
-                    // Reserve some of the 12 BLE street slots for intersections
-                    // ahead on the selected route. Otherwise the 12 nearest
-                    // residential roads behind the rider hide roundabout exits
-                    // until the last few metres.
-                    val upcoming = currentGeometry?.let { geometry ->
-                        val window = RouteGeometryWindow.around(geometry, lat, lon)
-                        window.points.drop(1).firstOrNull { point ->
-                            calculateDistanceMeters(lat, lon,
-                                point.latitudeE6 / 1e6, point.longitudeE6 / 1e6) >= 160.0
-                        } ?: window.points.lastOrNull()
+                    // This trial deliberately leaves layer/grade filtering OFF.
+                    // Read the whole local graph even after leaving the route.
+                    val contextRoads = segments.filter { it.roadClass in 0..3 && it.points.size >= 2 }
+                    val nearbyRoute = currentGeometry?.let { geometry ->
+                        RouteGeometryWindow.around(geometry, lat, lon).points
+                    }.orEmpty()
+                    val upcoming = RoadContextUpcoming.ahead(
+                        nearbyRoute, lat, lastGpsSpeedMs, lastFixAccuracyM)
+                    // Multi-way OSM detection and scene allocation are independent.
+                    // Neither can remove the GPS-local reserve.
+                    val analysis = RoadContextJunctions.analyze(
+                        contextRoads, lat, lon, upcoming, nearbyRoute)
+                    val sceneSelection = RoadContextSceneSelector.select(
+                        contextRoads, analysis.focus, lat, lon, upcoming, nearbyRoute)
+                    sceneSelection.drawn.forEach { drawn ->
+                        roadPolylines.add(MotoBLEMapRoadPolyline(
+                            roadClass = drawn.road.roadClass, points = drawn.points))
                     }
-                    val orderedRoads = LinkedHashSet<com.motogps.android.map.MapRoadSegment>()
-                    nearest.take(6).forEach { orderedRoads.add(it) }
-                    if (upcoming != null) {
-                        roadSegments.sortedBy { roadDistance(it, upcoming.latitudeE6 / 1e6, upcoming.longitudeE6 / 1e6) }
-                            .take(6).forEach { orderedRoads.add(it) }
-                    }
-                    nearest.forEach { orderedRoads.add(it) }
-                    val candidates = orderedRoads.asSequence()
-                    // Gradual increase after successful 8/64 field test.
-                    // Stay well below the firmware ceiling of 24/192 to
-                    // avoid BLE congestion from large fragmented scenes.
-                    // Eight vertices per street preserve roundabout corners
-                    // while leaving 96/8 = 12 slots for nearby and ahead roads.
-                    var pointsRemaining = 96
-                    for (seg in candidates) {
-                        if (roadPolylines.size >= 12 || pointsRemaining < 2) break
-                        // Each OSM way may begin kilometres away from the GPS fix.
-                        // Select the nearby portion, retaining junction corners.
-                        val points = RoadContextWindow.around(
-                            seg.points, lat, lon, minOf(pointsRemaining, 8)
-                        )
-                        if (points.size < 2) continue
-                        roadPolylines.add(MotoBLEMapRoadPolyline(roadClass = seg.roadClass, points = points))
-                        pointsRemaining -= points.size
-                    }
+                    val focus = analysis.focus
+                    DiagnosticLog.event("OSM_RING",
+                        "candidates=" + analysis.candidates +
+                        " qualified=" + analysis.qualified +
+                        " focus=" + (focus?.key ?: "none") +
+                        " score=" + (focus?.confidence ?: 0) +
+                        " gps_m=" + (focus?.gpsDistanceM?.toInt() ?: -1) +
+                        " ahead_m=" + (focus?.upcomingDistanceM?.takeIf { it.isFinite() }?.toInt() ?: -1) +
+                        " route_gap_m=" + (focus?.forwardRouteDistanceM?.takeIf { it.isFinite() }?.toInt() ?: -1) +
+                        " route_along_m=" + (focus?.forwardRouteAlongM?.takeIf { it.isFinite() }?.toInt() ?: -1) +
+                        " exit_ways=" + (focus?.rawExitWays ?: 0) +
+                        " branches=" + (focus?.distinctExitBranches ?: 0) +
+                        " prioritized=" + (focus?.exits?.size ?: 0) +
+                        " excluded=" + analysis.excluded.entries.joinToString(",") {
+                            it.key + ":" + it.value
+                        })
+                    DiagnosticLog.event("OSM_SCENE_POLICY",
+                        "focus=" + (sceneSelection.count(RoadContextSceneSelector.Role.RING) +
+                            sceneSelection.count(RoadContextSceneSelector.Role.EXIT)) +
+                        " exits_sent=" + sceneSelection.count(RoadContextSceneSelector.Role.EXIT) +
+                        " gps=" + sceneSelection.count(RoadContextSceneSelector.Role.GPS) +
+                        " upcoming=" + sceneSelection.count(RoadContextSceneSelector.Role.UPCOMING) +
+                        " extra=" + sceneSelection.count(RoadContextSceneSelector.Role.EXTRA) +
+                        " offroute_gps=" + sceneSelection.offRouteGpsRoads +
+                        " focus_pts=" + ((sceneSelection.pointCounts[RoadContextSceneSelector.Role.RING] ?: 0) +
+                            (sceneSelection.pointCounts[RoadContextSceneSelector.Role.EXIT] ?: 0)) +
+                        " gps_pts=" + (sceneSelection.pointCounts[RoadContextSceneSelector.Role.GPS] ?: 0) +
+                        " upcoming_pts=" + (sceneSelection.pointCounts[RoadContextSceneSelector.Role.UPCOMING] ?: 0) +
+                        " omitted=" + sceneSelection.roadsNotDrawn +
+                        " total=" + sceneSelection.slots + "/" + sceneSelection.points)
+
                 }
 
                 // An unavailable map tile must not erase a valid scene that
@@ -902,9 +930,11 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                     buildings = emptyList()
                 )
 
-                Log.i("NavigationVM", "Context BLE MEDIUM(12/96): roads=${roadPolylines.size} points=${roadPolylines.sumOf { it.points.size }} sourceSegments=${segments.size}")
+                Log.i("NavigationVM", "Context BLE TRIAL(20/160): roads=${roadPolylines.size} points=${roadPolylines.sumOf { it.points.size }} sourceSegments=${segments.size}")
                 DiagnosticLog.event("BLE_MAP_SCENE",
-                    "revision=$lastMapSceneRevision roads=${roadPolylines.size} points=${roadPolylines.sumOf { it.points.size }}")
+                    "revision=$lastMapSceneRevision roads=${roadPolylines.size} points=${roadPolylines.sumOf { it.points.size }} " +
+                        "candidates=${segments.size} capacity=20/160")
+                ReplayTraceRecorder.scene(scene)
                 bleManager.sendMapScene(scene)
             } catch (e: Exception) {
                 Log.w("NavigationVM", "Error updating map scene and speed limit: ${e.message}")
@@ -1471,6 +1501,25 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                 state.contains("Ready", ignoreCase = true) ||
                 state.contains("Online", ignoreCase = true)
         if (isConnected) {
+            // A fresh BLE handshake resets ESP32-side session state. Replaying only
+            // the periodic maneuver snapshots can leave the display without its
+            // route window after a reconnect (especially with intermediate stops).
+            val replay = NavigationReconnectPolicy.actions(
+                _isNavigating.value, _hasArrived.value,
+                currentSnapshot != null, currentGeometry != null)
+            if (replay.snapshot) {
+                DiagnosticLog.event("BLE_NAV_RESYNC",
+                    "session=${bleManager.getCurrentSessionId()} geometry=${replay.geometry} " +
+                        "stops_pending=${activeWaypoints.size - nextWaypointIndex}")
+                try {
+                    if (replay.geometry) currentGeometry?.let { sendNearbyRouteGeometry(it) }
+                    currentSnapshot?.let { bleManager.sendNavigationSnapshot(it) }
+                } catch (e: Exception) {
+                    DiagnosticLog.event("BLE_NAV_RESYNC_ERROR",
+                        "exception=${e.javaClass.simpleName}")
+                    Log.w("NavigationVM", "Unable to restore BLE navigation session", e)
+                }
+            }
             startTelemetryLoop()
         } else {
             telemetryJob?.cancel()

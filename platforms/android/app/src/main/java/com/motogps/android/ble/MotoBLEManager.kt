@@ -18,6 +18,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.ParcelUuid
 import android.util.Log
+import com.motogps.android.diagnostics.DiagnosticLog
 import com.motogps.android.jni.MotoBLEDiagnosticRecord
 import com.motogps.android.jni.MotoBLEDeviceCommand
 import com.motogps.android.jni.MotoBLEMapScene
@@ -268,6 +269,8 @@ class MotoBLEManager(private val context: Context) {
                     val failedSeq = sequenceOf(failed)
                     writeQueue.removeAll { sequenceOf(it) == failedSeq }
                     Log.w("MotoBLEManager", "GATT write start rejected, dropping seq=$failedSeq")
+                    DiagnosticLog.event("BLE_WRITE_FAILURE",
+                        "phase=start type=${failed[2].toInt() and 0xff} seq=$failedSeq")
                 }
                 activeMessageSequence = null
             }
@@ -283,6 +286,8 @@ class MotoBLEManager(private val context: Context) {
                 try { gatt.close() } catch (_: Exception) {}
                 return
             }
+            DiagnosticLog.event("BLE_GATT",
+                "status=$status state=$newState handshake=${handshakeState.name}")
             when (newState) {
                 BluetoothProfile.STATE_CONNECTED -> {
                     connectedDevice = gatt.device
@@ -414,6 +419,8 @@ class MotoBLEManager(private val context: Context) {
                         if (sequenceOf(iterator.next()) == failedSeq) iterator.remove()
                     }
                     Log.w("MotoBLEManager", "BLE message dropped after GATT status=$status type=${failed[2].toInt() and 0xff} seq=$failedSeq")
+                    DiagnosticLog.event("BLE_WRITE_FAILURE",
+                        "phase=callback status=$status type=${failed[2].toInt() and 0xff} seq=$failedSeq")
                 }
             }
             mainHandler.postDelayed({

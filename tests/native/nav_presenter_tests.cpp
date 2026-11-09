@@ -245,6 +245,34 @@ void test_heading_up_route_projection_keeps_rider_fixed() {
   CHECK(state.route_points[1].y < state.route_points[0].y);
 }
 
+void test_native_projection_stays_pixel_quantized_and_layers_aligned() {
+  NavPresenter presenter;
+  NavSnapshot snapshot;
+  snapshot.state = NavState::Navigating;
+  snapshot.has_route_view = true;
+  snapshot.route_view_origin = {44.4, 7.8};
+  snapshot.route_view_point_count = 2;
+  snapshot.route_view_points[0] = snapshot.route_view_origin;
+  // A 0.1 m displacement at 1x is subpixel on the physical display.
+  snapshot.route_view_points[1] = {44.4 + 0.1 / 111195.0, 7.8};
+  snapshot.has_road_context = true;
+  snapshot.road_context_point_count = 2;
+  snapshot.road_context_points[0] = snapshot.route_view_points[0];
+  snapshot.road_context_points[1] = snapshot.route_view_points[1];
+  snapshot.road_context_polyline_count = 1;
+  snapshot.road_context_polylines[0] = {0, 2};
+  presenter.update(snapshot);
+  const auto& ui = presenter.ui_state();
+  CHECK(ui.route_point_count == 2);
+  CHECK(ui.road_point_count == 2);
+  CHECK(ui.route_points[0].x == ui.route_points[1].x);
+  CHECK(ui.route_points[0].y == ui.route_points[1].y);
+  CHECK(ui.road_points[0].x == ui.route_points[0].x);
+  CHECK(ui.road_points[0].y == ui.route_points[0].y);
+  CHECK(ui.road_points[1].x == ui.route_points[1].x);
+  CHECK(ui.road_points[1].y == ui.route_points[1].y);
+}
+
 void test_non_finite_heading_keeps_map_projection_finite() {
   NavPresenter presenter;
   NavSnapshot snapshot;
@@ -302,7 +330,7 @@ void test_real_road_context_uses_the_same_heading_up_transform() {
   CHECK(state.road_points[1].y == state.route_points[1].y);
 }
 
-void test_map_scene_classes_buildings_and_capacity_share_route_transform() {
+void test_map_scene_classes_and_capacity_share_route_transform() {
   NavPresenter presenter;
   NavSnapshot snapshot;
   snapshot.state = NavState::Navigating;
@@ -331,26 +359,6 @@ void test_map_scene_classes_buildings_and_capacity_share_route_transform() {
     };
   }
 
-  snapshot.has_building_context = true;
-  snapshot.building_context_point_count = kBuildingContextPointCapacity;
-  snapshot.building_context_footprint_count =
-      kBuildingContextFootprintCapacity;
-  for (std::size_t index = 0; index < kBuildingContextPointCapacity;
-       ++index) {
-    snapshot.building_context_points[index] = {
-        36.67 + static_cast<double>(index) * 0.000001,
-        117.13 + static_cast<double>(index) * 0.000002,
-    };
-  }
-  for (std::size_t index = 0;
-       index < kBuildingContextFootprintCapacity; ++index) {
-    snapshot.building_context_footprints[index] = {
-        static_cast<std::uint8_t>(index * 8), 8,
-        index == 0 ? BuildingContextClass::Landmark
-                   : BuildingContextClass::Generic,
-    };
-  }
-
   presenter.update(snapshot);
   const moto_ui_state_t& state = presenter.ui_state();
   CHECK(state.road_point_count == MOTO_UI_ROAD_POINT_CAPACITY);
@@ -359,18 +367,9 @@ void test_map_scene_classes_buildings_and_capacity_share_route_transform() {
         static_cast<std::uint8_t>(RoadContextClass::Motorway));
   CHECK(state.road_polylines[1].road_class ==
         static_cast<std::uint8_t>(RoadContextClass::Service));
-  CHECK(state.building_point_count == MOTO_UI_BUILDING_POINT_CAPACITY);
-  CHECK(state.building_footprint_count ==
-        MOTO_UI_BUILDING_FOOTPRINT_CAPACITY);
-  CHECK(state.building_footprints[0].building_class ==
-        static_cast<std::uint8_t>(BuildingContextClass::Landmark));
-
-  // The first point of every layer is the rider origin, proving route, road
-  // and building coordinates share one heading-up projection.
+  // Both road and route coordinates share one heading-up projection.
   CHECK(state.road_points[0].x == state.route_points[0].x);
   CHECK(state.road_points[0].y == state.route_points[0].y);
-  CHECK(state.building_points[0].x == state.route_points[0].x);
-  CHECK(state.building_points[0].y == state.route_points[0].y);
 }
 
 void test_map_scale_does_not_jump_at_maneuver_distance_thresholds() {
@@ -416,7 +415,7 @@ void test_map_scale_does_not_jump_at_maneuver_distance_thresholds() {
 }
 
 
-void test_near_turn_zooms_all_map_layers_together_and_restores_scale() {
+void test_near_turn_zooms_route_and_roads_together_and_restores_scale() {
   NavPresenter presenter;
   NavSnapshot snapshot;
   snapshot.state = NavState::Navigating;
@@ -434,14 +433,6 @@ void test_near_turn_zooms_all_map_layers_together_and_restores_scale() {
   snapshot.road_context_points[1] = snapshot.route_view_points[1];
   snapshot.road_context_polyline_count = 1;
   snapshot.road_context_polylines[0] = {0, 2};
-  snapshot.has_building_context = true;
-  snapshot.building_context_point_count = 3;
-  snapshot.building_context_points[0] = snapshot.route_view_origin;
-  snapshot.building_context_points[1] = snapshot.route_view_points[1];
-  snapshot.building_context_points[2] = {36.6704, 117.1301};
-  snapshot.building_context_footprint_count = 1;
-  snapshot.building_context_footprints[0] = {0, 3};
-
   snapshot.distance_to_next_maneuver_m = 101.0;
   presenter.update(snapshot);
   const auto far = presenter.ui_state().route_points[1];
@@ -457,22 +448,20 @@ void test_near_turn_zooms_all_map_layers_together_and_restores_scale() {
   CHECK(close.route_points[1].y < far.y);
   CHECK(close.road_points[1].x == close.route_points[1].x);
   CHECK(close.road_points[1].y == close.route_points[1].y);
-  CHECK(close.building_points[1].x == close.route_points[1].x);
-  CHECK(close.building_points[1].y == close.route_points[1].y);
   CHECK(close.maneuver_map_zoom_active == 1);
 
   snapshot.distance_to_next_maneuver_m = 0.0;
   presenter.update(snapshot);
   const auto at_max_zoom = presenter.ui_state().route_points[1];
   CHECK(at_max_zoom.y < close.route_points[1].y);
-  // All map layers use the same precise maximum scale: 3.4x.
+  // All map layers use the same precise maximum scale: 4.0x.
   constexpr double rider_y = 196.0 * MOTO_UI_CANVAS_HEIGHT / 360.0;
   const double baseline_offset = rider_y - far.y;
   const double zoom_offset = rider_y - at_max_zoom.y;
-  CHECK(std::abs(zoom_offset - 3.4 * baseline_offset) <= 4.0);
+  CHECK(std::abs(zoom_offset - 4.0 * baseline_offset) <= 4.0);
 
   // Without MotoMap / Overpass roads, navigation still shows the green
-  // route at full 3.4x. This is the real-world case where the legacy
+  // route at full 4.0x. This is the real-world case where the legacy
   // arrow fallback used to be selected.
   snapshot.has_road_context = false;
   snapshot.road_context_point_count = 0;
@@ -494,6 +483,90 @@ void test_near_turn_zooms_all_map_layers_together_and_restores_scale() {
   presenter.update(snapshot);
   CHECK(presenter.ui_state().maneuver_map_zoom_active == 0);
   CHECK(presenter.ui_state().route_point_count == 0);
+}
+
+
+void test_experimental_curve_zoom_does_not_change_default_or_roundabouts() {
+  NavPresenter presenter;
+  NavSnapshot s;
+  s.state = NavState::Navigating;
+  s.heading_deg = 90.0F;
+  s.speed_mps = 9.0F;
+  s.has_route_view = true;
+  s.route_view_origin = {44.4, 7.8};
+
+  const double latitude = 44.4, longitude = 7.8;
+  const double lat_scale = 111194.9266;
+  const double lon_scale = lat_scale * std::cos(latitude * 3.14159265358979323846 / 180.0);
+  // Tight synthetic hairpin: geometry must produce >=1.5x so the
+  // presenter's deliberate curve-hold gate is actually exercised.
+  // The previous shallow fixture only produced ~1.25x, so expecting
+  // the 55 m hold after switching to a straight window was incorrect.
+  const std::array<std::array<double, 2>, 9> xy{{
+      {{-30,0}},{{0,0}},{{30,0}},{{39,6}},{{40,15}},
+      {{39,24}},{{30,30}},{{5,30}},{{-25,30}}
+  }};
+  s.route_view_point_count = static_cast<std::uint8_t>(xy.size());
+  for (std::size_t i=0;i<xy.size();++i) {
+    s.route_view_points[i] = {
+        latitude + xy[i][1]/lat_scale,
+        longitude + xy[i][0]/lon_scale
+    };
+  }
+
+  presenter.update(s);
+  CHECK(presenter.applied_zoom_factor() == 1.0);  // simulator OFF by default
+  presenter.set_experimental_curve_zoom_enabled(true);
+  presenter.update(s);
+  CHECK(presenter.applied_zoom_factor() >= 1.5);
+  CHECK(presenter.applied_zoom_factor() <= 3.0);
+
+  // The rider has passed the apex and is travelling west along the return
+  // leg. Zoom must remain active through the second half of the hairpin.
+  // Previously the 40 m backward window dropped the bend too early.
+  s.route_view_origin = {
+      latitude + 40.0/lat_scale,
+      longitude + 15.0/lon_scale
+  };
+  s.heading_deg = 270.0F;
+  presenter.update(s);
+  CHECK(presenter.applied_zoom_factor() >= 1.5); // hold gate remains active
+  CHECK(presenter.applied_zoom_factor() <= 3.0);
+
+  // When Android slides its 24-point window away from the hairpin,
+  // zoom must not collapse at the apex. Simulate movement along a
+  // straight local replacement window in 10 m GPS steps.
+  s.route_view_point_count = 2;
+  s.route_view_points[0] = {latitude + 40.0/lat_scale,
+                            longitude + 15.0/lon_scale};
+  s.route_view_points[1] = {latitude + 180.0/lat_scale,
+                            longitude + 15.0/lon_scale};
+  s.heading_deg = 0.0F;
+  for (int step=1; step<=5; ++step) {
+    s.route_view_origin.latitude_deg = latitude + (40.0+step*10.0)/lat_scale;
+    presenter.update(s);
+  }
+  CHECK(presenter.applied_zoom_factor() > 1.05);
+  for (int step=6; step<=15; ++step) {
+    s.route_view_origin.latitude_deg = latitude + (40.0+step*10.0)/lat_scale;
+    presenter.update(s);
+  }
+  CHECK(std::abs(presenter.applied_zoom_factor()-1.0) < 0.001);
+
+  s.has_next_maneuver = true;
+  s.next_maneuver.type = ManeuverType::Roundabout;
+  s.distance_to_next_maneuver_m = 0;
+  presenter.update(s);
+  CHECK(std::abs(presenter.applied_zoom_factor()-4.0) < 0.001);
+
+  presenter.set_experimental_curve_zoom_enabled(false);
+  s.has_next_maneuver = false;
+  presenter.update(s);
+  CHECK(presenter.applied_zoom_factor() == 1.0);
+  s.has_route_view = false;
+  presenter.set_experimental_curve_zoom_enabled(true);
+  presenter.update(s);
+  CHECK(presenter.applied_zoom_factor() == 1.0);
 }
 
 void test_missing_or_incomplete_geometry_stays_empty() {
@@ -619,11 +692,13 @@ int main() {
   test_all_traffic_levels();
   test_metrics_are_rounded_clamped_and_deterministic();
   test_heading_up_route_projection_keeps_rider_fixed();
+  test_native_projection_stays_pixel_quantized_and_layers_aligned();
   test_non_finite_heading_keeps_map_projection_finite();
   test_real_road_context_uses_the_same_heading_up_transform();
-  test_map_scene_classes_buildings_and_capacity_share_route_transform();
+  test_map_scene_classes_and_capacity_share_route_transform();
   test_map_scale_does_not_jump_at_maneuver_distance_thresholds();
-  test_near_turn_zooms_all_map_layers_together_and_restores_scale();
+  test_near_turn_zooms_route_and_roads_together_and_restores_scale();
+  test_experimental_curve_zoom_does_not_change_default_or_roundabouts();
   test_missing_or_incomplete_geometry_stays_empty();
   test_presenter_owns_road_name_storage();
   test_street_arc_rejects_instructions_and_overlong_names();

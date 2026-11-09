@@ -6,6 +6,70 @@ import kotlin.math.hypot
 
 /** Local, contiguous street geometry, centred on the rider instead of way[0]. */
 internal object RoadContextWindow {
+    /**
+     * Simplify a VERIFIED closed loop without clipping half the roundabout
+     * around the GPS. Keep connection vertices before spending the remaining
+     * budget on curvature; a uniform sample can erase a real exit.
+     */
+    fun closedRing(points: List<GeoPointE6>, latitude: Double, maximumPoints: Int,
+                   protectedPoints: Set<GeoPointE6> = emptySet()): List<GeoPointE6> {
+        if (points.size < 4 || maximumPoints < 4) return emptyList()
+        val xScale = 111_320.0 * cos(Math.toRadians(latitude))
+        fun x(p: GeoPointE6) = p.longitudeE6 / 1e6 * xScale
+        fun y(p: GeoPointE6) = p.latitudeE6 / 1e6 * 111_320.0
+        val closure = hypot(x(points.first()) - x(points.last()),
+            y(points.first()) - y(points.last()))
+        if (closure > 2.5) return emptyList()
+        val normalized = points.toMutableList()
+        normalized[normalized.lastIndex] = normalized.first()
+        if (normalized.size <= maximumPoints) return normalized
+
+        val selected = sortedSetOf(0, normalized.lastIndex)
+        // Reserve an exact vertex for every attached exit, up to the budget.
+        for (i in 1 until normalized.lastIndex) {
+            if (normalized[i] in protectedPoints && selected.size < maximumPoints) {
+                selected.add(i)
+            }
+        }
+
+        while (selected.size < maximumPoints) {
+            val ordered = selected.toList()
+            var chosen = -1
+            var bestDeviation = -1.0
+            for (span in 0 until ordered.lastIndex) {
+                val first = ordered[span]
+                val last = ordered[span + 1]
+                val ax = x(normalized[first])
+                val ay = y(normalized[first])
+                val dx = x(normalized[last]) - ax
+                val dy = y(normalized[last]) - ay
+                val len2 = dx * dx + dy * dy
+                for (index in first + 1 until last) {
+                    val vx = x(normalized[index]) - ax
+                    val vy = y(normalized[index]) - ay
+                    val t = if (len2 > 1e-6)
+                        ((vx * dx + vy * dy) / len2).coerceIn(0.0, 1.0) else 0.0
+                    val deviation = hypot(vx - dx * t, vy - dy * t)
+                    if (deviation > bestDeviation) {
+                        bestDeviation = deviation
+                        chosen = index
+                    }
+                }
+            }
+            if (chosen < 0) break
+            selected.add(chosen)
+        }
+        // Keep at least three distinct sides even on a nearly perfect circle.
+        if (selected.size < 5 && maximumPoints >= 5) {
+            for (part in 1..3) {
+                selected.add(normalized.lastIndex * part / 4)
+            }
+        }
+        return selected.take(maximumPoints).map { normalized[it] }.let { result ->
+            if (result.size < 4) emptyList() else result
+        }
+    }
+
     fun around(points: List<GeoPointE6>, latitude: Double, longitude: Double, maximumPoints: Int): List<GeoPointE6> {
         if (points.size < 2 || maximumPoints < 2) return emptyList()
 

@@ -16,12 +16,12 @@ constexpr double kUiScale =
     static_cast<double>(MOTO_UI_CANVAS_WIDTH) / kLegacyCanvasSize;
 constexpr double kVehicleX = MOTO_UI_CANVAS_WIDTH / 2.0;
 constexpr double kVehicleY = 196.0 * kUiScale;
-// Normal map scale: route, surrounding MotoMap roads and buildings share
+// Normal map scale: route and surrounding MotoMap roads share
 // exactly the same transform. The green route can zoom even when no MotoMap
 // or Overpass scene is available. Zoom is continuous, not a level switch.
 constexpr double kMapPixelsPerMeter = 0.44 * kUiScale;
 constexpr double kManeuverZoomStartM = 100.0;
-constexpr double kMaximumManeuverZoom = 3.4;
+constexpr double kMaximumManeuverZoom = 4.0;
 
 // The maneuver zoom must never depend on optional road-context availability.
 // The old dependency originated from a fallback to turn arrows, now removed.
@@ -46,16 +46,15 @@ bool maneuver_zoom_available(const NavSnapshot& snapshot) {
   }
 }
 
-double map_pixels_per_meter(const NavSnapshot& snapshot) {
-  if (!maneuver_zoom_available(snapshot)) return kMapPixelsPerMeter;
+double maneuver_zoom_factor(const NavSnapshot& snapshot) {
+  if (!maneuver_zoom_available(snapshot)) return 1.0;
   const double fraction = std::clamp(
       (kManeuverZoomStartM - snapshot.distance_to_next_maneuver_m) /
           kManeuverZoomStartM,
       0.0, 1.0);
-  // Continuous scale: no jumps at 100 m or while crossing a roundabout.
-  // Keep the entire nearby road context recognizable on the circular map.
-  return kMapPixelsPerMeter *
-      (1.0 + (kMaximumManeuverZoom - 1.0) * fraction);
+  // Original 1..4x maneuver zoom, unchanged. Geometry can only increase
+  // magnification when the explicit simulator experiment is enabled.
+  return 1.0 + (kMaximumManeuverZoom - 1.0) * fraction;
 }
 
 // A curved 466 px street label must contain an actual road name. Valhalla
@@ -231,12 +230,12 @@ struct MapTransform {
   float cos_heading = 1.0F;
 };
 
-MapTransform map_transform(const NavSnapshot& snapshot) {
+MapTransform map_transform(const NavSnapshot& snapshot, double zoom_factor) {
   const double finite_heading =
       std::isfinite(snapshot.heading_deg) ? snapshot.heading_deg : 0.0;
   const double heading = radians(finite_heading);
   const double latitude_pixels_per_degree =
-      (kPi / 180.0 * kEarthRadiusM * map_pixels_per_meter(snapshot));
+      (kPi / 180.0 * kEarthRadiusM * kMapPixelsPerMeter * zoom_factor);
   return {
       snapshot.route_view_origin.latitude_deg,
       snapshot.route_view_origin.longitude_deg,
@@ -248,8 +247,13 @@ MapTransform map_transform(const NavSnapshot& snapshot) {
   };
 }
 
-moto_ui_point_t project_map_point(const Gcj02Point& point,
-                                  const MapTransform& transform) {
+struct ProjectedMapPoint {
+  float x;
+  float y;
+};
+
+ProjectedMapPoint project_map_point_precise(const Gcj02Point& point,
+                                           const MapTransform& transform) {
   // Subtract geographic doubles before converting to screen-space floats.
   // Casting lat/lon first would lose metres of precision; after subtraction,
   // float is precise well below one pixel and avoids software-double rotation
@@ -269,12 +273,13 @@ moto_ui_point_t project_map_point(const Gcj02Point& point,
                          north * transform.cos_heading;
   const float x = static_cast<float>(kVehicleX) + right;
   const float y = static_cast<float>(kVehicleY) - forward;
-  return {
-      static_cast<std::int16_t>(
-          std::clamp(std::lround(x), -2'000L, 2'000L)),
-      static_cast<std::int16_t>(
-          std::clamp(std::lround(y), -2'000L, 2'000L)),
-  };
+  return {std::clamp(x, -2'000.0F, 2'000.0F),
+          std::clamp(y, -2'000.0F, 2'000.0F)};
+}
+
+moto_ui_point_t round_projected_map_point(const ProjectedMapPoint& p) {
+  return {static_cast<std::int16_t>(std::lround(p.x)),
+          static_cast<std::int16_t>(std::lround(p.y))};
 }
 
 void project_route_view(const NavSnapshot& snapshot,
@@ -288,8 +293,12 @@ void project_route_view(const NavSnapshot& snapshot,
   const std::size_t count = std::min<std::size_t>(
       snapshot.route_view_point_count, MOTO_UI_ROUTE_POINT_CAPACITY);
   for (std::size_t i = 0; i < count; ++i) {
-    output.route_points[i] =
-        project_map_point(snapshot.route_view_points[i], transform);
+    const auto p = project_map_point_precise(snapshot.route_view_points[i],
+                                              transform);
+    output.route_points[i] = round_projected_map_point(p);
+#if defined(__EMSCRIPTEN__) || defined(MOTO_ESP_SUBPIXEL_EXPERIMENT)
+    output.web_route_points[i] = {p.x, p.y};
+#endif
   }
   output.route_point_count = static_cast<std::uint8_t>(count);
 }
@@ -311,8 +320,12 @@ void project_road_context(const NavSnapshot& snapshot,
       snapshot.road_context_polyline_count,
       MOTO_UI_ROAD_POLYLINE_CAPACITY);
   for (std::size_t index = 0; index < point_count; ++index) {
-    output.road_points[index] =
-        project_map_point(snapshot.road_context_points[index], transform);
+    const auto p = project_map_point_precise(snapshot.road_context_points[index],
+                                              transform);
+    output.road_points[index] = round_projected_map_point(p);
+#if defined(__EMSCRIPTEN__) || defined(MOTO_ESP_SUBPIXEL_EXPERIMENT)
+    output.web_road_points[index] = {p.x, p.y};
+#endif
   }
 
   std::size_t accepted_polylines = 0;
@@ -336,52 +349,21 @@ void project_road_context(const NavSnapshot& snapshot,
       static_cast<std::uint8_t>(accepted_polylines);
 }
 
-void project_building_context(const NavSnapshot& snapshot,
-                              const MapTransform& transform,
-                              moto_ui_state_t& output) {
-  output.building_point_count = 0;
-  output.building_footprint_count = 0;
-  if (!snapshot.has_building_context ||
-      snapshot.building_context_point_count < 3 ||
-      snapshot.building_context_footprint_count == 0) {
-    return;
-  }
-
-  const std::size_t point_count = std::min<std::size_t>(
-      snapshot.building_context_point_count,
-      MOTO_UI_BUILDING_POINT_CAPACITY);
-  const std::size_t footprint_count = std::min<std::size_t>(
-      snapshot.building_context_footprint_count,
-      MOTO_UI_BUILDING_FOOTPRINT_CAPACITY);
-  for (std::size_t index = 0; index < point_count; ++index) {
-    output.building_points[index] = project_map_point(
-        snapshot.building_context_points[index], transform);
-  }
-
-  std::size_t accepted_footprints = 0;
-  for (std::size_t index = 0; index < footprint_count; ++index) {
-    const BuildingContextFootprintSpan& span =
-        snapshot.building_context_footprints[index];
-    const std::size_t first = span.first_point_index;
-    const std::size_t count = span.point_count;
-    if (count < 3 || first >= point_count || count > point_count - first) {
-      continue;
-    }
-    output.building_footprints[accepted_footprints] = {
-        static_cast<std::uint8_t>(first),
-        static_cast<std::uint8_t>(count),
-        static_cast<std::uint8_t>(span.building_class),
-    };
-    ++accepted_footprints;
-  }
-  output.building_point_count = static_cast<std::uint8_t>(point_count);
-  output.building_footprint_count =
-      static_cast<std::uint8_t>(accepted_footprints);
-}
-
 }  // namespace
 
 NavPresenter::NavPresenter() { update(NavSnapshot{}); }
+
+void NavPresenter::set_experimental_curve_zoom_enabled(bool enabled) noexcept {
+  if (experimental_curve_zoom_enabled_ == enabled) return;
+  experimental_curve_zoom_enabled_ = enabled;
+  curve_zoom_held_ = 1.0;
+  curve_distance_since_detection_m_ = 0.0;
+  curve_prev_fix_ = false;
+}
+
+double NavPresenter::applied_zoom_factor() const noexcept {
+  return applied_zoom_factor_;
+}
 
 void NavPresenter::update(const NavSnapshot& snapshot) {
   road_name_.clear();
@@ -437,13 +419,83 @@ void NavPresenter::update(const NavSnapshot& snapshot) {
       static_cast<double>(snapshot.speed_mps) * 3.6);
   ui_state_.speed_limit_kph = snapshot.speed_limit_kph;
   ui_state_.heading_deg = normalized_heading(snapshot.heading_deg);
-  // Route, roads and buildings share one rider-centred transform. Besides
+  // The route and roads share one rider-centred transform. Besides
   // guaranteeing exact layer alignment, this avoids repeating trigonometry
   // hundreds of times on every high-rate IMU frame.
-  const MapTransform transform = map_transform(snapshot);
+  double curve_zoom = 1.0;
+  if (experimental_curve_zoom_enabled_ &&
+      snapshot.state == NavState::Navigating && snapshot.has_route_view &&
+      snapshot.route_view_point_count >= 4 &&
+      snapshot.route_view_point_count <= kRouteViewPointCapacity) {
+    std::array<CurveZoomPoint, kRouteViewPointCapacity> points{};
+    for (std::size_t i = 0; i < snapshot.route_view_point_count; ++i) {
+      points[i] = {snapshot.route_view_points[i].latitude_deg,
+                   snapshot.route_view_points[i].longitude_deg};
+    }
+    curve_zoom = experimental_curve_zoom(
+        snapshot.route_view_origin.latitude_deg,
+        snapshot.route_view_origin.longitude_deg,
+        snapshot.heading_deg, points.data(),
+        snapshot.route_view_point_count, snapshot.speed_mps >= 2.0F);
+  }
+  // The local 24-point route window can slide or shorten while the rider
+  // is midway through a hairpin. Never let that single snapshot abruptly
+  // release the zoom. Hold through the apex, then decay by distance travelled,
+  // not by frames (GPS/replay cadence is irregular). This is opt-in only.
+  const bool valid_fix = std::isfinite(snapshot.route_view_origin.latitude_deg) &&
+      std::isfinite(snapshot.route_view_origin.longitude_deg) &&
+      std::abs(snapshot.route_view_origin.latitude_deg) <= 90.0 &&
+      std::abs(snapshot.route_view_origin.longitude_deg) <= 180.0;
+  if (!experimental_curve_zoom_enabled_ ||
+      snapshot.state != NavState::Navigating || !snapshot.has_route_view ||
+      snapshot.route_view_point_count < 2 || !valid_fix) {
+    curve_zoom_held_ = 1.0;
+    curve_distance_since_detection_m_ = 0.0;
+    curve_prev_fix_ = false;
+  } else {
+    if (curve_route_identity_ != ui_state_.route_identity) {
+      curve_zoom_held_ = 1.0;
+      curve_distance_since_detection_m_ = 0.0;
+      curve_prev_fix_ = false;
+      curve_route_identity_ = ui_state_.route_identity;
+    }
+    if (curve_prev_fix_) {
+      const double lat_delta = (snapshot.route_view_origin.latitude_deg -
+          curve_prev_lat_) * (kPi / 180.0) * kEarthRadiusM;
+      const double lon_delta = (snapshot.route_view_origin.longitude_deg -
+          curve_prev_lon_) * (kPi / 180.0) * kEarthRadiusM *
+          std::cos(radians(snapshot.route_view_origin.latitude_deg));
+      const double step = std::hypot(lat_delta, lon_delta);
+      // Reject implausible GPS jumps rather than draining the curve hold.
+      if (std::isfinite(step) && step < 25.0) {
+        curve_distance_since_detection_m_ += step;
+      }
+    }
+    curve_prev_lat_ = snapshot.route_view_origin.latitude_deg;
+    curve_prev_lon_ = snapshot.route_view_origin.longitude_deg;
+    curve_prev_fix_ = true;
+
+    if (curve_zoom >= 1.5) {
+      curve_zoom_held_ = std::max(curve_zoom_held_, curve_zoom);
+      curve_distance_since_detection_m_ = 0.0;
+    }
+    // Hold for the entire apex, then progressively release over a further
+    // 80 m. A continuous 1x baseline is eventually restored on straight road.
+    constexpr double kHoldDistanceM = 55.0;
+    constexpr double kReleaseDistanceM = 80.0;
+    const double release = std::clamp(
+        (curve_distance_since_detection_m_ - kHoldDistanceM) /
+            kReleaseDistanceM, 0.0, 1.0);
+    const double retained = 1.0 + (curve_zoom_held_ - 1.0) * (1.0 - release);
+    curve_zoom = std::max(curve_zoom, retained);
+    if (release >= 1.0) curve_zoom_held_ = 1.0;
+  }
+  // Preserve the original maneuver zoom (including the 4x roundabout).
+  // Both road context and green route use the same final map transform.
+  applied_zoom_factor_ = std::max(maneuver_zoom_factor(snapshot), curve_zoom);
+  const MapTransform transform = map_transform(snapshot, applied_zoom_factor_);
   project_route_view(snapshot, transform, ui_state_);
   project_road_context(snapshot, transform, ui_state_);
-  project_building_context(snapshot, transform, ui_state_);
   ui_state_.road_name = road_name_.empty() ? nullptr : road_name_.c_str();
   ui_state_.next_road_name =
       next_road_name_.empty() ? nullptr : next_road_name_.c_str();
