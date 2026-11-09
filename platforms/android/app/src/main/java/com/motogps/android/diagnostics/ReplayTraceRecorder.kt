@@ -8,69 +8,119 @@ import com.motogps.android.jni.MotoBLENavigationSnapshot
 import com.motogps.android.jni.MotoBLERouteGeometry
 import java.io.File
 import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
+import java.util.Locale
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * Explicitly enabled, bounded location/geometry recording for Windows replay.
+ * Explicitly enabled, private location/geometry recording for Windows replay.
  *
- * Distinct from DiagnosticLog: the ordinary diagnostics ZIP NEVER includes
- * coordinates. The user must turn recording on and explicitly export this file.
- * All file I/O takes place on one private background worker, never on GPS/BLE.
+ * Each file is bounded by size/time, but the session is not: a long ride
+ * automatically creates sequential replay-current-part-*.jsonl files.
+ * GPS coordinates NEVER enter DiagnosticLog's ordinary ZIP. File I/O runs
+ * exclusively on one private worker and never blocks the GPS/BLE callbacks.
  */
 object ReplayTraceRecorder {
-    private const val MAX_BYTES = 24L * 1024L * 1024L
-    private const val MAX_DURATION_MS = 60L * 60L * 1000L
     private val worker = Executors.newSingleThreadExecutor { job ->
         Thread(job, "MotoGpsPrivateReplay").apply { isDaemon = true }
     }
     @Volatile private var active = false
     @Volatile private var startElapsed = 0L
-    @Volatile private var traceFile: File? = null
+    @Volatile private var sessionId = 0L
+    private var workerSessionId = -1L
+    private var workerRoot: File? = null
+    private var sessionWallMs = 0L
+    private var partStartedAtMs = 0L
+    private var partIndex = 0
+    private var partFile: File? = null
 
     fun isRecording(): Boolean = active
 
-    fun start(context: Context) {
+    @Synchronized fun start(context: Context) {
         if (active) return
         val root = File(context.applicationContext.filesDir, "diagnostics")
         require(root.mkdirs() || root.isDirectory) { "Directory diagnostica non disponibile" }
-        val path = File(root, "replay-current.jsonl")
+        val id = sessionId + 1L
+        sessionId = id
+        val capturedWallMs = System.currentTimeMillis()
         startElapsed = SystemClock.elapsedRealtime()
-        traceFile = path
         active = true
         worker.execute {
             try {
-                path.writeText(JSONObject().put("schema", "moto-replay-v1")
-                    .put("type", "meta").put("t_ms", 0)
-                    .put("source", "Android-BLE-outgoing")
-                    .put("captured_at_ms", System.currentTimeMillis())
-                    .toString() + "\n")
-            } catch (_: Exception) { active = false }
+                // Like the old replay-current.jsonl, a new recording replaces
+                // the prior unexported session. Exports are kept separately.
+                root.listFiles()?.filter {
+                    it.name == "replay-current.jsonl" ||
+                        (it.name.startsWith("replay-current-part-") &&
+                            it.name.endsWith(".jsonl"))
+                }?.forEach { if (it.isFile) check(it.delete()) }
+                workerSessionId = id
+                workerRoot = root
+                sessionWallMs = capturedWallMs
+                partIndex = 0
+                partFile = null
+                startPart(0L)
+            } catch (e: Exception) {
+                fail(id, e)
+            }
         }
     }
 
-    fun stop() { active = false }
+    @Synchronized fun stop() { active = false }
+
+    private fun startPart(elapsedMs: Long) {
+        val root = requireNotNull(workerRoot)
+        ++partIndex
+        partStartedAtMs = elapsedMs
+        val file = File(root, "replay-current-part-" +
+            String.format(Locale.ROOT, "%05d", partIndex) + ".jsonl")
+        val header = JSONObject()
+            .put("schema", "moto-replay-v1")
+            .put("type", "meta")
+            .put("t_ms", 0)
+            .put("source", "Android-BLE-outgoing")
+            .put("captured_at_ms", sessionWallMs + elapsedMs)
+            .put("part_index", partIndex)
+            .put("session_elapsed_ms", elapsedMs)
+        file.writeText(header.toString() + "\n")
+        partFile = file
+    }
+
+    private fun fail(id: Long, exception: Exception) {
+        if (sessionId == id) active = false
+        // DiagnosticLog is coordinate-free; record only the failure type.
+        DiagnosticLog.event("GPS_REPLAY_ERROR", exception.javaClass.simpleName)
+    }
 
     private fun point(p: GeoPointE6): JSONArray =
         JSONArray().put(p.latitudeE6 / 1e6).put(p.longitudeE6 / 1e6)
 
     private fun write(data: JSONObject) {
         if (!active) return
-        val elapsed = SystemClock.elapsedRealtime() - startElapsed
-        if (elapsed !in 0..MAX_DURATION_MS) {
-            active = false
-            return
-        }
-        data.put("t_ms", elapsed)
-        val line = data.toString() + "\n"
-        val file = traceFile ?: return
+        val id = sessionId
+        val elapsedMs = SystemClock.elapsedRealtime() - startElapsed
+        if (elapsedMs < 0L) return
+        // Never stop at 60 minutes or 24 MiB: only the *current part* rotates.
         worker.execute {
+            if (workerSessionId != id) return@execute
             try {
-                if (file.length() + line.length * 3L > MAX_BYTES) {
-                    active = false
-                } else file.appendText(line)
-            } catch (_: Exception) { active = false }
+                var file = requireNotNull(partFile)
+                data.put("t_ms", (elapsedMs - partStartedAtMs).coerceAtLeast(0L))
+                var line = data.toString() + "\n"
+                if (ReplayTraceSegmentPolicy.rotate(
+                        elapsedMs, partStartedAtMs, file.length(),
+                        line.toByteArray(Charsets.UTF_8).size)) {
+                    startPart(elapsedMs)
+                    file = requireNotNull(partFile)
+                    data.put("t_ms", 0L)
+                    line = data.toString() + "\n"
+                }
+                file.appendText(line)
+            } catch (e: Exception) {
+                fail(id, e)
+            }
         }
     }
 
@@ -142,19 +192,50 @@ object ReplayTraceRecorder {
     }
 
     /**
-     * Export from a background thread; returns a private copy under the
-     * existing FileProvider diagnostics/exports path.
-     * The normal DiagnosticLog.exportZip intentionally excludes this file.
+     * Export on a background thread. One part remains a plain .jsonl; two or
+     * more are a ZIP of chronological, independently replayable JSONL parts.
+     * No file-count or session-duration limit (device storage still applies).
+     * The ordinary DiagnosticLog.exportZip intentionally excludes all parts.
      */
     fun export(context: Context): File {
-        val file = requireNotNull(traceFile) { "Registra prima un tracciato GPS" }
+        val root = File(context.applicationContext.filesDir, "diagnostics")
         return worker.submit<File> {
-            require(file.isFile && file.length() > 0L) { "Tracciato GPS vuoto" }
-            val dir = File(context.applicationContext.filesDir, "diagnostics/exports")
+            val files = root.listFiles()?.filter {
+                it.isFile && it.name.startsWith("replay-current-part-") &&
+                    it.name.endsWith(".jsonl")
+            }?.sortedBy { it.name }.orEmpty().ifEmpty {
+                // Preserve export compatibility with an older unsegmented
+                // recording if the user has not started a newer session yet.
+                listOf(File(root, "replay-current.jsonl")).filter { it.isFile }
+            }
+            require(files.isNotEmpty() && files.all { it.length() > 0L }) {
+                "Tracciato GPS vuoto: avvia prima una registrazione"
+            }
+            val dir = File(root, "exports")
             require(dir.mkdirs() || dir.isDirectory)
-            val copy = File(dir, "motogps-replay.jsonl")
-            file.copyTo(copy, overwrite = true)
-            copy
-        }.get(20, TimeUnit.SECONDS)
+            if (files.size == 1) {
+                val copy = File(dir, "motogps-replay.jsonl")
+                files.first().copyTo(copy, overwrite = true)
+                copy
+            } else {
+                val zipFile = File(dir, "motogps-replay-parts.zip")
+                ZipOutputStream(zipFile.outputStream().buffered()).use { zip ->
+                    for (file in files) {
+                        val entry = file.name.replace("replay-current", "motogps-replay")
+                        zip.putNextEntry(ZipEntry(entry))
+                        file.inputStream().use { it.copyTo(zip) }
+                        zip.closeEntry()
+                    }
+                    zip.putNextEntry(ZipEntry("README.txt"))
+                    zip.write(("Moto GPS private replay. Contains GPS coordinates.\n" +
+                        "Unzip; load each numbered .jsonl into the simulator " +
+                        "in chronological order. Each part starts at t_ms=0.\n" +
+                        "Files remain local until you explicitly share them.\n")
+                        .toByteArray(Charsets.UTF_8))
+                    zip.closeEntry()
+                }
+                zipFile
+            }
+        }.get()
     }
 }
