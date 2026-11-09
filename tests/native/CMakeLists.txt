@@ -125,6 +125,11 @@ target_include_directories(map_origin_predictor_tests PRIVATE
 )
 target_compile_features(map_origin_predictor_tests PRIVATE cxx_std_17)
 
+add_executable(moto_perf_math_tests moto_perf_math_tests.cpp)
+target_include_directories(moto_perf_math_tests PRIVATE
+  "${CMAKE_CURRENT_LIST_DIR}/../../platforms/esp32/main")
+target_compile_features(moto_perf_math_tests PRIVATE cxx_std_17)
+
 add_executable(motion_heading_fusion_tests motion_heading_fusion_tests.cpp)
 target_include_directories(motion_heading_fusion_tests PRIVATE
   "${CMAKE_CURRENT_LIST_DIR}/../../platforms/esp32/main"
@@ -152,6 +157,7 @@ target_link_libraries(phone_nav_bridge_tests PRIVATE
 )
 target_compile_features(phone_nav_bridge_tests PRIVATE cxx_std_17)
 
+add_test(NAME moto_perf_math_tests COMMAND moto_perf_math_tests)
 add_test(NAME nav_core_tests COMMAND nav_core_tests)
 if(TARGET nav_ui_render_tests)
   add_test(NAME nav_ui_render_tests COMMAND nav_ui_render_tests)
