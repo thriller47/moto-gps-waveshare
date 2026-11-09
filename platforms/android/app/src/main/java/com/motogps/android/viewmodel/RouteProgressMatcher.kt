@@ -37,6 +37,61 @@ internal class RouteProgressMatcher {
         lastLon = Double.NaN
     }
 
+    /** A reverse candidate consistent with the already matched route progress.
+     * The nearest point of the *entire* shape is not enough: on hairpins,
+     * parallel roads and self-intersections it can be a different road.
+     */
+    data class ReverseCandidate(val distanceMeters: Double,
+                                val bearingDegrees: Float,
+                                val progressDeltaMeters: Double)
+
+    fun reverseCandidate(lat: Double, lon: Double, heading: Float?,
+                         speed: Float): ReverseCandidate? {
+        val anchor = progress ?: return null
+        if (route.size < 2 || !lat.isFinite() || !lon.isFinite() ||
+            heading == null || !heading.isFinite() || speed < 4f) return null
+        val mx = 111_195.0 * cos(Math.toRadians(lat))
+        var reverse: ReverseCandidate? = null
+        var reverseScore = Double.POSITIVE_INFINITY
+        var nearestForward = Double.POSITIVE_INFINITY
+
+        for (i in 0 until route.lastIndex) {
+            val a = route[i]
+            val b = route[i + 1]
+            val ax = (a.longitudeE6 / 1e6 - lon) * mx
+            val ay = (a.latitudeE6 / 1e6 - lat) * 111_195.0
+            val dx = (b.longitudeE6 - a.longitudeE6) / 1e6 * mx
+            val dy = (b.latitudeE6 - a.latitudeE6) / 1e6 * 111_195.0
+            val length2 = dx * dx + dy * dy
+            if (length2 < 144.0) continue // Sharp 5m bend is not a reversal.
+            val t = (-(ax * dx + ay * dy) / length2).coerceIn(0.0, 1.0)
+            val cross = hypot(ax + t * dx, ay + t * dy)
+            if (cross > 25.0) continue
+            val at = cumulative[i] + (cumulative[i + 1] - cumulative[i]) * t
+            val delta = at - anchor
+            // Keep a limited backwards corridor to catch genuine U-turns,
+            // but ignore geometrically close roads elsewhere on a loop.
+            if (delta < -110.0 || delta > 85.0) continue
+            val direction = Math.toDegrees(atan2(dx, dy)).toFloat()
+            val error = abs(((heading - direction + 540f) % 360f) - 180f)
+            if (error <= 60f) {
+                nearestForward = min(nearestForward, cross)
+            } else if (RouteDirectionPolicy.isOpposite(
+                    heading, direction, speed, cross, kotlin.math.sqrt(length2))) {
+                val score = cross + abs(delta) * 0.10
+                if (score < reverseScore) {
+                    reverseScore = score
+                    reverse = ReverseCandidate(cross, direction, delta)
+                }
+            }
+        }
+        val candidate = reverse ?: return null
+        // If a forward-directed edge is similarly close, the junction match
+        // is ambiguous. Prefer continuing to an unnecessary reverse reroute.
+        if (nearestForward <= candidate.distanceMeters + 8.0) return null
+        return candidate
+    }
+
     fun remaining(lat: Double, lon: Double, heading: Float?, speed: Float): Long? {
         if (route.size < 2 || !lat.isFinite() || !lon.isFinite()) return null
         val mx = 111_195.0 * cos(Math.toRadians(lat))
