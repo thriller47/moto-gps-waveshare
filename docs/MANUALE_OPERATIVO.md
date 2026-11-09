@@ -502,26 +502,26 @@ Il separatore `|` mantiene gli spazi nel nome rete: ad esempio `wifi set Hotspot
 
 ## 8. Simulatore browser Windows e registrazione GPS Android
 
-**Branch corrente:** il simulatore browser (anteprima 2D e renderer reale LVGL/WebAssembly) è integrato su **\`valhalla\`** dalla PR #73. Le correzioni ai ricalcoli Android e la registrazione GPS senza limite complessivo sono invece ancora sul branch **\`test/esp32-map-dirty-tiles-20261109\`**, da verificare prima del merge. Non usare il branch \`test/road-contrast-cleanup-20261104\`, ormai eliminato.
+**Branch corrente:** il simulatore browser (anteprima 2D e renderer reale LVGL/WebAssembly) è integrato su **`valhalla`** dalla PR #73. Le correzioni ai ricalcoli Android e la registrazione GPS senza limite complessivo sono invece ancora sul branch **`test/esp32-map-dirty-tiles-20261109`**, da verificare prima del merge. Non usare il branch `test/road-contrast-cleanup-20261104`, ormai eliminato.
 
-**Avvio simulatore WSL Ubuntu:** dopo l'aggiornamento del checkout \`valhalla\` (o del branch test, se vuoi riprodurre gli ultimi cambi Android) e dopo aver installato Emscripten in \`~/emsdk\`:
+**Avvio simulatore WSL Ubuntu:** dopo l'aggiornamento del checkout `valhalla` (o del branch test, se vuoi riprodurre gli ultimi cambi Android) e dopo aver installato Emscripten in `~/emsdk`:
 
-\`\`\`bash
+```bash
 cd ~/MotoGPS/moto-gps-waveshare
 git switch valhalla
 git pull --ff-only origin valhalla
 git submodule update --init --recursive
 source ~/emsdk/emsdk_env.sh
 ./scripts/build_web.sh
-\`\`\`
+```
 
-In un secondo terminale WSL, da \`~/MotoGPS/moto-gps-waveshare\`, avviare \`python3 -m http.server 4173 --directory .\` se il server non è già attivo. Aprire **http://127.0.0.1:4173/platforms/web/simulator/index.html** da Chrome/Edge su Windows, poi \`Ctrl+F5\` dopo gli aggiornamenti. Il doppio clic su \`index.html\` mostra soltanto l'anteprima 2D se il runtime WASM non è disponibile. I comandi PowerShell nativi con \`emcmake\` non sono stati verificati sul PC dell'utente.
+In un secondo terminale WSL, da `~/MotoGPS/moto-gps-waveshare`, avviare `python3 -m http.server 4173 --directory .` se il server non è già attivo. Aprire **http://127.0.0.1:4173/platforms/web/simulator/index.html** da Chrome/Edge su Windows, poi `Ctrl+F5` dopo gli aggiornamenti. Il doppio clic su `index.html` mostra soltanto l'anteprima 2D se il runtime WASM non è disponibile. I comandi PowerShell nativi con `emcmake` non sono stati verificati sul PC dell'utente.
 
 ### Registrare il GPS senza durata massima — APK sperimentale
 
-La registrazione del trace GPS rimane **OFF per impostazione predefinita** e si attiva manualmente dal pannello **LOG → Avvia registrazione GPS**. Non si interrompe automaticamente dopo 60 minuti; salva file consecutivi \`replay-current-part-00001.jsonl\`, \`00002.jsonl\`, ecc. La rotazione avviene ogni **30 minuti o circa 12 MiB per singolo file**, senza un limite fissato al numero di file o alla durata totale della sessione (resta il limite fisico dello spazio disponibile sul telefono). La scrittura resta su thread privato, senza carico di I/O nel callback GPS/BLE.
+La registrazione del trace GPS rimane **OFF per impostazione predefinita** e si attiva manualmente dal pannello **LOG → Avvia registrazione GPS**. Non si interrompe automaticamente dopo 60 minuti; salva file consecutivi `replay-current-part-00001.jsonl`, `00002.jsonl`, ecc. La rotazione avviene ogni **30 minuti o circa 12 MiB per singolo file**, senza un limite fissato al numero di file o alla durata totale della sessione (resta il limite fisico dello spazio disponibile sul telefono). La scrittura resta su thread privato, senza carico di I/O nel callback GPS/BLE.
 
-Al termine premere **Ferma registrazione GPS → Esporta tracciato simulatore**: con una sola parte si condivide \`motogps-replay.jsonl\`; con più parti, \`motogps-replay-parts.zip\` che contiene **tutti i .jsonl numerati** e un README. Su Windows, estrarre lo ZIP e caricare i file \`.jsonl\` nel simulatore **uno alla volta, in ordine numerico**: ogni parte è autonoma e ricomincia da \`t_ms=0\`, ma contiene \`part_index\`, \`session_elapsed_ms\` e data iniziale per riallineare le prove. Non passare direttamente lo ZIP al selettore \`.jsonl\` del simulatore.
+Al termine premere **Ferma registrazione GPS → Esporta tracciato simulatore**: con una sola parte si condivide `motogps-replay.jsonl`; con più parti, `motogps-replay-parts.zip` che contiene **tutti i .jsonl numerati** e un README. Su Windows, estrarre lo ZIP e caricare i file `.jsonl` nel simulatore **uno alla volta, in ordine numerico**: ogni parte è autonoma e ricomincia da `t_ms=0`, ma contiene `part_index`, `session_elapsed_ms` e data iniziale per riallineare le prove. Non passare direttamente lo ZIP al selettore `.jsonl` del simulatore.
 
 **Attenzione a sicurezza e dati:** il file GPS contiene coordinate, posizioni previste, velocità, geometrie della rotta verde e delle strade MotoMap e manovre. Rimane privato finché non viene esportato volontariamente. Lo ZIP ordinario di **diagnostica Android non include i replay né coordinate**. L'avvio di una **nuova** registrazione sostituisce le parti locali della sessione precedente: esportare la sessione precedente prima di riavviare la registrazione. Se la memoria del telefono si esaurisce, la scrittura fallirà e la registrazione si interromperà; non esiste spazio di archiviazione infinito. Non maneggiare il telefono mentre si guida, né usare DEBUG ESP32 approfondito solo per registrare il GPS.
 
