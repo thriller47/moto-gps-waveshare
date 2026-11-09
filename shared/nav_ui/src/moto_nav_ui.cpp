@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <initializer_list>  // std::min/max over all swept endpoints
 #include <type_traits>
 
 #include "lvgl.h"
