@@ -1,5 +1,20 @@
 # Moto GPS — Project State
 
+## Prima prova su strada ESP32 sperimentale: conferma fluidità/zoom — 2026-11-09
+
+**Riscontro utente:** test reale del mattino positivo: «sembra ok, anche la fluidità nello zoom». Firmware del branch `test/road-contrast-cleanup-20261104` con `MOTO_ESP_CURVE_ZOOM_EXPERIMENT=ON` e `MOTO_ESP_SUBPIXEL_EXPERIMENT=ON`; nessuna richiesta di cambio firmware, nessun merge in `valhalla`.
+
+**File originali della conversazione (NON presenti nel repo):** `serial_20261109_073348.txt` (~19 min, 07:33:51–07:52:57), `motogps-replay(1).jsonl` (6.341 eventi, ~18,93 min: 4.474 snapshot, 1.134 fix, 548 finestre route, 184 scene), `motogps-android-diagnostics (1)(2).zip` (usare **current.log** del 9 novembre per la sessione odierna; `previous.log` del 6 novembre e `esp32-current.log` hanno origine diversa, non attribuirli al giro corrente). Non committare dati GPS privati nel repository.
+
+**Risultati ESP32 su 228 finestre `display perf`:** fps min 4,0, mediana 18,4, media ~17,8, massimo 26,9; rendering mediano ~52,6 ms, ~3,2 flush/frame mediano. Prima di avviare navigazione ~25–27 fps e ~1 flush/frame; nei primi secondi con rotta attiva 4–7 fps, poi per molti tratti 18–19 fps e alcuni ~20–26 fps. `NAV_EXP` (~225 finestre) aggiornamenti task mediana 12 Hz, range 1–38 Hz; tempi proiezione mediana ~13,2 ms, picchi isolati fino a 250 ms; attesa lock LVGL può raggiungere ~270 ms. **Non confondere frequenza task `NAV_EXP` con FPS display.** Zoom `zoom_x100` osservato fra 100 e 400 (1×–4×), 70 finestre oltre 1,1×; utente conferma fluidità percepita. Heap interno generalmente ~88 KB e PSRAM ~4.022.392 byte stabili. In una dozzina di righe il testo `int_free` è troncato (es. 8819 anziché ~88199), probabile perdita caratteri nell'acquisizione USB: NON considerarlo leak RAM senza corroborazione.
+
+**Android:** `current.log` registra **5 REROUTE trigger+success** via `valhalla-local` alle ~07:35:23, 07:36:02, 07:48:45, 07:49:13, 07:49:25; i cambi di `route_token` nel replay sono coerenti (6 itinerari distinti, incluso quello iniziale). Nel `current.log` non sono emerse righe `ERROR` o `Exception`; non generalizzare a `previous.log` dell'altra giornata. Nessun crash, WDT, panic o GATT errore evidente nel seriale.
+
+**Un evento da sorvegliare:** verso ~07:52:50 Android registra perdita BLE; sul seriale ~07:52:53 il device chiude per `phone heartbeat timeout` e si ricollega ~07:52:54–55 con handshake completato. Isolato nei log consegnati, non dimostra bug persistente. Presente inoltre **un** `Failed to acquire LVGL lock` a ~07:35:27 durante i primi ricalcoli. Nessuna evidenza di blocco prolungato; monitorare se ricorre.
+
+**Valutazione:** il successo visivo su strada è più rappresentativo del test da fermo, ma rimane carico grafico misurabile (3–4 flush/frame); non dichiarare che il collo di bottiglia sia risolto né che subpixel ne sia l'unica causa. **Prossima azione:** conservare questa versione come baseline funzionale, fare eventualmente un A/B separato con solo subpixel OFF sullo stesso giro, analizzare invalidazioni e flush LVGL per incrementare FPS senza compromettere zoom, BLE o stabilità. Chiedere all'utente soltanto se ha notato rallentamenti concreti o la disconnessione finale, se necessario. Nessuna build/flash nuova; aggiornamento solo documentale `[skip ci]`.
+
+
 ## Passaggio di consegne: prove ESP32 da fermo e test su strada previsto — 2026-11-08
 
 **Stato salvato e decisione:** firmware sperimentale ESP32 con *curve zoom* e *subpixel* entrambi ON, branch `test/road-contrast-cleanup-20261104` (CI verificata [42518522738](https://github.com/thriller47/moto-gps-waveshare/actions/runs/42518522738), 13/13 CTest, 15/15 JS, ESP32/Android success). L'utente ha flashato e provato la versione da fermo, confermando accensione e operatività. **NON apportare altre modifiche al firmware prima del giro reale di lunedì 9 novembre 2026**; `valhalla` non toccato, nessun merge autorizzato.
