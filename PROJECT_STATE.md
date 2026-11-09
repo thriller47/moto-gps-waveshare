@@ -1,5 +1,13 @@
 # Moto GPS — Project State
 
+## Menu LOG Android: opzione DEBUG accessibile — 2026-11-09
+
+**Segnalazione utente:** nell'APK sperimentale del branch `test/esp32-map-dirty-tiles-20261109` il menu LOG mostrava BASE ma non DEBUG. In `platforms/android/app/src/main/java/com/motogps/android/ui/NavigationScreen.kt` OFF/BASE/DEBUG erano tutti presenti nel codice, ma il dialogo aveva acquisito due paragrafi lunghi e controlli per il replay senza uno scorrimento verticale: verosimile ritaglio del terzo pulsante sui telefoni più piccoli e/o in orizzontale.
+
+**Correzione solo Android UI:** il contenuto del dialogo è reso scorrevole con `verticalScroll(rememberScrollState())`; i tre pulsanti diagnostici sono spostati in una fila compatta **in cima**, prima dei comandi di registrazione GPS, per garantirne la raggiungibilità. Logica di `setDiagnosticMode`, BLE/ESP32, durata 60 min, replay e firmware invariati. `valhalla` non modificato.
+
+**Verifiche:** codice letto e confronto dei controlli effettuato; nessuna build locale, nessuna prova APK su dispositivo prima della CI del commit Android. Non attribuire la causa al firmware: verificare visualmente sul telefono dopo installazione del nuovo artifact e attivare DEBUG soltanto se l'ESP32 è connesso. **Prossima azione:** controllare l'unica CI Android del commit finale e verificare il dialogo LOG su telefono.
+
 ## Continuità visiva durante ricalcolo e scene grigie — 2026-11-09
 
 **Richiesta:** dopo il giro delle 17:36–17:55, l'utente riferisce salti della linea verde su deviazioni volontarie e, in almeno un ricalcolo, la sparizione di tutte le strade. Analisi dei file privati `motogps-replay.jsonl`, `motogps-android-diagnostics.zip`, `serial_20261109_173604.txt` (**non committare coordinate GPS**): alle 17:37:58, 17:40:09, 17:40:48 i ricalcoli sono attesi; Android invia scene con 20 strade (e seriale ESP32 le conferma), nessuna scena con zero strade rilevata. La finestra della stessa rotta varia frequentemente nel numero di vertici (ad es. 11→17→18→13); il renderer prima faceva snap integrale a ogni cambiamento di count. La UI mostrava il livello di Planning/Ready se la rotta verde aveva <2 punti, pur avendo ancora la scena grigia valida: possibile origine della scomparsa percepita, non dimostrabile retroattivamente dalla sola telemetria seriale.
