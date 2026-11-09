@@ -525,6 +525,97 @@ bool apply_road_geometry_frame(bool rebind_lines = true) {
     return pixels_changed || rebind_lines;
 }
 
+#if defined(MOTO_ESP_MAP_DIRTY_TILES_EXPERIMENT) && !defined(__EMSCRIPTEN__)
+// ESP32-only A/B experiment. Track the swept *old and new* line strokes in
+// a bounded 4x4 grid. Invalidating the complete map for every small heading
+// delta makes LVGL rasterize many unchanged streets and flush the full map.
+// Tiles are deliberately conservative: they include cap/AA padding, and large
+// motion falls back to the original whole-map invalidation.
+struct MapMotionDirtyTiles {
+    static constexpr int kColumns = 4;
+    static constexpr int kRows = 4;
+    static constexpr int kFullMapThreshold = 8;
+    std::uint16_t bits = 0;
+
+    void mark_segment(const lv_point_precise_t &old_a,
+                      const lv_point_precise_t &old_b,
+                      float new_ax, float new_ay,
+                      float new_bx, float new_by, int stroke_padding,
+                      int width, int height) {
+        if(width <= 0 || height <= 0) return;
+        if(old_a.x == new_ax && old_a.y == new_ay &&
+           old_b.x == new_bx && old_b.y == new_by) return;
+        const float left = std::min({static_cast<float>(old_a.x),
+                                     static_cast<float>(old_b.x), new_ax, new_bx});
+        const float top = std::min({static_cast<float>(old_a.y),
+                                    static_cast<float>(old_b.y), new_ay, new_by});
+        const float right = std::max({static_cast<float>(old_a.x),
+                                      static_cast<float>(old_b.x), new_ax, new_bx});
+        const float bottom = std::max({static_cast<float>(old_a.y),
+                                       static_cast<float>(old_b.y), new_ay, new_by});
+        if(right + stroke_padding < 0 || left - stroke_padding >= width ||
+           bottom + stroke_padding < 0 || top - stroke_padding >= height) return;
+        const int x1 = std::max(0, static_cast<int>(std::floor(left)) - stroke_padding);
+        const int y1 = std::max(0, static_cast<int>(std::floor(top)) - stroke_padding);
+        const int x2 = std::min(width - 1, static_cast<int>(std::ceil(right)) + stroke_padding);
+        const int y2 = std::min(height - 1, static_cast<int>(std::ceil(bottom)) + stroke_padding);
+        // Tile boundaries are at floor(n * dimension / 4), not rounded.
+        // ((pixel + 1) * 4 - 1) / dimension maps boundary pixels correctly.
+        const int col1 = ((x1 + 1) * kColumns - 1) / width;
+        const int col2 = ((x2 + 1) * kColumns - 1) / width;
+        const int row1 = ((y1 + 1) * kRows - 1) / height;
+        const int row2 = ((y2 + 1) * kRows - 1) / height;
+        for(int row = row1; row <= row2; ++row) {
+            for(int col = col1; col <= col2; ++col) {
+                bits |= static_cast<std::uint16_t>(
+                    1U << (row * kColumns + col));
+            }
+        }
+    }
+
+    void mark_polyline(const lv_point_precise_t *old_points,
+                       const float *new_x, const float *new_y,
+                       std::uint16_t first, std::uint16_t count,
+                       int padding, int width, int height) {
+        for(std::uint16_t i = first + 1; i < first + count; ++i) {
+            mark_segment(old_points[i - 1], old_points[i],
+                         new_x[i - 1], new_y[i - 1], new_x[i], new_y[i],
+                         padding, width, height);
+        }
+    }
+
+    void invalidate(lv_obj_t *map) const {
+        if(bits == 0) return;  // Motion wholly outside the clipped viewport.
+        int tiles = 0;
+        for(int bit = 0; bit < kColumns * kRows; ++bit)
+            if(bits & (1U << bit)) ++tiles;
+        if(tiles >= kFullMapThreshold) {
+            lv_obj_invalidate(map);
+            return;
+        }
+        lv_area_t map_area{};
+        lv_obj_get_coords(map, &map_area);
+        const int width = lv_obj_get_width(map);
+        const int height = lv_obj_get_height(map);
+        for(int row = 0; row < kRows; ++row) {
+            for(int col = 0; col < kColumns; ++col) {
+                if(!(bits & (1U << (row * kColumns + col)))) continue;
+                const lv_area_t area{
+                    map_area.x1 + col * width / kColumns,
+                    map_area.y1 + row * height / kRows,
+                    map_area.x1 + (col + 1) * width / kColumns - 1,
+                    map_area.y1 + (row + 1) * height / kRows - 1
+                };
+                // LVGL expects absolute display coordinates and will clip to
+                // the map and its parents. Never invalidate only the new line:
+                // the old pixels must also be cleared to avoid green trails.
+                lv_obj_invalidate_area(map, &area);
+            }
+        }
+    }
+};
+#endif
+
 void route_motion_tick(lv_timer_t *) {
     if(ui.page != MOTO_UI_PAGE_NAVIGATION) return;
     if(ui.nav_route_target_count < 2 || ui.nav_route_point_count < 2) return;
@@ -567,6 +658,29 @@ void route_motion_tick(lv_timer_t *) {
         ui.nav_road_y[i] += dy * blend;
         roads_moved = true;
     }
+#if defined(MOTO_ESP_MAP_DIRTY_TILES_EXPERIMENT) && !defined(__EMSCRIPTEN__)
+    MapMotionDirtyTiles dirty{};
+    const int map_width = lv_obj_get_width(ui.nav_map);
+    const int map_height = lv_obj_get_height(ui.nav_map);
+    if(roads_moved) {
+        for(std::uint8_t index = 0; index < ui.nav_road_polyline_count; ++index) {
+            const auto span = ui.nav_road_spans[index];
+            if(span.point_count < 2 ||
+               static_cast<unsigned>(span.first_point_index) + span.point_count >
+                   ui.nav_road_point_count) continue;
+            // Room for the thickest gray street, round caps and AA fringe.
+            dirty.mark_polyline(ui.nav_road_points, ui.nav_road_x,
+                                ui.nav_road_y, span.first_point_index,
+                                span.point_count, px(6), map_width, map_height);
+        }
+    }
+    if(route_moved) {
+        // The 13px shadow is wider than the green route stroke.
+        dirty.mark_polyline(ui.nav_route_points, ui.nav_route_x,
+                            ui.nav_route_y, 0, ui.nav_route_point_count,
+                            px(13), map_width, map_height);
+    }
+#endif
     bool pixels_changed = false;
     if(roads_moved) {
         pixels_changed = apply_road_geometry_frame(false) || pixels_changed;
@@ -578,7 +692,11 @@ void route_motion_tick(lv_timer_t *) {
 #ifdef __EMSCRIPTEN__
         ++web_map_pixel_changes;
 #endif
+#if defined(MOTO_ESP_MAP_DIRTY_TILES_EXPERIMENT) && !defined(__EMSCRIPTEN__)
+        dirty.invalidate(ui.nav_map);
+#else
         lv_obj_invalidate(ui.nav_map);
+#endif
     }
 }
 
