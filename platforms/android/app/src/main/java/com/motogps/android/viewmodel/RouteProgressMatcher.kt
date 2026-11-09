@@ -69,14 +69,15 @@ internal class RouteProgressMatcher {
             if (cross > 25.0) continue
             val at = cumulative[i] + (cumulative[i + 1] - cumulative[i]) * t
             val delta = at - anchor
-            // Keep a limited backwards corridor to catch genuine U-turns,
-            // but ignore geometrically close roads elsewhere on a loop.
-            if (delta < -110.0 || delta > 85.0) continue
             val direction = Math.toDegrees(atan2(dx, dy)).toFloat()
             val error = abs(((heading - direction + 540f) % 360f) - 180f)
             if (error <= 60f) {
+                // Even a later leg of a loop can be the *actual* road.
+                // A closer aligned segment must veto a speculative reversal
+                // on an older nearby segment, regardless of route progress.
                 nearestForward = min(nearestForward, cross)
-            } else if (RouteDirectionPolicy.isOpposite(
+            } else if (delta >= -110.0 && delta <= 85.0 &&
+                RouteDirectionPolicy.isOpposite(
                     heading, direction, speed, cross, kotlin.math.sqrt(length2))) {
                 val score = cross + abs(delta) * 0.10
                 if (score < reverseScore) {
