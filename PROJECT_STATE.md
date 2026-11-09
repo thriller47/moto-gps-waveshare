@@ -1,5 +1,16 @@
 # Moto GPS — Project State
 
+## Integrazione test in valhalla completata — 2026-11-09
+
+**Merge autorizzato dall'utente ed eseguito:** PR [#73](https://github.com/thriller47/moto-gps-waveshare/pull/73) da `test/road-contrast-cleanup-20261104` a `valhalla`; commit merge **`af4afd0ce59ec6bf1172ada7c1e320a53bb779a2`** (GitHub dichiara `merged=true`). L'integrazione include simulatore e replay browser/WebAssembly, ritocchi alle strade di contesto e relative prove Android/native, opzioni di zoom tornanti e subpixel ESP32, manuale e regressioni. PR verificata mergeable clean prima del merge e `valhalla` punta al commit risultante. Branch di test **eliminato automaticamente da GitHub**, ricerca branch conferma assenza.
+
+**Cruciale sulla build:** nel workflow standard per `valhalla` le opzioni `MOTO_ESP_CURVE_ZOOM_EXPERIMENT` e `MOTO_ESP_SUBPIXEL_EXPERIMENT` restano **OFF**. Il firmware sperimentale usato nel test su strada aveva entrambe **ON**, dunque il merge del codice non rende automaticamente uguale il firmware normale. Per riprodurre la variante testata servono flag espliciti; nessuna attivazione silenziosa sulla build di produzione. Test su strada del 9 novembre positivi secondo l'utente: nessun rallentamento visibile e zoom fluido; la disconnessione BLE finale coincide plausibilmente con fine navigazione/stacco seriale, senza prova di regressione.
+
+**Validazione:** CI sperimentale del branch test run [42518522738](https://github.com/thriller47/moto-gps-waveshare/actions/runs/42518522738) verde per Android, native ed ESP32 prima del merge. CI nuova su `valhalla` avviata dal merge, run [42580928199](https://github.com/thriller47/moto-gps-waveshare/actions/runs/42580928199); **in_progress all'ultima verifica**, NON dichiarare verde finché le conclusioni dei job non sono confermate. Questo commit è soltanto documentale e usa `[skip ci]`, non avviare altri workflow.
+
+**Prossima azione:** verificare il completamento della run 42580928199, poi decidere separatamente se attivare i due flag nella build standard solo dopo analisi e richiesta esplicita; mantenere `valhalla` come unico ramo attivo. Nessun nuovo flash né test hardware dopo il merge.
+
+
 ## Riscontro utente dopo test reale — 2026-11-09
 
 **Conferma esplicita:** nessun rallentamento visibile percepito durante il giro reale, incluse le transizioni dello zoom. La disconnessione BLE conclusiva (~07:52:50) coincide approssimativamente con la fine della navigazione o con lo scollegamento del collegamento seriale USB-C, secondo l'utente; **non classificarla come regressione BLE dimostrata** senza test separato. Restano i dati di rendering misurati, ma non giustificano modifiche speculative immediate.
