@@ -1,5 +1,22 @@
 # Moto GPS — Project State
 
+## ESP32: invalidazione LVGL a celle durante il movimento — esperimento 2026-11-09
+
+**Decisione utente:** dopo merge PR #73 (CI verde su `valhalla`, run 42580928199) e prova su strada positiva, avviare un nuovo esperimento isolato di ottimizzazione grafica ESP32, **senza alterare `valhalla`** né la build già provata il 9 novembre.
+
+**Branch:** `test/esp32-map-dirty-tiles-20261109` creato dall'HEAD `valhalla` `0ef6d45c09e6bc91f30a4653f6152c1b1bff1da5`. Modifiche in `shared/nav_ui/src/moto_nav_ui.cpp`, `platforms/esp32/main/CMakeLists.txt`, `tests/native/CMakeLists.txt`, `tests/native/nav_ui_render_tests.cpp`, `.github/workflows/project-build.yml` e manuale `docs/MANUALE_OPERATIVO.md`.
+
+**Ipotesi tecnica, non una causa dimostrata:** `route_motion_tick` ogni ~25 ms invalida `ui.nav_map` per ogni movimento di vertici, anche se cambiano soltanto pochi segmenti. La mappa include ~20 strade di contesto; le misure del 9 novembre indicano ~18,4 FPS mediani, ~3,2 flush/frame, render ~52,6 ms, ma l'utente **non** ha percepito rallentamenti. Ottimizzare solo se non si perde qualità visiva.
+
+**Modifica opt-in:** nuovo flag ESP32 `MOTO_ESP_MAP_DIRTY_TILES_EXPERIMENT` **OFF di default**. Solo sotto questa macro e non per Emscripten, il timer calcola un insieme di celle 4×4 attraversate da ogni segmento cambiato, includendo le posizioni **vecchia e nuova** più margine per lo stroke/ombreggiatura/AA. Chiama `lv_obj_invalidate_area` con coordinate display assolute per le celle coinvolte; se almeno 8/16 celle sono sporche torna automaticamente alla invalidazione `lv_obj_invalidate(ui.nav_map)` originale. I segmenti interamente fuori viewport non richiedono redraw; la creazione/sostituzione di geometria conserva le invalidazioni esistenti. Nessuna variazione ai punti, zoom, timer 25 ms/alpha 0,39, stile, ordinamento verde/grigio, payload BLE o software Android.
+
+**Protezione test:** i test nativi compilano una seconda libreria UI con il flag ON e ripetono la stessa suite framebuffer bit-exact; test aggiuntivo su piccolo movimento controlla area flush inferiore a metà schermo e confronto dei pixel finali con un aggiornamento diretto (assenza di residui). Il workflow ESP32 su `test/*` abilita tutti e tre i flag: `MOTO_ESP_CURVE_ZOOM_EXPERIMENT=ON`, `MOTO_ESP_SUBPIXEL_EXPERIMENT=ON`, `MOTO_ESP_MAP_DIRTY_TILES_EXPERIMENT=ON`. Su `valhalla` i tre flag restano OFF. **La suite e la CI non sono ancora eseguite al momento di questa annotazione**; non dichiarare test superati prima della verifica effettiva. Documentati comandi PowerShell e confronto A/B (flag dirty OFF a parità di zoom/subpixel ON).
+
+**Rischi da verificare:** LVGL può unire le regioni e il guadagno sui percorsi complessi può essere nullo; bordi di celle, linee diagonali, anti-alias e vecchie posizioni potrebbero generare artefatti non catturati dai test sintetici. Hardware, FPS, BLE, memoria, qualità e stabilità in movimento **non sono ancora testati** per il nuovo flag. Non sostituire il firmware validato del 9 novembre finché CI e verifica visuale mirata non siano concluse; rollback = flag dirty OFF mantenendo gli altri flag ON.
+
+**Prossima azione:** attendere la prima CI consolidata del nuovo branch; verificare anche il job nativo della nuova suite grafica. Solo se verde, eseguire A/B con e senza tile invalidation mantenendo identici zoom/subpixel, gli stessi log seriali e il medesimo percorso; nessun merge senza consenso esplicito. `valhalla` invariato.
+
+
 ## Integrazione test in valhalla completata — 2026-11-09
 
 **Merge autorizzato dall'utente ed eseguito:** PR [#73](https://github.com/thriller47/moto-gps-waveshare/pull/73) da `test/road-contrast-cleanup-20261104` a `valhalla`; commit merge **`af4afd0ce59ec6bf1172ada7c1e320a53bb779a2`** (GitHub dichiara `merged=true`). L'integrazione include simulatore e replay browser/WebAssembly, ritocchi alle strade di contesto e relative prove Android/native, opzioni di zoom tornanti e subpixel ESP32, manuale e regressioni. PR verificata mergeable clean prima del merge e `valhalla` punta al commit risultante. Branch di test **eliminato automaticamente da GitHub**, ricerca branch conferma assenza.
