@@ -32,6 +32,43 @@ class RouteProgressMatcherTest {
         assertTrue(b <= a)
     }
 
+    @Test fun trueReverseOnCurrentRoadIsStillDetected() {
+        val tracker = RouteProgressMatcher()
+        tracker.reset(listOf(point(0), point(250), point(500)))
+        tracker.remaining(lat(130), 9.0, 0f, 12f)
+        val reverse = tracker.reverseCandidate(lat(110), 9.0, 180f, 12f)
+        assertNotNull(reverse)
+        assertTrue(reverse!!.distanceMeters < 2.0)
+        assertTrue(reverse.progressDeltaMeters < 0.0)
+        assertNull(tracker.reverseCandidate(lat(110), 9.0, 0f, 12f))
+    }
+
+    @Test fun hairpinParallelRoadDoesNotTriggerFalseReverse() {
+        val tracker = RouteProgressMatcher()
+        tracker.reset(listOf(point(0), point(180), point(180, 12), point(0, 12)))
+        tracker.remaining(lat(70), lon(0), 0f, 12f)
+        assertNull(tracker.reverseCandidate(lat(95), lon(8), 0f, 12f))
+    }
+
+    @Test fun remoteLoopEdgeCannotTriggerReverseNearOldProgress() {
+        val tracker = RouteProgressMatcher()
+        tracker.reset(listOf(point(0), point(150), point(150, 9),
+            point(0, 9), point(0, 25)))
+        tracker.remaining(lat(40), lon(0), 0f, 11f)
+        // The geometrically closest *opposite* segment is hundreds of
+        // metres further into the route, and is not the travelled edge.
+        assertNull(tracker.reverseCandidate(lat(40), lon(9), 180f, 11f))
+    }
+
+    @Test fun reverseRequiresConfirmedSpeedAndProximity() {
+        val tracker = RouteProgressMatcher()
+        tracker.reset(listOf(point(0), point(250)))
+        tracker.remaining(lat(120), 9.0, 0f, 12f)
+        assertNull(tracker.reverseCandidate(lat(110), 9.0, null, 12f))
+        assertNull(tracker.reverseCandidate(lat(110), 9.0, 180f, 2f))
+        assertNull(tracker.reverseCandidate(lat(110), lon(36), 180f, 12f))
+    }
+
     @Test fun offRouteMotionFreezesDistanceUntilReroute() {
         val tracker = RouteProgressMatcher()
         tracker.reset(listOf(point(0), point(500)))
