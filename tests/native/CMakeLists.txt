@@ -68,6 +68,25 @@ if(TARGET lvgl)
   add_executable(nav_ui_render_tests nav_ui_render_tests.cpp)
   target_link_libraries(nav_ui_render_tests PRIVATE moto_nav_ui lvgl)
   target_compile_features(nav_ui_render_tests PRIVATE cxx_std_17)
+
+  # Re-run the same pixel-exact render suite against the ESP32-only dirty
+  # tiles experiment. Independent static UI library: baseline remains unchanged.
+  add_library(moto_nav_ui_dirty_test STATIC
+    "${CMAKE_CURRENT_LIST_DIR}/../../shared/nav_ui/assets/moto_font_nav_16.c"
+    "${CMAKE_CURRENT_LIST_DIR}/../../shared/nav_ui/src/moto_nav_ui.cpp"
+  )
+  target_include_directories(moto_nav_ui_dirty_test PUBLIC
+    "${CMAKE_CURRENT_LIST_DIR}/../../shared/nav_ui/include")
+  target_link_libraries(moto_nav_ui_dirty_test PUBLIC lvgl)
+  target_compile_features(moto_nav_ui_dirty_test PUBLIC cxx_std_17)
+  target_compile_definitions(moto_nav_ui_dirty_test PRIVATE
+    MOTO_ESP_MAP_DIRTY_TILES_EXPERIMENT=1)
+  add_executable(nav_ui_render_dirty_tests nav_ui_render_tests.cpp)
+  target_compile_features(nav_ui_render_dirty_tests PRIVATE cxx_std_17)
+  target_compile_definitions(nav_ui_render_dirty_tests PRIVATE
+    MOTO_UI_DIRTY_TILE_TEST=1)
+  target_link_libraries(nav_ui_render_dirty_tests PRIVATE
+    moto_nav_ui_dirty_test lvgl)
 endif()
 
 add_executable(nav_core_fixture_demo nav_core_fixture_demo.cpp)
@@ -136,6 +155,9 @@ target_compile_features(phone_nav_bridge_tests PRIVATE cxx_std_17)
 add_test(NAME nav_core_tests COMMAND nav_core_tests)
 if(TARGET nav_ui_render_tests)
   add_test(NAME nav_ui_render_tests COMMAND nav_ui_render_tests)
+endif()
+if(TARGET nav_ui_render_dirty_tests)
+  add_test(NAME nav_ui_render_dirty_tests COMMAND nav_ui_render_dirty_tests)
 endif()
 add_test(NAME nav_app_tests COMMAND nav_app_tests)
 add_test(NAME nav_presenter_tests COMMAND nav_presenter_tests)
