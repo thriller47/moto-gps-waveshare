@@ -115,6 +115,15 @@ if(MOTO_ESP_SUBPIXEL_EXPERIMENT)
         MOTO_ESP_SUBPIXEL_EXPERIMENT=1)
 endif()
 
+# Safe A/B experiment: restrict interpolation redraw to swept map tiles.
+# OFF on valhalla; the test branch enables it in its ESP32 CI artifact.
+option(MOTO_ESP_MAP_DIRTY_TILES_EXPERIMENT
+    "Use conservative 4x4 swept tile invalidation for map motion" OFF)
+if(MOTO_ESP_MAP_DIRTY_TILES_EXPERIMENT)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE
+        MOTO_ESP_MAP_DIRTY_TILES_EXPERIMENT=1)
+endif()
+
 # Verified speaker test (Waveshare BSP); only used in GPS-integrated builds.
 option(MOTO_SIGNAL_AUDIO_BOOT_TEST "Run one-shot speaker test with GPS UI" OFF)
 if(MOTO_SIGNAL_AUDIO_BOOT_TEST AND NOT MOTO_SIGNAL_WIFI_LAB_BOOT)
