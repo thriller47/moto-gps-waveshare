@@ -257,12 +257,12 @@ jobs:
           esp_idf_version: v5.5.5
           target: esp32s3
           path: platforms/esp32
-          # On the experimental test branch compile BOTH ESP32 options, so
-          # the CI also type-checks the tiled map invalidation, float geometry and zoom
-          # paths. The production valhalla branch retains its normal build.
+          # Test branches enable FreeRTOS ESP_TIMER runtime stats only in the
+          # experimental image, plus the dirty-map, subpixel, zoom, and logger
+          # flags. Production valhalla keeps default sdkconfig and code flags.
           command: >-
             ${{ startsWith(github.ref, 'refs/heads/test/') &&
-                'idf.py set-target esp32s3 && idf.py -DMOTO_ESP_CURVE_ZOOM_EXPERIMENT=ON -DMOTO_ESP_SUBPIXEL_EXPERIMENT=ON -DMOTO_ESP_MAP_DIRTY_TILES_EXPERIMENT=ON build' ||
+                'idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.perf.defaults" set-target esp32s3 && idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.perf.defaults" -DMOTO_ESP_CURVE_ZOOM_EXPERIMENT=ON -DMOTO_ESP_SUBPIXEL_EXPERIMENT=ON -DMOTO_ESP_MAP_DIRTY_TILES_EXPERIMENT=ON -DMOTO_ESP_PERF_TELEMETRY_EXPERIMENT=ON build' ||
                 'idf.py set-target esp32s3 && idf.py build' }}
 
       - name: Rename output binary
