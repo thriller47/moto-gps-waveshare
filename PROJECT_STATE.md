@@ -1,5 +1,16 @@
 # Moto GPS — Project State
 
+## CI completata: invalidazione mappa a celle — 2026-11-09
+
+**Stato finale:** run GitHub Actions [42583747480](https://github.com/thriller47/moto-gps-waveshare/actions/runs/42583747480), commit di codice `3acb07ea5c127aa5714953c542d52fbe5adeb736` su `test/esp32-map-dirty-tiles-20261109`: `detect-changes`, `native`, `android`, `esp32` tutti **success**. **14/14 CTest** superati, incluso `nav_ui_render_dirty_tests` che esegue tutti i test framebuffer con ottimizzazione ON e il controllo della regione ridisegnata. La suite browser JS non mostra regressioni. Dal log ESP32 è verificata la compilazione esp32s3 ESP-IDF 5.5.5 con `-DMOTO_ESP_CURVE_ZOOM_EXPERIMENT=ON -DMOTO_ESP_SUBPIXEL_EXPERIMENT=ON -DMOTO_ESP_MAP_DIRTY_TILES_EXPERIMENT=ON` e `Project build complete`. Artifact ESP32 `ESP32-Firmware-EXPERIMENTAL` id `13658487256`, pubblicato con scadenza 12 novembre 2026; APK non necessario per il test di solo rendering.
+
+**Nota sulla politica CI:** la prima run [42583604564](https://github.com/thriller47/moto-gps-waveshare/actions/runs/42583604564), commit `84ebdad`, risultò verde ma compilò **solo native**, poiché il filtro per path considerava l'ultimo commit che toccava i test. È stato necessario un successivo commit mirato sul codice condiviso per attivare tutte le verifiche: **non affermare che ci sia stata una sola run**, ma una sola run finale completa di native/Android/ESP32. Evitare ulteriori run senza nuovi motivi.
+
+**Nessuna validazione hardware** della nuova tile invalidation: non presumere un miglioramento FPS, assenza di micro-scatti o qualità grafica garantita dal solo CI. Il firmware di riferimento sulla moto rimane quello testato il 9 novembre con zoom+subpixel ON, dirty tiles OFF. `valhalla` invariato e nessun merge autorizzato per questo esperimento. Aggiornamento solo documentale `[skip ci]`.
+
+**Prossima azione concreta:** con dispositivo fermo, usare l'artifact sperimentale per prova con USB Terminal/PC, registrando `display perf` e confrontando con la baseline 18,4 FPS mediani / 3,2 flush/frame. Prima di autorizzare un merge, ripetere se possibile lo stesso percorso e cercare eventuali scie nei passaggi di zoom, rotatorie e ricalcoli. Rollback via vecchia immagine o build con `MOTO_ESP_MAP_DIRTY_TILES_EXPERIMENT=OFF` e gli altri due flag ON.
+
+
 ## ESP32: invalidazione LVGL a celle durante il movimento — esperimento 2026-11-09
 
 **Decisione utente:** dopo merge PR #73 (CI verde su `valhalla`, run 42580928199) e prova su strada positiva, avviare un nuovo esperimento isolato di ottimizzazione grafica ESP32, **senza alterare `valhalla`** né la build già provata il 9 novembre.
