@@ -264,6 +264,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     private val locationFixFilter = LocationFixFilter()
     private val routeDistanceGuard = RouteDistanceGuard()
     private val routeProgressMatcher = RouteProgressMatcher()
+    private val rerouteStability = RerouteStabilityPolicy()
     private var lastLocationTimeMs: Long = 0L
     private var lastFixElapsedMs: Long = 0L
     private var lastFixAccuracyM: Float = Float.POSITIVE_INFINITY
@@ -397,6 +398,10 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         _routePreviewError.value = null
         _hasArrived.value = false
         arrivalDetector.reset()
+        rerouteStability.reset()
+        lastRecalculationTime = 0L
+        offRouteFixCount = 0
+        offRouteFirstFixMs = 0L
 
         navigationJob?.cancel()
         DiagnosticLog.event("ROUTE_START", "begin stops=${_routeWaypoints.value.size}")
@@ -565,6 +570,10 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         turnPlan = ValhallaTurnGuidance.Plan(0.0, emptyList())
         routeDistanceGuard.reset()
         routeProgressMatcher.reset()
+        rerouteStability.reset()
+        lastRecalculationTime = 0L
+        offRouteFixCount = 0
+        offRouteFirstFixMs = 0L
 
         val stopSnapshot = MotoBLENavigationSnapshot(
             stateName = "idle",
@@ -1188,32 +1197,23 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
 
         // Do not mistake distance to the destination for distance to the route.
         var distanceFromRoute = Double.POSITIVE_INFINITY
-        var nearestSegment = -1
         for (i in 1 until points.size) {
             val distance = distanceToSegmentMeters(
                 latitude, longitude, points[i - 1], points[i])
             if (distance < distanceFromRoute) {
                 distanceFromRoute = distance
-                nearestSegment = i
             }
         }
-        val now = System.currentTimeMillis()
-        val bearingIsFresh = SystemClock.elapsedRealtime() -
-            lastReliableGpsBearingMs in 0L..3_000L
-        val reverseCourse = if (nearestSegment > 0 && bearingIsFresh) {
-            val from = points[nearestSegment - 1]
-            val to = points[nearestSegment]
-            RouteDirectionPolicy.isOpposite(
-                lastReliableGpsBearing,
-                calculateBearingDeg(
-                    from.latitudeE6 / 1e6, from.longitudeE6 / 1e6,
-                    to.latitudeE6 / 1e6, to.longitudeE6 / 1e6),
-                lastGpsSpeedMs, distanceFromRoute,
-                calculateDistanceMeters(
-                    from.latitudeE6 / 1e6, from.longitudeE6 / 1e6,
-                    to.latitudeE6 / 1e6, to.longitudeE6 / 1e6)
-            )
-        } else false
+        val now = SystemClock.elapsedRealtime()
+        val bearingIsFresh = now - lastReliableGpsBearingMs in 0L..3_000L
+        // Unlike the closest edge of the entire polyline, this candidate
+        // stays near the matched route progress and rejects ambiguous parallel
+        // or crossing edges that also match the current travel direction.
+        val reverseCandidate = routeProgressMatcher.reverseCandidate(
+            latitude, longitude,
+            if (bearingIsFresh) lastReliableGpsBearing else null,
+            lastGpsSpeedMs)
+        val reverseCourse = reverseCandidate != null
         // Moving in the opposite direction on the same road is not the same
         // as following the route. Require repeated fixes before rerouting,
         // to reject brief compass/GNSS errors on sharp bends.
@@ -1235,6 +1235,16 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         if (offRouteFixCount < minimumFixes ||
             now - offRouteFirstFixMs < minimumDurationMs) return
 
+        // New routes may initially snap onto the wrong nearby OSM edge.
+        // Hold reverse-only triggers briefly after accepting a reroute;
+        // substantial (>=100m) departures are never blocked.
+        if (rerouteStability.shouldDefer(
+                now, latitude, longitude, distanceFromRoute, !farFromRoute)) {
+            offRouteFixCount = 0
+            offRouteFirstFixMs = 0L
+            return
+        }
+
         // The public FOSSGIS online endpoint is a fair-use demo service:
         // leave more breathing room than the local embedded Valhalla graph.
         val usesOnline = lastRoutingProvider == "valhalla-online" ||
@@ -1242,7 +1252,8 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         val cooldownMs = if (usesOnline) 15_000L else 8_000L
         if (now - lastRecalculationTime < cooldownMs) return
         DiagnosticLog.event("REROUTE",
-            "trigger off_route_m=${distanceFromRoute.toInt()} reverse=$reverseCourse speed_mps=$lastGpsSpeedMs")
+            "trigger off_route_m=${distanceFromRoute.toInt()} reverse=$reverseCourse speed_mps=$lastGpsSpeedMs " +
+                "match_delta_m=${reverseCandidate?.progressDeltaMeters?.toInt() ?: -999}")
         lastRecalculationTime = now
         offRouteFixCount = 0
         offRouteFirstFixMs = 0L
@@ -1262,9 +1273,14 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                     "success provider=${lastRoutingProvider.orEmpty()} route_m=${snapshot.totalDistanceM}")
                 routeDistanceGuard.reset()
                 routeProgressMatcher.reset(geometry?.points.orEmpty())
-                val refreshed = updateManeuverAndDistance(latitude, longitude)
+                // The IO reroute may have taken seconds. Never initialise a
+                // new geometry using the old trigger fix.
+                val (acceptedLat, acceptedLon) = currentLocation.value
+                val refreshed = updateManeuverAndDistance(acceptedLat, acceptedLon)
                     ?: snapshot
                 currentSnapshot = refreshed
+                rerouteStability.accepted(
+                    SystemClock.elapsedRealtime(), acceptedLat, acceptedLon)
                 _routingSource.value = lastRoutingProvider
                 if (geometry != null) sendNearbyRouteGeometry(geometry)
                 bleManager.sendNavigationSnapshot(refreshed)
