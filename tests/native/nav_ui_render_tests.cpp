@@ -623,6 +623,8 @@ void test_small_motion_invalidates_only_swept_tiles() {
   const auto partial = flush_area_pixels;
   CHECK(frame_hash() != before);
   CHECK(partial > 0);
+  // Conservative bound: even with tile rounding, updating this small
+  // polyline must touch less than half a screen of RGB565 pixels.
   CHECK(partial < static_cast<std::uint64_t>(kWidth) * kHeight / 2);
 
   // After easing settles, refreshing the *entire* screen must produce exactly
