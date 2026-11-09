@@ -1,5 +1,12 @@
 # Moto GPS — Project State
 
+## Riscontro utente dopo test reale — 2026-11-09
+
+**Conferma esplicita:** nessun rallentamento visibile percepito durante il giro reale, incluse le transizioni dello zoom. La disconnessione BLE conclusiva (~07:52:50) coincide approssimativamente con la fine della navigazione o con lo scollegamento del collegamento seriale USB-C, secondo l'utente; **non classificarla come regressione BLE dimostrata** senza test separato. Restano i dati di rendering misurati, ma non giustificano modifiche speculative immediate.
+
+**Decisione operativa:** preservare la build sperimentale corrente come baseline del test su strada; nessun intervento su LVGL/BLE, nessuna nuova CI e nessun merge in `valhalla` senza accordo. Prossima azione: continuare i test funzionali sul campo o, se richiesto, impostare un A/B isolato del subpixel per verificare il costo grafico senza compromettere la fluidità percepita.
+
+
 ## Prima prova su strada ESP32 sperimentale: conferma fluidità/zoom — 2026-11-09
 
 **Riscontro utente:** test reale del mattino positivo: «sembra ok, anche la fluidità nello zoom». Firmware del branch `test/road-contrast-cleanup-20261104` con `MOTO_ESP_CURVE_ZOOM_EXPERIMENT=ON` e `MOTO_ESP_SUBPIXEL_EXPERIMENT=ON`; nessuna richiesta di cambio firmware, nessun merge in `valhalla`.
