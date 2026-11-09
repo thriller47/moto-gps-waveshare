@@ -33,6 +33,11 @@ object ReplayTraceRecorder {
     private var partStartedAtMs = 0L
     private var partIndex = 0
     private var partFile: File? = null
+    // Carry the last visible route, scene and snapshot into every new part.
+    // Otherwise a file opened on its own could start without map context.
+    private var lastRouteEvent: String? = null
+    private var lastSceneEvent: String? = null
+    private var lastSnapshotEvent: String? = null
 
     fun isRecording(): Boolean = active
 
@@ -59,6 +64,9 @@ object ReplayTraceRecorder {
                 sessionWallMs = capturedWallMs
                 partIndex = 0
                 partFile = null
+                lastRouteEvent = null
+                lastSceneEvent = null
+                lastSnapshotEvent = null
                 startPart(0L)
             } catch (e: Exception) {
                 fail(id, e)
@@ -82,7 +90,13 @@ object ReplayTraceRecorder {
             .put("captured_at_ms", sessionWallMs + elapsedMs)
             .put("part_index", partIndex)
             .put("session_elapsed_ms", elapsedMs)
-        file.writeText(header.toString() + "\n")
+        val prefix = StringBuilder(header.toString()).append('\n')
+        // Every part can be replayed independently, including one starting
+        // halfway through a curve or immediately before a reroute.
+        for (event in listOfNotNull(lastRouteEvent, lastSceneEvent, lastSnapshotEvent)) {
+            prefix.append(JSONObject(event).put("t_ms", 0L).toString()).append('\n')
+        }
+        file.writeText(prefix.toString())
         partFile = file
     }
 
@@ -116,6 +130,13 @@ object ReplayTraceRecorder {
                     line = data.toString() + "\n"
                 }
                 file.appendText(line)
+                // Update the replay context only after the event was
+                // successfully written, never from a discarded queue entry.
+                when (data.optString("type")) {
+                    "route" -> lastRouteEvent = data.toString()
+                    "scene" -> lastSceneEvent = data.toString()
+                    "snapshot" -> lastSnapshotEvent = data.toString()
+                }
             } catch (e: Exception) {
                 fail(id, e)
             }
