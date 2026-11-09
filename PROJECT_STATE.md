@@ -1,5 +1,12 @@
 # Moto GPS — Project State
 
+## Manuale del simulatore aggiornato per valhalla — 2026-11-09
+
+**Richiesta utente:** il simulatore va utilizzato dal branch principale `valhalla` dopo il merge PR #73; le vecchie istruzioni che richiedevano il branch eliminato `test/road-contrast-cleanup-20261104` erano obsolete. Aggiornati `docs/MANUALE_OPERATIVO.md` (capitolo 8) e `platforms/web/simulator/README.md`: comandi WSL `cd ~/MotoGPS/moto-gps-waveshare`, `git switch valhalla`, `git pull --ff-only origin valhalla`, submodule, `source ~/emsdk/emsdk_env.sh`, `./scripts/build_web.sh`; server HTTP in un secondo terminale e `Ctrl+F5` in Chrome. Distinte le modifiche JavaScript-only (senza rebuild WASM) dai cambi C++ (con rebuild). Conservati i dettagli storici delle prove con avviso per non utilizzare comandi di branch eliminati; aggiornata la sezione ESP32 per distinguere i flag OFF su `valhalla` dall'ottimizzazione LVGL ancora isolata su branch test.
+
+**Portata:** solo Markdown, nessuna modifica al codice o alla configurazione delle build. Test di compilazione e browser **non ripetuti** per la modifica documentale; CI del merge `valhalla` [42580928199](https://github.com/thriller47/moto-gps-waveshare/actions/runs/42580928199) già confermata verde (native/Android/ESP32). Commit documentale `[skip ci]` senza nuova CI. L'esperimento attivo `test/esp32-map-dirty-tiles-20261109` rimane intatto e non viene unito. **Prossima azione:** l'utente aggiorna il checkout WSL di `valhalla` e lancia il simulatore seguendo il manuale; verificare i risultati nel browser se emergono problemi.
+
+
 ## Integrazione test in valhalla completata — 2026-11-09
 
 **Merge autorizzato dall'utente ed eseguito:** PR [#73](https://github.com/thriller47/moto-gps-waveshare/pull/73) da `test/road-contrast-cleanup-20261104` a `valhalla`; commit merge **`af4afd0ce59ec6bf1172ada7c1e320a53bb779a2`** (GitHub dichiara `merged=true`). L'integrazione include simulatore e replay browser/WebAssembly, ritocchi alle strade di contesto e relative prove Android/native, opzioni di zoom tornanti e subpixel ESP32, manuale e regressioni. PR verificata mergeable clean prima del merge e `valhalla` punta al commit risultante. Branch di test **eliminato automaticamente da GitHub**, ricerca branch conferma assenza.
