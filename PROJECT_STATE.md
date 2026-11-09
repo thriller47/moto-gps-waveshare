@@ -1,5 +1,16 @@
 # Moto GPS — Project State
 
+## CI VERDE — logger CPU0/CPU1 e LVGL ESP32 — 2026-11-09
+
+**Risultato verificato:** run GitHub Actions [42604538068](https://github.com/thriller47/moto-gps-waveshare/actions/runs/42604538068), HEAD codice `07f8a1bb33c885cc7858fac8c5be2d06b8824029`. Job ESP32 **success**, build `Project build complete` con i flag `MOTO_ESP_CURVE_ZOOM_EXPERIMENT=ON`, `MOTO_ESP_SUBPIXEL_EXPERIMENT=ON`, `MOTO_ESP_MAP_DIRTY_TILES_EXPERIMENT=ON` e `MOTO_ESP_PERF_TELEMETRY_EXPERIMENT=ON`. Usato `SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.perf.defaults"`, che fornisce runtime stats ESP_TIMER, contatore a 64 bit e campo affinità CoreID. Artifact **ESP32-Firmware-EXPERIMENTAL**, id `13668285642`, scadenza **12 novembre 2026 alle 10:58 UTC**. Nessun flash o test hardware già eseguito per questo firmware.
+
+**Test complementari:** run [42603035656](https://github.com/thriller47/moto-gps-waveshare/actions/runs/42603035656) aveva completato con successo **15/15 native CTest**, test JavaScript e Android, ma era fallita solo la compilazione ESP32: in IDF 5.5 il campo `TaskStatus_t.xCoreID` non è compilato se non è abilitato `CONFIG_FREERTOS_VTASKLIST_INCLUDE_COREID`. Corretti `sdkconfig.perf.defaults` e guardia esplicita `#error` nel modulo; la run successiva 42604538068 verifica ESP32. In quest'ultima run native e Android sono **skipped** per filtro path: non presentarli come job ripetuti e verdi nello stesso run. Una run intermedia 42602867184 (solo Android) era stata cancellata dalla concorrenza; è stato corretto anche il filtro `project-build.yml` per verificare native ed ESP32 quando cambia il workflow.
+
+**Ambito:** branch `test/esp32-map-dirty-tiles-20261109`; `valhalla` intatto. Il logger seriale `CORE_PERF` campiona ogni cinque secondi i tempi dei task e CPU0/1 e rende visibile il proprio costo `sample_us`; NON è una misura esatta degli ISR/DMA né dice per-core dove si è eseguito un task non pinned. Telemetria assente dalla build standard. Manuale aggiornato con comandi PowerShell e procedura del test.
+
+**Prossima azione concreta:** salvare l'artifact prima della scadenza, installare **solo se si vuole provare** questa versione su ESP32; prima test a dispositivo fermo e controllo che compaiano `CORE_PERF` ogni 5 s, `NAV_EXP` e `display perf`; se stabile, stesso giro con log USB seriale + replay Android `.jsonl` + ZIP. Confrontare 18,4 FPS e 3,2 flush/frame mediani della baseline del 9 novembre, e controllare `sample_us`/task LVGL/CPU0/CPU1. Nessun merge prima di verifica hardware e autorizzazione.
+
+
 ## Logging FreeRTOS dual-core per esperimento map tiles — 2026-11-09
 
 **Autorizzato dall'utente:** aggiungere al ramo `test/esp32-map-dirty-tiles-20261109` una telemetria CPU0/CPU1 e task nello stesso giro in cui si testerà il nuovo rendering LVGL, senza cambiare codice di produzione `valhalla`, trasporto BLE o routing.
