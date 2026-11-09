@@ -54,7 +54,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     private var lastBackPressTime = 0L
     private var foregroundLocationCallback: ((Location) -> Unit)? = null
     private var diagnosticMode by mutableStateOf(0)
-    private var replayRecording by mutableStateOf(false)
+    private var replayRecording by mutableStateOf(ReplayTraceRecorder.isRecording())
     private val diagnosticTimeoutHandler = Handler(Looper.getMainLooper())
     private val diagnosticTimeout = Runnable { diagnosticMode = 0 }
 
@@ -87,7 +87,8 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 val uri = FileProvider.getUriForFile(this, "$packageName.diagnostics", file)
                 runOnUiThread {
                     val send = Intent(Intent.ACTION_SEND).apply {
-                        type = "application/x-ndjson"
+                        type = if (file.extension.equals("zip", ignoreCase = true))
+                            "application/zip" else "application/x-ndjson"
                         putExtra(Intent.EXTRA_STREAM, uri)
                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     }
