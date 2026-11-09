@@ -527,7 +527,8 @@ Con Emscripten attivo in PowerShell Windows si può compilare anche con emcmake 
 
 **Confronto tornanti (8 novembre, correzione scatti):** sul replay reale delle 12:10:50, il rilevatore geometrico raggiunge 3× ma l'utente ha osservato una riduzione prematura a metà tornante e movimento a scatti. In questa versione sperimentale la finestra geometrica dopo il vertice è estesa da 40 a 95 metri e il player limita a circa 8 aggiornamenti al secondo il **solo grafico velocità/cronologia secondaria**, lasciando la mappa LVGL aggiornata a ogni frame GPS. Confrontare OFF/ON sullo stesso tratto, e controllare la rotatoria 4×. I miglioramenti visivi sono **ancora da verificare nel browser**; non sono abilitati nel firmware ESP32.
 
-**Ripartenza WSL verificabile:** dalla cartella `~/MotoGPS/moto-gps-waveshare` eseguire `git switch test/road-contrast-cleanup-20261104`, `git pull --ff-only origin test/road-contrast-cleanup-20261104`, `source ~/emsdk/emsdk_env.sh`, `./scripts/build_web.sh`. Se il server è già attivo non riavviarlo: fare `Ctrl+F5` nel browser dopo la build. Se è spento, avviarlo con `python3 -m http.server 4173 --directory .`; per arrestarlo usare `Ctrl+C` nella finestra WSL che lo ospita. URL Windows: `http://127.0.0.1:4173/platforms/web/simulator/index.html`. Se la porta è occupata verificare prima che non sia rimasto un server attivo, invece di aprirne un secondo.
+**Ripartenza WSL verificabile:** dalla cartella `~/MotoGPS/moto-gps-waveshare` eseguire `git switch test/road-contrast-cleanup-20261104`, `git switch valhalla
+git pull --ff-only origin valhalla`, `source ~/emsdk/emsdk_env.sh`, `./scripts/build_web.sh`. Se il server è già attivo non riavviarlo: fare `Ctrl+F5` nel browser dopo la build. Se è spento, avviarlo con `python3 -m http.server 4173 --directory .`; per arrestarlo usare `Ctrl+C` nella finestra WSL che lo ospita. URL Windows: `http://127.0.0.1:4173/platforms/web/simulator/index.html`. Se la porta è occupata verificare prima che non sia rimasto un server attivo, invece di aprirne un secondo.
 
 **Secondo intervento (8 novembre, da collaudare):** dopo la seconda prova l'utente riferisce ancora mappa a scatti e zoom terminato prima della fine del tornante. La sola estensione della finestra 40→95 m non ha risolto. La nuova sperimentazione conserva il valore zoom riconosciuto durante l'attraversamento e lo rilascia in base alla **distanza effettivamente percorsa** (prima 55 m di mantenimento, poi 80 m di riduzione) anche se la finestra GPS/rotta verde cambia. Il player Web interpola il movimento fra snapshot registrati compatibili a non più di 25 Hz; evita interpolazioni per salto GPS >35 m, intervallo >1,5 s, cambio rotta/scena o stato. Le funzioni sono **solo per il simulatore** e la riproduzione frame per frame conserva il dato originale. Non confondere la fluidità del replay interpolato con una misurazione degli FPS hardware. Ripetere il medesimo confronto ON/OFF alle 12:10:50–12:12:30 e verificare che la rotatoria raggiunga ancora 4×. Ricompilazione WASM e ricaricamento Ctrl+F5 necessari.
 
@@ -538,7 +539,8 @@ Con Emscripten attivo in PowerShell Windows si può compilare anche con emcmake 
 **Nuova diagnostica ciclo LVGL (8 novembre, solo browser):** l'utente riferisce ancora scatti con replay `48–64 WASM/s` dopo l'eliminazione del limite 25 Hz. Viene aggiunto sotto i numeri JS un secondo riquadro «Diagnostica ciclo LVGL», che mostra `handler/s`, durata media e massima di `lv_timer_handler()` in millisecondi e numero di intervalli del ciclo oltre 50 ms. È **il ciclo LVGL**, non il numero effettivo di flush SDL/immagini mostrate a schermo; un valore vicino a 60 handler/s non prova che la GPU presenti 60 immagini distinte. Poiché la modifica include C++ WebAssembly, per vedere il riquadro con dati validi **ricompilare**:
 ```bash
 cd ~/MotoGPS/moto-gps-waveshare
-git pull --ff-only origin test/road-contrast-cleanup-20261104
+git switch valhalla
+git pull --ff-only origin valhalla
 source ~/emsdk/emsdk_env.sh
 ./scripts/build_web.sh
 ```
@@ -552,12 +554,14 @@ Lasciare in esecuzione il server `python3 -m http.server 4173 --directory .` se 
 
 **Seconda correzione refresh WebAssembly (8 novembre):** con timer display a 15 ms il test utente ha registrato `60 RAF/s · 62 WASM/s · 0,1 ms medi · 0,9 ms max · 0 ritardi` e `60 handler/s · 45 render/s · 45 flush/s · 0,9 ms medi · 1,4 ms max · 0 ritardi`, con cali render/flush anche a ~25. Quindi il refresh a 15 ms ha migliorato 30→45 render/s ma rimangono occasionali scadenze perse fra il timer LVGL e `requestAnimationFrame` del browser. **Nuovo esperimento, solo simulatore:** la `frame()` in `platforms/web/wasm/main_web.cpp` marca esplicitamente pronto (`lv_timer_ready`) il timer di refresh del display ottenuto da `lv_display_get_refr_timer` prima di `lv_timer_handler`, una volta per RAF. Ciò sincronizza la richiesta di refresh al browser, senza toccare la configurazione condivisa di ESP32 e senza garantire un flush quando la scena non è invalidata. **Ricompilare WASM** dopo `git pull`: `source ~/emsdk/emsdk_env.sh && ./scripts/build_web.sh`; `Ctrl+F5` nel browser, riprovare alle 12:10:50 a 1× e riportare diagnosi e sensazione visiva. Non modificato l'algoritmo dei tornanti. Test visuale ancora da eseguire.
 
-**Eliminazione doppio orologio di interpolazione (8 novembre):** feedback dopo `lv_timer_ready`: scatti ridotti ma persistenti; `60 RAF/s · 33 WASM/s · 0,1 ms medi · 0,4 ms max · 0 ritardi` e `60 handler/s · 31 render/s · 31 flush/s · 0,7 ms medi · 1,7 ms max · 0 ritardi`, con render e WASM che oscillano da ~33 a 60. Il simulatore usava ancora un limitatore separato `now-lastMotionPaint<14` per interpolare il GPS: il secondo orologio poteva tagliare interi RAF quando la cadenza del browser non rispettava quella soglia. Rimosso il filtro: durante Play ora si tenta una interpolazione per ogni RAF. Nella diagnostica replay compaiono `interp/s` (interpolazioni valide) e `senza interp` (RAF senza arco GPS interpolabile); se il secondo resta alto significa che il registrato non consente una posizione nuova senza inventarla, non un problema di flush. Nessuna modifica a C++/WASM, zoom o firmware in questa iterazione: **basta `git pull --ff-only origin test/road-contrast-cleanup-20261104` e `Ctrl+F5`**, mantenendo aperto il server locale. Ripetere a 1× il tratto 12:10:50–12:12:30. Non dichiarare risolti gli scatti prima del test visivo.
+**Eliminazione doppio orologio di interpolazione (8 novembre):** feedback dopo `lv_timer_ready`: scatti ridotti ma persistenti; `60 RAF/s · 33 WASM/s · 0,1 ms medi · 0,4 ms max · 0 ritardi` e `60 handler/s · 31 render/s · 31 flush/s · 0,7 ms medi · 1,7 ms max · 0 ritardi`, con render e WASM che oscillano da ~33 a 60. Il simulatore usava ancora un limitatore separato `now-lastMotionPaint<14` per interpolare il GPS: il secondo orologio poteva tagliare interi RAF quando la cadenza del browser non rispettava quella soglia. Rimosso il filtro: durante Play ora si tenta una interpolazione per ogni RAF. Nella diagnostica replay compaiono `interp/s` (interpolazioni valide) e `senza interp` (RAF senza arco GPS interpolabile); se il secondo resta alto significa che il registrato non consente una posizione nuova senza inventarla, non un problema di flush. Nessuna modifica a C++/WASM, zoom o firmware in questa iterazione: **basta `git switch valhalla
+git pull --ff-only origin valhalla` e `Ctrl+F5`**, mantenendo aperto il server locale. Ripetere a 1× il tratto 12:10:50–12:12:30. Non dichiarare risolti gli scatti prima del test visivo.
 
 **Prova fluidità movimento mappa (8 novembre, sperimentale):** l'ultimo replay è risultato `60 RAF/s · 65 WASM/s · 0,1 ms medi · 0,2 ms max · 0 ritardi · 61 interp/s · 0 senza interp`, ma il ciclo grafico ha mostrato `60 handler/s · 45 render/s · 45 flush/s · 1,0 ms medi · 1,6 ms max · 0 ritardi`. Una registrazione video di 39 secondi mostra che i cambi di posizione della mappa non sono sempre regolari. Nel codice della UI condivisa è presente un **secondo timer di movimento** `route_motion_tick` a 25 ms, distinto dal refresh del display già allineato a RAF. Sulla compilazione WebAssembly del solo branch test quel timer è ora impostato a 1 ms, perché viene esaminato una volta per callback LVGL (~60 Hz, non genera 1000 esecuzioni/s), e il fattore di interpolazione passa da `0,39` a `0,28` per conservare circa la stessa costante di smorzamento nel tempo. Sull'ESP32 restano **25 ms e 0,39**, senza cambiare alcuna firma API, BLE, routing o zoom. I vertici grafici sono tuttora quantizzati a pixel interi, quindi `render/s` può rimanere inferiore a 60 anche con un movimento regolare; non usare i soli FPS come prova di fluidità. **Ricompilare WebAssembly** dopo l'aggiornamento del branch e ricaricare Chrome (`Ctrl+F5`):
 ```bash
 cd ~/MotoGPS/moto-gps-waveshare
-git pull --ff-only origin test/road-contrast-cleanup-20261104
+git switch valhalla
+git pull --ff-only origin valhalla
 source ~/emsdk/emsdk_env.sh
 ./scripts/build_web.sh
 ```
@@ -570,7 +574,8 @@ La nuova riga **Movimento mappa (solo WASM)** confronta `bersagli/s` (variazioni
 **Ricompilazione obbligatoria** per le nuove funzioni di diagnostica C++/WASM:
 ```bash
 cd ~/MotoGPS/moto-gps-waveshare
-git pull --ff-only origin test/road-contrast-cleanup-20261104
+git switch valhalla
+git pull --ff-only origin valhalla
 source ~/emsdk/emsdk_env.sh
 ./scripts/build_web.sh
 ```
@@ -581,24 +586,30 @@ Lasciare avviato il server `python3 -m http.server 4173 --directory .` dalla rad
 Ricompilare WASM perché cambiano C++ e struct della build web:
 ```bash
 cd ~/MotoGPS/moto-gps-waveshare
-git pull --ff-only origin test/road-contrast-cleanup-20261104
+git switch valhalla
+git pull --ff-only origin valhalla
 source ~/emsdk/emsdk_env.sh
 ./scripts/build_web.sh
 ```
 Dopo `Ctrl+F5`, ripetere lo stesso tratto a 1×. Nella riga `Movimento mappa` i `bersagli/s` misurano ora anche le variazioni subpixel del primo vertice verde; `movimenti pixel/s` indica i tick di modifica dei punti grafici, **non** presentazioni reali GPU né cambi di pixel interi. Registrare una nuova prova per confrontare fluidità e tempi LVGL prima di accettare la modifica. Il test native protegge la precedente quantizzazione a pixel interi e l'allineamento percorso/contesto su ESP32.
 
-**Firmware ESP32 sperimentale (8 novembre 2026):** sul branch `test/road-contrast-cleanup-20261104` sono disponibili due opzioni CMake **OFF di default**. `MOTO_ESP_CURVE_ZOOM_EXPERIMENT` abilita il rilevatore di tornanti con mantenimento 55 m + rilascio 80 m già testato nel simulatore. `MOTO_ESP_SUBPIXEL_EXPERIMENT` conserva anche i 216 vertici frazionari `float` nella UI ESP32 (circa **1.728 byte aggiuntivi** nel presenter). Non vengono modificati BLE, cadenza IMU 40 Hz, timer UI 25 ms, zoom manovra fino a 4× e layout.
+**Firmware ESP32 — zoom/subpixel validati su strada, 9 novembre 2026:** le due opzioni `MOTO_ESP_CURVE_ZOOM_EXPERIMENT` e `MOTO_ESP_SUBPIXEL_EXPERIMENT` sono disponibili in `valhalla` ma restano **OFF di default**. L'ESP32 provato il 9 novembre (zoom fino a 4× e nessun rallentamento percepito) aveva entrambe ON; le due opzioni non modificano BLE, routing o timer del movimento UI a 25 ms.
 
-**PowerShell Windows** (dopo aver attivato ESP-IDF 5.5.6 con `moto`, sul checkout del branch sperimentale):
+**Nuovo esperimento di ottimizzazione (solo `test/esp32-map-dirty-tiles-20261109`):** il terzo flag `MOTO_ESP_MAP_DIRTY_TILES_EXPERIMENT` (OFF per impostazione predefinita) limita le invalidazioni LVGL **durante il movimento interpolato** alle celle della mappa attraversate dalle vecchie e nuove linee, con margine per antialiasing e ombra. Se almeno metà delle 16 celle cambia, il codice usa la stessa invalidazione completa precedente. Le modifiche alle scene/ai percorsi rimangono sul percorso originale. Esperimento A/B: non è ancora validato su hardware e non va confuso con la precedente prova positiva.
+
+**PowerShell Windows** (ESP-IDF 5.5.6 già attivo con `moto`, dal checkout nella radice del repository):
 ```powershell
-git switch test/road-contrast-cleanup-20261104
-git pull --ff-only origin test/road-contrast-cleanup-20261104
+git fetch origin
+git switch test/esp32-map-dirty-tiles-20261109
+git pull --ff-only origin test/esp32-map-dirty-tiles-20261109
 cd platforms/esp32
-idf.py -DMOTO_ESP_CURVE_ZOOM_EXPERIMENT=ON -DMOTO_ESP_SUBPIXEL_EXPERIMENT=ON build
+idf.py -DMOTO_ESP_CURVE_ZOOM_EXPERIMENT=ON -DMOTO_ESP_SUBPIXEL_EXPERIMENT=ON -DMOTO_ESP_MAP_DIRTY_TILES_EXPERIMENT=ON build
 ```
-Per provarle separatamente impostare una delle due opzioni a `OFF`. I valori CMake rimangono nella cartella build: **per tornare alla versione normale** compilare esplicitamente con entrambe `OFF` (eventualmente `idf.py fullclean` se la cache è incoerente). In CI, sul branch test entrambe sono ON e l'artifact è `ESP32-Firmware-EXPERIMENTAL`. Sul branch `valhalla` restano OFF e l'artifact conserva il nome `ESP32-Firmware`.
+Per confrontare **la stessa configurazione del 9 novembre**, mantenere zoom e subpixel ON e cambiare soltanto `-DMOTO_ESP_MAP_DIRTY_TILES_EXPERIMENT=OFF` (ricompilare). Confrontare sullo **stesso percorso** i valori seriali `board_waveshare: display perf` (FPS veri, rendering ms, flush/frame), non il solo `NAV_EXP hz`, che misura la task. Il flusso USB Terminal e la raccolta replay Android restano invariati. Evitare l'uso del telefono durante la guida.
 
-Nel monitor seriale `idf.py -p COM3 monitor` controllare all'avvio `ESP NAV EXPERIMENT curve=1 subpixel=1`; durante la navigazione appare ogni ~5 secondi `NAV_EXP render=... hz=... projection_avg=...us max=...us lock_max=...us zoom_x100=... int_free=... psram_free=...`. `render/hz` indica **frame della task**, non flush o FPS AMOLED. Confrontare memoria, fluidità, BLE e latenza; lasciare disattivata la diagnostica persistente durante il test (in passato provocava blocchi). Firmware da validare con flash e prova fisica prima di qualsiasi merge.
+I valori delle opzioni restano nella cache CMake: per ritornare alla build **standard valhalla** impostare esplicitamente tutti e tre i flag a OFF (oppure pulire la configurazione) e ricompilare. Nella CI del branch test tutte e tre sono ON e l'artifact è `ESP32-Firmware-EXPERIMENTAL`; nella CI di `valhalla` restano OFF e l'artifact si chiama `ESP32-Firmware`. Verificare prima la CI e poi l'hardware, senza effettuare merge automatico.
+
+Nel monitor seriale `idf.py -p COM3 monitor` l'intestazione `ESP NAV EXPERIMENT curve=1 subpixel=1` conferma i primi due flag, **non il terzo**: per verificarlo controllare i parametri di build. La riga `NAV_EXP render=... hz=... projection_avg=...us max=...us lock_max=...us zoom_x100=...` misura la task e non i frame effettivamente visualizzati.
 **Riprodurre:** caricare il file JSONL, usare play/pausa, frame precedente/successivo, cursore, velocità 0,25–4×, gli **eventi cliccabili** e il grafico di velocità per raggiungere subito tappa, rotatorie, cambi rotta e arrivo. Lo zoom mostrato accanto alla manovra riproduce il calcolo attuale del presenter. "Esempio sintetico" serve soltanto a verificare l'interfaccia: non è una mappa OSM reale. La funzione PNG può dipendere dal framebuffer WebGL. Il player non ricalcola Valhalla o il selettore MotoMap: per cambiare i punteggi delle strade servirà una seconda modalità con anche le candidate non selezionate. I precedenti ZIP senza geometrie non si possono riprodurre come mappe fedeli.
 
 Guida completa: platforms/web/simulator/README.md. La vecchia platforms/web/shell/index.html resta la demo storica e non il nuovo banco prova.
