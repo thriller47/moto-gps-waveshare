@@ -605,6 +605,22 @@ git pull --ff-only origin test/esp32-map-dirty-tiles-20261109
 cd platforms/esp32
 idf.py -DMOTO_ESP_CURVE_ZOOM_EXPERIMENT=ON -DMOTO_ESP_SUBPIXEL_EXPERIMENT=ON -DMOTO_ESP_MAP_DIRTY_TILES_EXPERIMENT=ON build
 ```
+### Nuova telemetria CPU0 / CPU1 per il prossimo giro (9 novembre, solo branch test)
+
+L'artifact `ESP32-Firmware-EXPERIMENTAL` di questo branch, dopo la compilazione della nuova versione, include un campionamento seriale **ogni 5 secondi**: `CORE_PERF CPU0 CPU1 UI LVGL BLE sample_us` e `TOP1/TOP2/TOP3`. I due carichi CPU sono stimati dal tempo di inattività dei rispettivi task IDLE; la quota degli altri task è riferita ai 5 secondi di osservazione, non all'intera capacità dei due core. `aff-1` significa che un task non è fissato a un core, **non** che il carico sia negativo. La durata `sample_us` misura quanto la lettura dello stato FreeRTOS sospende brevemente lo scheduler; intervalli anomali o peggioramenti visibili devono far interrompere la prova del logger. ISR e trasferimenti DMA non vengono isolati da questa statistica.
+
+La telemetria è **disattivata nelle build standard**. Per compilarla manualmente su Windows PowerShell, con ambiente ESP-IDF 5.5.6 già attivato dal comando `moto` e dopo il `git pull` del branch sperimentale:
+
+```powershell
+cd C:\MotoGPS\moto-gps-waveshare\platforms\esp32
+idf.py '-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.perf.defaults' set-target esp32s3
+idf.py '-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.perf.defaults' -DMOTO_ESP_CURVE_ZOOM_EXPERIMENT=ON -DMOTO_ESP_SUBPIXEL_EXPERIMENT=ON -DMOTO_ESP_MAP_DIRTY_TILES_EXPERIMENT=ON -DMOTO_ESP_PERF_TELEMETRY_EXPERIMENT=ON build
+```
+
+Il file `sdkconfig.perf.defaults` integra, **senza sostituirlo**, `sdkconfig.defaults`; abilita le statistiche FreeRTOS con orologio ESP_TIMER a 1 MHz e contatore uint64. `set-target` ricrea `sdkconfig`: fare attenzione a eventuali modifiche locali non salvate. Per ripristinare una build davvero standard bisogna rimuovere le opzioni runtime stats dalla precedente configurazione (reconfigure pulito / fullclean), usare soltanto `sdkconfig.defaults` e disattivare i flag CMake.
+
+**Raccolta durante il test:** collegare USB Terminal o `idf.py monitor`, salvare l'intero log dall'accensione al termine del percorso, conservando insieme le righe `CORE_PERF`, `NAV_EXP` (proiezione/lock/zoom), `display perf` (FPS/render/flush) e, separatamente, il replay GPS Android `.jsonl` e lo ZIP diagnostico. **Prima fare 2–3 minuti da fermo**: se si notano scatti, disconnessioni o valori `sample_us` insolitamente elevati, interrompere il test sperimentale e tornare al firmware già validato. Non interagire con il telefono mentre si guida; lasciare OFF la diagnostica persistente, che aveva causato freeze in passato.
+
 Per confrontare **la stessa configurazione del 9 novembre**, mantenere zoom e subpixel ON e cambiare soltanto `-DMOTO_ESP_MAP_DIRTY_TILES_EXPERIMENT=OFF` (ricompilare). Confrontare sullo **stesso percorso** i valori seriali `board_waveshare: display perf` (FPS veri, rendering ms, flush/frame), non il solo `NAV_EXP hz`, che misura la task. Il flusso USB Terminal e la raccolta replay Android restano invariati. Evitare l'uso del telefono durante la guida.
 
 I valori delle opzioni restano nella cache CMake: per ritornare alla build **standard valhalla** impostare esplicitamente tutti e tre i flag a OFF (oppure pulire la configurazione) e ricompilare. Nella CI del branch test tutte e tre sono ON e l'artifact è `ESP32-Firmware-EXPERIMENTAL`; nella CI di `valhalla` restano OFF e l'artifact si chiama `ESP32-Firmware`. Verificare prima la CI e poi l'hardware, senza effettuare merge automatico.
