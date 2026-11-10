@@ -1,5 +1,6 @@
 #include "phone_nav_bridge.h"
 #include "phone_nav_bridge_test_probe.hpp"
+#include "moto_nav_ui_test_probe.hpp"
 #include "demo_fixture/jinan_big_data_demo.hpp"
 
 #include <atomic>
