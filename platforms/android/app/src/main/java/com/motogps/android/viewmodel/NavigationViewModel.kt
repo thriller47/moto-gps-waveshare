@@ -1358,6 +1358,10 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager) : ViewModel()
                 Log.w("NavigationVM", "Local Valhalla unavailable: $localError")
             }
         }
+        // The second attempt is deliberately offline-only. Never turn an
+        // anomalous local reroute into a long public-server request.
+        if (strictBearing) throw IllegalStateException(
+            "Nessuna rotta offline disponibile con partenza orientata")
         return try {
             val result = OnlineValhallaRouter.route(
                 originLat, originLon, place.latitude, place.longitude, isReroute, bearing,
