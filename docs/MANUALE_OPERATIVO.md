@@ -3,7 +3,7 @@
 **Riferimento:** repository thriller47/moto-gps-waveshare, branch principale **valhalla**. 
 **Scheda:** Waveshare ESP32-S3-Touch-AMOLED-1.75C, 32 MB flash, 8 MB PSRAM.
 **Porta negli esempi:** **COM3**. I blocchi sono etichettati **PowerShell** o **CMD**: usare la shell indicata. 
-**Aggiornato:** 6 novembre 2026 (primo simulatore browser e registratore GPS privato sperimentali). Controllare prima PROJECT_STATE.md e AGENTS.md.
+**Aggiornato:** 10 novembre 2026 (matcher validato su strada e strumenti diagnostici integrati in `valhalla`). Controllare prima PROJECT_STATE.md e AGENTS.md.
 
 > **Attenzione:** il branch main è stato eliminato; signal resta solo come storico OSM online. Non usare né main né NoOta come base. Effettuare il flash soltanto con immagini della scheda 1.75C.
 
@@ -502,7 +502,40 @@ Il separatore `|` mantiene gli spazi nel nome rete: ad esempio `wifi set Hotspot
 
 ## 8. Simulatore browser Windows e registrazione GPS Android
 
-**Branch corrente:** il simulatore browser (anteprima 2D e renderer reale LVGL/WebAssembly) è integrato su **`valhalla`** dalla PR #73. Le correzioni ai ricalcoli Android e la registrazione GPS senza limite complessivo sono invece ancora sul branch **`test/esp32-map-dirty-tiles-20261109`**, da verificare prima del merge. Non usare il branch `test/road-contrast-cleanup-20261104`, ormai eliminato.
+**Stato attuale (10 novembre 2026):** simulatore, registrazione GPS senza limite complessivo e correzioni matcher/ricalcolo verificati su strada sono integrati in **`valhalla`** tramite PR #73 e PR #74. Non utilizzare i branch di test completati o eliminati per il normale utilizzo. Le prove sulla rotatoria multi-way disallineata di ~11 m rimangono aperte.
+
+### Avviare o aggiornare il simulatore — WSL Ubuntu (procedura attuale)
+
+
+Con Emscripten/emcmake installati in `~/emsdk` e il repository già presente in WSL, eseguire da **WSL Ubuntu** (non da PowerShell):
+
+```bash
+cd ~/MotoGPS/moto-gps-waveshare
+git switch valhalla
+git pull --ff-only origin valhalla
+git submodule update --init --recursive
+source ~/emsdk/emsdk_env.sh
+command -v emcmake
+./scripts/build_web.sh
+```
+
+Lo script compila il runtime C++/LVGL in `platforms/web/shell/runtime/moto-gps-device.js` e `moto-gps-device.wasm`. **Non serve ripetere l'installazione di Emscripten** a ogni avvio; `source ~/emsdk/emsdk_env.sh` attiva la toolchain nella shell WSL corrente.
+
+**Server HTTP locale:** se è già in esecuzione, lasciarlo attivo. Altrimenti, in **un secondo terminale WSL**, dalla radice dello stesso checkout:
+
+```bash
+cd ~/MotoGPS/moto-gps-waveshare
+python3 -m http.server 4173 --directory .
+```
+
+Aprire in Chrome/Edge su Windows: **http://127.0.0.1:4173/platforms/web/simulator/index.html**. Dopo un aggiornamento o una build, premere **Ctrl+F5** per evitare file JavaScript/WASM in cache. Il server si arresta con `Ctrl+C` nel terminale in cui gira. Se la porta 4173 risulta occupata, verificare prima che il server precedente sia ancora attivo, invece di avviarne un secondo.
+
+**Quando ricompilare:** se sono cambiati file C++/LVGL/NavPresenter oppure manca il runtime, eseguire `source ~/emsdk/emsdk_env.sh` e `./scripts/build_web.sh` dopo il pull. Per modifiche **solo JavaScript/HTML** del simulatore basta `git pull --ff-only origin valhalla` e `Ctrl+F5` (non è necessario ricompilare WASM).
+
+**Anteprima senza compilatore:** su Windows si può aprire direttamente `platforms\web\simulator\index.html`. Senza runtime comparirà `ANTEPRIMA 2D · NON LVGL`: mostra percorsi, scene e zoom, ma non riproduce esattamente il rendering dell'ESP32. Per utilizzare **LVGL reale** aprire l'URL HTTP sopra; `file://` non è sufficiente per caricare correttamente il runtime WASM.
+
+**Alternativa PowerShell nativa (non verificata sul PC):** con Emscripten Windows attivo è possibile tentare `emcmake cmake -S . -B build/web -DMOTO_BUILD_WEB=ON -DMOTO_BUILD_TESTS=OFF`, `cmake --build build/web --parallel` e `py -m http.server 4173`. La procedura verificata dall'utente resta **WSL Ubuntu**.
+
 
 ### 8.1. Ricostruire il simulatore su un altro PC Windows/WSL (PC lavoro da 8 GB)
 

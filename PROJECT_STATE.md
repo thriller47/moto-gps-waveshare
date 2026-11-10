@@ -1,5 +1,18 @@
 # Moto GPS — Project State
 
+## Integrazione del branch di test in valhalla — 2026-11-10
+
+**PR #74:** integrazione autorizzata dall'utente dopo il successo dei 11 ricalcoli reali e della CI Android/native/ESP32 sul branch test. Risolto il conflitto documentale incorporando le istruzioni WSL/checkout `valhalla` del commit 39ac380d (9 novembre) e le nuove procedure PC da 8GB, diagnostica rotatorie e matcher. L'integrazione dei commit test include anche vari esperimenti prestazionali ESP32, ma **le opzioni CMake specifiche del branch test restano disattivate sul branch stabile**: nessuna prova hardware di quei flag è implicita nel merge. Rotatoria multi-way con scarto ~11m ancora aperta. Documentazione operativa aggiornata per checkout stabile e simulatore. Non includere log GPS o video originali in repository. **Verifica successiva:** CI sul merge in `valhalla` e diagnosi topologia MotoMap/Valhalla della rotatoria.
+
+## Manuale del simulatore aggiornato per valhalla — 2026-11-09
+
+**Richiesta utente:** il simulatore va utilizzato dal branch principale `valhalla` dopo il merge PR #73; le vecchie istruzioni che richiedevano il branch eliminato `test/road-contrast-cleanup-20261104` erano obsolete. Aggiornati `docs/MANUALE_OPERATIVO.md` (capitolo 8) e `platforms/web/simulator/README.md`: comandi WSL `cd ~/MotoGPS/moto-gps-waveshare`, `git switch valhalla`, `git pull --ff-only origin valhalla`, submodule, `source ~/emsdk/emsdk_env.sh`, `./scripts/build_web.sh`; server HTTP in un secondo terminale e `Ctrl+F5` in Chrome. Distinte le modifiche JavaScript-only (senza rebuild WASM) dai cambi C++ (con rebuild). Conservati i dettagli storici delle prove con avviso per non utilizzare comandi di branch eliminati; aggiornata la sezione ESP32 per distinguere i flag OFF su `valhalla` dall'ottimizzazione LVGL ancora isolata su branch test.
+
+**Portata:** solo Markdown, nessuna modifica al codice o alla configurazione delle build. Test di compilazione e browser **non ripetuti** per la modifica documentale; CI del merge `valhalla` [42580928199](https://github.com/thriller47/moto-gps-waveshare/actions/runs/42580928199) già confermata verde (native/Android/ESP32). Commit documentale `[skip ci]` senza nuova CI. L'esperimento attivo `test/esp32-map-dirty-tiles-20261109` rimane intatto e non viene unito. **Prossima azione:** l'utente aggiorna il checkout WSL di `valhalla` e lancia il simulatore seguendo il manuale; verificare i risultati nel browser se emergono problemi.
+
+
+
+
 ## Verifica reale del matcher dopo fix e 11 ricalcoli — 2026-11-10
 
 **Riscontro utente:** «Bug ricalcolo risolto. Ho provato a metterlo in difficoltà e ha sempre indicato la strada giusta». Prova su strada successiva al commit Android `e55806636dcc5a43e43dbbef1fc3b8b75b07c7d0`, sul branch `test/esp32-map-dirty-tiles-20261109`. Tracce e diagnostiche private fornite per verifica, NON committate: `motogps-replay-parts.zip` (2 JSONL) e `motogps-android-diagnostics.zip`. GitHub Actions run `42845442751`: **success**; correzione validata anche dall'utente su strada, non soltanto dalla CI.
