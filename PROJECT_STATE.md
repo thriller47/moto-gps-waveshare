@@ -1,5 +1,10 @@
 # Moto GPS — Project State
 
+## Rotatoria a due corsie: sovrapposizione dell'anello esterno — 2026-11-10
+
+**Nuovo dettaglio riferito dall'utente:** la prima rotatoria è ampia, a **due corsie**, e la moto percorre l'**anello esterno**. Di conseguenza lo scarto di ~11m fra geometria OSM selezionata e linea verde non prova l'esistenza di un bypass e la precedente patch `f17657b` (soglia ~7m) può introdurre un falso negativo. **Correzione nel medesimo branch sperimentale `test/roundabout-topology-20261110`:** mantiene l'allineamento ravvicinato entro 7m; per la corsia esterna ammette fino a 16m soltanto con almeno 18m di rotta parallela, due archi OSM distinti coerenti e variazione del bearing della rotta >=28°, restituendo la lunghezza effettiva come `forwardRouteOverlapM`. Un bypass rettilineo e una curva che costeggia solo un arco non devono guadagnare il bonus. La selezione conserva il cerchio grigio completo e le uscite senza deformare la linea verde. **Test aggiunti:** corsia esterna curva a ~11-12m e bypass curvo lungo un solo lato; restano i test precedenti di anello percorso e bypass rettilineo. **Limite:** è un criterio per l'assegnazione di priorità di visualizzazione, non una prova cartografica della reale geometria Valhalla/OSM né una soluzione garantita dello scarto in pixel. Matcher, router, BLE, ESP32, zoom e import MotoMap invariati. **Validazione:** CI Android finale e test reale ancora da eseguire. **Prossima azione:** installare APK sperimentale solo dopo CI verde e testare le due rotatorie consecutive; controllare `route_overlap_m` e anello disegnato.
+
+
 
 ## Rotatoria multi-way / bypass: focus che distingue vicinanza da percorrenza — 2026-11-10
 

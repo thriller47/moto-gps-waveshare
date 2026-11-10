@@ -162,6 +162,34 @@ class RoadContextJunctionsTest {
         assertTrue(focus.confidence < 120)
     }
 
+    @Test fun outerLaneCurveOfWideRoundaboutEarnsRingBonus() {
+        // A wider two-lane roundabout: the route follows a parallel outer
+        // sweep, up to ~12m away from the OSM ring's centreline. Its shape
+        // bends around the ring over two connected arcs.
+        val outerLane = listOf(
+            p(-140, -10), p(120, 270), p(380, -10)
+        )
+        val focus = RoadContextJunctions.find(
+            multipleWays() + exitA + exitB,
+            45.00012, 8.00024, p(120, 270), outerLane)!!
+        assertTrue("Outer curved lane must be associated with ring",
+            focus.forwardRouteOverlapM >= 12.0)
+        assertTrue("Outer lane must earn forward ring score", focus.confidence >= 120)
+        assertEquals(2, focus.exits.size)
+    }
+
+    @Test fun curvedBypassOutsideRingMustNotEarnBonusWithoutTwoArcTracking() {
+        // A bend only tangent to a single side of a ring is not a roundabout
+        // traversal. The generous outer-lane allowance must not turn this
+        // into an on-route ring.
+        val bypass = listOf(p(450, -600), p(440, 0), p(450, 600))
+        val focus = RoadContextJunctions.find(
+            multipleWays() + exitA + exitB,
+            45.00023, 8.00043, p(440, 0), bypass)!!
+        assertTrue(focus.forwardRouteOverlapM < 12.0)
+        assertTrue(focus.confidence < 120)
+    }
+
     @Test fun routeFollowingRingArcEarnsOnRouteBonus() {
         val actualArc = listOf(p(-100, 0), p(0, 0), p(120, 120),
             p(240, 0), p(450, 0))

@@ -57,10 +57,22 @@ internal object RoadContextJunctions {
         }
 
 
-        /** Metres of route running along the ring, not merely crossing near it. */
+        /**
+         * Forward route alignment with a ring.
+         * Within 7m, the existing tangent-overlap rule is enough. For the
+         * outer lane of a wide two-lane roundabout (up to 16m away), require a
+         * genuine BEND on the green route AND alignment with at least two
+         * different ring arcs. A nearby straight bypass must not count.
+         *
+         * Only used to rank grey context; never moves the Valhalla route.
+         */
         fun forwardOverlap(points: List<GeoPointE6>, route: List<GeoPointE6>): Double {
-            if (points.size < 2 || route.size < 2) return 0.0
-            var overlap = 0.0
+            if (points.size < 3 || route.size < 2) return 0.0
+            var closeOverlap = 0.0
+            var outerOverlap = 0.0
+            val outerRingEdges = HashSet<Int>()
+            var firstOuterHeading: Double? = null
+            var lastOuterHeading: Double? = null
             for (i in 0 until route.lastIndex) {
                 val a = route[i]
                 val b = route[i + 1]
@@ -75,7 +87,8 @@ internal object RoadContextJunctions {
                         (a.latitudeE6 + (b.latitudeE6 - a.latitudeE6) * t).toInt(),
                         (a.longitudeE6 + (b.longitudeE6 - a.longitudeE6) * t).toInt()
                     )
-                    var matched = false
+                    var closest = Double.POSITIVE_INFINITY
+                    var matchedEdge = -1
                     for (j in 0 until points.lastIndex) {
                         val first = points[j]
                         val last = points[j + 1]
@@ -84,16 +97,37 @@ internal object RoadContextJunctions {
                         if (ringLength < 0.7) continue
                         val alignment = kotlin.math.abs(
                             (rx * sx + ry * sy) / (routeLength * ringLength))
-                        if (alignment >= 0.72 &&
-                            segmentSquared(middle, first, last) <= 49.0) {
-                            matched = true
-                            break
+                        if (alignment < 0.72) continue
+                        val distanceSquared = segmentSquared(middle, first, last)
+                        if (distanceSquared < closest) {
+                            closest = distanceSquared
+                            matchedEdge = j
                         }
                     }
-                    if (matched) overlap += chunkLength
+                    if (closest <= 49.0) {
+                        closeOverlap += chunkLength
+                    }
+                    if (matchedEdge >= 0 && closest <= 256.0) {
+                        outerOverlap += chunkLength
+                        outerRingEdges.add(matchedEdge)
+                        val heading = kotlin.math.atan2(ry, rx)
+                        if (firstOuterHeading == null) firstOuterHeading = heading
+                        lastOuterHeading = heading
+                    }
                 }
             }
-            return overlap
+            if (closeOverlap >= MIN_FORWARD_RING_OVERLAP_M) return closeOverlap
+            // The route must actually turn while tracking distinct arcs,
+            // not just pass within 16m of an unrelated straight approach.
+            val first = firstOuterHeading
+            val last = lastOuterHeading
+            val turnDegrees = if (first != null && last != null)
+                kotlin.math.abs(Math.toDegrees(kotlin.math.atan2(
+                    kotlin.math.sin(last - first),
+                    kotlin.math.cos(last - first))))
+            else 0.0
+            return if (outerOverlap >= 18.0 && outerRingEdges.size >= 2 &&
+                turnDegrees >= 28.0) outerOverlap else closeOverlap
         }
 
         /** Ring-to-forward-route distance and progress. Never infers OSM connectivity. */
