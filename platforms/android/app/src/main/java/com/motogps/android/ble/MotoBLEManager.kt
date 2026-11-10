@@ -64,7 +64,7 @@ class MotoBLEManager(private val context: Context) {
     @Volatile private var handshakeState = HandshakeState.IDLE
     private var currentSessionId: Long = 0L
 
-    private var isScanning = false
+    @Volatile private var isScanning = false
     // One bounded retry for the ESP32's remote-termination (GATT 19) during
     // the initial handshake. A successful Ready frame resets the allowance.
     private var initialConnectRetries = 0
