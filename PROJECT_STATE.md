@@ -1,5 +1,16 @@
 # Moto GPS — Project State
 
+## PC lavoro 8 GB: installazione WSL/Emscripten e compilazione WASM — 2026-11-10
+
+**Richiesta dell'utente:** conservare nel manuale operativo il ripristino del repository in WSL Ubuntu e l'installazione Emscripten, inclusa la diagnosi/recupero dell'arresto della compilazione al 53% con `Killed` / `Error 137`. **Branch lavoro:** `test/esp32-map-dirty-tiles-20261109`; branch stabile `valhalla` invariato.
+
+**Manuale aggiornato:** `docs/MANUALE_OPERATIVO.md`, capitolo **8.1**. Istruzioni PowerShell `wsl -l -v` / Ubuntu 24.04, pacchetti Ubuntu, `~/MotoGPS/moto-gps-waveshare` via clone branch test con submodule (e percorso alternativo per checkout preesistente), installazione `~/emsdk` / `./emsdk install latest` / `activate` / `source emsdk_env.sh`, build Emscripten CMake con singolo job `cmake --build build/web --parallel 1`, verifica `.js/.wasm`, controllo RAM/swap/`dmesg`, ripresa incrementale senza cancellare `build/web`, variante `%USERPROFILE%\.wslconfig` con 5GB RAM WSL, 2 CPU e 8GB swap (solo se il singolo job fallisce; richiede `wsl --shutdown`), server `python3 -m http.server 4173 --directory .`, riavvio `Ctrl+C` + stesso comando e `Ctrl+F5` Chrome/Edge. Distinti i comandi PowerShell Windows da Bash Ubuntu; segnalata la natura sperimentale dello swap.
+
+**Evidenza effettivamente disponibile:** l'utente ha confermato `emcc 7.0.0` nel nuovo WSL sul PC del lavoro; la compilazione è arrivata al 53% e due processi CC sono stati terminati con exit 137. OOM è l'ipotesi principale (non diagnosi confermata tramite `dmesg`/free). **Non è stato ancora verificato** il completamento della compilazione con `--parallel 1`, l'aumento swap, la presenza dei file di runtime o l'avvio del simulatore sul PC del lavoro.
+
+**Modifiche:** sola documentazione, `docs/MANUALE_OPERATIVO.md` e questo file; nessuna modifica a script, sorgenti Android/native/ESP32, firmware, routing, BLE, MotoMap o configurazioni utente. **Test eseguiti dall'assistente:** controllo statico incrociato fra manuale e `scripts/build_web.sh` (lo script usa `cmake --build ... --parallel` senza numero di job); nessun test Gradle, CMake o build WASM eseguito. Nessuna CI necessaria per commit esclusivamente Markdown (workflow con `paths-ignore` su `**.md`). **Prossima azione concreta:** ricevere output `cmake --build build/web --parallel 1` e, se necessario, `free -h` e `swapon --show`, per certificare la procedura e poi riprodurre nel simulatore il bug delle 13:34–13:35.
+
+
 ## Reroute 12:14 — controllo direzione di partenza Valhalla (sperimentale) — 2026-11-10
 
 **Branch:** `test/esp32-map-dirty-tiles-20261109`. **Motivazione:** durante il giro pomeridiano il ricalcolo delle 12:14:18 mostrava sul display una partenza nella direzione opposta a quella della moto, con velocità ~42 km/h; successivi ricalcoli erano corretti. Replay GPS, diagnostica e seriale originali sono PRIVATI e non vanno committati. Nel giro era presente una tappa intermedia obbligatoria ancora pendente; un vero ritorno verso una tappa non deve essere silenziosamente eliminato.
