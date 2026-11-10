@@ -13,7 +13,8 @@ internal object ValhallaRouteLocations {
     fun build(
         fromLat: Double, fromLon: Double, toLat: Double, toLon: Double,
         stops: List<Pair<Double, Double>> = emptyList(),
-        rerouting: Boolean = false, bearing: Float? = null
+        rerouting: Boolean = false, bearing: Float? = null,
+        strictBearing: Boolean = false
     ): JSONArray {
         require(stops.size <= MAX_STOPS) { "Troppe tappe" }
         fun point(lat: Double, lon: Double): JSONObject {
@@ -30,8 +31,8 @@ internal object ValhallaRouteLocations {
             // Default Valhalla radius=0 considers only the closest edge;
             // nearby parallel/one-way carriageways need candidate search.
             departure.put("heading", degrees)
-                .put("heading_tolerance", 35)
-                .put("radius", 35)
+                .put("heading_tolerance", if (strictBearing) 15 else 35)
+                .put("radius", if (strictBearing) 65 else 35)
         }
         val locations = JSONArray().put(departure)
         stops.forEach { locations.put(point(it.first, it.second)) }
