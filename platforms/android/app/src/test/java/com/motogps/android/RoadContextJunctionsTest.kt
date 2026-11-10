@@ -136,8 +136,10 @@ class RoadContextJunctionsTest {
             listOf(812, 821))
         val roads = listOf(ring, exitA, exitB, remoteRing, remoteA, remoteB)
         val nearRoute = listOf(p(-80, 0), p(0, 0), p(2400, 0))
+        // The farther ring is exactly on the upcoming probe. Its score
+        // matches the local ring's, but the local next maneuver must win.
         val analysis = RoadContextJunctions.analyze(roads,
-            44.99992, 8.0, p(900, 0), nearRoute)
+            44.99992, 8.0, p(offset + 120, 0), nearRoute)
         assertTrue(analysis.qualified >= 2)
         assertEquals(ring, analysis.focus?.ring)
         assertTrue(analysis.focus!!.gpsDistanceM < 35.0)
