@@ -37,6 +37,7 @@ internal object OfflineValhallaRouter {
         travelBearingDegrees: Float? = null,
         preferences: RoutePreferences = RoutePreferences(),
         waypoints: List<Pair<Double, Double>> = emptyList(),
+        strictBearing: Boolean = false,
     ): JSONObject? {
         val tiles = tileFile(context)
         if (!tiles.isFile || tiles.length() == 0L) return null
@@ -51,7 +52,7 @@ internal object OfflineValhallaRouter {
         val request = JSONObject()
             .put("locations", ValhallaRouteLocations.build(
                 originLat, originLon, destinationLat, destinationLon,
-                waypoints, isReroute, travelBearingDegrees))
+                waypoints, isReroute, travelBearingDegrees, strictBearing))
             .put("costing", "auto")
             .put("shape_format", "polyline6")
             .put("directions_options", JSONObject().put("units", "kilometers").put("language", "it-IT"))
