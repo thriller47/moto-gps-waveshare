@@ -36,6 +36,7 @@ import com.motogps.android.location.LocationForegroundService
 import com.motogps.android.ui.NavigationScreen
 import com.motogps.android.viewmodel.NavigationViewModel
 import com.motogps.android.viewmodel.NavigationViewModelFactory
+import com.motogps.android.viewmodel.NavigationReconnectPolicy
 
 class MainActivity : ComponentActivity(), SensorEventListener {
     private lateinit var bleManager: MotoBLEManager
@@ -54,7 +55,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     private var lastBackPressTime = 0L
     private var foregroundLocationCallback: ((Location) -> Unit)? = null
     private var diagnosticMode by mutableStateOf(0)
-    private var replayRecording by mutableStateOf(false)
+    private var replayRecording by mutableStateOf(ReplayTraceRecorder.isRecording())
     private val diagnosticTimeoutHandler = Handler(Looper.getMainLooper())
     private val diagnosticTimeout = Runnable { diagnosticMode = 0 }
 
@@ -87,7 +88,8 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 val uri = FileProvider.getUriForFile(this, "$packageName.diagnostics", file)
                 runOnUiThread {
                     val send = Intent(Intent.ACTION_SEND).apply {
-                        type = "application/x-ndjson"
+                        type = if (file.extension.equals("zip", ignoreCase = true))
+                            "application/zip" else "application/x-ndjson"
                         putExtra(Intent.EXTRA_STREAM, uri)
                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     }
@@ -103,14 +105,15 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     }
 
     private val viewModel: NavigationViewModel by viewModels {
-        NavigationViewModelFactory(bleManager)
+        // Keep the same BLE manager as the retained ViewModel across rotation.
+        NavigationViewModelFactory(applicationContext)
     }
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
         if (permissions.all { it.value }) {
-            bleManager.startScan()
+            if (!bleManager.hasActiveConnectionOrScan()) bleManager.startScan()
             startLocationUpdates()
         } else {
             Toast.makeText(this, "Permessi necessari per la connessione BLE e GPS", Toast.LENGTH_LONG).show()
@@ -140,11 +143,11 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             magnetometerSensor = sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)
         }
 
-        bleManager = MotoBLEManager(this).apply {
+        bleManager = viewModel.bleManager.apply {
             onConnectionStateChange = { state ->
                 DiagnosticLog.event("BLE_LINK", state)
                 viewModel.setConnectionState(state)
-                if (!state.contains("Connesso", ignoreCase = true)) {
+                if (!NavigationReconnectPolicy.isReady(state)) {
                     diagnosticTimeoutHandler.removeCallbacks(diagnosticTimeout)
                     diagnosticMode = 0
                 }
@@ -269,7 +272,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                         viewModel.searchDestination(query)
                     },
                     onConnectRequest = {
-                        checkPermissionsAndScan()
+                        checkPermissionsAndScan(forceScan = true)
                     },
                     connectionState = connectionState,
                     isLoading = isLoading,
@@ -345,7 +348,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         checkPermissionsAndScan()
     }
 
-    private fun checkPermissionsAndScan() {
+    private fun checkPermissionsAndScan(forceScan: Boolean = false) {
         val permissions = mutableListOf(
             Manifest.permission.ACCESS_FINE_LOCATION,
             Manifest.permission.ACCESS_COARSE_LOCATION
@@ -363,7 +366,11 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         }
 
         if (missingPermissions.isEmpty()) {
-            bleManager.startScan()
+            // Automatic startup must not disconnect an already-live session
+            // after Activity recreation. An explicit Connect request may rescan.
+            if (forceScan || !bleManager.hasActiveConnectionOrScan()) {
+                bleManager.startScan()
+            }
             startLocationUpdates()
         } else {
             requestPermissionLauncher.launch(missingPermissions.toTypedArray())
@@ -392,7 +399,8 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         }
         foregroundLocationCallback = null
         diagnosticTimeoutHandler.removeCallbacks(diagnosticTimeout)
-        if (::bleManager.isInitialized) bleManager.close()
+        // The retained ViewModel owns GATT and releases it from onCleared().
+        // A display rotation destroys the Activity, not the navigation session.
         if (isFinishing) {
             stopService(Intent(this, LocationForegroundService::class.java))
         }

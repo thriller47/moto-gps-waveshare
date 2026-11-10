@@ -565,9 +565,28 @@ fun NavigationScreen(
             onDismissRequest = { showDiagnosticsDialog = false },
             title = { Text("Diagnostica ESP32") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("OFF per la navigazione ordinaria. BASE registra eventi critici, DEBUG include rendering e BLE. Solo PSRAM: nessuna scrittura flash. Spegnimento automatico dopo 60 minuti.")
-                    Text("Registrazione GPS per simulatore: contiene coordinate, percorso e strade. Rimane sul telefono finché non la esporti. Max 60 minuti / 24 MB. Disattivata per impostazione predefinita.")
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("Diagnostica ESP32: OFF per l'uso normale, BASE per eventi critici, DEBUG per rendering e BLE. Solo PSRAM, disattivazione automatica dopo 60 minuti.")
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        for ((mode, label) in listOf(0 to "OFF", 1 to "BASE", 2 to "DEBUG")) {
+                            OutlinedButton(
+                                onClick = {
+                                    onDiagnosticModeChange(mode)
+                                    showDiagnosticsDialog = false
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text((if (diagnosticMode == mode) "✓ " else "") + label, maxLines = 1)
+                            }
+                        }
+                    }
+                    Text("Registrazione GPS privata per simulatore: continua finché non la fermi, suddividendo automaticamente il tracciato in file ogni 30 minuti o circa 12 MB. Esporta un .jsonl singolo o uno ZIP con tutte le parti. La memoria del telefono deve essere sufficiente; il registratore è disattivato per impostazione predefinita.")
                     OutlinedButton(onClick = { onReplayRecordingChange(!replayRecording) },
                         modifier = Modifier.fillMaxWidth()) {
                         Text(if (replayRecording) "■ Ferma registrazione GPS"
@@ -575,19 +594,7 @@ fun NavigationScreen(
                     }
                     OutlinedButton(onClick = { onExportReplay() },
                         modifier = Modifier.fillMaxWidth()) {
-                        Text("Esporta tracciato simulatore (.jsonl)")
-                    }
-                    Text("Diagnostica ESP32 (indipendente dalla registrazione GPS):")
-                    for ((mode, label) in listOf(0 to "OFF", 1 to "BASE", 2 to "DEBUG")) {
-                        OutlinedButton(
-                            onClick = {
-                                onDiagnosticModeChange(mode)
-                                showDiagnosticsDialog = false
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text((if (diagnosticMode == mode) "✓ " else "") + label)
-                        }
+                        Text("Esporta tracciato simulatore (.jsonl / ZIP)")
                     }
                 }
             },

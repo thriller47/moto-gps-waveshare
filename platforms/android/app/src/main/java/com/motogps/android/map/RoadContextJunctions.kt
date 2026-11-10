@@ -276,7 +276,13 @@ internal object RoadContextJunctions {
             val (routeGap, routeAlong) = if (routeTrusted)
                 metric.forwardMatch(points, route)
             else Double.POSITIVE_INFINITY to Double.POSITIVE_INFINITY
-            val forwardRing = routeGap <= 32.0 && routeAlong in 35.0..500.0
+            // Preserve the ring right at the next maneuver: once the rider is
+            // within 35m along the green route, the old 35m lower bound
+            // dropped its +28 forward bonus and a later ring could win.
+            // Only a physically nearby (<70m) circle gets that exception;
+            // distant/behind candidates cannot keep claiming the focus.
+            val forwardRing = routeGap <= 32.0 && routeAlong in 0.0..500.0 &&
+                (routeAlong >= 35.0 || gpsDistance <= 70.0)
             if (gpsDistance > 270.0 && aheadDistance > 180.0 && !forwardRing) {
                 reject("far")
                 return
@@ -333,10 +339,22 @@ internal object RoadContextJunctions {
                 choices.connectedWays, choices.distinctBranches,
                 routeGap, routeAlong)
             val previous = best
+            // On an equal confidence score choose the first eligible ring
+            // along the forward route, not the one closest to an *upcoming*
+            // probe that might already be inside a different roundabout.
+            // This preserves a ring at the rider's position (along ~= 0m)
+            // until the motorcycle has actually passed it.
+            fun focusOrder(priority: Priority): Double {
+                val along = priority.forwardRouteAlongM
+                val onForwardRoute = priority.forwardRouteDistanceM <= 32.0 &&
+                    along in 0.0..500.0 &&
+                    (along >= 35.0 || priority.gpsDistanceM <= 70.0)
+                return if (onForwardRoute) along
+                else 500.0 + minOf(priority.gpsDistanceM, priority.upcomingDistanceM)
+            }
             if (previous == null || option.confidence > previous.confidence ||
                 (option.confidence == previous.confidence &&
-                    minOf(gpsDistance, aheadDistance) <
-                    minOf(previous.gpsDistanceM, previous.upcomingDistanceM))) {
+                    focusOrder(option) < focusOrder(previous))) {
                 best = option
             }
         }

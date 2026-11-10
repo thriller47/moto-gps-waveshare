@@ -18,6 +18,7 @@
 #include "motion_heading_sensor.h"
 #include "moto_diagnostics.h"
 #include "phone_nav_bridge.h"
+#include "moto_perf_telemetry.h"
 
 #ifdef MOTO_SIGNAL_AUDIO_BOOT_TEST
 void signal_start_audio_selftest();
@@ -418,6 +419,8 @@ extern "C" void app_main(void) {
   signal_start_audio_selftest();
 #endif
 
+  // Start optional low-priority sampling only after BLE, UI and renderer exist.
+  moto_perf_telemetry_start();
   ESP_LOGI(kTag,
            "iPhone BLE + QMI heading -> NavPresenter -> shared LVGL running");
   vTaskDelete(nullptr);

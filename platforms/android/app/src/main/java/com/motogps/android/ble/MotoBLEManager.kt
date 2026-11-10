@@ -64,7 +64,7 @@ class MotoBLEManager(private val context: Context) {
     @Volatile private var handshakeState = HandshakeState.IDLE
     private var currentSessionId: Long = 0L
 
-    private var isScanning = false
+    @Volatile private var isScanning = false
     // One bounded retry for the ESP32's remote-termination (GATT 19) during
     // the initial handshake. A successful Ready frame resets the allowance.
     private var initialConnectRetries = 0
@@ -98,6 +98,11 @@ class MotoBLEManager(private val context: Context) {
     }
 
     fun getCurrentSessionId(): Long = currentSessionId
+
+    /** Used when the Activity is recreated: never reset a live BLE session. */
+    fun hasActiveConnectionOrScan(): Boolean =
+        !closed && (bluetoothGatt != null || isScanning)
+
 
     /** No command is sent at boot or reconnect: explicit user opt-in only. */
     fun setDiagnosticMode(mode: Int): Boolean {

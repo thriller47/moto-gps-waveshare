@@ -31,6 +31,7 @@ import com.motogps.android.routing.RoutePreferences
 import com.motogps.android.routing.RouteStyle
 import com.motogps.android.routing.ValhallaTurnGuidance
 import com.motogps.android.routing.ValhallaRouteLocations
+import com.motogps.android.routing.RerouteDepartureDirection
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -60,7 +61,7 @@ data class RouteOption(
     val rawRouteJson: JSONObject
 )
 
-class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() {
+class NavigationViewModel(internal val bleManager: MotoBLEManager) : ViewModel() {
     private val _connectionState = MutableStateFlow("Non connesso")
     val connectionState: StateFlow<String> = _connectionState
 
@@ -246,10 +247,24 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     private var navigationJob: Job? = null
     private var currentSnapshot: MotoBLENavigationSnapshot? = null
     private var currentGeometry: MotoBLERouteGeometry? = null
+    private var lastWindowGapDiagnosticMs = 0L
 
     private fun sendNearbyRouteGeometry(route: MotoBLERouteGeometry) {
         val (lat, lon) = currentLocation.value
-        val window = RouteGeometryWindow.around(route, lat, lon)
+        val window = RouteGeometryWindow.around(
+            route, lat, lon, routeProgressMatcher.matchedProgressMeters())
+        val first = window.points.firstOrNull()
+        if (first != null) {
+            val gapMeters = calculateDistanceMeters(
+                lat, lon, first.latitudeE6 / 1e6, first.longitudeE6 / 1e6)
+            val nowMs = SystemClock.elapsedRealtime()
+            if (gapMeters >= 35.0 && nowMs - lastWindowGapDiagnosticMs >= 5_000L) {
+                lastWindowGapDiagnosticMs = nowMs
+                DiagnosticLog.event("ROUTE_VIEW_GAP",
+                    "start_gap_m=${gapMeters.toInt()} points=${window.points.size} " +
+                        "route_token=${route.routeToken}")
+            }
+        }
         ReplayTraceRecorder.route(window)
         bleManager.sendRouteGeometry(window)
         val endpoint = route.points.lastOrNull()
@@ -264,6 +279,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     private val locationFixFilter = LocationFixFilter()
     private val routeDistanceGuard = RouteDistanceGuard()
     private val routeProgressMatcher = RouteProgressMatcher()
+    private val rerouteStability = RerouteStabilityPolicy()
     private var lastLocationTimeMs: Long = 0L
     private var lastFixElapsedMs: Long = 0L
     private var lastFixAccuracyM: Float = Float.POSITIVE_INFINITY
@@ -397,6 +413,10 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         _routePreviewError.value = null
         _hasArrived.value = false
         arrivalDetector.reset()
+        rerouteStability.reset()
+        lastRecalculationTime = 0L
+        offRouteFixCount = 0
+        offRouteFirstFixMs = 0L
 
         navigationJob?.cancel()
         DiagnosticLog.event("ROUTE_START", "begin stops=${_routeWaypoints.value.size}")
@@ -565,6 +585,10 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         turnPlan = ValhallaTurnGuidance.Plan(0.0, emptyList())
         routeDistanceGuard.reset()
         routeProgressMatcher.reset()
+        rerouteStability.reset()
+        lastRecalculationTime = 0L
+        offRouteFixCount = 0
+        offRouteFirstFixMs = 0L
 
         val stopSnapshot = MotoBLENavigationSnapshot(
             stateName = "idle",
@@ -864,7 +888,8 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                     // Read the whole local graph even after leaving the route.
                     val contextRoads = segments.filter { it.roadClass in 0..3 && it.points.size >= 2 }
                     val nearbyRoute = currentGeometry?.let { geometry ->
-                        RouteGeometryWindow.around(geometry, lat, lon).points
+                        RouteGeometryWindow.around(geometry, lat, lon,
+                            routeProgressMatcher.matchedProgressMeters()).points
                     }.orEmpty()
                     val upcoming = RoadContextUpcoming.ahead(
                         nearbyRoute, lat, lastGpsSpeedMs, lastFixAccuracyM)
@@ -1188,32 +1213,23 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
 
         // Do not mistake distance to the destination for distance to the route.
         var distanceFromRoute = Double.POSITIVE_INFINITY
-        var nearestSegment = -1
         for (i in 1 until points.size) {
             val distance = distanceToSegmentMeters(
                 latitude, longitude, points[i - 1], points[i])
             if (distance < distanceFromRoute) {
                 distanceFromRoute = distance
-                nearestSegment = i
             }
         }
-        val now = System.currentTimeMillis()
-        val bearingIsFresh = SystemClock.elapsedRealtime() -
-            lastReliableGpsBearingMs in 0L..3_000L
-        val reverseCourse = if (nearestSegment > 0 && bearingIsFresh) {
-            val from = points[nearestSegment - 1]
-            val to = points[nearestSegment]
-            RouteDirectionPolicy.isOpposite(
-                lastReliableGpsBearing,
-                calculateBearingDeg(
-                    from.latitudeE6 / 1e6, from.longitudeE6 / 1e6,
-                    to.latitudeE6 / 1e6, to.longitudeE6 / 1e6),
-                lastGpsSpeedMs, distanceFromRoute,
-                calculateDistanceMeters(
-                    from.latitudeE6 / 1e6, from.longitudeE6 / 1e6,
-                    to.latitudeE6 / 1e6, to.longitudeE6 / 1e6)
-            )
-        } else false
+        val now = SystemClock.elapsedRealtime()
+        val bearingIsFresh = now - lastReliableGpsBearingMs in 0L..3_000L
+        // Unlike the closest edge of the entire polyline, this candidate
+        // stays near the matched route progress and rejects ambiguous parallel
+        // or crossing edges that also match the current travel direction.
+        val reverseCandidate = routeProgressMatcher.reverseCandidate(
+            latitude, longitude,
+            if (bearingIsFresh) lastReliableGpsBearing else null,
+            lastGpsSpeedMs)
+        val reverseCourse = reverseCandidate != null
         // Moving in the opposite direction on the same road is not the same
         // as following the route. Require repeated fixes before rerouting,
         // to reject brief compass/GNSS errors on sharp bends.
@@ -1235,6 +1251,16 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         if (offRouteFixCount < minimumFixes ||
             now - offRouteFirstFixMs < minimumDurationMs) return
 
+        // New routes may initially snap onto the wrong nearby OSM edge.
+        // Hold reverse-only triggers briefly after accepting a reroute;
+        // substantial (>=100m) departures are never blocked.
+        if (rerouteStability.shouldDefer(
+                now, latitude, longitude, distanceFromRoute, !farFromRoute)) {
+            offRouteFixCount = 0
+            offRouteFirstFixMs = 0L
+            return
+        }
+
         // The public FOSSGIS online endpoint is a fair-use demo service:
         // leave more breathing room than the local embedded Valhalla graph.
         val usesOnline = lastRoutingProvider == "valhalla-online" ||
@@ -1242,7 +1268,8 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         val cooldownMs = if (usesOnline) 15_000L else 8_000L
         if (now - lastRecalculationTime < cooldownMs) return
         DiagnosticLog.event("REROUTE",
-            "trigger off_route_m=${distanceFromRoute.toInt()} reverse=$reverseCourse speed_mps=$lastGpsSpeedMs")
+            "trigger off_route_m=${distanceFromRoute.toInt()} reverse=$reverseCourse speed_mps=$lastGpsSpeedMs " +
+                "match_delta_m=${reverseCandidate?.progressDeltaMeters?.toInt() ?: -999}")
         lastRecalculationTime = now
         offRouteFixCount = 0
         offRouteFirstFixMs = 0L
@@ -1262,9 +1289,27 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                     "success provider=${lastRoutingProvider.orEmpty()} route_m=${snapshot.totalDistanceM}")
                 routeDistanceGuard.reset()
                 routeProgressMatcher.reset(geometry?.points.orEmpty())
-                val refreshed = updateManeuverAndDistance(latitude, longitude)
+                // The IO reroute may have taken seconds. Never initialise a
+                // new geometry using the old trigger fix.
+                val (acceptedLat, acceptedLon) = currentLocation.value
+                val refreshed = updateManeuverAndDistance(acceptedLat, acceptedLon)
                     ?: snapshot
                 currentSnapshot = refreshed
+                val matchM = routeProgressMatcher.matchedProgressMeters()
+                val firstRoutePoint = geometry?.points?.firstOrNull()
+                val originGapM = firstRoutePoint?.let {
+                    calculateDistanceMeters(acceptedLat, acceptedLon,
+                        it.latitudeE6 / 1e6, it.longitudeE6 / 1e6)
+                }
+                // Numeric diagnostics only: no GPS coordinates or route points.
+                // Distinguish a fresh match near 0m from a premature loop snap.
+                DiagnosticLog.event("REROUTE_INITIAL_MATCH",
+                    "progress_m=${matchM?.toInt() ?: -1} " +
+                        "origin_gap_m=${originGapM?.toInt() ?: -1} " +
+                        "route_m=${snapshot.totalDistanceM} " +
+                        "points=${geometry?.points?.size ?: 0}")
+                rerouteStability.accepted(
+                    SystemClock.elapsedRealtime(), acceptedLat, acceptedLon)
                 _routingSource.value = lastRoutingProvider
                 if (geometry != null) sendNearbyRouteGeometry(geometry)
                 bleManager.sendNavigationSnapshot(refreshed)
@@ -1303,7 +1348,8 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     private fun resolveRoute(
         originLat: Double, originLon: Double, place: PlaceSearchResult,
         isReroute: Boolean = false, bearing: Float? = null,
-        waypoints: List<PlaceSearchResult> = _routeWaypoints.value
+        waypoints: List<PlaceSearchResult> = _routeWaypoints.value,
+        strictBearing: Boolean = false
     ): JSONObject {
         var localError = "nessuna regione Valhalla installata"
         val context = navigationMapsContext
@@ -1312,7 +1358,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                 val result = OfflineValhallaRouter.route(
                     context, originLat, originLon, place.latitude, place.longitude,
                     isReroute, bearing, _routePreferences.value,
-                    waypoints.map { it.latitude to it.longitude })
+                    waypoints.map { it.latitude to it.longitude }, strictBearing)
                 if (result != null) {
                     Log.i("NavigationVM", "Routing: Valhalla offline")
                     return result
@@ -1325,10 +1371,15 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                 Log.w("NavigationVM", "Local Valhalla unavailable: $localError")
             }
         }
+        // The second attempt is deliberately offline-only. Never turn an
+        // anomalous local reroute into a long public-server request.
+        if (strictBearing) throw IllegalStateException(
+            "Nessuna rotta offline disponibile con partenza orientata")
         return try {
             val result = OnlineValhallaRouter.route(
                 originLat, originLon, place.latitude, place.longitude, isReroute, bearing,
-                _routePreferences.value, waypoints.map { it.latitude to it.longitude })
+                _routePreferences.value, waypoints.map { it.latitude to it.longitude },
+                strictBearing)
             Log.i("NavigationVM", "Routing: Valhalla online (local: $localError)")
             result
         } catch (e: CancellationException) {
@@ -1370,7 +1421,56 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
             lastReliableGpsBearing else null
         val pending = if (isReroute) activeWaypoints.drop(nextWaypointIndex)
             else _routeWaypoints.value
-        val result = resolveRoute(originLat, originLon, place, isReroute, bearing, pending)
+        val initial = resolveRoute(originLat, originLon, place, isReroute, bearing, pending)
+        // Only inspect an *actual* moving reroute. Route geometry can legitimately
+        // lead backwards when a mandatory stop is behind the rider, so this is
+        // a bounded candidate retry, never a forced waypoint skip or fabricated
+        // green segment.
+        val initialDirection = if (isReroute && bearing != null)
+            RerouteDepartureDirection.inspect(initial, originLat, originLon, bearing)
+        else null
+        val result = if (initialDirection?.isOpposite == true) {
+            DiagnosticLog.event("REROUTE_START_DIRECTION",
+                "phase=original course_deg=${bearing?.toInt()} " +
+                    "route_deg=${initialDirection.departureBearingDegrees.toInt()} " +
+                    "error_deg=${initialDirection.differenceDegrees.toInt()} " +
+                    "snap_m=${initialDirection.snapDistanceMeters.toInt()} " +
+                    "style=${_routePreferences.value.style} " +
+                    "route_m=${initial.optJSONObject("route")?.optLong("total_distance_m") ?: -1} " +
+                    "stops_pending=${pending.size}")
+            val initialProvider = initial.optJSONObject("route")
+                ?.optString("provider", "").orEmpty()
+            // A second request to the public demo server would add potentially
+            // tens of seconds to a reroute; retry only on the offline graph.
+            val retry = if (initialProvider == "valhalla-local") {
+                try {
+                    resolveRoute(originLat, originLon, place, isReroute,
+                        bearing, pending, strictBearing = true)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    DiagnosticLog.event("REROUTE_START_DIRECTION",
+                        "phase=retry_error type=${e.javaClass.simpleName}")
+                    null
+                }
+            } else null
+            val retryDirection = retry?.let {
+                RerouteDepartureDirection.inspect(it, originLat, originLon, bearing)
+            }
+            val sameProvider = retry?.optJSONObject("route")
+                ?.optString("provider", "") == initialProvider
+            val useRetry = sameProvider && retryDirection != null &&
+                RerouteDepartureDirection.preferRetry(initialDirection, retryDirection)
+            DiagnosticLog.event("REROUTE_START_DIRECTION",
+                "phase=decision choice=${if (useRetry) "retry" else "original"} " +
+                    "retry_deg=${retryDirection?.departureBearingDegrees?.toInt() ?: -1} " +
+                    "retry_error_deg=${retryDirection?.differenceDegrees?.toInt() ?: -1} " +
+                    "retry_snap_m=${retryDirection?.snapDistanceMeters?.toInt() ?: -1} " +
+                    "provider=$initialProvider stops_pending=${pending.size}")
+            if (useRetry) requireNotNull(retry) else initial
+        } else {
+            initial
+        }
         lastRoutingProvider = result.optJSONObject("route")
             ?.optString("provider", "Valhalla") ?: "Valhalla"
         val (snapshot, geometry) = parseMotoRouteResponse(
@@ -1496,10 +1596,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
 
     fun setConnectionState(state: String) {
         _connectionState.value = state
-        val isConnected = state.contains("Connesso", ignoreCase = true) ||
-                state.contains("Connected", ignoreCase = true) ||
-                state.contains("Ready", ignoreCase = true) ||
-                state.contains("Online", ignoreCase = true)
+        val isConnected = NavigationReconnectPolicy.isReady(state)
         if (isConnected) {
             // A fresh BLE handshake resets ESP32-side session state. Replaying only
             // the periodic maneuver snapshots can leave the display without its
@@ -1532,12 +1629,8 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         telemetryJob = viewModelScope.launch {
             while (true) {
                 delay(600)
-                if (!_isNavigating.value && _connectionState.value.let {
-                    it.contains("Connesso", ignoreCase = true) ||
-                    it.contains("Connected", ignoreCase = true) ||
-                    it.contains("Ready", ignoreCase = true) ||
-                    it.contains("Online", ignoreCase = true)
-                }) {
+                if (!_isNavigating.value &&
+                    NavigationReconnectPolicy.isReady(_connectionState.value)) {
                     val pageName = when (_currentDevicePage.value) {
                         1 -> "speedometer"
                         2 -> "heading"
@@ -1581,13 +1674,20 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     fun clearError() {
         _errorMessage.value = null
     }
+
+    override fun onCleared() {
+        // A configuration change retains this ViewModel and its BLE session.
+        // Close GATT/codec only when the navigation owner truly goes away.
+        bleManager.close()
+        super.onCleared()
+    }
 }
 
-class NavigationViewModelFactory(private val bleManager: MotoBLEManager) : ViewModelProvider.Factory {
+class NavigationViewModelFactory(private val context: Context) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(NavigationViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")
-            return NavigationViewModel(bleManager) as T
+            return NavigationViewModel(MotoBLEManager(context.applicationContext)) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

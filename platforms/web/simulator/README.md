@@ -1,6 +1,6 @@
 # Simulatore Moto Chat GPS per Windows (anteprima 2D + WebAssembly LVGL)
 
-**Stato:** integrato nel branch `valhalla` il 9 novembre 2026 (PR #73), con due modalità separate. **Anteprima geometrica 2D** immediata (JavaScript, non è la grafica LVGL del firmware) e **renderer LVGL + NavPresenter reali** quando si compila il runtime WebAssembly. Non richiede ESP32 né GPS del PC. Nessun tracciato viene caricato su un server. FPS del browser e latenza BLE non rappresentano l'hardware.
+**Stato:** simulatore e replay Android integrati in `valhalla` (PR #73 e #74); matcher dei ricalcoli verificato su strada il 10 novembre 2026. Due modalità separate. **Anteprima geometrica 2D** immediata (JavaScript, non è la grafica LVGL del firmware) e **renderer LVGL + NavPresenter reali** quando si compila il runtime WebAssembly. Non richiede ESP32 né GPS del PC. Nessun tracciato viene caricato su un server. FPS del browser e latenza BLE non rappresentano l'hardware.
 
 ## Aprire subito l'anteprima 2D senza compilatore
 
@@ -12,13 +12,36 @@ Caricare il file `motogps-replay.jsonl` esportato dall'app tramite **Tracciato G
 
 Dopo aver aggiornato `valhalla`, **ricompilare** il runtime con `source ~/emsdk/emsdk_env.sh` e `./scripts/build_web.sh`, ricaricare la pagina con **Ctrl+F5**, poi caricare il tracciato del 6 novembre. L'interruttore **Zoom tornanti sperimentale** si abilita solo quando il vero WASM è caricato. A parità di frame, OFF mostra lo zoom originale (1× lontano dalle manovre; fino a 4× sulla rotatoria), ON cerca nella finestra della **linea verde** un cambio di direzione marcato, lo ingrandisce progressivamente fino a 3× e mantiene il massimo fra quello e lo zoom tradizionale. Lo zoom mostrato nella pagina, con LVGL attivo, proviene dal **NavPresenter C++** (non da una formula JavaScript).
 
-Inizia dal tratto **12:10:50 e successivi**, confrontando lo stesso frame con OFF e ON. Il rilevamento non si basa sui waypoint, non ricalcola la rotta Valhalla, non invia nulla al BLE e **richiede un flag separato nelle build ESP32 (OFF di default su `valhalla`)**. Rimane una prova esplorativa: può essere sensibile a finestre geometriche parziali, rotonde e curve a S. Il firmware sperimentale con zoom tornanti e subpixel attivi è stato provato su strada il 9 novembre; la build standard di `valhalla` mantiene i flag disattivati.
+Inizia dal tratto **12:10:50 e successivi**, confrontando lo stesso frame con OFF e ON. Il rilevamento non si basa sui waypoint, non ricalcola la rotta Valhalla, non invia nulla al BLE e **non è abilitato nel firmware ESP32**. Rimane una prova esplorativa: può essere sensibile a finestre geometriche parziali, rotonde e curve a S. Non considerarlo validato su strada finché non lo avremo testato.
 
 ## Movimento a scatti con snapshot GPS ripetuti (8 novembre 2026)
 
 Una registrazione reale conteneva **4.732 snapshot UI ma soltanto 1.178 fix GPS**. Il vecchio player interpolava solo due snapshot adiacenti: se riportavano coordinate identiche la mappa restava ferma, poi saltava alla successiva posizione GPS anche con RAF/WASM/LVGL regolari. Il player ora precalcola gli intervalli tra **fix GPS distinti** e interpola posizione, rotta angolare breve e velocità durante Play; conserva gli snapshot originali con Step/Seek. Non interpola attraverso ricalcoli/cambi di rotta, navigazione non attiva, buchi GPS oltre 3 s o spostamenti anomali oltre 100 m. Lo zoom tornanti e l'algoritmo LVGL non sono cambiati.
 
-**Prova veloce:** su `valhalla` fare `git pull --ff-only origin valhalla`, poi in Chrome `Ctrl+F5` e ricaricare il replay privato. **Questa correzione è solo JavaScript:** non richiede ricompilare WebAssembly se è già stato ricompilato dopo la modifica al timer di refresh LVGL da 15 ms. Confrontare alle 12:10:50 a 1×; se restano scatti, registrare entrambi i riquadri di diagnostica e distinguere jerk del GPS da irregolarità del disegno. Nessuna modifica a ESP32, Android, BLE o `valhalla`.
+**Prova veloce:** sul branch `valhalla` fare `git pull --ff-only origin valhalla`, poi in Chrome `Ctrl+F5` e ricaricare il replay privato. **Questa correzione è solo JavaScript:** non richiede ricompilare WebAssembly se è già stato ricompilato dopo la modifica al timer di refresh LVGL da 15 ms. Confrontare alle 12:10:50 a 1×; se restano scatti, registrare entrambi i riquadri di diagnostica e distinguere jerk del GPS da irregolarità del disegno. Nessuna modifica a ESP32, Android, BLE o `valhalla`.
+
+
+## Scarto anello MotoMap / linea verde (diagnostica browser, 10 novembre 2026)
+
+Il riquadro **Scarto anello prioritario / finestra verde** confronta la prima polilinea chiusa selezionata da Android con la geometria della finestra di rotta BLE registrata nello **stesso frame**. Mostra uno scarto minimo in metri, distinguendo **coincidente** (entro 3 m), **vicino ma esterno** (tra 3 e 32 m) e **esterno alla finestra** (oltre 32 m). Non si tratta di un giudizio di correttezza Valhalla: la finestra è parziale, i livelli OSM non sono filtrati e le due geometrie possono rappresentare strade diverse. Non modifica la linea verde, il disegno LVGL, il firmware, Android o il selettore delle strade.
+
+Con il replay del 10 novembre, alla prima rotatoria (~13:35:14) lo scarto risulta circa **10,8 m**, mentre alla seconda (~13:35:46) risulta **0 m**. Il browser non ha bisogno della geometria privata sul server: calcola tutto localmente. Dopo **git pull** è sufficiente **Ctrl+F5** e ricaricare il file JSONL; **non ricompilare WebAssembly** per questa sola modifica JavaScript. I test sintetici escludono i tracciati GPS personali dal repository.
+
+**Checkout stabile dopo la PR #74 (WSL Ubuntu):**
+
+```bash
+cd ~/MotoGPS/moto-gps-waveshare
+git switch valhalla
+git pull --ff-only origin valhalla
+git submodule update --init --recursive
+source ~/emsdk/emsdk_env.sh
+# Per modifiche C++/LVGL, oppure se manca il runtime:
+cmake --build build/web --parallel 1
+# In un altro terminale WSL:
+python3 -m http.server 4173 --directory .
+```
+
+Aprire **http://127.0.0.1:4173/platforms/web/simulator/index.html** e fare **Ctrl+F5**. Dopo modifiche solo JS/HTML, non ricompilare il runtime. Per la prima compilazione, se `build/web` non esiste, seguire il manuale operativo §8.1. Il server si ferma con `Ctrl+C`; il branch `test/esp32-map-dirty-tiles-20261109` è storico dopo il merge.
 
 ## Compilazione con Emscripten
 
@@ -26,16 +49,8 @@ Servono Git, CMake, Emscripten/emcmake attivati e il submodule LVGL.
 
 Da WSL/Linux, nella radice del repository:
 
-    cd ~/MotoGPS/moto-gps-waveshare
-    git switch valhalla
-    git pull --ff-only origin valhalla
     git submodule update --init --recursive
-    source ~/emsdk/emsdk_env.sh
     ./scripts/build_web.sh
-
-In un secondo terminale WSL (non riavviare il server se è già attivo):
-
-    cd ~/MotoGPS/moto-gps-waveshare
     python3 -m http.server 4173 --directory .
 
 Da Windows aprire:
@@ -54,11 +69,13 @@ La pagina storica "platforms/web/shell/index.html" è separata: il suo esempio J
 
 ## Registrare il giro Android: dati sensibili
 
-Nell'app Android aggiornata aprire "LOG". Selezionare **Avvia registrazione GPS** prima della navigazione o del passaggio da riprodurre, percorrere la strada, quindi **Ferma registrazione GPS**. Nello stesso pannello usare **Esporta tracciato simulatore (.jsonl)** e salvare il file su Windows; è condiviso solo su richiesta, separatamente dallo ZIP diagnostico ordinario.
+Nel nuovo APK sperimentale aprire **LOG → Avvia registrazione GPS**, quindi **Ferma registrazione GPS** a fine giro. La registrazione non ha più un limite complessivo di 60 minuti / 24 MiB: continua finché viene fermata o finché esiste spazio sul telefono. Vengono create automaticamente parti numerate ogni **30 minuti o circa 12 MiB per parte**.
 
-La registrazione contiene coordinate GPS, velocità, posizione predetta inviata all'ESP32, manovre e distanze, finestre della rotta verde e scene MotoMap selezionate per BLE. I log standard NON includono questi dettagli. La registrazione è disattivata di default, non persiste dopo un riavvio dell'app e si interrompe automaticamente dopo 60 minuti o circa 24 MB.
+**Esporta tracciato simulatore** condivide un file `motogps-replay.jsonl` se esiste una sola parte; altrimenti produce `motogps-replay-parts.zip` con tutti i `.jsonl` numerati in ordine cronologico. Sul PC estrarre lo ZIP e aprire nel simulatore **una parte per volta**; il browser attualmente non importa direttamente ZIP o più file contemporaneamente. Ogni parte ha un proprio evento `meta` con `part_index`, `session_elapsed_ms` e `captured_at_ms`, e tempi `t_ms` relativi alla parte.
 
-**Privacy:** il tracciato rivela i propri spostamenti. Non allegarlo pubblicamente a issue o commit. Il browser apre il file localmente e non lo carica su server. La registrazione memorizza ciò che Android ha tentato di inviare su BLE; non garantisce la consegna radio, che resta verificabile nei log ESP32.
+La registrazione contiene coordinate GPS, velocità, posizione predetta inviata all'ESP32, manovre e distanze, finestre della rotta verde e scene MotoMap. Il normale ZIP diagnostico Android NON contiene questi dettagli. La registrazione è OFF per impostazione predefinita; avviarne una nuova sostituisce sul telefono le parti locali **non esportate** della sessione precedente. Per conservare un giro, esportarlo prima di iniziare quello successivo.
+
+**Privacy:** i replay rivelano spostamenti e orari; non allegarli pubblicamente a issue o commit. Il browser legge i .jsonl localmente, senza upload; il trace documenta l'invio BLE tentato, non la consegna radio.
 
 ## Formato moto-replay-v1
 

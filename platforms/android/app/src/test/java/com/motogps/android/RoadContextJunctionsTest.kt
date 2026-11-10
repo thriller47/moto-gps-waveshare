@@ -119,6 +119,35 @@ class RoadContextJunctionsTest {
         assertTrue((selected?.forwardRouteAlongM ?: 0.0) > 350.0)
     }
 
+    @Test fun ringAtTheNextTurnOutranksAnEquallyCredibleRingFartherAlongTheRoute() {
+        // Regression for the 2026-11-10 07:47 stop: the local multi-way
+        // roundabout lost its forward bonus below 35m; a second circle
+        // approximately 190m ahead took all ring/exit slots instead.
+        val offset = 1700
+        val remoteRing = road(160, ringPoints.map {
+            p(it.latitudeE6 - 45_000_000 + offset,
+                it.longitudeE6 - 8_000_000)
+        }, listOf(810, 811, 812, 813, 810))
+        val remoteA = road(161,
+            listOf(p(offset + 120, 120), p(offset + 120, 550)),
+            listOf(811, 820))
+        val remoteB = road(162,
+            listOf(p(offset + 240, 0), p(offset + 700, 0)),
+            listOf(812, 821))
+        val roads = listOf(ring, exitA, exitB, remoteRing, remoteA, remoteB)
+        val nearRoute = listOf(p(-80, 0), p(0, 0), p(2400, 0))
+        // The farther ring is exactly on the upcoming probe. Its score
+        // matches the local ring's, but the local next maneuver must win.
+        val analysis = RoadContextJunctions.analyze(roads,
+            44.99992, 8.0, p(offset + 120, 0), nearRoute)
+        assertTrue(analysis.qualified >= 2)
+        assertEquals(ring, analysis.focus?.ring)
+        assertTrue(analysis.focus!!.gpsDistanceM < 35.0)
+        assertTrue(analysis.focus!!.forwardRouteAlongM < 35.0)
+        assertEquals(setOf(2L, 3L),
+            analysis.focus!!.exits.mapNotNull { it.osmWayId }.toSet())
+    }
+
     @Test fun aDistantRingIsNotChosenAndOrdinaryRoadsRemainAvailable() {
         assertNull(RoadContextJunctions.find(
             listOf(ring, exitA, exitB), 45.005, 8.005, null))

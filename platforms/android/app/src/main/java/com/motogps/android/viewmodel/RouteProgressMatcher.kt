@@ -14,6 +14,15 @@ import kotlin.math.roundToLong
  * nearest-segment jumps at junctions and hold progress while off-route.
  */
 internal class RouteProgressMatcher {
+    // A freshly calculated route starts at the requested origin. At a loop or
+    // parallel road the geographically closest segment can be hundreds of
+    // metres farther along that route. Do not initialise progress on that
+    // future leg while the GPS is still near the route's first vertex.
+    private companion object {
+        const val INITIAL_ROUTE_HORIZON_M = 180.0
+        const val INITIAL_ORIGIN_PROXIMITY_M = 130.0
+        const val INITIAL_SEGMENT_PROXIMITY_M = 100.0
+    }
     private var route = emptyList<GeoPointE6>()
     private var cumulative = DoubleArray(0)
     private var progress: Double? = null
@@ -37,6 +46,65 @@ internal class RouteProgressMatcher {
         lastLon = Double.NaN
     }
 
+    /** Display-only hint; routing and reroute decisions remain unchanged. */
+    fun matchedProgressMeters(): Double? = progress
+
+    /** A reverse candidate consistent with the already matched route progress.
+     * The nearest point of the *entire* shape is not enough: on hairpins,
+     * parallel roads and self-intersections it can be a different road.
+     */
+    data class ReverseCandidate(val distanceMeters: Double,
+                                val bearingDegrees: Float,
+                                val progressDeltaMeters: Double)
+
+    fun reverseCandidate(lat: Double, lon: Double, heading: Float?,
+                         speed: Float): ReverseCandidate? {
+        val anchor = progress ?: return null
+        if (route.size < 2 || !lat.isFinite() || !lon.isFinite() ||
+            heading == null || !heading.isFinite() || speed < 4f) return null
+        val mx = 111_195.0 * cos(Math.toRadians(lat))
+        var reverse: ReverseCandidate? = null
+        var reverseScore = Double.POSITIVE_INFINITY
+        var nearestForward = Double.POSITIVE_INFINITY
+
+        for (i in 0 until route.lastIndex) {
+            val a = route[i]
+            val b = route[i + 1]
+            val ax = (a.longitudeE6 / 1e6 - lon) * mx
+            val ay = (a.latitudeE6 / 1e6 - lat) * 111_195.0
+            val dx = (b.longitudeE6 - a.longitudeE6) / 1e6 * mx
+            val dy = (b.latitudeE6 - a.latitudeE6) / 1e6 * 111_195.0
+            val length2 = dx * dx + dy * dy
+            if (length2 < 144.0) continue // Sharp 5m bend is not a reversal.
+            val t = (-(ax * dx + ay * dy) / length2).coerceIn(0.0, 1.0)
+            val cross = hypot(ax + t * dx, ay + t * dy)
+            if (cross > 25.0) continue
+            val at = cumulative[i] + (cumulative[i + 1] - cumulative[i]) * t
+            val delta = at - anchor
+            val direction = Math.toDegrees(atan2(dx, dy)).toFloat()
+            val error = abs(((heading - direction + 540f) % 360f) - 180f)
+            if (error <= 60f) {
+                // Even a later leg of a loop can be the *actual* road.
+                // A closer aligned segment must veto a speculative reversal
+                // on an older nearby segment, regardless of route progress.
+                nearestForward = min(nearestForward, cross)
+            } else if (delta >= -110.0 && delta <= 85.0 &&
+                RouteDirectionPolicy.isOpposite(
+                    heading, direction, speed, cross, kotlin.math.sqrt(length2))) {
+                val score = cross + abs(delta) * 0.10
+                if (score < reverseScore) {
+                    reverseScore = score
+                    reverse = ReverseCandidate(cross, direction, delta)
+                }
+            }
+        }
+        val candidate = reverse ?: return null
+        // If a forward-directed edge is similarly close, the junction match
+        // is ambiguous. Prefer continuing to an unnecessary reverse reroute.
+        if (nearestForward <= candidate.distanceMeters + 8.0) return null
+        return candidate
+    }
+
     fun remaining(lat: Double, lon: Double, heading: Float?, speed: Float): Long? {
         if (route.size < 2 || !lat.isFinite() || !lon.isFinite()) return null
         val mx = 111_195.0 * cos(Math.toRadians(lat))
@@ -49,6 +117,18 @@ internal class RouteProgressMatcher {
         var bestScore = Double.POSITIVE_INFINITY
         var bestPos = 0.0
         var minCross = Double.POSITIVE_INFINITY
+        // Only for the very first match after reset(): when the rider is still
+        // near the new route's origin, prefer a plausible projection onto its
+        // first 180m. A stale/slow reroute whose origin is now far away falls
+        // back to the ordinary global nearest-segment search.
+        val origin = route.first()
+        val originGap = hypot(
+            (origin.latitudeE6 / 1e6 - lat) * 111_195.0,
+            (origin.longitudeE6 / 1e6 - lon) * mx)
+        val firstMatchNearOrigin = prev == null &&
+            originGap <= INITIAL_ORIGIN_PROXIMITY_M
+        var initialBestScore = Double.POSITIVE_INFINITY
+        var initialBestPos = 0.0
         for (i in 0 until route.lastIndex) {
             val a = route[i]
             val b = route[i + 1]
@@ -80,6 +160,13 @@ internal class RouteProgressMatcher {
                 bestScore = score
                 bestPos = candidate
             }
+            if (firstMatchNearOrigin &&
+                candidate <= INITIAL_ROUTE_HORIZON_M &&
+                cross <= INITIAL_SEGMENT_PROXIMITY_M &&
+                score < initialBestScore) {
+                initialBestScore = score
+                initialBestPos = candidate
+            }
         }
         if (!bestScore.isFinite()) return null
 
@@ -87,7 +174,8 @@ internal class RouteProgressMatcher {
         // do not count travel away from the route as a distance increase.
         val next = when {
             prev != null && minCross > 45.0 -> prev
-            prev == null -> bestPos
+            prev == null -> if (initialBestScore.isFinite())
+                initialBestPos else bestPos
             else -> max(prev, min(bestPos,
                 prev + max(22.0, travelled * 1.8 + 10.0)))
         }

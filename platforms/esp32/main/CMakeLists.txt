@@ -22,6 +22,7 @@ idf_component_register(
         "board_port_waveshare_1_75c.cpp"
         "motion_heading_sensor.cpp"
         "moto_diagnostics_ram.cpp"
+        "moto_perf_telemetry.cpp"
         "phone_nav_bridge.cpp"
         "signal_audio_output.cpp"
         "signal_es8311_codec.cpp"
@@ -113,6 +114,24 @@ endif()
 if(MOTO_ESP_SUBPIXEL_EXPERIMENT)
     target_compile_definitions(${COMPONENT_LIB} PRIVATE
         MOTO_ESP_SUBPIXEL_EXPERIMENT=1)
+endif()
+
+# Safe A/B experiment: restrict interpolation redraw to swept map tiles.
+# OFF on valhalla; the test branch enables it in its ESP32 CI artifact.
+option(MOTO_ESP_MAP_DIRTY_TILES_EXPERIMENT
+    "Use conservative 4x4 swept tile invalidation for map motion" OFF)
+if(MOTO_ESP_MAP_DIRTY_TILES_EXPERIMENT)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE
+        MOTO_ESP_MAP_DIRTY_TILES_EXPERIMENT=1)
+endif()
+
+# Optional 5s FreeRTOS per-core/task runtime telemetry.
+# Requires sdkconfig.perf.defaults IN ADDITION TO sdkconfig.defaults.
+option(MOTO_ESP_PERF_TELEMETRY_EXPERIMENT
+    "Enable optional serial CPU0/CPU1 and per-task runtime logger" OFF)
+if(MOTO_ESP_PERF_TELEMETRY_EXPERIMENT)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE
+        MOTO_ESP_PERF_TELEMETRY_EXPERIMENT=1)
 endif()
 
 # Verified speaker test (Waveshare BSP); only used in GPS-integrated builds.

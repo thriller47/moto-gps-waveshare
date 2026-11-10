@@ -85,6 +85,42 @@ class RouteGeometryWindowTest {
     }
 
     @Test
+    fun progressAnchorPreventsJumpToEarlierParallelRoundaboutLeg() {
+        // Two opposite lanes just 10m apart are equally close to the GPS.
+        // The display window must follow the already-matched route progress,
+        // not always jump back to the first nearest segment.
+        val full = route(listOf(
+            GeoPointE6(45_000_000, 8_000_000),
+            GeoPointE6(45_000_000, 8_002_000),
+            GeoPointE6(45_000_090, 8_002_000),
+            GeoPointE6(45_000_090, 8_000_000),
+            GeoPointE6(45_000_180, 8_000_000),
+            GeoPointE6(45_000_180, 8_002_000)
+        ))
+        val unanchored = RouteGeometryWindow.around(full, 45.000045, 8.0012)
+        val anchored = RouteGeometryWindow.around(
+            full, 45.000045, 8.0012, progressHintMeters = 230.0)
+        assertEquals(45_000_000, unanchored.points.first().latitudeE6)
+        assertEquals(45_000_090, anchored.points.first().latitudeE6)
+        assertEquals(full.routeToken, anchored.routeToken)
+        assertTrue(anchored.points.size <= 24)
+    }
+
+    @Test
+    fun progressAnchorNeverOverridesAClearlyCloserActualRoad() {
+        val full = route(listOf(
+            GeoPointE6(45_000_000, 8_000_000),
+            GeoPointE6(45_000_000, 8_002_000),
+            GeoPointE6(45_000_180, 8_002_000),
+            GeoPointE6(45_000_180, 8_000_000)
+        ))
+        val view = RouteGeometryWindow.around(
+            full, 45.0, 8.001, progressHintMeters = 250.0)
+        // Near the first road (20m from any other), the current GPS wins.
+        assertEquals(45_000_000, view.points.first().latitudeE6)
+    }
+
+    @Test
     fun straightRoadRetainsNormalBleRefreshCadence() {
         val points = (0..60).map {
             GeoPointE6(45_000_000 + it * 45, 8_000_000)

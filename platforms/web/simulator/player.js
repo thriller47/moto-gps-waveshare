@@ -7,12 +7,13 @@
   const $ = id => document.getElementById(id);
   const names = ["trace-file","sample","snapshot","status","play","previous","next",
     "prev-event","next-event","speed","timeline","time","frame","maneuver",
-    "roads","zoom","speed-kph","performance","lvgl-performance","map-motion","events","profile","canvas","preview","summary","curve-zoom"];
+    "roads","ring-alignment","zoom","speed-kph","performance","lvgl-performance","map-motion","events","profile","canvas","preview","summary","curve-zoom"];
   const ui = Object.fromEntries(names.map(id=>[id,$(id)]));
   const required = names.filter(id=>!ui[id]);
   if (required.length) throw Error("Controlli simulator mancanti: " + required.join(", "));
-  const model = window.MotoReplayModel, fallback = window.MotoFallbackMap;
-  if (!model || !fallback) throw Error("Moduli replay non caricati");
+  const model = window.MotoReplayModel, fallback = window.MotoFallbackMap,
+    ringAlignment = window.MotoRingAlignment;
+  if (!model || !fallback || !ringAlignment) throw Error("Moduli replay non caricati");
   const manoeuvres = {unknown:0,continue:1,keep_left:2,turn_left:3,
     sharp_left:4,u_turn:5,keep_right:6,turn_right:7,sharp_right:8,
     roundabout:10,exit:11,arrive:12};
@@ -157,6 +158,18 @@
       Math.round(numeric(s.turn_m))+" m";
     ui.roads.textContent=(f.scene?f.scene.roads.length:0)+" strade / "+
       (f.route?f.route.points.length:0)+" vertici rotta";
+    const ringDiagnostic = ringAlignment.inspect(f);
+    const ringLabels = {
+      "no-ring":"Nessun anello prioritario",
+      "no-route":"Anello presente · finestra rotta assente",
+      "aligned":"Anello coincidente con la finestra verde",
+      "nearby":"Anello vicino, rotta esterna",
+      "separated":"Anello esterno alla finestra verde"
+    };
+    ui["ring-alignment"].textContent =
+      (Number.isFinite(ringDiagnostic.gapMeters) ?
+        ringDiagnostic.gapMeters.toFixed(1)+" m · " : "") +
+      ringLabels[ringDiagnostic.status];
     ui.zoom.textContent=(api?api.zoomFactor():
       fallback.zoomFactor(s,!!f.route)).toFixed(2)+"×";
     ui["speed-kph"].textContent=Math.round(numeric(s.speed_mps)*3.6)+" km/h";
