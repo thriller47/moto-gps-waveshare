@@ -129,6 +129,14 @@ class PhoneNavBridge {
   moto_ui_phone_connection_t render_phone_connection_ =
       MOTO_UI_PHONE_OFFLINE;
   bool render_demo_active_ = false;
+  // BLE instruction control marker, copied to the single LVGL render task.
+  std::uint8_t waypoint_seen_index_ = 0;
+  std::uint8_t waypoint_pending_index_ = 0;
+  std::uint8_t waypoint_pending_total_ = 0;
+  bool waypoint_clear_pending_ = false;
+  std::uint8_t render_waypoint_index_ = 0;
+  std::uint8_t render_waypoint_total_ = 0;
+  bool render_waypoint_clear_ = false;
   enum RenderFlag : std::uint32_t {
     RenderNavigation = 1U << 0U,
     RenderMotion = 1U << 1U,

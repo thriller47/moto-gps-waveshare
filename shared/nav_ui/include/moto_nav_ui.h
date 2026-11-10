@@ -152,6 +152,9 @@ void moto_nav_ui_show_boot_screen(void);
 /** Draw the final monochrome frame before the PMIC removes power. */
 void moto_nav_ui_show_power_off_screen(void);
 void moto_nav_ui_set_state(const moto_ui_state_t *state);
+/** Seven-second, non-blocking intermediate-stop confirmation; never arrival. */
+void moto_nav_ui_show_waypoint_reached(uint8_t index, uint8_t total);
+void moto_nav_ui_clear_waypoint_reached(void);
 /** Apply only high-rate route/heading motion to the currently visible page. */
 void moto_nav_ui_set_motion_state(const moto_ui_state_t *state);
 /** Drive the full-screen connection/ready lifecycle on the navigation page. */

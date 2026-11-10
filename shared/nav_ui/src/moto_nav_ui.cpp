@@ -118,6 +118,8 @@ struct Ui {
     lv_timer_t *nav_route_motion_timer = nullptr;
     lv_obj_t *nav_marker = nullptr;
     lv_obj_t *nav_status = nullptr;
+    lv_obj_t *nav_waypoint_notice = nullptr;
+    lv_timer_t *nav_waypoint_timer = nullptr;
     lv_obj_t *nav_battery = nullptr;
     lv_obj_t *nav_distance = nullptr;
     lv_obj_t *nav_unit = nullptr;
@@ -1268,6 +1270,12 @@ void connection_success_timeout(lv_timer_t *timer) {
     refresh_lifecycle();
 }
 
+void waypoint_notice_timeout(lv_timer_t *timer) {
+    lv_timer_pause(timer);
+    if(ui.nav_waypoint_notice != nullptr)
+        lv_obj_add_flag(ui.nav_waypoint_notice, LV_OBJ_FLAG_HIDDEN);
+}
+
 void set_navigation_guidance_visible(bool visible) {
     lv_obj_t *objects[] = {
         ui.nav_distance,
@@ -1554,6 +1562,18 @@ void create_navigation_page() {
     lv_obj_set_width(ui.nav_status, px(220));
     lv_obj_set_style_text_align(ui.nav_status, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(ui.nav_status, LV_ALIGN_TOP_MID, 0, px(16));
+
+    // Small overlay above the active route; route, distance and zoom remain
+    // visible. No full-screen modal and no directional arrow.
+    ui.nav_waypoint_notice = make_label(
+        page, &lv_font_montserrat_20, kGreen, "");
+    lv_obj_set_width(ui.nav_waypoint_notice, px(300));
+    lv_obj_set_style_text_align(ui.nav_waypoint_notice, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(ui.nav_waypoint_notice, LV_ALIGN_TOP_MID, 0, px(55));
+    lv_obj_clear_flag(ui.nav_waypoint_notice, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(ui.nav_waypoint_notice, LV_OBJ_FLAG_HIDDEN);
+    ui.nav_waypoint_timer = lv_timer_create(waypoint_notice_timeout, 7000, nullptr);
+    lv_timer_pause(ui.nav_waypoint_timer);
 
     // Arrival is signalled by a separate checkered flag. No turn arrow
     // widgets or callbacks exist: the map geometry is the turn indicator.
@@ -1989,6 +2009,26 @@ extern "C" void moto_nav_ui_set_state(const moto_ui_state_t *state) {
         case MOTO_UI_PAGE_MUSIC:
         case MOTO_UI_PAGE_COUNT: break;
     }
+}
+
+extern "C" void moto_nav_ui_show_waypoint_reached(uint8_t index, uint8_t total) {
+    if(index == 0 || total == 0 || index > total ||
+       ui.nav_waypoint_notice == nullptr || ui.nav_waypoint_timer == nullptr)
+        return;
+    char message[40];
+    std::snprintf(message, sizeof(message), "TAPPA %u/%u RAGGIUNTA",
+                  static_cast<unsigned>(index), static_cast<unsigned>(total));
+    lv_label_set_text(ui.nav_waypoint_notice, message);
+    lv_obj_remove_flag(ui.nav_waypoint_notice, LV_OBJ_FLAG_HIDDEN);
+    lv_timer_set_period(ui.nav_waypoint_timer, 7000);
+    lv_timer_reset(ui.nav_waypoint_timer);
+    lv_timer_resume(ui.nav_waypoint_timer);
+}
+
+extern "C" void moto_nav_ui_clear_waypoint_reached(void) {
+    if(ui.nav_waypoint_timer != nullptr) lv_timer_pause(ui.nav_waypoint_timer);
+    if(ui.nav_waypoint_notice != nullptr)
+        lv_obj_add_flag(ui.nav_waypoint_notice, LV_OBJ_FLAG_HIDDEN);
 }
 
 extern "C" void moto_nav_ui_set_motion_state(const moto_ui_state_t *state) {

@@ -502,6 +502,12 @@ Il separatore `|` mantiene gli spazi nel nome rete: ad esempio `wifi set Hotspot
 
 ## 8. Simulatore browser Windows e registrazione GPS Android
 
+### Avviso tappa intermedia raggiunta (sperimentale, 10 novembre 2026)
+
+Sul branch `test/roundabout-topology-20261110`, il raggiungimento di una tappa programmata è confermato dal **display ESP32** con `TAPPA 1/3 RAGGIUNTA` per **7 secondi**. La notifica è sovrapposta senza nascondere mappa, linea verde, distanza all'arrivo e limite di velocità; non equivale all'arrivo finale. Per verificare la funzione è necessario **installare sia il nuovo APK Android sia il nuovo firmware ESP32** generati dalla CI del branch test, altrimenti il vecchio firmware ignora il segnale. Impostare due tappe, avviare navigazione e attraversarle: il testo deve apparire **una sola volta per tappa** e svanire automaticamente. Il log Android conserva `WAYPOINT_REACHED`; non è previsto un nuovo campo BLE. Il marker geografico sulla linea verde resta una funzione futura distinta perché richiede l'effettiva coordinata della tappa, non presente nello snapshot. **Non usare su strada prima di CI verde e verifica funzionale**.
+
+
+
 **Stato attuale (10 novembre 2026):** simulatore, registrazione GPS senza limite complessivo e correzioni matcher/ricalcolo verificati su strada sono integrati in **`valhalla`** tramite PR #73 e PR #74. Non utilizzare i branch di test completati o eliminati per il normale utilizzo. Le prove sulla rotatoria multi-way disallineata di ~11 m rimangono aperte.
 
 ### Avviare o aggiornare il simulatore — WSL Ubuntu (procedura attuale)

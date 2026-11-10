@@ -88,6 +88,10 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager) : ViewModel()
     private var waypointSearchJob: Job? = null
     private var activeWaypoints: List<PlaceSearchResult> = emptyList()
     private var nextWaypointIndex = 0
+    // Short-lived display-only notice; does not change route progress or maneuvers.
+    private var waypointNoticeIndex = 0
+    private var waypointNoticeTotal = 0
+    private var waypointNoticeStartedMs = 0L
 
     fun searchWaypoint(query: String) {
         waypointSearchJob?.cancel()
@@ -432,6 +436,9 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager) : ViewModel()
                 activeDestination = place
                 activeWaypoints = _routeWaypoints.value.toList()
                 nextWaypointIndex = 0
+                waypointNoticeIndex = 0
+                waypointNoticeTotal = 0
+                waypointNoticeStartedMs = 0L
                 _isNavigating.value = true
                 _currentDevicePage.value = 0 // Reset to navigation page on start
                 currentSnapshot = snapshot
@@ -494,7 +501,10 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager) : ViewModel()
                         remainingDurationS = if (_hasArrived.value) 0L else updatedSnap.remainingDurationS,
                         routeProgressM = if (_hasArrived.value) updatedSnap.totalDistanceM else updatedSnap.routeProgressM,
                         instructionText = if (_hasArrived.value) "Destinazione raggiunta"
-                            else updatedSnap.instructionText,
+                            else WaypointReachedNotice.message(
+                                waypointNoticeIndex, waypointNoticeTotal,
+                                waypointNoticeStartedMs, SystemClock.elapsedRealtime())
+                                ?: updatedSnap.instructionText,
                         displayPageName = pageName,
                         speedLimitKPH = lastSpeedLimitKph,
                         speedDeciKPH = currentSpeedDeciKph,
@@ -578,6 +588,9 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager) : ViewModel()
         activeDestination = null
         activeWaypoints = emptyList()
         nextWaypointIndex = 0
+        waypointNoticeIndex = 0
+        waypointNoticeTotal = 0
+        waypointNoticeStartedMs = 0L
         _routeWaypoints.value = emptyList()
         _routingSource.value = null
         currentSnapshot = null
@@ -786,6 +799,9 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager) : ViewModel()
                 latitude, longitude)
             if (reachedIndex != nextWaypointIndex) {
                 nextWaypointIndex = reachedIndex
+                waypointNoticeIndex = nextWaypointIndex
+                waypointNoticeTotal = activeWaypoints.size
+                waypointNoticeStartedMs = SystemClock.elapsedRealtime()
                 Log.i("NavigationVM", "Tappa completata: $nextWaypointIndex/${activeWaypoints.size}")
                 DiagnosticLog.event("WAYPOINT_REACHED",
                     "index=$nextWaypointIndex total=${activeWaypoints.size}")
