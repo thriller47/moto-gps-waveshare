@@ -31,6 +31,7 @@ import com.motogps.android.routing.RoutePreferences
 import com.motogps.android.routing.RouteStyle
 import com.motogps.android.routing.ValhallaTurnGuidance
 import com.motogps.android.routing.ValhallaRouteLocations
+import com.motogps.android.routing.RerouteDepartureDirection
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -1334,7 +1335,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager) : ViewModel()
     private fun resolveRoute(
         originLat: Double, originLon: Double, place: PlaceSearchResult,
         isReroute: Boolean = false, bearing: Float? = null,
-        waypoints: List<PlaceSearchResult> = _routeWaypoints.value
+        waypoints: List<PlaceSearchResult> = _routeWaypoints.value,
+        strictBearing: Boolean = false
     ): JSONObject {
         var localError = "nessuna regione Valhalla installata"
         val context = navigationMapsContext
@@ -1343,7 +1345,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager) : ViewModel()
                 val result = OfflineValhallaRouter.route(
                     context, originLat, originLon, place.latitude, place.longitude,
                     isReroute, bearing, _routePreferences.value,
-                    waypoints.map { it.latitude to it.longitude })
+                    waypoints.map { it.latitude to it.longitude }, strictBearing)
                 if (result != null) {
                     Log.i("NavigationVM", "Routing: Valhalla offline")
                     return result
@@ -1359,7 +1361,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager) : ViewModel()
         return try {
             val result = OnlineValhallaRouter.route(
                 originLat, originLon, place.latitude, place.longitude, isReroute, bearing,
-                _routePreferences.value, waypoints.map { it.latitude to it.longitude })
+                _routePreferences.value, waypoints.map { it.latitude to it.longitude },
+                strictBearing)
             Log.i("NavigationVM", "Routing: Valhalla online (local: $localError)")
             result
         } catch (e: CancellationException) {
@@ -1401,7 +1404,54 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager) : ViewModel()
             lastReliableGpsBearing else null
         val pending = if (isReroute) activeWaypoints.drop(nextWaypointIndex)
             else _routeWaypoints.value
-        val result = resolveRoute(originLat, originLon, place, isReroute, bearing, pending)
+        val initial = resolveRoute(originLat, originLon, place, isReroute, bearing, pending)
+        // Only inspect an *actual* moving reroute. Route geometry can legitimately
+        // lead backwards when a mandatory stop is behind the rider, so this is
+        // a bounded candidate retry, never a forced waypoint skip or fabricated
+        // green segment.
+        val initialDirection = if (isReroute && bearing != null)
+            RerouteDepartureDirection.inspect(initial, originLat, originLon, bearing)
+        else null
+        val result = if (initialDirection?.isOpposite == true) {
+            DiagnosticLog.event("REROUTE_START_DIRECTION",
+                "phase=original course_deg=${bearing?.toInt()} " +
+                    "route_deg=${initialDirection.departureBearingDegrees.toInt()} " +
+                    "error_deg=${initialDirection.differenceDegrees.toInt()} " +
+                    "snap_m=${initialDirection.snapDistanceMeters.toInt()} " +
+                    "stops_pending=${pending.size}")
+            val initialProvider = initial.optJSONObject("route")
+                ?.optString("provider", "").orEmpty()
+            // A second request to the public demo server would add potentially
+            // tens of seconds to a reroute; retry only on the offline graph.
+            val retry = if (initialProvider == "valhalla-local") {
+                try {
+                    resolveRoute(originLat, originLon, place, isReroute,
+                        bearing, pending, strictBearing = true)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    DiagnosticLog.event("REROUTE_START_DIRECTION",
+                        "phase=retry_error type=${e.javaClass.simpleName}")
+                    null
+                }
+            } else null
+            val retryDirection = retry?.let {
+                RerouteDepartureDirection.inspect(it, originLat, originLon, bearing)
+            }
+            val sameProvider = retry?.optJSONObject("route")
+                ?.optString("provider", "") == initialProvider
+            val useRetry = sameProvider && retryDirection != null &&
+                RerouteDepartureDirection.preferRetry(initialDirection, retryDirection)
+            DiagnosticLog.event("REROUTE_START_DIRECTION",
+                "phase=decision choice=${if (useRetry) "retry" else "original"} " +
+                    "retry_deg=${retryDirection?.departureBearingDegrees?.toInt() ?: -1} " +
+                    "retry_error_deg=${retryDirection?.differenceDegrees?.toInt() ?: -1} " +
+                    "retry_snap_m=${retryDirection?.snapDistanceMeters?.toInt() ?: -1} " +
+                    "provider=$initialProvider stops_pending=${pending.size}")
+            if (useRetry) requireNotNull(retry) else initial
+        } else {
+            initial
+        }
         lastRoutingProvider = result.optJSONObject("route")
             ?.optString("provider", "Valhalla") ?: "Valhalla"
         val (snapshot, geometry) = parseMotoRouteResponse(
