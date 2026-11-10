@@ -14,6 +14,15 @@ import kotlin.math.roundToLong
  * nearest-segment jumps at junctions and hold progress while off-route.
  */
 internal class RouteProgressMatcher {
+    // A freshly calculated route starts at the requested origin. At a loop or
+    // parallel road the geographically closest segment can be hundreds of
+    // metres farther along that route. Do not initialise progress on that
+    // future leg while the GPS is still near the route's first vertex.
+    private companion object {
+        const val INITIAL_ROUTE_HORIZON_M = 180.0
+        const val INITIAL_ORIGIN_PROXIMITY_M = 130.0
+        const val INITIAL_SEGMENT_PROXIMITY_M = 100.0
+    }
     private var route = emptyList<GeoPointE6>()
     private var cumulative = DoubleArray(0)
     private var progress: Double? = null
@@ -108,6 +117,18 @@ internal class RouteProgressMatcher {
         var bestScore = Double.POSITIVE_INFINITY
         var bestPos = 0.0
         var minCross = Double.POSITIVE_INFINITY
+        // Only for the very first match after reset(): when the rider is still
+        // near the new route's origin, prefer a plausible projection onto its
+        // first 180m. A stale/slow reroute whose origin is now far away falls
+        // back to the ordinary global nearest-segment search.
+        val origin = route.first()
+        val originGap = hypot(
+            (origin.latitudeE6 / 1e6 - lat) * 111_195.0,
+            (origin.longitudeE6 / 1e6 - lon) * mx)
+        val firstMatchNearOrigin = prev == null &&
+            originGap <= INITIAL_ORIGIN_PROXIMITY_M
+        var initialBestScore = Double.POSITIVE_INFINITY
+        var initialBestPos = 0.0
         for (i in 0 until route.lastIndex) {
             val a = route[i]
             val b = route[i + 1]
@@ -139,6 +160,13 @@ internal class RouteProgressMatcher {
                 bestScore = score
                 bestPos = candidate
             }
+            if (firstMatchNearOrigin &&
+                candidate <= INITIAL_ROUTE_HORIZON_M &&
+                cross <= INITIAL_SEGMENT_PROXIMITY_M &&
+                score < initialBestScore) {
+                initialBestScore = score
+                initialBestPos = candidate
+            }
         }
         if (!bestScore.isFinite()) return null
 
@@ -146,7 +174,8 @@ internal class RouteProgressMatcher {
         // do not count travel away from the route as a distance increase.
         val next = when {
             prev != null && minCross > 45.0 -> prev
-            prev == null -> bestPos
+            prev == null -> if (initialBestScore.isFinite())
+                initialBestPos else bestPos
             else -> max(prev, min(bestPos,
                 prev + max(22.0, travelled * 1.8 + 10.0)))
         }

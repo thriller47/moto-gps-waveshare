@@ -79,6 +79,44 @@ class RouteProgressMatcherTest {
         assertNull(tracker.reverseCandidate(lat(110), lon(36), 180f, 12f))
     }
 
+
+    @Test fun firstMatchAfterRerouteStaysOnDepartureLegNotLaterNearbyLoop() {
+        // The route doubles back beside its start. GPS is 1m from a future
+        // northbound leg, but 24m from the current departure leg. Without a
+        // first-fix anchor, the matcher immediately reported ~590m travelled.
+        val tracker = RouteProgressMatcher()
+        tracker.reset(listOf(
+            point(0), point(220), point(220, 90),
+            point(0, 90), point(0, 25), point(200, 25)))
+        val first = tracker.remaining(lat(20), lon(24), 0f, 12f)!!
+        assertTrue("First match jumped to a future loop leg",
+            tracker.matchedProgressMeters()!! < 60.0)
+        assertTrue(first > 730L)
+        tracker.remaining(lat(36), lon(24), 0f, 12f)
+        assertTrue(tracker.matchedProgressMeters()!! < 80.0)
+    }
+
+    @Test fun actualUturnDepartureIsNotOverriddenByAnAlignedLaterLeg() {
+        // A mandatory turn-around can require heading south while the bike
+        // still travels north. Do not snap directly onto the eventual north
+        // leg merely because its bearing matches the GPS course.
+        val tracker = RouteProgressMatcher()
+        tracker.reset(listOf(
+            point(0), point(-210), point(-210, 25),
+            point(0, 25), point(200, 25)))
+        tracker.remaining(lat(-15), lon(24), 0f, 11f)
+        assertTrue(tracker.matchedProgressMeters()!! < 60.0)
+    }
+
+    @Test fun staleRerouteCanStartBeyondTheInitialRouteHorizon() {
+        // A slow route response may arrive after the rider has travelled
+        // farther than the departure safety radius. Preserve global matching.
+        val tracker = RouteProgressMatcher()
+        tracker.reset(listOf(point(0), point(400), point(600)))
+        tracker.remaining(lat(240), lon(8), 0f, 19f)
+        assertTrue(tracker.matchedProgressMeters()!! > 200.0)
+    }
+
     @Test fun offRouteMotionFreezesDistanceUntilReroute() {
         val tracker = RouteProgressMatcher()
         tracker.reset(listOf(point(0), point(500)))

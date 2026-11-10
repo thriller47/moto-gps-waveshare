@@ -1295,6 +1295,19 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager) : ViewModel()
                 val refreshed = updateManeuverAndDistance(acceptedLat, acceptedLon)
                     ?: snapshot
                 currentSnapshot = refreshed
+                val matchM = routeProgressMatcher.matchedProgressMeters()
+                val firstRoutePoint = geometry?.points?.firstOrNull()
+                val originGapM = firstRoutePoint?.let {
+                    calculateDistanceMeters(acceptedLat, acceptedLon,
+                        it.latitudeE6 / 1e6, it.longitudeE6 / 1e6)
+                }
+                // Numeric diagnostics only: no GPS coordinates or route points.
+                // Distinguish a fresh match near 0m from a premature loop snap.
+                DiagnosticLog.event("REROUTE_INITIAL_MATCH",
+                    "progress_m=${matchM?.toInt() ?: -1} " +
+                        "origin_gap_m=${originGapM?.toInt() ?: -1} " +
+                        "route_m=${snapshot.totalDistanceM} " +
+                        "points=${geometry?.points?.size ?: 0}")
                 rerouteStability.accepted(
                     SystemClock.elapsedRealtime(), acceptedLat, acceptedLon)
                 _routingSource.value = lastRoutingProvider
