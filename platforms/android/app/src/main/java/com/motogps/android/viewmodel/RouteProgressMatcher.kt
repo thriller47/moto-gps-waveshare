@@ -37,6 +37,9 @@ internal class RouteProgressMatcher {
         lastLon = Double.NaN
     }
 
+    /** Display-only hint; routing and reroute decisions remain unchanged. */
+    fun matchedProgressMeters(): Double? = progress
+
     /** A reverse candidate consistent with the already matched route progress.
      * The nearest point of the *entire* shape is not enough: on hairpins,
      * parallel roads and self-intersections it can be a different road.
