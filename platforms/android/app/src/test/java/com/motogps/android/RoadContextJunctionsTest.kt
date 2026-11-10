@@ -113,7 +113,8 @@ class RoadContextJunctionsTest {
         assertNull(RoadContextJunctions.find(data, 45.0, 8.0, p(900, 0)))
         val selected = RoadContextJunctions.find(
             data, 45.0, 8.0, p(900, 0),
-            route = listOf(p(0, 0), p(6000, 0)))
+            route = listOf(p(0, 0), p(offset, 0),
+                p(offset + 120, 120), p(offset + 240, 0), p(6000, 0)))
         assertNotNull(selected)
         assertEquals(2, selected?.exits?.size)
         assertTrue((selected?.forwardRouteAlongM ?: 0.0) > 350.0)
@@ -146,6 +147,52 @@ class RoadContextJunctionsTest {
         assertTrue(analysis.focus!!.forwardRouteAlongM < 35.0)
         assertEquals(setOf(2L, 3L),
             analysis.focus!!.exits.mapNotNull { it.osmWayId }.toSet())
+    }
+
+
+    @Test fun bypassElevenMetresAwayDoesNotEarnOnRouteRingBonus() {
+        val bypass = listOf(p(340, -450), p(340, 450))
+        val focus = RoadContextJunctions.find(
+            multipleWays() + exitA + exitB, 45.00034, 8.0, p(340, 450), bypass)!!
+        assertEquals(4, focus.members.size)
+        assertTrue(focus.forwardRouteDistanceM in 8.0..20.0)
+        assertEquals(0.0, focus.forwardRouteOverlapM, 0.01)
+        assertEquals(setOf(2L, 3L),
+            focus.exits.mapNotNull { it.osmWayId }.toSet())
+        assertTrue(focus.confidence < 120)
+    }
+
+    @Test fun routeFollowingRingArcEarnsOnRouteBonus() {
+        val actualArc = listOf(p(-100, 0), p(0, 0), p(120, 120),
+            p(240, 0), p(450, 0))
+        val focus = RoadContextJunctions.find(
+            multipleWays() + exitA + exitB, 45.0, 8.0,
+            p(120, 120), actualArc)!!
+        assertTrue(focus.forwardRouteOverlapM >= 12.0)
+        assertTrue(focus.confidence >= 120)
+    }
+
+    @Test fun nearbyBypassRingStaysVisibleBeforeSecondTrueRing() {
+        val offset = 1750 // ~195m separation
+        val farRing = road(200, ringPoints.map {
+            p(it.latitudeE6 - 45_000_000 + offset,
+              it.longitudeE6 - 8_000_000)
+        }, listOf(800, 801, 802, 803, 800))
+        val farA = road(201,
+            listOf(p(offset + 120, 120), p(offset + 120, 550)),
+            listOf(801, 901))
+        val farB = road(202,
+            listOf(p(offset + 240, 0), p(offset + 700, 0)),
+            listOf(802, 902))
+        val route = listOf(p(340, -450), p(340, 0), p(340, 450),
+            p(offset, 0), p(offset + 120, 120),
+            p(offset + 240, 0), p(offset + 500, 0))
+        val focus = RoadContextJunctions.find(
+            multipleWays() + exitA + exitB + farRing + farA + farB,
+            45.00034, 8.0, p(offset + 120, 120), route)!!
+        assertEquals(4, focus.members.size)
+        assertTrue(focus.gpsDistanceM < 45.0)
+        assertEquals(0.0, focus.forwardRouteOverlapM, 0.01)
     }
 
     @Test fun aDistantRingIsNotChosenAndOrdinaryRoadsRemainAvailable() {

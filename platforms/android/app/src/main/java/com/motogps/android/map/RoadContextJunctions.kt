@@ -19,6 +19,8 @@ internal object RoadContextJunctions {
     private const val MAX_EDGES = 90
     private const val MAX_SEARCH_STATES = 3500
     private const val MAX_CANDIDATES = 48
+    // Proximity to a ring does not establish that the route traverses it.
+    private const val MIN_FORWARD_RING_OVERLAP_M = 12.0
 
     private class Metric(latitude: Double) {
         private val x = 111_320.0 * cos(Math.toRadians(latitude))
@@ -52,6 +54,46 @@ internal object RoadContextJunctions {
                 best = minOf(best, segmentSquared(p, points[i], points[i + 1]))
             }
             return sqrt(best)
+        }
+
+
+        /** Metres of route running along the ring, not merely crossing near it. */
+        fun forwardOverlap(points: List<GeoPointE6>, route: List<GeoPointE6>): Double {
+            if (points.size < 2 || route.size < 2) return 0.0
+            var overlap = 0.0
+            for (i in 0 until route.lastIndex) {
+                val a = route[i]
+                val b = route[i + 1]
+                val (rx, ry) = toXY(b, a)
+                val routeLength = hypot(rx, ry)
+                if (routeLength < 1.0) continue
+                val chunks = kotlin.math.ceil(routeLength / 7.0).toInt().coerceAtLeast(1)
+                val chunkLength = routeLength / chunks
+                for (chunk in 0 until chunks) {
+                    val t = (chunk + 0.5) / chunks
+                    val middle = GeoPointE6(
+                        (a.latitudeE6 + (b.latitudeE6 - a.latitudeE6) * t).toInt(),
+                        (a.longitudeE6 + (b.longitudeE6 - a.longitudeE6) * t).toInt()
+                    )
+                    var matched = false
+                    for (j in 0 until points.lastIndex) {
+                        val first = points[j]
+                        val last = points[j + 1]
+                        val (sx, sy) = toXY(last, first)
+                        val ringLength = hypot(sx, sy)
+                        if (ringLength < 0.7) continue
+                        val alignment = kotlin.math.abs(
+                            (rx * sx + ry * sy) / (routeLength * ringLength))
+                        if (alignment >= 0.72 &&
+                            segmentSquared(middle, first, last) <= 49.0) {
+                            matched = true
+                            break
+                        }
+                    }
+                    if (matched) overlap += chunkLength
+                }
+            }
+            return overlap
         }
 
         /** Ring-to-forward-route distance and progress. Never infers OSM connectivity. */
@@ -97,7 +139,8 @@ internal object RoadContextJunctions {
         val rawExitWays: Int,
         val distinctExitBranches: Int,
         val forwardRouteDistanceM: Double = Double.POSITIVE_INFINITY,
-        val forwardRouteAlongM: Double = Double.POSITIVE_INFINITY
+        val forwardRouteAlongM: Double = Double.POSITIVE_INFINITY,
+        val forwardRouteOverlapM: Double = 0.0
     )
     data class Analysis(
         val focus: Priority?,
@@ -281,8 +324,11 @@ internal object RoadContextJunctions {
             // dropped its +28 forward bonus and a later ring could win.
             // Only a physically nearby (<70m) circle gets that exception;
             // distant/behind candidates cannot keep claiming the focus.
+            val routeOverlap = if (routeTrusted && routeGap <= 32.0)
+                metric.forwardOverlap(points, route) else 0.0
             val forwardRing = routeGap <= 32.0 && routeAlong in 0.0..500.0 &&
-                (routeAlong >= 35.0 || gpsDistance <= 70.0)
+                (routeAlong >= 35.0 || gpsDistance <= 70.0) &&
+                routeOverlap >= MIN_FORWARD_RING_OVERLAP_M
             if (gpsDistance > 270.0 && aheadDistance > 180.0 && !forwardRing) {
                 reject("far")
                 return
@@ -337,7 +383,7 @@ internal object RoadContextJunctions {
             val option = Priority(ring, members, exits, protected, score,
                 gpsDistance, aheadDistance, key,
                 choices.connectedWays, choices.distinctBranches,
-                routeGap, routeAlong)
+                routeGap, routeAlong, routeOverlap)
             val previous = best
             // On an equal confidence score choose the first eligible ring
             // along the forward route, not the one closest to an *upcoming*
@@ -348,15 +394,26 @@ internal object RoadContextJunctions {
                 val along = priority.forwardRouteAlongM
                 val onForwardRoute = priority.forwardRouteDistanceM <= 32.0 &&
                     along in 0.0..500.0 &&
-                    (along >= 35.0 || priority.gpsDistanceM <= 70.0)
+                    (along >= 35.0 || priority.gpsDistanceM <= 70.0) &&
+                    priority.forwardRouteOverlapM >= MIN_FORWARD_RING_OVERLAP_M
                 return if (onForwardRoute) along
                 else 500.0 + minOf(priority.gpsDistanceM, priority.upcomingDistanceM)
             }
-            if (previous == null || option.confidence > previous.confidence ||
-                (option.confidence == previous.confidence &&
-                    focusOrder(option) < focusOrder(previous))) {
-                best = option
+            // Never displace a junction at the bike with a later junction
+            // 150-200m ahead merely because the latter follows the route.
+            // The local off-route ring remains useful grey map context.
+            val optionLocal = option.gpsDistanceM <= 45.0
+            val previousLocal = previous?.gpsDistanceM?.let { it <= 45.0 } ?: false
+            val farSeparated = previous != null &&
+                maxOf(option.gpsDistanceM, previous.gpsDistanceM) >= 90.0
+            val prefer = when {
+                previous == null -> true
+                farSeparated && optionLocal != previousLocal -> optionLocal
+                option.confidence != previous.confidence ->
+                    option.confidence > previous.confidence
+                else -> focusOrder(option) < focusOrder(previous)
             }
+            if (prefer) best = option
         }
 
         // First, recognize complete single-way loops. Without OSM IDs the ring
