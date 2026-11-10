@@ -36,6 +36,7 @@ import com.motogps.android.location.LocationForegroundService
 import com.motogps.android.ui.NavigationScreen
 import com.motogps.android.viewmodel.NavigationViewModel
 import com.motogps.android.viewmodel.NavigationViewModelFactory
+import com.motogps.android.viewmodel.NavigationReconnectPolicy
 
 class MainActivity : ComponentActivity(), SensorEventListener {
     private lateinit var bleManager: MotoBLEManager
@@ -146,7 +147,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             onConnectionStateChange = { state ->
                 DiagnosticLog.event("BLE_LINK", state)
                 viewModel.setConnectionState(state)
-                if (!state.contains("Connesso", ignoreCase = true)) {
+                if (!NavigationReconnectPolicy.isReady(state)) {
                     diagnosticTimeoutHandler.removeCallbacks(diagnosticTimeout)
                     diagnosticMode = 0
                 }
