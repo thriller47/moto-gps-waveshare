@@ -276,7 +276,13 @@ internal object RoadContextJunctions {
             val (routeGap, routeAlong) = if (routeTrusted)
                 metric.forwardMatch(points, route)
             else Double.POSITIVE_INFINITY to Double.POSITIVE_INFINITY
-            val forwardRing = routeGap <= 32.0 && routeAlong in 35.0..500.0
+            // Preserve the ring right at the next maneuver: once the rider is
+            // within 35m along the green route, the old 35m lower bound
+            // dropped its +28 forward bonus and a later ring could win.
+            // Only a physically nearby (<70m) circle gets that exception;
+            // distant/behind candidates cannot keep claiming the focus.
+            val forwardRing = routeGap <= 32.0 && routeAlong in 0.0..500.0 &&
+                (routeAlong >= 35.0 || gpsDistance <= 70.0)
             if (gpsDistance > 270.0 && aheadDistance > 180.0 && !forwardRing) {
                 reject("far")
                 return
