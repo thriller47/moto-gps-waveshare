@@ -60,7 +60,7 @@ data class RouteOption(
     val rawRouteJson: JSONObject
 )
 
-class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() {
+class NavigationViewModel(internal val bleManager: MotoBLEManager) : ViewModel() {
     private val _connectionState = MutableStateFlow("Non connesso")
     val connectionState: StateFlow<String> = _connectionState
 
@@ -1527,10 +1527,7 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
 
     fun setConnectionState(state: String) {
         _connectionState.value = state
-        val isConnected = state.contains("Connesso", ignoreCase = true) ||
-                state.contains("Connected", ignoreCase = true) ||
-                state.contains("Ready", ignoreCase = true) ||
-                state.contains("Online", ignoreCase = true)
+        val isConnected = NavigationReconnectPolicy.isReady(state)
         if (isConnected) {
             // A fresh BLE handshake resets ESP32-side session state. Replaying only
             // the periodic maneuver snapshots can leave the display without its
@@ -1563,12 +1560,8 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
         telemetryJob = viewModelScope.launch {
             while (true) {
                 delay(600)
-                if (!_isNavigating.value && _connectionState.value.let {
-                    it.contains("Connesso", ignoreCase = true) ||
-                    it.contains("Connected", ignoreCase = true) ||
-                    it.contains("Ready", ignoreCase = true) ||
-                    it.contains("Online", ignoreCase = true)
-                }) {
+                if (!_isNavigating.value &&
+                    NavigationReconnectPolicy.isReady(_connectionState.value)) {
                     val pageName = when (_currentDevicePage.value) {
                         1 -> "speedometer"
                         2 -> "heading"
@@ -1612,13 +1605,20 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     fun clearError() {
         _errorMessage.value = null
     }
+
+    override fun onCleared() {
+        // A configuration change retains this ViewModel and its BLE session.
+        // Close GATT/codec only when the navigation owner truly goes away.
+        bleManager.close()
+        super.onCleared()
+    }
 }
 
-class NavigationViewModelFactory(private val bleManager: MotoBLEManager) : ViewModelProvider.Factory {
+class NavigationViewModelFactory(private val context: Context) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(NavigationViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")
-            return NavigationViewModel(bleManager) as T
+            return NavigationViewModel(MotoBLEManager(context.applicationContext)) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }
