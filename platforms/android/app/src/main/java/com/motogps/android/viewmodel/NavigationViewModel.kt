@@ -246,10 +246,24 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
     private var navigationJob: Job? = null
     private var currentSnapshot: MotoBLENavigationSnapshot? = null
     private var currentGeometry: MotoBLERouteGeometry? = null
+    private var lastWindowGapDiagnosticMs = 0L
 
     private fun sendNearbyRouteGeometry(route: MotoBLERouteGeometry) {
         val (lat, lon) = currentLocation.value
-        val window = RouteGeometryWindow.around(route, lat, lon)
+        val window = RouteGeometryWindow.around(
+            route, lat, lon, routeProgressMatcher.matchedProgressMeters())
+        val first = window.points.firstOrNull()
+        if (first != null) {
+            val gapMeters = calculateDistanceMeters(
+                lat, lon, first.latitudeE6 / 1e6, first.longitudeE6 / 1e6)
+            val nowMs = SystemClock.elapsedRealtime()
+            if (gapMeters >= 35.0 && nowMs - lastWindowGapDiagnosticMs >= 5_000L) {
+                lastWindowGapDiagnosticMs = nowMs
+                DiagnosticLog.event("ROUTE_VIEW_GAP",
+                    "start_gap_m=${gapMeters.toInt()} points=${window.points.size} " +
+                        "route_token=${route.routeToken}")
+            }
+        }
         ReplayTraceRecorder.route(window)
         bleManager.sendRouteGeometry(window)
         val endpoint = route.points.lastOrNull()
@@ -873,7 +887,8 @@ class NavigationViewModel(private val bleManager: MotoBLEManager) : ViewModel() 
                     // Read the whole local graph even after leaving the route.
                     val contextRoads = segments.filter { it.roadClass in 0..3 && it.points.size >= 2 }
                     val nearbyRoute = currentGeometry?.let { geometry ->
-                        RouteGeometryWindow.around(geometry, lat, lon).points
+                        RouteGeometryWindow.around(geometry, lat, lon,
+                            routeProgressMatcher.matchedProgressMeters()).points
                     }.orEmpty()
                     val upcoming = RoadContextUpcoming.ahead(
                         nearbyRoute, lat, lastGpsSpeedMs, lastFixAccuracyM)
