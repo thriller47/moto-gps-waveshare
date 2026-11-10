@@ -18,11 +18,13 @@ internal object OnlineValhallaRouter {
         fromLat: Double, fromLon: Double, toLat: Double, toLon: Double,
         rerouting: Boolean = false, gpsBearing: Float? = null,
         preferences: RoutePreferences = RoutePreferences(),
-        waypoints: List<Pair<Double, Double>> = emptyList()
+        waypoints: List<Pair<Double, Double>> = emptyList(),
+        strictBearing: Boolean = false
     ): JSONObject {
         val request = JSONObject()
             .put("locations", ValhallaRouteLocations.build(
-                fromLat, fromLon, toLat, toLon, waypoints, rerouting, gpsBearing))
+                fromLat, fromLon, toLat, toLon, waypoints, rerouting, gpsBearing,
+                strictBearing))
             .put("costing", "auto")
             .put("units", "km")
             .put("language", "it-IT")
@@ -35,10 +37,12 @@ internal object OnlineValhallaRouter {
         fromLat: Double, fromLon: Double, toLat: Double, toLon: Double,
         rerouting: Boolean = false, gpsBearing: Float? = null,
         preferences: RoutePreferences = RoutePreferences(),
-        waypoints: List<Pair<Double, Double>> = emptyList()
+        waypoints: List<Pair<Double, Double>> = emptyList(),
+        strictBearing: Boolean = false
     ): JSONObject {
         val requestJson = request(
-            fromLat, fromLon, toLat, toLon, rerouting, gpsBearing, preferences, waypoints)
+            fromLat, fromLon, toLat, toLon, rerouting, gpsBearing, preferences, waypoints,
+            strictBearing)
         val conn = (URL(ENDPOINT).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             // Fail visibly rather than holding a recalculation for 25 seconds
