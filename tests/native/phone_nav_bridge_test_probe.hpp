@@ -7,6 +7,10 @@
 namespace moto::test {
 
 void reset_phone_nav_bridge_probe();
+int phone_nav_bridge_waypoint_notice_events();
+int phone_nav_bridge_waypoint_clear_events();
+uint8_t phone_nav_bridge_last_waypoint_notice_index();
+uint8_t phone_nav_bridge_last_waypoint_notice_total();
 void emit_page_change(moto_ui_page_t page);
 void emit_music_command(moto_music_command_t command);
 void emit_demo_change(bool enabled);

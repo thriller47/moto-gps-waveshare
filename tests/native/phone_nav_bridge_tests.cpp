@@ -1,6 +1,5 @@
 #include "phone_nav_bridge.h"
 #include "phone_nav_bridge_test_probe.hpp"
-#include "moto_nav_ui_test_probe.hpp"
 #include "demo_fixture/jinan_big_data_demo.hpp"
 
 #include <atomic>
@@ -619,7 +618,7 @@ void test_imu_presentation_preserves_40hz_phase_and_stale_course_is_ignored() {
 
 
 void test_waypoint_notice_deduplicates_and_clears_on_idle() {
-  moto::test::reset_nav_ui_probe();
+  moto::test::reset_phone_nav_bridge_probe();
   moto::nav::NavPresenter presenter;
   PhoneNavBridge bridge(presenter);
   bridge.on_link_state(true);
@@ -629,30 +628,30 @@ void test_waypoint_notice_deduplicates_and_clears_on_idle() {
   CHECK(bridge.on_message(make_message(moto::ble::Message{nav}, 100)) ==
         moto::ble::AckStatus::Ok);
   pump(bridge);
-  CHECK(moto::test::waypoint_notice_events() == 1);
-  CHECK(moto::test::last_waypoint_notice_index() == 1);
-  CHECK(moto::test::last_waypoint_notice_total() == 2);
+  CHECK(moto::test::phone_nav_bridge_waypoint_notice_events() == 1);
+  CHECK(moto::test::phone_nav_bridge_last_waypoint_notice_index() == 1);
+  CHECK(moto::test::phone_nav_bridge_last_waypoint_notice_total() == 2);
 
   // The same notice is present in many 250ms BLE snapshots; it must not
   // restart the 7-second UI timer or become another reached-stop event.
   CHECK(bridge.on_message(make_message(moto::ble::Message{nav}, 101)) ==
         moto::ble::AckStatus::Ok);
   pump(bridge);
-  CHECK(moto::test::waypoint_notice_events() == 1);
+  CHECK(moto::test::phone_nav_bridge_waypoint_notice_events() == 1);
 
   nav.instruction = "WP_REACHED:2/2";
   CHECK(bridge.on_message(make_message(moto::ble::Message{nav}, 102)) ==
         moto::ble::AckStatus::Ok);
   pump(bridge);
-  CHECK(moto::test::waypoint_notice_events() == 2);
-  CHECK(moto::test::last_waypoint_notice_index() == 2);
+  CHECK(moto::test::phone_nav_bridge_waypoint_notice_events() == 2);
+  CHECK(moto::test::phone_nav_bridge_last_waypoint_notice_index() == 2);
 
   nav.state = moto::ble::NavigationState::Idle;
   nav.instruction.clear();
   CHECK(bridge.on_message(make_message(moto::ble::Message{nav}, 103)) ==
         moto::ble::AckStatus::Ok);
   pump(bridge);
-  CHECK(moto::test::waypoint_clear_events() >= 1);
+  CHECK(moto::test::phone_nav_bridge_waypoint_clear_events() >= 1);
 }
 
 }  // namespace
