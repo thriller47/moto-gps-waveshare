@@ -1422,6 +1422,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager) : ViewModel()
                     "route_deg=${initialDirection.departureBearingDegrees.toInt()} " +
                     "error_deg=${initialDirection.differenceDegrees.toInt()} " +
                     "snap_m=${initialDirection.snapDistanceMeters.toInt()} " +
+                    "style=${_routePreferences.value.style} " +
+                    "route_m=${initial.optJSONObject("route")?.optLong("total_distance_m") ?: -1} " +
                     "stops_pending=${pending.size}")
             val initialProvider = initial.optJSONObject("route")
                 ?.optString("provider", "").orEmpty()
