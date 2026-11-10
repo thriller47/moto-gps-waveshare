@@ -504,18 +504,96 @@ Il separatore `|` mantiene gli spazi nel nome rete: ad esempio `wifi set Hotspot
 
 **Branch corrente:** il simulatore browser (anteprima 2D e renderer reale LVGL/WebAssembly) è integrato su **`valhalla`** dalla PR #73. Le correzioni ai ricalcoli Android e la registrazione GPS senza limite complessivo sono invece ancora sul branch **`test/esp32-map-dirty-tiles-20261109`**, da verificare prima del merge. Non usare il branch `test/road-contrast-cleanup-20261104`, ormai eliminato.
 
-**Avvio simulatore WSL Ubuntu:** dopo l'aggiornamento del checkout `valhalla` (o del branch test, se vuoi riprodurre gli ultimi cambi Android) e dopo aver installato Emscripten in `~/emsdk`:
+### 8.1. Ricostruire il simulatore su un altro PC Windows/WSL (PC lavoro da 8 GB)
+
+**Stato della prova 10 novembre 2026:** sul PC del lavoro Emscripten `emcc 7.0.0` è stato verificato dall'utente; la prima compilazione WebAssembly si è fermata al **53%** con processi `Killed` ed `Error 137`. L'esaurimento della memoria WSL/Linux è la spiegazione più probabile, **da confermare con la memoria e i log OOM**. Il completamento della build con un solo job e l'eventuale modifica dello swap **non sono ancora stati confermati dall'utente**. Non confondere queste istruzioni con la compilazione del grafo Valhalla Italia (sezione 5): per il replay del simulatore il grafo non serve.
+
+**1. Verificare WSL** (PowerShell Windows, non terminale Ubuntu):
+
+```powershell
+wsl -l -v
+```
+
+Se Ubuntu 24.04 non compare ed è necessario installarlo, usare **PowerShell come amministratore**: `wsl --install -d Ubuntu-24.04`. Se è già presente, avviarlo con `wsl -d Ubuntu-24.04` (oppure usare il nome esatto mostrato da `wsl -l -v`). **Non usare `wsl --unregister`**: cancella dati e configurazione Linux.
+
+**2. Dipendenze, repository nel filesystem Linux** (da qui tutti comandi nel terminale Ubuntu; non usare `/mnt/c` come cartella di build):
+
+```bash
+sudo apt update
+sudo apt install -y git python3 cmake ninja-build build-essential curl ca-certificates
+mkdir -p ~/MotoGPS
+cd ~/MotoGPS
+git clone --branch test/esp32-map-dirty-tiles-20261109 --recurse-submodules https://github.com/thriller47/moto-gps-waveshare.git
+cd ~/MotoGPS/moto-gps-waveshare
+git branch --show-current
+```
+
+Se `~/MotoGPS/moto-gps-waveshare` **esiste già**, non ripetere il clone né cancellare i file: entra nella cartella, controlla `git status`, poi aggiorna con `git pull --ff-only origin test/esp32-map-dirty-tiles-20261109` e `git submodule update --init --recursive` se il checkout è pulito. Per lavorare sulla versione stabile usa esplicitamente il branch `valhalla`; non fare merge tra i due per avviare il simulatore.
+
+**3. Installare Emscripten con emsdk** (solo se `~/emsdk` non esiste):
+
+```bash
+cd ~
+git clone https://github.com/emscripten-core/emsdk.git
+cd ~/emsdk
+./emsdk install latest
+./emsdk activate latest
+source ./emsdk_env.sh
+emcc --version
+emcmake --version
+```
+
+`emcc 7.0.0` è la versione osservata sul PC del lavoro nel test citato; `latest` potrebbe installarne una diversa. **In ogni nuovo terminale WSL** eseguire `source ~/emsdk/emsdk_env.sh` prima della compilazione.
+
+**4. Configurare e compilare con un solo job sul PC da 8 GB** (terminale Ubuntu):
 
 ```bash
 cd ~/MotoGPS/moto-gps-waveshare
-git switch valhalla
-git pull --ff-only origin valhalla
-git submodule update --init --recursive
 source ~/emsdk/emsdk_env.sh
-./scripts/build_web.sh
+emcmake cmake -S . -B build/web -DMOTO_BUILD_WEB=ON -DMOTO_BUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release
+cmake --build build/web --parallel 1
+ls -lh platforms/web/shell/runtime/moto-gps-device.*
 ```
 
-In un secondo terminale WSL, da `~/MotoGPS/moto-gps-waveshare`, avviare `python3 -m http.server 4173 --directory .` se il server non è già attivo. Aprire **http://127.0.0.1:4173/platforms/web/simulator/index.html** da Chrome/Edge su Windows, poi `Ctrl+F5` dopo gli aggiornamenti. Il doppio clic su `index.html` mostra soltanto l'anteprima 2D se il runtime WASM non è disponibile. I comandi PowerShell nativi con `emcmake` non sono stati verificati sul PC dell'utente.
+Verificare la presenza di `moto-gps-device.js` e `moto-gps-device.wasm`. Lo script `./scripts/build_web.sh` è la scorciatoia per macchine con più risorse, ma sul PC da 8 GB è preferibile il comando esplicito `--parallel 1`: lo script invoca `cmake --build ... --parallel` senza indicare direttamente il numero di job.
+
+**5. Recupero dopo `Killed` / `Error 137` / arresto al 53%:** non cancellare `build/web`, perché i file già compilati possono essere riutilizzati. Verificare prima RAM e swap:
+
+```bash
+free -h
+swapon --show
+dmesg | grep -i -E 'out of memory|killed process' | tail -n 15
+```
+
+`dmesg` può richiedere privilegi (`sudo dmesg`). Riprendere direttamente con:
+
+```bash
+cd ~/MotoGPS/moto-gps-waveshare
+source ~/emsdk/emsdk_env.sh
+cmake --build build/web --parallel 1
+```
+
+**Solo se anche il singolo job viene terminato per memoria**, considerare la configurazione WSL2 seguente, tenendo presente che riguarda **tutte le distribuzioni WSL2** e richiede spazio libero sul disco. Da **PowerShell Windows** eseguire `notepad $env:USERPROFILE\.wslconfig`; creare o modificare la sezione mantenendo le eventuali altre impostazioni già presenti:
+
+```ini
+[wsl2]
+memory=5GB
+processors=2
+swap=8GB
+```
+
+Salvare, eseguire in PowerShell `wsl --shutdown`, riaprire Ubuntu, ricontrollare `free -h` / `swapon --show` e ripetere `source ~/emsdk/emsdk_env.sh` seguito da `cmake --build build/web --parallel 1`. **Questa modifica è un suggerimento di recupero, non una configurazione già validata** sul PC del lavoro.
+
+**6. Avviare/restart server e simulatore:** in un terminale WSL dedicato, dalla radice del repository:
+
+```bash
+cd ~/MotoGPS/moto-gps-waveshare
+python3 -m http.server 4173 --directory .
+```
+
+Lasciare il server acceso e aprire da Chrome/Edge Windows **http://127.0.0.1:4173/platforms/web/simulator/index.html**. Dopo una nuova build WASM aggiornare con `Ctrl+F5`; per **fermare** il server usare `Ctrl+C`, per **riavviarlo** ripetere il comando `python3 -m http.server`. Se il server è già in esecuzione non lanciarne un secondo sulla stessa porta. Il doppio clic su `index.html` può mostrare solo l'anteprima 2D senza il runtime WASM. Emscripten va usato nel terminale WSL; i comandi nativi PowerShell `emcmake` non sono verificati.
+
+**Avvio rapido su un PC già configurato:** `cd ~/MotoGPS/moto-gps-waveshare`, scegliere e aggiornare il branch desiderato, `git submodule update --init --recursive`, `source ~/emsdk/emsdk_env.sh`, quindi compilare con `cmake --build build/web --parallel 1` (se CMake è già configurato) oppure `./scripts/build_web.sh` su un PC con memoria sufficiente.
 
 ### Registrare il GPS senza durata massima — APK sperimentale
 
