@@ -5,6 +5,19 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class NavigationReconnectPolicyTest {
+    @Test fun disconnectedLabelsNeverTriggerSessionResync() {
+        for (status in listOf("Non connesso", "Connessione in corso...",
+            "Ricerca in corso...", "Disconnected", "not connected", "")) {
+            assertEquals(status, false, NavigationReconnectPolicy.isReady(status))
+        }
+    }
+
+    @Test fun onlyCompletedBleHandshakeIsReady() {
+        for (status in listOf("Connesso", "Connected", "Ready", "Online")) {
+            assertEquals(status, true, NavigationReconnectPolicy.isReady(status))
+        }
+    }
+
     @Test fun runningRouteRestoresGeometryAndSnapshot() {
         assertEquals(NavigationReconnectPolicy.Actions(true, true),
             NavigationReconnectPolicy.actions(true, false, true, true))
