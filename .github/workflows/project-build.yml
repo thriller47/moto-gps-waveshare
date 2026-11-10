@@ -123,7 +123,8 @@ jobs:
           node --check platforms/web/simulator/player.js
           node --check platforms/web/simulator/trace_model.js
           node --check platforms/web/simulator/fallback_map.js
-          node --test platforms/web/simulator/trace_model.test.cjs platforms/web/simulator/fallback_map.test.cjs
+          node --check platforms/web/simulator/ring_alignment.js
+          node --test platforms/web/simulator/trace_model.test.cjs platforms/web/simulator/fallback_map.test.cjs platforms/web/simulator/ring_alignment.test.cjs
 
       - name: Verify public demo map fixture
         run: node scripts/generate_jinan_demo_fixture.mjs --check

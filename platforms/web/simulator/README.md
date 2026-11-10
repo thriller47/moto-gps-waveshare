@@ -20,6 +20,13 @@ Una registrazione reale conteneva **4.732 snapshot UI ma soltanto 1.178 fix GPS*
 
 **Prova veloce:** sul branch `valhalla` fare `git pull --ff-only origin valhalla`, poi in Chrome `Ctrl+F5` e ricaricare il replay privato. **Questa correzione è solo JavaScript:** non richiede ricompilare WebAssembly se è già stato ricompilato dopo la modifica al timer di refresh LVGL da 15 ms. Confrontare alle 12:10:50 a 1×; se restano scatti, registrare entrambi i riquadri di diagnostica e distinguere jerk del GPS da irregolarità del disegno. Nessuna modifica a ESP32, Android, BLE o `valhalla`.
 
+
+## Scarto anello MotoMap / linea verde (diagnostica browser, 10 novembre 2026)
+
+Il riquadro **Scarto anello prioritario / finestra verde** confronta la prima polilinea chiusa selezionata da Android con la geometria della finestra di rotta BLE registrata nello **stesso frame**. Mostra uno scarto minimo in metri, distinguendo **coincidente** (entro 3 m), **vicino ma esterno** (tra 3 e 32 m) e **esterno alla finestra** (oltre 32 m). Non si tratta di un giudizio di correttezza Valhalla: la finestra è parziale, i livelli OSM non sono filtrati e le due geometrie possono rappresentare strade diverse. Non modifica la linea verde, il disegno LVGL, il firmware, Android o il selettore delle strade.
+
+Con il replay del 10 novembre, alla prima rotatoria (~13:35:14) lo scarto risulta circa **10,8 m**, mentre alla seconda (~13:35:46) risulta **0 m**. Il browser non ha bisogno della geometria privata sul server: calcola tutto localmente. Dopo **git pull** è sufficiente **Ctrl+F5** e ricaricare il file JSONL; **non ricompilare WebAssembly** per questa sola modifica JavaScript. I test sintetici escludono i tracciati GPS personali dal repository.
+
 ## Compilazione con Emscripten
 
 Servono Git, CMake, Emscripten/emcmake attivati e il submodule LVGL.
