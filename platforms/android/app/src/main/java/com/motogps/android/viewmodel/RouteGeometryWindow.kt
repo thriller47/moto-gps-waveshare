@@ -17,7 +17,8 @@ internal object RouteGeometryWindow {
     private const val LOOKAHEAD_METERS = 550.0
     private const val MIN_TURN_DETAIL_METERS = 1.2
 
-    fun around(route: MotoBLERouteGeometry, latitude: Double, longitude: Double): MotoBLERouteGeometry {
+    fun around(route: MotoBLERouteGeometry, latitude: Double, longitude: Double,
+               progressHintMeters: Double? = null): MotoBLERouteGeometry {
         val full = route.points
         if (full.size < 2 || !latitude.isFinite() || !longitude.isFinite()) return route
 
@@ -46,6 +47,43 @@ internal object RouteGeometryWindow {
                 bestSquaredDistance = distanceSquared
                 nearestSegment = i
                 nearestFraction = t
+            }
+        }
+
+        // The remaining-distance matcher tracks progress through parallel
+        // legs, loops and roundabouts. Reuse that *display-only* progress as
+        // a tie-breaker when multiple segments are almost equally close.
+        // Never override a clearly nearer GPS match or an off-route fix:
+        // genuine departures still trigger an immediate Valhalla reroute.
+        val hint = progressHintMeters?.takeIf { it.isFinite() && it >= 0.0 }
+        if (hint != null && bestSquaredDistance <= 400.0) {
+            val nearEnough = minOf(20.0, kotlin.math.sqrt(bestSquaredDistance) + 8.0)
+            var travelledMeters = 0.0
+            var nearestProgressDifference = Double.POSITIVE_INFINITY
+            for (i in 0 until full.lastIndex) {
+                val ax = x(full[i])
+                val ay = y(full[i])
+                val dx = x(full[i + 1]) - ax
+                val dy = y(full[i + 1]) - ay
+                val squaredLength = dx * dx + dy * dy
+                val t = if (squaredLength > 1e-6)
+                    (-(ax * dx + ay * dy) / squaredLength).coerceIn(0.0, 1.0)
+                else 0.0
+                val cross = hypot(ax + t * dx, ay + t * dy)
+                // Match RouteProgressMatcher's cumulative-distance units.
+                val segmentMeters = hypot(
+                    (full[i + 1].latitudeE6 - full[i].latitudeE6) / 1e6 * 111_195.0,
+                    (full[i + 1].longitudeE6 - full[i].longitudeE6) / 1e6 * 111_195.0 *
+                        cos(Math.toRadians((full[i].latitudeE6 + full[i + 1].latitudeE6) / 2e6)))
+                if (cross <= nearEnough) {
+                    val difference = abs(travelledMeters + t * segmentMeters - hint)
+                    if (difference < nearestProgressDifference) {
+                        nearestProgressDifference = difference
+                        nearestSegment = i
+                        nearestFraction = t
+                    }
+                }
+                travelledMeters += segmentMeters
             }
         }
 
