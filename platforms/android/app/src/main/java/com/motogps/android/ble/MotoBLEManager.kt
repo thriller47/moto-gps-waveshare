@@ -99,6 +99,11 @@ class MotoBLEManager(private val context: Context) {
 
     fun getCurrentSessionId(): Long = currentSessionId
 
+    /** Used when the Activity is recreated: never reset a live BLE session. */
+    fun hasActiveConnectionOrScan(): Boolean =
+        !closed && (bluetoothGatt != null || isScanning)
+
+
     /** No command is sent at boot or reconnect: explicit user opt-in only. */
     fun setDiagnosticMode(mode: Int): Boolean {
         if (mode !in 0..2 || bluetoothGatt == null ||
