@@ -34,6 +34,51 @@ class RoadContextSceneSelectorTest {
             (0..12).map { j -> 5000L + i * 100 + j })
     }
 
+    @Test fun immediateRouteSegmentWinsSpaceAgainstDenseSideStreets() {
+        // With only 90m+ probes this 10-27m segment was absent from the
+        // six closest GPS roads and all six upcoming roads.
+        val sideStreets = (0 until 28).map { index ->
+            val north = -70 + index * 5
+            road(5000L + index,
+                listOf(p(north, 125), p(north + 12, 155)),
+                listOf(10000L + index * 2, 10001L + index * 2))
+        }
+        val immediate = road(5999L,
+            listOf(p(110, 0), p(315, 0)), listOf(50000, 50001))
+        val route = listOf(p(0, 0), p(4500, 0))
+        val selected = RoadContextSceneSelector.select(
+            sideStreets + immediate, null, 45.0, 8.0, null, route)
+        assertTrue("Route corridor in first 30m must remain visible",
+            selected.drawn.any { it.road == immediate })
+        assertTrue(selected.nearRouteRoadsDrawn >= 1)
+        assertTrue(selected.count(RoadContextSceneSelector.Role.GPS) >= 6)
+        assertTrue(selected.slots <= 20 && selected.points <= 160)
+    }
+
+    @Test fun completeSecondaryCircuitIsNotClippedToAnOpenFragment() {
+        // Even if a nearby triangular wedge wins topological focus, a
+        // real standalone OSM loop in ordinary context must keep closure.
+        val vertices = (0 until 12).map { index ->
+            val angle = index * 2.0 * Math.PI / 12.0
+            p((180 * kotlin.math.sin(angle)).toInt(),
+              500 + (210 * kotlin.math.cos(angle)).toInt())
+        }
+        val ids = (30000L..30011L).toList()
+        val actualLoop = road(6300L, vertices + vertices.first(),
+            ids + ids.first())
+        val scene = RoadContextSceneSelector.select(
+            local + actualLoop, null, 45.0, 8.0, p(0, 850),
+            listOf(p(0, 0), p(0, 4500)))
+        val displayed = scene.drawn.firstOrNull { it.road == actualLoop }
+        assertTrue("A real secondary loop must win an upcoming slot", displayed != null)
+        assertTrue("More than eight vertices should fit the BLE budget",
+            displayed!!.points.size > 8)
+        assertEquals(displayed.points.first(), displayed.points.last())
+        assertTrue(scene.secondaryClosedRings >= 1)
+        assertTrue(scene.count(RoadContextSceneSelector.Role.GPS) >= 6)
+        assertTrue(scene.slots <= 20 && scene.points <= 160)
+    }
+
     @Test fun sixExitCircuitStaysClosedFromOppositeApproaches() {
         // Relative synthetic coordinates: never commit customer GPS traces.
         val vertices = (0 until 6).map { i ->

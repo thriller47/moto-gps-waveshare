@@ -949,6 +949,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager) : ViewModel()
                         " focus_pts=" + ((sceneSelection.pointCounts[RoadContextSceneSelector.Role.RING] ?: 0) +
                             (sceneSelection.pointCounts[RoadContextSceneSelector.Role.EXIT] ?: 0)) +
                         " gps_pts=" + (sceneSelection.pointCounts[RoadContextSceneSelector.Role.GPS] ?: 0) +
+                        " route_local=" + sceneSelection.nearRouteRoadsDrawn +
+                        " secondary_rings_closed=" + sceneSelection.secondaryClosedRings +
                         " upcoming_pts=" + (sceneSelection.pointCounts[RoadContextSceneSelector.Role.UPCOMING] ?: 0) +
                         " omitted=" + sceneSelection.roadsNotDrawn +
                         " total=" + sceneSelection.slots + "/" + sceneSelection.points)
