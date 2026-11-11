@@ -183,7 +183,14 @@ internal object RoadContextJunctions {
         val focus: Priority?,
         val candidates: Int,
         val qualified: Int,
-        val excluded: Map<String, Int>
+        val excluded: Map<String, Int>,
+        // Diagnostic-only telemetry: these never affect selection or routing.
+        val graphEligibleEdges: Int = 0,
+        val graphSelectedEdges: Int = 0,
+        val dfsStartEdges: Int = 0,
+        val dfsStates: Int = 0,
+        val searchLimitHit: Boolean = false,
+        val candidateLimitHit: Boolean = false
     )
 
     private data class Edge(
@@ -305,20 +312,29 @@ internal object RoadContextJunctions {
         return 2.0 * PI * abs(twiceArea) / (total * total)
     }
 
-    private fun validLoop(points: List<GeoPointE6>, metric: Metric): Boolean {
-        if (points.size < 4 || metric.squared(points.first(), points.last()) > 6.25) return false
+    // Preserve every existing rejection threshold, but record WHICH one
+    // rejected a composite ring. The old "shape" bucket hid the difference
+    // between tiny loops, nonclosed ways, oversized blocks and thin shortcuts.
+    private fun loopRejection(points: List<GeoPointE6>, metric: Metric): String? {
+        if (points.size < 4 || metric.squared(points.first(), points.last()) > 6.25)
+            return "shape_closure"
         val total = length(points, metric)
-        if (total !in 35.0..550.0) return false
+        if (total !in 35.0..550.0) return "shape_length"
         val origin = points[0]
         val coords = points.map { metric.toXY(it, origin) }
         val width = coords.maxOf { it.first } - coords.minOf { it.first }
         val height = coords.maxOf { it.second } - coords.minOf { it.second }
         val diameter = hypot(width, height)
-        if (diameter !in 12.0..160.0) return false
-        // Keep existing shape threshold: irregular isolated roundabouts
-        // must not disappear just because a geometrically rounder road exists.
-        return ringCircularity(points, metric) in 0.17..1.06
+        if (diameter !in 12.0..160.0) return "shape_diameter"
+        // Do not relax circularity: previously observed triangular false rings
+        // must remain excluded as before.
+        if (ringCircularity(points, metric) !in 0.17..1.06)
+            return "shape_circularity"
+        return null
     }
+
+    private fun validLoop(points: List<GeoPointE6>, metric: Metric): Boolean =
+        loopRejection(points, metric) == null
 
     fun isClosedRing(road: MapRoadSegment): Boolean {
         val points = road.points
@@ -353,8 +369,10 @@ internal object RoadContextJunctions {
                       nodeIds: List<Long>, key: String) {
             if (candidates >= MAX_CANDIDATES || !seen.add(key)) return
             candidates++
-            if (!validLoop(points, metric)) {
-                reject("shape")
+            val shapeReason = loopRejection(points, metric)
+            if (shapeReason != null) {
+                reject("shape") // Backward-compatible aggregate diagnostic.
+                reject(shapeReason)
                 return
             }
             val gpsDistance = metric.nearest(points, gps)
@@ -416,6 +434,8 @@ internal object RoadContextJunctions {
                 (if (forwardRing) 28 else 0)
             if (score < MIN_SCORE) {
                 reject("confidence")
+                if (exits.isEmpty()) reject("confidence_no_exits")
+                if (members.any { it.roadClass == 0 }) reject("confidence_class0")
                 return
             }
             qualified++
@@ -497,6 +517,7 @@ internal object RoadContextJunctions {
 
         // Build a bounded graph of way ENDPOINT nodes. OSM often splits a
         // roundabout at each exit, so no individual way is itself a closed loop.
+        var eligibleGraphEdges = 0
         val edges = roads.asSequence().mapNotNull { road ->
             val ids = road.nodeIds
             if (road.points.size < 2 || ids.size != road.points.size ||
@@ -507,7 +528,8 @@ internal object RoadContextJunctions {
             val meters = length(road.points, metric)
             if (meters !in 3.0..300.0) return@mapNotNull null
             Edge(road, ids.first(), ids.last(), meters) to distance
-        }.sortedBy { it.second }.take(MAX_EDGES).map { it.first }.toList()
+        }.onEach { eligibleGraphEdges++ }
+            .sortedBy { it.second }.take(MAX_EDGES).map { it.first }.toList()
 
         val adjacency = HashMap<Long, MutableList<Int>>()
         edges.forEachIndexed { index, edge ->
@@ -550,6 +572,7 @@ internal object RoadContextJunctions {
         }
 
         var searchStates = 0
+        var startEdges = 0
         val path = ArrayList<Step>()
         val used = HashSet<Int>()
         val visitedNodes = HashSet<Long>()
@@ -583,6 +606,7 @@ internal object RoadContextJunctions {
 
         for (index in edges.indices) {
             if (searchStates >= MAX_SEARCH_STATES || candidates >= MAX_CANDIDATES) break
+            startEdges++
             val edge = edges[index]
             path.clear()
             used.clear()
@@ -593,7 +617,16 @@ internal object RoadContextJunctions {
             visitedNodes.add(edge.to)
             walk(edge.from, edge.to, edge.lengthM)
         }
-        if (searchStates >= MAX_SEARCH_STATES) reject("search_limit")
-        return Analysis(best, candidates, qualified, reasons)
+        val searchLimitHit = searchStates >= MAX_SEARCH_STATES
+        if (searchLimitHit) reject("search_limit")
+        return Analysis(
+            best, candidates, qualified, reasons,
+            graphEligibleEdges = eligibleGraphEdges,
+            graphSelectedEdges = edges.size,
+            dfsStartEdges = startEdges,
+            dfsStates = searchStates,
+            searchLimitHit = searchLimitHit,
+            candidateLimitHit = candidates >= MAX_CANDIDATES
+        )
     }
 }

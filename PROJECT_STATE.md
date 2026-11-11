@@ -1,5 +1,17 @@
 # Moto GPS — Project State
 
+## Diagnostica mirata ricostruzione rotatorie / budget DFS — 2026-11-11
+
+**Branch attivo:** `test/roundabout-topology-20261110`, base `b7adef2a23e9`. L'utente autorizza il primo esperimento *più semplice e importante*: **osservabilità soltanto**, senza modificare selezione delle rotatorie, filtri di accesso, soglie OSM, DFS, Valhalla, ESP32, protocollo BLE o tetto scene 20/160. Le analisi esterne sono ipotesi, non prove di `search_limit`.
+
+**Modifiche:** `RoadContextJunctions.Analysis` espone `graphEligibleEdges`, `graphSelectedEdges` (cap 90), `dfsStartEdges`, `dfsStates` (cap 3500), `searchLimitHit` e `candidateLimitHit` (cap 48). Il contatore degli archi eleggibili è misurato dopo i filtri e **prima** del `take(90)`, senza cambiare ordinamento o costo asintotico. I criteri geometrici sono identici ai precedenti; i rifiuti vengono soltanto classificati in `shape_closure`, `shape_length`, `shape_diameter`, `shape_circularity`, conservando `shape` complessivo. I rifiuti per confidenza annotano anche `confidence_no_exits` e `confidence_class0` (categorie sovrapponibili, non sommabili).
+
+**Log Android:** `DiagnosticLog.event` tronca a **240 caratteri**, quindi lasciare `OSM_RING` precedente invariato e aggiungere `OSM_RING_SEARCH` (roads/edges/starts/states/candidates/qualified/cap) e `OSM_RING_REJECT` (sottocategorie), entrambi brevi e leggibili nell'archivio diagnostico senza estendere formato BLE. La logica viene eseguita quando Android aggiorna il contesto MotoMap; i JSONL replay esistenti contengono scene già calcolate e **non** mostrano questi nuovi eventi. Serve APK nuovo, non flash ESP32 né rebuild WASM.
+
+**Regressioni:** `RoadContextJunctionsTest` verifica contatori su anello multiway valido, saturazione 95→90 archi isolati, separazione rifiuti per perimetro e circolarità senza false rotatorie. Compilazione/test Android da verificare con una sola CI sul commit; non dichiarare il problema risolto. Un giro reale sulla rotatoria problematica + ZIP diagnostico consentirà di capire se `states=3500`, `cap_candidates=true`, `edges=90/<maggiore>`, oppure prevalgono `confidence`/`shape`. Se le soglie non risultano raggiunte, approfondire `forwardMatch` e selezione del focus prima di allargare i budget.
+
+**Procedure:** nessuna modifica al manuale operativo: export ZIP e installazione APK già documentati. `valhalla` resta intatto. Stato CI non ancora verificato in questo commit; prossimo passo: CI Android, poi APK su telefono e prova reale con esportazione diagnostica.
+
 ## Ancora oscillazioni linea verde nel simulatore e su ESP32 — 2026-11-11
 
 **Branch:** `test/roundabout-topology-20261110`, base `5d05f7fa3a83`, `valhalla` invariato. Nuovo video privato `LVGL Simulator - Google Chrome 2026-11-11 19-31-04.mp4`: dopo il precedente fix per l'allineamento ad arco il difetto è minore ma persiste; utente segnala lo stesso effetto su ESP32 (versione firmware reale non confermata). Nel replay privato `motogps-replay (1).jsonl` a 17:56:30–17:57:05 la rotta conserva l'identità Valhalla, mentre la finestra di vertici E6 scorre e il count varia 16→17→18→11→23. Fino a 68.6 metri di differenza fra fix corrente e **origine del pacchetto geometrico** dopo ~2.6s: importante, il simulatore Web aggiorna separatamente la proiezione con ogni snapshot GPS (`replay_web.cpp`), quindi la staleness del pacchetto non è il suo errore diretto. Su ESP32 `MapOriginPredictor` prima estrapolava al massimo 1.5 secondi, poi congelava la mappa durante intervalli BLE normali di ~3.1s.

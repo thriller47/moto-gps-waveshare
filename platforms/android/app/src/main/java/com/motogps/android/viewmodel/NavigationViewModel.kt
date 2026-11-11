@@ -938,6 +938,29 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager) : ViewModel()
                         " excluded=" + analysis.excluded.entries.joinToString(",") {
                             it.key + ":" + it.value
                         })
+                    // DiagnosticLog truncates each entry to 240 characters.
+                    // Keep search budgets and rejection causes in short,
+                    // separate events rather than appending to OSM_RING.
+                    DiagnosticLog.event("OSM_RING_SEARCH",
+                        "roads=${contextRoads.size} " +
+                        "edges=${analysis.graphSelectedEdges}/${analysis.graphEligibleEdges} " +
+                        "starts=${analysis.dfsStartEdges} " +
+                        "states=${analysis.dfsStates} " +
+                        "candidates=${analysis.candidates} " +
+                        "qualified=${analysis.qualified} " +
+                        "cap_edges=${analysis.graphEligibleEdges > analysis.graphSelectedEdges} " +
+                        "cap_dfs=${analysis.searchLimitHit} " +
+                        "cap_candidates=${analysis.candidateLimitHit}")
+                    DiagnosticLog.event("OSM_RING_REJECT",
+                        "shape=${analysis.excluded["shape"] ?: 0} " +
+                        "closure=${analysis.excluded["shape_closure"] ?: 0} " +
+                        "length=${analysis.excluded["shape_length"] ?: 0} " +
+                        "diameter=${analysis.excluded["shape_diameter"] ?: 0} " +
+                        "circularity=${analysis.excluded["shape_circularity"] ?: 0} " +
+                        "far=${analysis.excluded["far"] ?: 0} " +
+                        "confidence=${analysis.excluded["confidence"] ?: 0} " +
+                        "no_exits=${analysis.excluded["confidence_no_exits"] ?: 0} " +
+                        "class0=${analysis.excluded["confidence_class0"] ?: 0}")
                     DiagnosticLog.event("OSM_SCENE_POLICY",
                         "focus=" + (sceneSelection.count(RoadContextSceneSelector.Role.RING) +
                             sceneSelection.count(RoadContextSceneSelector.Role.EXIT)) +

@@ -28,6 +28,60 @@ class RoadContextJunctionsTest {
         road(14, listOf(p(120, -120), p(0, 0)), listOf(103, 100))
     )
 
+    @Test fun diagnosticsCountGraphExplorationWithoutChangingTheSelectedRing() {
+        val roads = multipleWays() + exitA + exitB
+        val analysis = RoadContextJunctions.analyze(
+            roads, 45.0, 8.0, p(120, 0))
+        assertNotNull(analysis.focus)
+        assertEquals(6, analysis.graphEligibleEdges)
+        assertEquals(6, analysis.graphSelectedEdges)
+        assertEquals(6, analysis.dfsStartEdges)
+        assertTrue(analysis.dfsStates >= analysis.dfsStartEdges)
+        assertFalse(analysis.searchLimitHit)
+        assertFalse(analysis.candidateLimitHit)
+        assertTrue(analysis.qualified >= 1)
+    }
+
+    @Test fun diagnosticRevealsWhenNinetyGraphEdgeSlotsAreExhausted() {
+        // 95 unrelated ways close to the GPS: none forms a circle, but all
+        // pass the graph filters. The telemetry must show 95 vs 90 edges.
+        val roads = (0 until 95).map { i ->
+            road(1_000L + i,
+                listOf(p(i * 20, 0), p(i * 20, 200)),
+                listOf(10_000L + 2L * i, 10_001L + 2L * i))
+        }
+        val analysis = RoadContextJunctions.analyze(roads, 45.0, 8.0, null)
+        assertNull(analysis.focus)
+        assertEquals(95, analysis.graphEligibleEdges)
+        assertEquals(90, analysis.graphSelectedEdges)
+        assertEquals(90, analysis.dfsStartEdges)
+        assertEquals(90, analysis.dfsStates)
+        assertFalse(analysis.searchLimitHit)
+        assertFalse(analysis.candidateLimitHit)
+    }
+
+    @Test fun diagnosticDistinguishesTooShortFromTooFlatCompositeRings() {
+        fun triangle(vertices: List<GeoPointE6>, startId: Long): List<MapRoadSegment> =
+            (0 until 3).map { i ->
+                road(startId + i,
+                    listOf(vertices[i], vertices[(i + 1) % 3]),
+                    listOf(startId * 10 + i, startId * 10 + (i + 1) % 3))
+            }
+        // Every individual edge is > 3 m, but total perimeter is < 35 m.
+        val tiny = triangle(listOf(p(0, 0), p(0, 80), p(80, 40)), 301L)
+        val tinyAnalysis = RoadContextJunctions.analyze(tiny, 45.0, 8.0, null)
+        assertNull(tinyAnalysis.focus)
+        assertTrue((tinyAnalysis.excluded["shape_length"] ?: 0) > 0)
+
+        // ~126m perimeter, realistic diameter, but near-zero circularity.
+        val flat = triangle(listOf(p(0, 0), p(0, 800), p(30, 400)), 401L)
+        val flatAnalysis = RoadContextJunctions.analyze(flat, 45.0, 8.0, null)
+        assertNull(flatAnalysis.focus)
+        assertTrue((flatAnalysis.excluded["shape_circularity"] ?: 0) > 0)
+        assertEquals(flatAnalysis.excluded["shape"],
+            flatAnalysis.excluded["shape_circularity"])
+    }
+
     @Test fun singleWayRingIsSelectedWithRealExits() {
         val unrelated = road(4, listOf(p(-50, -60), p(-50, 400)), listOf(400, 401))
         val analysis = RoadContextJunctions.analyze(
