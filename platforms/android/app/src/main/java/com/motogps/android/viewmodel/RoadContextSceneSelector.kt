@@ -27,7 +27,7 @@ internal object RoadContextSceneSelector {
     // the rider; six local GPS roads remain protected when navigating off-route.
     private const val MAX_FORWARD_DISTANCE_M = 58.0
     private data class ForwardRoad(val road: MapRoadSegment,
-        val anchor: GeoPointE6, val score: Double)
+        val anchor: GeoPointE6, val score: Double, val forwardM: Double)
 
     enum class Role { RING, EXIT, GPS, UPCOMING, EXTRA }
     data class Drawn(val road: MapRoadSegment, val points: List<GeoPointE6>, val role: Role)
@@ -119,12 +119,20 @@ internal object RoadContextSceneSelector {
                 }.minBy { it.first + it.second * 0.015 }
                 if (best.first > MAX_FORWARD_DISTANCE_M) null
                 else ForwardRoad(road, best.third, best.first + best.second * 0.015 +
-                    road.roadClass.coerceIn(0, 4) * 1.5)
+                    road.roadClass.coerceIn(0, 4) * 1.5, best.second)
             }.sortedBy { it.score }
         } else emptyList()
         val forwardAnchor = forwardRoads.associate { it.road to it.anchor }
         val upcomingOrder = when {
-            forwardRoads.isNotEmpty() -> forwardRoads.map { it.road }
+            forwardRoads.isNotEmpty() -> {
+                // Immediate 20-75m probes must not crowd out junctions
+                // 90-500m ahead. Protect three nearby and three farther
+                // candidates before returning to the overall score order.
+                val near = forwardRoads.filter { it.forwardM < 90.0 }
+                val far = forwardRoads.filter { it.forwardM >= 90.0 }
+                (near.take(3) + far.take(3) + forwardRoads)
+                    .distinctBy { it.road }.map { it.road }
+            }
             upcoming != null -> available.sortedBy { metric.distance(upcoming, it.points) }
             else -> emptyList()
         }

@@ -55,6 +55,25 @@ class RoadContextSceneSelectorTest {
         assertTrue(selected.slots <= 20 && selected.points <= 160)
     }
 
+    @Test fun crowdedSceneProtectsNearAndDistantRouteRoadsTogether() {
+        val side = (0 until 32).map { i ->
+            road(7000L + i, listOf(p(-120 + i * 8, -75),
+                p(-120 + i * 8, 75)),
+                listOf(90000L + i * 2, 90001L + i * 2))
+        }
+        val near = road(7300L, listOf(p(150, 0), p(360, 0)),
+            listOf(77000, 77001))
+        val far = road(7301L, listOf(p(2200, 320), p(4100, 320)),
+            listOf(78000, 78001))
+        val selected = RoadContextSceneSelector.select(
+            side + near + far, null, 45.0, 8.0,
+            p(800, 0), listOf(p(0, 0), p(5100, 0)))
+        assertTrue(selected.drawn.any { it.road == near })
+        assertTrue(selected.drawn.any { it.road == far })
+        assertTrue(selected.count(RoadContextSceneSelector.Role.GPS) >= 6)
+        assertTrue(selected.slots <= 20 && selected.points <= 160)
+    }
+
     @Test fun completeSecondaryCircuitIsNotClippedToAnOpenFragment() {
         // Even if a nearby triangular wedge wins topological focus, a
         // real standalone OSM loop in ordinary context must keep closure.
