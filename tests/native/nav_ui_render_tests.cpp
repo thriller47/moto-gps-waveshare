@@ -700,6 +700,53 @@ void test_same_route_window_count_change_is_interpolated() {
   CHECK(first_transition.hash != snapped.hash);
 }
 
+void test_nonuniform_route_vertices_do_not_create_a_false_green_diagonal() {
+  moto_nav_ui_set_reduce_motion(1);
+  moto_nav_ui_set_phone_connection(MOTO_UI_PHONE_ONLINE);
+  moto_ui_state_t initial = base_state();
+  initial.road_point_count = 0;
+  initial.road_polyline_count = 0;
+  initial.route_point_count = 3;
+  initial.route_points[0] = {130, 100};
+  initial.route_points[1] = {130, 260};
+  initial.route_points[2] = {390, 260};
+  moto_nav_ui_set_state(&initial);
+  pump(260);
+
+  // The new geometry describes the exact SAME L-shaped route, but with six
+  // extra points around the first bend. Uniform spacing by vertex index
+  // makes a temporarily diagonal green line through the open square.
+  // Matching by physical arc length keeps every transition on the L.
+  moto_ui_state_t updated = initial;
+  const moto_ui_point_t denser[] = {
+      {130, 100}, {130, 110}, {130, 140}, {130, 170},
+      {130, 200}, {130, 240}, {130, 260}, {220, 260}, {390, 260}};
+  updated.route_point_count = static_cast<std::uint8_t>(
+      sizeof(denser) / sizeof(denser[0]));
+  for(std::uint8_t i = 0; i < updated.route_point_count; ++i) {
+    updated.route_points[i] = denser[i];
+  }
+  moto_nav_ui_set_reduce_motion(0);
+  moto_nav_ui_set_state(&updated);
+  pump(10); // Allow two partial interpolation ticks, not a full settle.
+  lv_refr_now(lv_display_get_default());
+
+  int stray_green = 0;
+  for(int y = 205; y <= 245; ++y) {
+    for(int x = 165; x <= 240; ++x) {
+      const std::size_t pos =
+          (static_cast<std::size_t>(y) * kWidth + x) * 2;
+      const std::uint16_t rgb = static_cast<std::uint16_t>(
+          shadow_frame[pos] | (shadow_frame[pos + 1] << 8));
+      const int red = (rgb >> 11) & 31;
+      const int green = (rgb >> 5) & 63;
+      if(green >= 40 && green > red * 2) ++stray_green;
+    }
+  }
+  CHECK(stray_green == 0);
+  moto_nav_ui_set_reduce_motion(1);
+}
+
 void test_diagonal_map_pixels_are_independent_of_partial_buffer_height() {
   moto_nav_ui_set_reduce_motion(1);
   moto_nav_ui_set_phone_connection(MOTO_UI_PHONE_ONLINE);
@@ -771,6 +818,7 @@ int main(int argc, char **argv) {
   test_motion_frames_interpolate_then_settle_without_residue();
   test_reroute_without_geometry_preserves_road_map();
   test_same_route_window_count_change_is_interpolated();
+  test_nonuniform_route_vertices_do_not_create_a_false_green_diagonal();
 #ifdef MOTO_UI_DIRTY_TILE_TEST
   test_small_motion_invalidates_only_swept_tiles();
 #endif

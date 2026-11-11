@@ -829,7 +829,13 @@ void update_route_geometry(const moto_ui_state_t *state) {
     // the rider advances. Previously this count difference snapped the entire
     // green line every second. Reparameterize the currently drawn polyline by
     // arc length BEFORE changing its point count, then blend to the new
-    // projected targets. The first visible frame is the old line, not a jump.
+    // projected targets. Importantly, the new vertices are NOT distributed
+    // uniformly: bends retain many more vertices than long straights. Match
+    // each old point to the new point's *fractional distance along its own
+    // polyline*, never to its vertex index. Otherwise a corner vertex can
+    // temporarily animate from a straight road hundreds of metres farther
+    // along the route, making the green line swing across roundabouts.
+    // The first visible frame stays on the old path, not a jump.
     const std::uint8_t previous_count = ui.nav_route_point_count;
     const bool same_route = ui.nav_route_identity == state->route_identity &&
                             ui.nav_route_generation == state->route_generation;
@@ -845,10 +851,19 @@ void update_route_geometry(const moto_ui_state_t *state) {
                            ui.nav_route_y[i] - ui.nav_route_y[i - 1]);
         }
         const float total = cumulative[previous_count - 1];
+        float target_cumulative[MOTO_UI_ROUTE_POINT_CAPACITY]{};
+        for(std::uint8_t i = 1; i < count; ++i) {
+            target_cumulative[i] = target_cumulative[i - 1] +
+                std::hypot(ui.nav_route_target_x[i] - ui.nav_route_target_x[i - 1],
+                           ui.nav_route_target_y[i] - ui.nav_route_target_y[i - 1]);
+        }
+        const float target_total = target_cumulative[count - 1];
         std::uint8_t segment = 1;
         for(std::uint8_t i = 0; i < count; ++i) {
-            const float along = total * static_cast<float>(i) /
-                                static_cast<float>(count - 1);
+            const float fraction_along = target_total > 0.001F
+                ? target_cumulative[i] / target_total
+                : static_cast<float>(i) / static_cast<float>(count - 1);
+            const float along = total * fraction_along;
             while(segment + 1 < previous_count &&
                   cumulative[segment] < along) ++segment;
             const float length = cumulative[segment] - cumulative[segment - 1];
