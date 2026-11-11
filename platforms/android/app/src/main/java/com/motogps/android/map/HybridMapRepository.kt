@@ -132,9 +132,8 @@ class HybridMapRepository(
                 ZipFile(archive).use { zip ->
                     // An already-installed v3 ZIP is ignored, not silently
                     // interpreted as v4. The user will replace it with v4.
-                    if (!MotomapPackImporter.isV4Pack(zip)) {
-                        Log.w("HybridMapRepository", "Ignoring non-v4 MotoMap pack: ${archive.name}")
-                    } else for (name in wantedNames) {
+                    if (MotomapPackImporter.isV4Pack(zip)) {
+                        for (name in wantedNames) {
                         val entry = zip.getEntry(name) ?: continue
                         if (entry.size <= 0L || entry.size > 5L * 1024 * 1024) continue
                         zip.getInputStream(entry).bufferedReader().useLines { lines ->
@@ -143,6 +142,7 @@ class HybridMapRepository(
                                     queryMaxLatE6, queryMaxLonE6, seenRoads, results)
                             }
                         }
+                    }
                     }
                 }
             } catch (e: Exception) {

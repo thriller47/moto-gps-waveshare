@@ -1,5 +1,11 @@
 # Moto GPS — Project State
 
+## MotoMap v4: correzione test Android su ZIP v3 ignorato — 2026-11-11
+
+**Branch:** `test/roundabout-topology-20261110`, base `16d329934329`. La CI [43087425357](https://github.com/thriller47/moto-gps-waveshare/actions/runs/43087425357) conferma compilazione Kotlin e **193/194** test Android positivi; un test `HybridMapRepositoryTest.ignoresPreviouslyInstalledV3ZipInsteadOfSilentlyParsingIt` fallisce con `RuntimeException` perché il percorso per ignorare un archivio v3 invoca `android.util.Log.w` nel JVM unit test, dove `Log` è stub Android non disponibile. Native, inclusi test convertitore v4, verde; job ESP32 ancora in corso all'analisi.
+
+**Fix:** file `HybridMapRepository.kt`: il lettore ora salta silenziosamente i vecchi ZIP già installati quando `isV4Pack(zip)` è falso, senza chiamare `Log.w` nel percorso ordinario. Una volta installata la v4, la v3 continua a non essere interpretata; nessun cambiamento dati, selezione rotatorie, BLE o firmware. Riutilizzata la regressione già aggiunta; CI Android correttiva da verificare prima di importare la mappa sul telefono. Nessuna procedura aggiuntiva nel manuale.
+
 ## MotoMap v4 nativa, senza compatibilità v3 — 2026-11-11
 
 **Branch:** `test/roundabout-topology-20261110`, base `f8d448ac2bc2`; `valhalla` invariato. L'utente autorizza a rigenerare MotoMap da PBF e sceglie esplicitamente **un nuovo formato v4 senza retrocompatibilità v3**.
