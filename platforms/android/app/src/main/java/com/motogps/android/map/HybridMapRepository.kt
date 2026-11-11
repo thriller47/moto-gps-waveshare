@@ -104,8 +104,9 @@ class HybridMapRepository(
         queryMaxLonE6: Int
     ): List<MapRoadSegment> {
         val results = mutableListOf<MapRoadSegment>()
-        val mapFiles = mapsDir.listFiles { _, name -> name.endsWith(".motomap") }
-            ?.toList().orEmpty()
+        val mapFiles = mapsDir.listFiles { _, name ->
+            name.endsWith(".motomap") && !name.startsWith("ofm_trial_")
+        }?.toList().orEmpty()
         // Route-corridor downloads checkpoint each tile immediately but only
         // assemble the final .motomap when the entire download finishes.
         // Read already-completed nearby tiles as well: otherwise the rider can
@@ -113,6 +114,20 @@ class HybridMapRepository(
         val midLat = (queryMinLatE6.toLong() + queryMaxLatE6.toLong()) / 2_000_000.0
         val midLon = (queryMinLonE6.toLong() + queryMaxLonE6.toLong()) / 2_000_000.0
         val nearTiles = GatewayRoadTiles.around(midLat, midLon, 2)
+        // OpenFreeMap is a separate z14 vector source without OSM node IDs.
+        // Limit disk I/O to a 3x3 local window, never the entire corridor.
+        val nearZ15 = GatewayRoadTiles.tileFor(midLat, midLon)
+        val z14X = nearZ15.x / 2
+        val z14Y = nearZ15.y / 2
+        val openFreeMapFiles = (-1..1).flatMap { dy ->
+            (-1..1).mapNotNull { dx ->
+                val x = z14X + dx
+                val y = z14Y + dy
+                if (x !in 0 until (1 shl 14) || y !in 0 until (1 shl 14)) null
+                else File(mapsDir, "ofm_trial_14_${x}_${y}.motomap")
+                    .takeIf { it.isFile && it.length() > 0L }
+            }
+        }
         val checkpointFiles = mapsDir.listFiles { file ->
             file.isDirectory && file.name.endsWith("_parts")
         }?.flatMap { folder ->
@@ -149,12 +164,18 @@ class HybridMapRepository(
                 Log.e("HybridMapRepository", "Error reading pack ${archive.name}: ${e.message}")
             }
         }
-        for (file in mapFiles + checkpointFiles) {
+        for (file in mapFiles + checkpointFiles + openFreeMapFiles) {
             try {
+                val fromOpenFreeMap = file in openFreeMapFiles
                 file.bufferedReader().useLines { lines ->
                     for (line in lines) {
-                        parseRoadLine(line, queryMinLatE6, queryMinLonE6,
-                            queryMaxLatE6, queryMaxLonE6, seenRoads, results)
+                        if (fromOpenFreeMap) {
+                            parseOpenFreeMapLine(line, queryMinLatE6, queryMinLonE6,
+                                queryMaxLatE6, queryMaxLonE6, seenRoads, results)
+                        } else {
+                            parseRoadLine(line, queryMinLatE6, queryMinLonE6,
+                                queryMaxLatE6, queryMaxLonE6, seenRoads, results)
+                        }
                     }
                 }
             } catch (e: Exception) {
@@ -162,6 +183,42 @@ class HybridMapRepository(
             }
         }
         return results
+    }
+
+    /**
+     * OpenFreeMap MVT geometry is genuine but does not contain original OSM
+     * way/node IDs. It may draw grey roads but must not invent topology.
+     * This parser is called only for ofm_trial_14_x_y.motomap cache files;
+     * the MotoMap v4 ZIP parser remains strict and does NOT accept v3 rows.
+     */
+    private fun parseOpenFreeMapLine(
+        line: String, queryMinLatE6: Int, queryMinLonE6: Int,
+        queryMaxLatE6: Int, queryMaxLonE6: Int,
+        seenRoads: MutableSet<String>, results: MutableList<MapRoadSegment>
+    ) {
+        val parts = line.trim().split("|", limit = 3)
+        if (parts.size != 3) return
+        val header = parts[0].split(",")
+        if (header.size != 2) return
+        val roadClass = header[0].toIntOrNull()?.takeIf { it in 0..3 } ?: return
+        val speed = header[1].toIntOrNull()?.takeIf { it in 5..140 } ?: return
+        val bbox = parts[1].split(",").map { it.toIntOrNull() }
+        if (bbox.size != 4 || bbox.any { it == null }) return
+        val minLatE6 = bbox[0]!!
+        val minLonE6 = bbox[1]!!
+        val maxLatE6 = bbox[2]!!
+        val maxLonE6 = bbox[3]!!
+        if (maxLatE6 < queryMinLatE6 || minLatE6 > queryMaxLatE6 ||
+            maxLonE6 < queryMinLonE6 || minLonE6 > queryMaxLonE6) return
+        val points = parseCoordinates(parts[2])
+        if (points.size < 2 || !seenRoads.add("ofm:" + line.trim())) return
+        results.add(MapRoadSegment(
+            roadClass = roadClass, maxSpeedKph = speed,
+            minLatE6 = minLatE6, minLonE6 = minLonE6,
+            maxLatE6 = maxLatE6, maxLonE6 = maxLonE6,
+            points = points
+            // osmWayId=null, nodeIds empty, junctionKind=0 (no false exits).
+        ))
     }
 
     private fun parseRoadLine(

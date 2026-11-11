@@ -1,5 +1,15 @@
 # Moto GPS — Project State
 
+## MotoMap v4: correzione copertura e contesto strade online — 2026-11-11
+
+**Branch:** `test/roundabout-topology-20261110`, base `86b01fe0f904`. Dopo conversione Italia (4.106.642 segmenti, 278.048 tile z15, 214.320 celle z14 certificate, 85.391 way roundabout, 2.098 circular) e importazione Android, l'utente segnala tile mancanti. Diagnosi verificata in `OpenFreeMapRouteCorridor.missing()`: il manifest v4 veniva trovato tramite `MotomapPackImporter.METADATA`, ma poi confrontato con `version=3`; `coverage_z14.txt` non certificava celle senza strade.
+
+**Correzione:** usare `MotomapPackImporter.isV4Pack(zip)` per accettare soltanto v4; certificare z14 se `coverage=poly-full-z14`, usare i quattro figli z15 esistenti soltanto da pacchetti con manifest v4 valido. Test: cella z14 certificata senza geometrie → 0 mancanti; v3 con copertura e quattro tile → rifiutata; v4 con copertura unknown e figlio mancante → download necessario.
+
+**Online:** il corridoio OpenFreeMap già scaricabile manualmente all'avvio salva MVT in `ofm_trial_14_X_Y.motomap`, con geometria reale ma **senza NodeId OSM o junction tag**. Il lettore v4 strict escludeva queste righe a due campi. Ora le tile OpenFreeMap vengono lette da parser **separato, solo per file `ofm_trial_14_...` nel 3x3 z14 attorno al GPS**, senza inventare nodi/uscite o compatibilità ZIP v3. I nuovi dati alimentano soltanto contesto grigio, non routing, e `junctionKind` resta 0. La schermata continua a chiedere consenso per il download corridoio (limiti 3000 tile / 50 MB), **nessun download automatico ad ogni GPS fix**. Dicitura UI aggiornata: refresh scena al termine del download, non progressiva. Valhalla offline/prima e online/fallback invariato. Nessun ripristino Overpass.
+
+**Verifica:** regressioni `OpenFreeMapRouteCorridorTest` e `HybridMapRepositoryTest`; CI Android del commit da verificare. Il file `italy-v4.motomap.zip` già creato è valido: **non rigenerarlo e non reimportarlo**. Installare solo l'APK Android corretto; provare navigazione con 0 tile mancanti dentro poligono Italia e, fuori copertura, consenso al download OFM e visualizzazione strade grigie. Non serve aggiornare ESP32 o Valhalla. Branch `valhalla` invariato.
+
 ## MotoMap v4: correzione test Android su ZIP v3 ignorato — 2026-11-11
 
 **Branch:** `test/roundabout-topology-20261110`, base `16d329934329`. La CI [43087425357](https://github.com/thriller47/moto-gps-waveshare/actions/runs/43087425357) conferma compilazione Kotlin e **193/194** test Android positivi; un test `HybridMapRepositoryTest.ignoresPreviouslyInstalledV3ZipInsteadOfSilentlyParsingIt` fallisce con `RuntimeException` perché il percorso per ignorare un archivio v3 invoca `android.util.Log.w` nel JVM unit test, dove `Log` è stub Android non disponibile. Native, inclusi test convertitore v4, verde; job ESP32 ancora in corso all'analisi.

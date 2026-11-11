@@ -150,6 +150,27 @@ class HybridMapRepositoryTest {
     }
 
     @Test
+    fun readsExplicitOpenFreeMapCorridorWithoutInventingTopology() {
+        val context = mock(Context::class.java)
+        `when`(context.filesDir).thenReturn(temporaryFiles.root)
+        val maps = File(temporaryFiles.root, "maps")
+        assertTrue(maps.mkdirs())
+        val base = GatewayRoadTiles.tileFor(45.0, 8.0)
+        val online = File(maps,
+            "ofm_trial_14_${base.x / 2}_${base.y / 2}.motomap")
+        online.writeText(
+            "3,50|45000000,8000000,45000100,80000100|45000000,8000000;45000100,80000100\n")
+        val roads = HybridMapRepository(context).loadFromRegionalFiles(
+            44_995_000, 7_995_000, 45_005_000, 8_005_000)
+        assertEquals(1, roads.size)
+        assertEquals(2, roads.single().points.size)
+        assertEquals(3, roads.single().roadClass)
+        assertEquals(0, roads.single().junctionKind)
+        assertTrue(roads.single().nodeIds.isEmpty())
+        assertEquals(null, roads.single().osmWayId)
+    }
+
+    @Test
     fun testParseHighwayClass() {
         assertEquals(0, repository.parseHighwayClass("motorway"))
         assertEquals(0, repository.parseHighwayClass("trunk"))

@@ -275,6 +275,8 @@ python -c "import zipfile,json; z=zipfile.ZipFile(r'C:\MotoGPS\PBF\italy-v4.moto
 
 La conversione dell'intera Italia richiede diversi GB di RAM e spazio su disco, come in v3. Per provare rapidamente usare prima un PBF Geofabrik piccolo, con output `test-v4.motomap.zip` e senza `--coverage-poly`, poi rigenerare Italia solo dopo il test sulla rotatoria problematica. Controllare nel log Android `OSM_RING` il nuovo campo `osm_tagged=true` quando viene selezionato un anello davvero marcato in OSM. `OSM_RING_SEARCH` include la quantità di `osm_ways` disponibili.
 
+**Correzione copertura v4 e corridoio online (11 novembre 2026):** l'APK originale poteva segnalare tile mancanti nel pacchetto Italia già importato, perché il controllo si aspettava ancora `version=3`. L'APK correttivo usa `motomap_v4.json` e certifica `coverage_z14.txt` anche senza strade nella cella. **Non rigenerare né reimportare `italy-v4.motomap.zip`**. Uscendo dalla copertura Italia, la schermata di avvio navigazione offre **"Avvia e scarica"** per il corridoio OpenFreeMap: download esplicito max 3000 tile/50MB, geometrie grigie salvate in `ofm_trial_14_...` e lette separatamente dai file MotoMap v4. MVT non fornisce NodeId OSM, quindi non garantisce le stesse rotatorie topologiche v4; Valhalla online è un fallback indipendente. Nessun download automatico durante gli aggiornamenti GPS né riattivazione Overpass. Verificare la CI Android dell'APK correttivo.
+
 **Stato:** convertitore e lettore v4 sono sperimentali; CI/test Android e test reale devono risultare positivi prima di sostituire la mappa utilizzata per navigare. Non modificare né rigenerare `valhalla_tiles.tar.zst`.
 
 ---

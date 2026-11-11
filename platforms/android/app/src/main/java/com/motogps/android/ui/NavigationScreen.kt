@@ -497,7 +497,7 @@ fun NavigationScreen(
                     "Puoi navigare senza scaricare: importa un pacchetto MotoMap ZIP per le strade."
                 else "Scaricare ${count} tile mancanti del corridoio per uso offline? " +
                     "Limite: 3000 tile / 50 MB, una richiesta alla volta. " +
-                    "Valhalla parte subito; le strade arrivano progressivamente. " +
+                    "Valhalla parte subito; le strade grigie saranno visibili al termine del download. " +
                     "Dati © OpenStreetMap contributors / OpenMapTiles / OpenFreeMap."
             ) },
             confirmButton = {

@@ -114,44 +114,39 @@ internal object OpenFreeMapRouteCorridor {
         for (pack in packs) {
             try {
                 java.util.zip.ZipFile(pack).use { zip ->
-                    val metadataV3 = zip.getEntry(MotomapPackImporter.METADATA)
-                    val metadataV2 = zip.getEntry("motomap_v2.json")
-                    // Reject ambiguous metadata; both generations use the same z14 coverage format.
-                    val metadataEntry = if ((metadataV3 == null) != (metadataV2 == null))
-                        metadataV3 ?: metadataV2 else null
-                    val coverageEntry = zip.getEntry(MotomapPackImporter.COVERAGE)
-                    if (metadataEntry != null && coverageEntry != null &&
-                        metadataEntry.size in 1L..4096L &&
-                        coverageEntry.size in 1L..MotomapPackImporter.MAX_COVERAGE_BYTES) {
-                        val meta = org.json.JSONObject(zip.getInputStream(metadataEntry)
-                            .bufferedReader().use { it.readText() })
-                        if (meta.optInt("version") == (if (metadataV3 != null) 3 else 2) &&
-                            meta.optInt("zoom") == 15 &&
-                            meta.optString("format") == "motomap" &&
-                            meta.optString("coverage") == "poly-full-z14") {
-                            val relevant = candidates.toHashSet()
-                            zip.getInputStream(coverageEntry).bufferedReader().useLines { lines ->
-                                lines.forEach { line ->
-                                    val parts = line.split(',')
-                                    if (parts.size == 2) {
-                                        val x = parts[0].toIntOrNull()
-                                        val y = parts[1].toIntOrNull()
-                                        if (x != null && y != null &&
-                                            x in 0 until (1 shl ZOOM) &&
-                                            y in 0 until (1 shl ZOOM)) {
-                                            val candidate = Tile(x, y)
-                                            if (candidate in relevant) certified.add(candidate)
+                    // Strict MotoMap v4 only; old ZIPs may still exist on disk
+                    // but must not certify coverage or claim valid road tiles.
+                    if (MotomapPackImporter.isV4Pack(zip)) {
+                        val metadata = zip.getEntry(MotomapPackImporter.METADATA)
+                        val coverage = zip.getEntry(MotomapPackImporter.COVERAGE)
+                        if (metadata != null && coverage != null &&
+                            coverage.size in 1L..MotomapPackImporter.MAX_COVERAGE_BYTES) {
+                            val meta = JSONObject(zip.getInputStream(metadata)
+                                .bufferedReader().use { it.readText() })
+                            if (meta.optString("coverage") == "poly-full-z14") {
+                                val relevant = candidates.toHashSet()
+                                zip.getInputStream(coverage).bufferedReader().useLines { lines ->
+                                    lines.forEach { line ->
+                                        val parts = line.split(',')
+                                        if (parts.size == 2) {
+                                            val x = parts[0].toIntOrNull()
+                                            val y = parts[1].toIntOrNull()
+                                            if (x != null && y != null &&
+                                                x in 0 until (1 shl ZOOM) &&
+                                                y in 0 until (1 shl ZOOM)) {
+                                                val candidate = Tile(x, y)
+                                                if (candidate in relevant) certified.add(candidate)
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
-                    }
-                    for (name in wanted) {
-                        if (name in found) continue
-                        val entry = zip.getEntry(name) ?: continue
-                        // Same size bounds as the normal MotoMap ZIP reader.
-                        if (entry.size in 1L..(5L * 1024 * 1024)) found.add(name)
+                        for (name in wanted) {
+                            if (name in found) continue
+                            val entry = zip.getEntry(name) ?: continue
+                            if (entry.size in 1L..(5L * 1024 * 1024)) found.add(name)
+                        }
                     }
                 }
             } catch (e: Exception) {
