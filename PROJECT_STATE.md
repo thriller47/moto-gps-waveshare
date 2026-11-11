@@ -1,5 +1,10 @@
 # Moto GPS — Project State
 
+## Correzione mirata selezione uscite rotatoria — 2026-11-11
+
+**Branch sperimentale:** `test/roundabout-topology-20261110`. Analisi di `motogps-replay(6).jsonl` e diagnostica 07:52:25–40: la scena passa tra **due circoli OSM vicini distinti** (primo intorno a 44.3956/7.8200, secondo circa 44.3960/7.8199); i cambi di chiave `focus=m:...` non sono da soli prova di instabilità dello stesso anello. Le scene BLE contengono polilinee chiuse; l'apparente anello aperto nel video richiede ancora prova su hardware dopo la correzione. **Difetto verificabile nel codice:** `RoadContextJunctions.chooseExits()` sceglieva il contatto più vicino al GPS anche se i vicini del punto appartenevano entrambi all'anello, classificando falsamente quel tratto di collegamento come uscita; poteva inoltre saltare il contatto dello stesso way che porta veramente all'esterno. **Patch:** considerare solo i contatti con un segmento uscente OSM verificato, ignorare way senza rami uscenti e poi scegliere l'uscita rilevante; non inventare connettività da incroci 2D. **Regressioni aggiunte:** way che percorre il bordo anello e poi esce, e way composto soltanto da nodi dell'anello. Nessuna modifica a routing, matcher, protocollo BLE, limiti scena o disegno LVGL. **Validazione:** test Android/CI da eseguire dopo il commit; nessun collaudo hardware ancora eseguito per questa patch. La modifica corregge un caso certo di falsi rami ma **non dimostra da sola** di risolvere ogni artefatto visivo visto nel video. Tappe intermedie già OK su strada; `valhalla` resta invariato. Manuale operativo invariato. **Prossima azione:** verificare CI e ripetere il replay/sopralluogo delle due rotatorie, misurando completezza anello e uscite.
+
+
 ## Collaudo su strada 2026-11-11: tappe OK, rotatoria ancora anomala (07:52:25–07:52:40)
 
 **Feedback utente:** notifiche tappe intermedie funzionanti su ESP32 reale; rotatoria ancora problematica fra le 07:52:25 e 07:52:40. Materiale disponibile in chat: `motogps-replay(6).jsonl`, `motogps-android-diagnostics(20261111-075055).zip`, video `LVGL Simulator - Google Chrome 2026-11-11 08-54-15.mp4`.

@@ -224,30 +224,33 @@ internal object RoadContextJunctions {
                 road.nodeIds.size != road.points.size) continue
             val connected = road.nodeIds.indices.filter { road.nodeIds[it] in attachments }
             if (connected.isEmpty()) continue
-            ways++
-            // A way may touch the ring at more than one vertex. Use its
-            // closest verifiable attachment and an outward tangent.
-            val index = connected.minByOrNull { ix ->
-                val anchor = attachments.getValue(road.nodeIds[ix])
-                minOf(metric.distance(anchor, gps),
-                    upcoming?.let { metric.distance(anchor, it) }
-                        ?: Double.POSITIVE_INFINITY)
-            } ?: continue
-            val attach = attachments.getValue(road.nodeIds[index])
-            val neighbour = when {
-                index < road.points.lastIndex &&
-                    road.nodeIds[index + 1] !in attachments -> index + 1
-                index > 0 && road.nodeIds[index - 1] !in attachments -> index - 1
-                index < road.points.lastIndex -> index + 1
-                else -> index - 1
+            // A way may share several nodes with the circuit. First find
+            // a *real outward neighbour*, then rank attachments by proximity.
+            // Choosing the nearest ring node before this check can treat a
+            // ring-to-ring portion as an exit and hide the actual branch.
+            val outward = connected.flatMap { index ->
+                listOf(index - 1, index + 1).mapNotNull { neighbour ->
+                    if (neighbour !in road.points.indices ||
+                        road.nodeIds[neighbour] in attachments) null
+                    else {
+                        val (dx, dy) = metric.toXY(road.points[neighbour], road.points[index])
+                        if (hypot(dx, dy) < 0.8) null
+                        else {
+                            val attach = attachments.getValue(road.nodeIds[index])
+                            val relevance = minOf(metric.distance(attach, gps),
+                                upcoming?.let { metric.distance(attach, it) }
+                                    ?: Double.POSITIVE_INFINITY)
+                            ExitBranch(road, road.nodeIds[index], attach,
+                                kotlin.math.atan2(dy, dx), relevance)
+                        }
+                    }
+                }
             }
-            val (dx, dy) = metric.toXY(road.points[neighbour], road.points[index])
-            if (hypot(dx, dy) < 0.8) continue
-            val relevance = minOf(metric.distance(attach, gps),
-                upcoming?.let { metric.distance(attach, it) }
-                    ?: Double.POSITIVE_INFINITY)
-            candidates.add(ExitBranch(road, road.nodeIds[index], attach,
-                kotlin.math.atan2(dy, dx), relevance))
+            if (outward.isEmpty()) continue
+            ways++
+            // Preserve one exit per OSM way; the selected attachment must
+            // correspond to an actual departure, not an internal ring edge.
+            candidates.add(outward.minBy { it.relevanceM })
         }
 
         // Multiple OSM ways may model the SAME departure. Group only when

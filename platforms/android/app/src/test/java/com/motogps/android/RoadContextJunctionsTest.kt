@@ -53,6 +53,35 @@ class RoadContextJunctionsTest {
         assertTrue(analysis.qualified >= 1)
     }
 
+    @Test fun multiContactWayUsesGenuineOutgoingAttachmentNotNearestRingNode() {
+        // Regression for the 2026-11-11 double-roundabout trace: a way can
+        // follow a ring edge before leaving it. The nearest shared node is
+        // NOT necessarily an exit. No fake branch may consume a slot.
+        val followsRingThenLeaves = road(91,
+            listOf(p(0, 0), p(120, 120), p(120, 550)),
+            listOf(100, 101, 990))
+        val result = RoadContextJunctions.find(
+            listOf(ring, followsRingThenLeaves, exitB), 45.0, 8.0,
+            p(0, 0))
+        assertNotNull(result)
+        assertTrue(result!!.exits.contains(followsRingThenLeaves))
+        assertTrue(result.junctionPoints.contains(p(120, 120)))
+        assertFalse("Internal attachment must not be labelled an exit",
+            result.junctionPoints.contains(p(0, 0)))
+        assertEquals(2, result.distinctExitBranches)
+    }
+
+    @Test fun ringToRingConnectorWithoutOutsideNeighbourIsNotAnExit() {
+        val internal = road(92, listOf(p(0, 0), p(120, 120)),
+            listOf(100, 101))
+        val result = RoadContextJunctions.find(
+            listOf(ring, internal, exitA, exitB), 45.0, 8.0, p(0, 0))
+        assertNotNull(result)
+        assertEquals(setOf(2L, 3L),
+            result!!.exits.mapNotNull { it.osmWayId }.toSet())
+        assertEquals(2, result.rawExitWays)
+    }
+
     @Test fun incompleteExitNodesAreNotInventedByVisualCrossings() {
         val unverified = exitB.copy(nodeIds = emptyList())
         val focus = RoadContextJunctions.find(
