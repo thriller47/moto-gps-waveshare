@@ -484,8 +484,13 @@ internal object RoadContextJunctions {
         }
 
         fun assemble(path: List<Step>) {
-            val indices = path.map { it.index }
-            val signature = "m:" + indices.sorted().joinToString(",")
+            // Edge indices change as the graph is re-sorted by GPS distance.
+            // Name a composed ring using stable OSM way and endpoint node IDs.
+            val signature = "m:" + path.map { step ->
+                val edge = edges[step.index]
+                "${edge.road.osmWayId ?: 0L}:${minOf(edge.from, edge.to)}:" +
+                    maxOf(edge.from, edge.to)
+            }.sorted().joinToString(",")
             if (signature in seen) return
             val combinedPoints = ArrayList<GeoPointE6>()
             val combinedIds = ArrayList<Long>()

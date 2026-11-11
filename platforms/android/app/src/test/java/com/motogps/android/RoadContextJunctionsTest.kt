@@ -53,6 +53,18 @@ class RoadContextJunctionsTest {
         assertTrue(analysis.qualified >= 1)
     }
 
+    @Test fun compositeRingKeyIsStableAcrossRoadOrdering() {
+        val roads = multipleWays() + exitA + exitB
+        val first = RoadContextJunctions.analyze(roads, 45.0, 8.0, p(120, 0)).focus
+        val reorder = RoadContextJunctions.analyze(
+            roads.reversed(), 45.0, 8.0, p(120, 0)).focus
+        assertNotNull(first)
+        assertNotNull(reorder)
+        assertTrue(first!!.key.startsWith("m:"))
+        assertEquals(first.key, reorder!!.key)
+        assertEquals(first.distinctExitBranches, reorder.distinctExitBranches)
+    }
+
     @Test fun multiContactWayUsesGenuineOutgoingAttachmentNotNearestRingNode() {
         // Regression for the 2026-11-11 double-roundabout trace: a way can
         // follow a ring edge before leaving it. The nearest shared node is

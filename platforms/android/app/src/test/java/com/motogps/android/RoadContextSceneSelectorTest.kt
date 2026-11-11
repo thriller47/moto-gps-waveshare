@@ -34,6 +34,40 @@ class RoadContextSceneSelectorTest {
             (0..12).map { j -> 5000L + i * 100 + j })
     }
 
+    @Test fun sixExitCircuitStaysClosedFromOppositeApproaches() {
+        // Relative synthetic coordinates: never commit customer GPS traces.
+        val vertices = (0 until 6).map { i ->
+            val angle = i * 2.0 * Math.PI / 6.0
+            p((180 * kotlin.math.sin(angle)).toInt(),
+              (230 * kotlin.math.cos(angle)).toInt())
+        }
+        val ids = (1100L..1105L).toList()
+        val circuit = road(300L, vertices + vertices.first(), ids + ids.first())
+        val exits = vertices.mapIndexed { i, at ->
+            val angle = i * 2.0 * Math.PI / 6.0
+            val far = p((850 * kotlin.math.sin(angle)).toInt(),
+                        (1000 * kotlin.math.cos(angle)).toInt())
+            road(310L + i, listOf(at, far), listOf(ids[i], 2100L + i))
+        }
+        val roads = listOf(circuit) + exits + local
+        for (gps in listOf(p(-650, 0), p(650, 0))) {
+            val lat = gps.latitudeE6 / 1e6
+            val lon = gps.longitudeE6 / 1e6
+            val focus = RoadContextJunctions.find(roads, lat, lon, p(0, 0))
+            assertTrue("Both approaches must find the complete ring", focus != null)
+            assertEquals(300L, focus!!.ring.osmWayId)
+            assertEquals(6, focus.distinctExitBranches)
+            val scene = RoadContextSceneSelector.select(roads, focus, lat, lon, p(0, 0))
+            assertEquals(1, scene.count(RoadContextSceneSelector.Role.RING))
+            assertEquals(6, scene.count(RoadContextSceneSelector.Role.EXIT))
+            assertTrue(scene.count(RoadContextSceneSelector.Role.GPS) >= 6)
+            val points = scene.drawn.first().points
+            assertEquals(points.first(), points.last())
+            assertTrue(points.containsAll(focus.junctionPoints))
+            assertTrue(scene.slots <= 20 && scene.points <= 160)
+        }
+    }
+
     @Test fun denseSceneGuaranteesSixNonFocusGpsRoadsWithinTwentyAnd160() {
         val roads = listOf(ring) + exits + local
         val focus = RoadContextJunctions.find(roads, 45.0, 8.0, p(240, 0))
