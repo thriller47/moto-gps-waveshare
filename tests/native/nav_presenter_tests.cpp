@@ -625,10 +625,14 @@ void test_experimental_curve_zoom_does_not_change_default_or_roundabouts() {
   presenter.update(s);
   CHECK(std::abs(presenter.applied_zoom_factor()-4.0) < 0.001);
 
+  // Switching off the independent hairpin experiment must not cancel
+  // the roundabout hold at the exit: has_next_maneuver can drop to false
+  // while the motorcycle is still circulating.
   presenter.set_experimental_curve_zoom_enabled(false);
   s.has_next_maneuver = false;
   presenter.update(s);
-  CHECK(presenter.applied_zoom_factor() == 1.0);
+  CHECK(std::abs(presenter.applied_zoom_factor() - 4.0) < 0.001);
+  // Missing route geometry cancels all visual hold, as before.
   s.has_route_view = false;
   presenter.set_experimental_curve_zoom_enabled(true);
   presenter.update(s);
