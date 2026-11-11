@@ -701,6 +701,35 @@ void test_same_route_window_count_change_is_interpolated() {
   CHECK(first_transition.hash != snapped.hash);
 }
 
+void test_new_gps_window_snaps_green_and_gray_together() {
+  moto_nav_ui_set_reduce_motion(1);
+  moto_nav_ui_set_phone_connection(MOTO_UI_PHONE_ONLINE);
+  auto initial = base_state();
+  fill_route(initial, 3);
+  fill_streets(initial);
+  initial.route_geometry_signature = 1001;
+  moto_nav_ui_set_state(&initial);
+  pump(260);
+
+  auto updated = initial;
+  fill_route(updated, 8);
+  updated.route_geometry_signature = 1002;
+  for (int i = 0; i < 8; ++i) {
+    updated.route_points[i].x += 38;
+    updated.route_points[i].y += 16;
+    updated.road_points[i].x += 38;
+    updated.road_points[i].y += 16;
+  }
+  moto_nav_ui_set_reduce_motion(0);
+  moto_nav_ui_set_state(&updated);
+  lv_refr_now(lv_display_get_default());
+  const auto first_hash = frame_hash();
+  moto_nav_ui_set_reduce_motion(1);
+  moto_nav_ui_set_state(&updated);
+  lv_refr_now(lv_display_get_default());
+  CHECK(frame_hash() == first_hash);
+}
+
 void test_nonuniform_route_vertices_align_by_real_arc_fraction() {
   constexpr std::size_t kCapacity = MOTO_UI_ROUTE_POINT_CAPACITY;
   float old_x[kCapacity] = {130.f, 130.f, 390.f};
@@ -796,6 +825,7 @@ int main(int argc, char **argv) {
   test_motion_frames_interpolate_then_settle_without_residue();
   test_reroute_without_geometry_preserves_road_map();
   test_same_route_window_count_change_is_interpolated();
+  test_new_gps_window_snaps_green_and_gray_together();
   test_nonuniform_route_vertices_align_by_real_arc_fraction();
 #ifdef MOTO_UI_DIRTY_TILE_TEST
   test_small_motion_invalidates_only_swept_tiles();

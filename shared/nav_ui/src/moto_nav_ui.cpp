@@ -116,6 +116,7 @@ struct Ui {
     std::uint8_t nav_route_target_count = 0;
     std::uint32_t nav_route_identity = 0;
     std::uint32_t nav_route_generation = 0;
+    std::uint32_t nav_route_geometry_signature = 0;
     lv_timer_t *nav_route_motion_timer = nullptr;
     lv_obj_t *nav_marker = nullptr;
     lv_obj_t *nav_status = nullptr;
@@ -757,7 +758,11 @@ void update_road_geometry(const moto_ui_state_t *state) {
     // A wide point can move more than 96 px during a perfectly ordinary fast
     // yaw. Treating screen-space distance as a route replacement made the
     // whole map jump. Only topology/revision changes snap; motion interpolates.
-    const bool snap = spans_changed || ui.reduce_motion;
+    // A new route window must not snap while the gray context still lags.
+    const bool route_window_replaced =
+        state->route_geometry_signature != 0 &&
+        state->route_geometry_signature != ui.nav_route_geometry_signature;
+    const bool snap = spans_changed || ui.reduce_motion || route_window_replaced;
     ui.nav_road_point_count = point_count;
     ui.nav_road_polyline_count = polyline_count;
     ui.nav_road_scene_revision = state->map_scene_revision;
@@ -795,6 +800,7 @@ void update_route_geometry(const moto_ui_state_t *state) {
         ui.nav_route_target_count = 0;
         ui.nav_route_identity = state->route_identity;
         ui.nav_route_generation = state->route_generation;
+        ui.nav_route_geometry_signature = 0;
         lv_obj_add_flag(ui.nav_route_shadow, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(ui.nav_route, LV_OBJ_FLAG_HIDDEN);
         // Keep the rider marker and the last valid gray road scene visible
@@ -841,8 +847,15 @@ void update_route_geometry(const moto_ui_state_t *state) {
     const bool same_route = ui.nav_route_identity == state->route_identity &&
                             ui.nav_route_generation == state->route_generation;
     const bool count_changed = previous_count != count;
+    // Vertices of successive GPS windows can refer to different segments,
+    // EVEN WITH THE SAME COUNT. Never morph unrelated vertex indices.
+    // Leave ordinary camera/heading motion smoothly interpolated.
+    const bool geometry_replaced =
+        state->route_geometry_signature != 0 &&
+        state->route_geometry_signature != ui.nav_route_geometry_signature;
+    // Legacy/manual states without signatures retain arc-length fallback.
     if(same_route && count_changed && previous_count >= 2 &&
-       !ui.reduce_motion) {
+       !ui.reduce_motion && !geometry_replaced) {
         float resampled_x[MOTO_UI_ROUTE_POINT_CAPACITY]{};
         float resampled_y[MOTO_UI_ROUTE_POINT_CAPACITY]{};
         moto_nav_route_sampling::align_by_arc_fraction(
@@ -854,11 +867,13 @@ void update_route_geometry(const moto_ui_state_t *state) {
             ui.nav_route_y[i] = resampled_y[i];
         }
     }
-    const bool snap = !same_route || previous_count < 2 || ui.reduce_motion;
+    const bool snap = !same_route || previous_count < 2 ||
+        ui.reduce_motion || geometry_replaced;
     ui.nav_route_target_count = count;
     ui.nav_route_point_count = count;
     ui.nav_route_identity = state->route_identity;
     ui.nav_route_generation = state->route_generation;
+    ui.nav_route_geometry_signature = state->route_geometry_signature;
     if(snap) {
         for(std::uint8_t i = 0; i < count; ++i) {
             ui.nav_route_x[i] = ui.nav_route_target_x[i];

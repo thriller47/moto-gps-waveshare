@@ -46,14 +46,30 @@ void test_prediction_freezes_after_missing_geometry_anchor() {
   const MapOriginPredictor::Position start{45.0, 9.0};
   predictor.advance(start, 1'000, 4, "offline-route", 1, 20, 90, true);
   MapOriginPredictor::Position at_limit{};
-  for (std::uint64_t ms = 1'025; ms <= 3'000; ms += 25) {
+  for (std::uint64_t ms = 1'025; ms <= 5'000; ms += 25) {
     auto current = predictor.advance(start, ms, 4, "offline-route", 1, 20, 90, true);
-    if (ms == 2'500) at_limit = current;
+    if (ms == 4'400) at_limit = current;
   }
-  const auto frozen = predictor.advance(start, 3'025, 4, "offline-route", 1, 20, 90, true);
-  CHECK(east_metres(at_limit, start.longitude_deg) > 29.0);
-  CHECK(east_metres(at_limit, start.longitude_deg) < 31.0);
+  const auto frozen = predictor.advance(start, 5'025, 4, "offline-route", 1, 20, 90, true);
+  CHECK(east_metres(at_limit, start.longitude_deg) > 67.0);
+  CHECK(east_metres(at_limit, start.longitude_deg) < 69.0);
   CHECK(std::abs(frozen.longitude_deg - at_limit.longitude_deg) < 1e-10);
+}
+
+void test_three_second_ble_geometry_cadence_stays_in_motion() {
+  MapOriginPredictor predictor;
+  const MapOriginPredictor::Position start{45.0, 9.0};
+  predictor.advance(start, 1'000, 1, "route", 1, 20, 90, true);
+  MapOriginPredictor::Position moved{};
+  for (std::uint64_t ms = 1'025; ms <= 4'000; ms += 25)
+    moved = predictor.advance(start, ms, 1, "route", 1, 20, 90, true);
+  CHECK(east_metres(moved, start.longitude_deg) > 59.0);
+  CHECK(east_metres(moved, start.longitude_deg) < 61.0);
+  const double scale = 111'195.0 * std::cos(45.0 * 3.14159265358979323846 / 180.0);
+  const MapOriginPredictor::Position measured{45.0, 9.0 + 60.0 / scale};
+  const auto renewed = predictor.advance(measured, 4'025, 2, "route", 1, 20, 90, true);
+  CHECK(east_metres(renewed, start.longitude_deg) > 59.0);
+  CHECK(east_metres(renewed, start.longitude_deg) < 62.0);
 }
 
 void test_stale_stop_and_route_changes() {
@@ -82,6 +98,7 @@ int main() {
   test_subframe_motion_and_correction();
   test_stale_stop_and_route_changes();
   test_prediction_freezes_after_missing_geometry_anchor();
+  test_three_second_ble_geometry_cadence_stays_in_motion();
   if (failures) {
     std::cerr << failures << " map predictor checks failed\n";
     return EXIT_FAILURE;

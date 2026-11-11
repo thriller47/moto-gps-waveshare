@@ -127,6 +127,8 @@ typedef struct {
        from ordinary high-rate heading and position motion. */
     uint32_t route_identity;
     uint32_t route_generation;
+    /* Hash of the geographic window, independent of camera motion. */
+    uint32_t route_geometry_signature;
     uint32_t map_scene_revision;
     uint16_t speed_kph;
     uint16_t speed_limit_kph;

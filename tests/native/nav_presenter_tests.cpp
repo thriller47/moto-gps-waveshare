@@ -219,6 +219,34 @@ void test_metrics_are_rounded_clamped_and_deterministic() {
   CHECK(presenter.ui_state().route_progress_percent == 100);
 }
 
+void test_route_window_fingerprint_excludes_camera_motion() {
+  NavPresenter presenter;
+  NavSnapshot s;
+  s.state = NavState::Navigating;
+  s.route_id = "stable-route";
+  s.has_route_view = true;
+  s.route_view_origin = {45.0, 8.0};
+  s.route_view_point_count = 3;
+  s.route_view_points[0] = {45.0, 8.0};
+  s.route_view_points[1] = {45.0002, 8.0};
+  s.route_view_points[2] = {45.0004, 8.0};
+  presenter.update(s);
+  const auto signature = presenter.ui_state().route_geometry_signature;
+  CHECK(signature != 0);
+  const auto route_id = presenter.ui_state().route_identity;
+  s.heading_deg = 80.f;
+  s.route_view_origin = {45.0001, 8.0};
+  presenter.update(s);
+  CHECK(presenter.ui_state().route_geometry_signature == signature);
+  s.route_view_points[0] = {45.0001, 8.0}; // Same point count, new window.
+  presenter.update(s);
+  CHECK(presenter.ui_state().route_geometry_signature != signature);
+  CHECK(presenter.ui_state().route_identity == route_id);
+  s.has_route_view = false;
+  presenter.update(s);
+  CHECK(presenter.ui_state().route_geometry_signature == 0);
+}
+
 void test_heading_up_route_projection_keeps_rider_fixed() {
   NavPresenter presenter;
   NavSnapshot snapshot;
@@ -761,6 +789,7 @@ int main() {
   test_all_maneuvers();
   test_all_traffic_levels();
   test_metrics_are_rounded_clamped_and_deterministic();
+  test_route_window_fingerprint_excludes_camera_motion();
   test_heading_up_route_projection_keeps_rider_fixed();
   test_native_projection_stays_pixel_quantized_and_layers_aligned();
   test_non_finite_heading_keeps_map_projection_finite();

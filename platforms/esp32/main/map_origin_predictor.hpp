@@ -48,12 +48,13 @@ class MapOriginPredictor {
     const double dt = std::min<std::uint64_t>(elapsed_ms, 250U) / 1'000.0;
     const double speed = static_cast<double>(speed_mps);
 
-    // Stop translation within 1.5 s of the latest geometry anchor; a BLE
-    // interruption must not carry the map far past a junction or roundabout.
+    // Normal BLE route windows can arrive 3.1s apart. The old 1.5s cap
+    // froze the moving map until the next window, causing 30m catch-ups.
+    // Bound prediction at 3.4s, still freezing during a genuine outage.
     // GPS remains authoritative and the route geometry is not modified.
     if (std::isfinite(speed) && speed >= 1.5 && speed <= 60.0 &&
         std::isfinite(heading_deg) &&
-        now_ms - last_fix_ms_ <= 1'500U) {
+        now_ms - last_fix_ms_ <= 3'400U) {
       const double heading = static_cast<double>(heading_deg) *
                              3.14159265358979323846 / 180.0;
       move(std::cos(heading) * speed * dt,

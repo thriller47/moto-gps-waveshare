@@ -221,6 +221,26 @@ std::uint32_t route_identity(const std::string& route_id) {
   return hash == 0 ? 1 : hash;
 }
 
+// Camera-independent fingerprint of a route view. The geometry moves through
+// the 550m window while Valhalla's route identity stays the same.
+std::uint32_t route_geometry_signature(const NavSnapshot& snapshot) {
+  if (!snapshot.has_route_view || snapshot.route_view_point_count < 2) return 0;
+  std::uint32_t hash = 2'166'136'261U;
+  const auto mix = [&hash](std::uint32_t component) {
+    for (int byte = 0; byte < 4; ++byte) {
+      hash ^= (component >> (byte * 8)) & 0xFFU;
+      hash *= 16'777'619U;
+    }
+  };
+  mix(snapshot.route_view_point_count);
+  for (std::size_t i = 0; i < snapshot.route_view_point_count; ++i) {
+    const auto& p = snapshot.route_view_points[i];
+    mix(static_cast<std::uint32_t>(std::lround(p.latitude_deg * 1'000'000.0)));
+    mix(static_cast<std::uint32_t>(std::lround(p.longitude_deg * 1'000'000.0)));
+  }
+  return hash == 0 ? 1U : hash;
+}
+
 struct MapTransform {
   double origin_latitude_deg = 0.0;
   double origin_longitude_deg = 0.0;
@@ -412,6 +432,7 @@ void NavPresenter::update(const NavSnapshot& snapshot) {
       snapshot.route_request_in_flight ? 1 : 0;
   ui_state_.route_identity = route_identity(snapshot.route_id);
   ui_state_.route_generation = snapshot.route_generation;
+  ui_state_.route_geometry_signature = route_geometry_signature(snapshot);
   ui_state_.map_scene_revision = snapshot.map_scene_revision;
   ui_state_.maneuver_map_zoom_active =
       maneuver_zoom_available(snapshot) ? 1U : 0U;
