@@ -3,7 +3,7 @@
 **Riferimento:** repository thriller47/moto-gps-waveshare, branch principale **valhalla**. 
 **Scheda:** Waveshare ESP32-S3-Touch-AMOLED-1.75C, 32 MB flash, 8 MB PSRAM.
 **Porta negli esempi:** **COM3**. I blocchi sono etichettati **PowerShell** o **CMD**: usare la shell indicata. 
-**Aggiornato:** 10 novembre 2026 (matcher validato su strada e strumenti diagnostici integrati in `valhalla`). Controllare prima PROJECT_STATE.md e AGENTS.md.
+**Aggiornato:** 11 novembre 2026 (Android Studio Windows e compilazione APK locale; verifica MotoMap v4 senza tile mancanti). Controllare prima PROJECT_STATE.md e AGENTS.md.
 
 > **Attenzione:** il branch main è stato eliminato; signal resta solo come storico OSM online. Non usare né main né NoOta come base. Effettuare il flash soltanto con immagini della scheda 1.75C.
 
@@ -191,6 +191,80 @@ C:\MotoGPS\ESP32-Firmware\
 ~~~
 
 Se lo ZIP è stato estratto in una cartella aggiuntiva, aprire quella che contiene i tre percorsi qui sopra. **Non rinominare né appiattire le sottocartelle**.
+
+## 2A. Compilare l'APK Android in locale con Android Studio (Windows, verificato 11/11/2026)
+
+**Quando usarlo:** alternativa a GitHub Actions se una build rimane `queued`, oppure per test rapidi. L'utente ha confermato apertura del progetto senza errori, compilazione locale, installazione dell'APK e navigazione senza richiesta di tile mancanti. **Non** equivale a un collaudo su strada delle rotatorie v4 o del download online. Per questo ciclo usare il branch sperimentale `test/roundabout-topology-20261110`; per il lavoro ordinario resta `valhalla` la base d'integrazione.
+
+### A. Aggiornare il codice — Windows PowerShell
+
+Aprire **PowerShell** e verificare prima che non ci siano modifiche locali da perdere:
+
+~~~powershell
+Set-Location "C:\MotoGPS\moto-gps-waveshare"
+git status --short
+git fetch origin
+git switch test/roundabout-topology-20261110
+git pull --ff-only origin test/roundabout-topology-20261110
+git submodule update --init --recursive
+git log -1 --oneline
+~~~
+
+**Versione usata nel collaudo locale dell'11/11/2026:** `83c7133` (pulizia Overpass e test bordi Mercator); il commit della presente documentazione può essere successivo. Non confondere un APK locale di un branch test con una build di `valhalla`.
+
+### B. Aprire il progetto e configurare gli strumenti
+
+Installare **Android Studio**; dalla schermata iniziale selezionare **Open**, senza creare un progetto nuovo, e aprire **esattamente**:
+
+`C:\MotoGPS\moto-gps-waveshare\platforms\android`
+
+Il progetto richiede **Gradle 8.11.1** (wrapper `gradlew.bat`), **Android Gradle Plugin 8.10.1**, **Kotlin 2.2.10** e **Android SDK Platform 36**. In **SDK Manager** controllare e installare, se richiesti, **Build-Tools**, **NDK 27.0.12077973** e **CMake 3.22.1**. La prima importazione/sincronizzazione Gradle può scaricare dipendenze e richiedere tempo.
+
+In **Settings → Build, Execution, Deployment → Build Tools → Gradle → Gradle JDK** scegliere il **JDK 21 (JBR 21)** integrato, come usato nella prova locale. Il codice continua a compilare con **source/target Java 17**: non occorre cambiare il `jvmTarget`. Anche JDK 17 è supportato; non aggiornare alla cieca il wrapper Gradle o i plugin quando Android Studio suggerisce nuove versioni.
+
+Attendere **Gradle Sync** senza errori. Se la sincronizzazione non riesce, leggere il primo errore e verificare SDK, NDK, CMake, Gradle JDK e connessione: **non** cancellare cache o cartelle del progetto senza diagnosi.
+
+### C. Test unitari e APK debug — Terminale PowerShell di Android Studio
+
+Aprire **View → Tool Windows → Terminal** (scorciatoia `Alt+F12`), selezionando un terminale **PowerShell**. Portarsi nella radice del progetto Android:
+
+~~~powershell
+Set-Location "C:\MotoGPS\moto-gps-waveshare\platforms\android"
+.\gradlew.bat testDebugUnitTest assembleDebug
+~~~
+
+Per produrre solo l'APK, senza lanciare tutti i test unitari:
+
+~~~powershell
+.\gradlew.bat assembleDebug
+~~~
+
+Accettare soltanto il risultato esplicito **`BUILD SUCCESSFUL`**; con `BUILD FAILED` leggere il primo errore, senza presumere che l'APK sia valido. Il gradle task `testDebugUnitTest` esegue test **JVM Android**: non sostituisce test stradali, Android instrumentation test, ESP32 o native CI. Nel collaudo riportato dall'utente sono confermati compilazione e installazione riuscite, ma **non è stato fornito un report indipendente del numero di test Gradle superati**.
+
+L'APK generato si trova in:
+
+`C:\MotoGPS\moto-gps-waveshare\platforms\android\app\build\outputs\apk\debug\app-debug.apk`
+
+### D. Installazione Android e precauzioni sulla firma
+
+Trasferire `app-debug.apk` al telefono e installarlo; in alternativa, con ADB configurato e debug USB autorizzato:
+
+~~~powershell
+adb devices
+adb install -r "C:\MotoGPS\moto-gps-waveshare\platforms\android\app\build\outputs\apk\debug\app-debug.apk"
+~~~
+
+`app-debug.apk` **è firmato automaticamente** con una chiave debug, **non è privo di firma**. La chiave locale può differire da quella generata da GitHub Actions; Android accetta un aggiornamento `adb install -r` solo con **firma compatibile** e **versionCode non inferiore**. Nel `app/build.gradle.kts` locale il `versionCode` predefinito è `2` se `MOTO_GPS_VERSION_CODE` non è impostato. Se un futuro APK ha firma/versione incompatibile, **non disinstallare impulsivamente**: prima eseguire backup degli archivi.
+
+Nel collaudo dell'11/11/2026 **l'app precedente era già stata disinstallata**, quindi non c'era alcuna firma installata da confrontare. La disinstallazione può cancellare i file privati: potrebbe essere necessario reimportare `italy-v4.motomap.zip` e il grafo Italia Valhalla `.tar`/`.tar.zst`, senza rigenerarli sul PC. Conservare sempre gli originali fuori dalla cartella privata Android. Per una firma persistente consultare `docs/android-apk-signing.md`.
+
+### E. Verifica funzionale dopo l'installazione
+
+Aprire Moto Chat GPS; verificare che MotoMap **v4** e il grafo **Valhalla** risultino installati (reimportarli solo se assenti), calcolare un percorso italiano e premere **Avvia navigazione**. Con un percorso all'interno della copertura certificata `coverage_z14.txt`, il dialogo di scaricamento non deve comparire inutilmente. Il test locale del **11 novembre 2026** ha dato esito positivo su **un percorso provato**: l'utente segnala **navigazione avviata senza richiesta di download**. Questo non prova ancora tutte le rotatorie o il corridoio OpenFreeMap online.
+
+**Prossima prova su strada:** ripetere il giro delle rotatorie problematiche con diagnostica Android attiva; osservare anello completo, uscite, zoom, eventuali ricalcoli e tappa; esportare il log e controllare `OSM_RING` (`osm_tagged`), `OSM_RING_SEARCH` e `OFM_COVERAGE`. Nessun aggiornamento ESP32 necessario **per la sola correzione v4/online/Overpass**; altri sviluppi firmware sperimentali vanno verificati separatamente.
+
+---
 
 ## 3. Flash ESP32 su COM3 — dall'artifact GitHub
 

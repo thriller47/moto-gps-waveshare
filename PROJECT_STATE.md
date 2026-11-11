@@ -1,5 +1,17 @@
 # Moto GPS — Project State
 
+## APK Android locale e validazione copertura MotoMap v4 — 2026-11-11
+
+**Contesto/branch:** `test/roundabout-topology-20261110`, codice applicativo dell'APK provato fino al commit `83c7133c63339fd99aa43950b9543bfadbc0433d`. Le GitHub Actions `43095768704`, `43096557528`, `43096615079` erano `queued` senza job al controllo; il comando `gh run cancel` della prima restituiva **"Cannot cancel a workflow run that is completed"** pur mostrando `queued` su API/CLI. L'utente ha verificato billing: $0 netto, $3.82 consumati compensati da sconti, $0/$12 di compute incluso. Causa del blocco non confermata; **non dichiarare la CI verde**.
+
+**Workaround funzionante:** installato Android Studio su Windows, aperto direttamente `C:\MotoGPS\moto-gps-waveshare\platforms\android`, selezionato **JDK/JBR 21** come Gradle JVM, import/sync senza errori, rifiutato aggiornamento Gradle suggerito. Progetto con Gradle wrapper 8.11.1, Android Gradle Plugin 8.10.1, Kotlin 2.2.10, SDK 36, NDK 27.0.12077973 e CMake 3.22.1; source/target Java 17. L'utente ha riferito **APK compilato localmente, installato sul telefono e navigazione provata con nessuna richiesta di download**; ciò conferma la correzione del **conteggio copertura MotoMap v4** sul percorso osservato, non tutti i tile dell'Italia. La trascrizione non include il log di Gradle o il numero dei test: **non attribuire un conteggio/CI riuscita non verificato**.
+
+**Asset/firma:** la precedente app era già stata disinstallata; nessuna firma APK da aggiornare. Ogni APK debug è comunque firmato; eventuali futuri APK GitHub possono avere certificati diversi e richiedere migrazione/backup. MotoMap `italy-v4.motomap.zip` (4.106.642 segmenti, 278.048 tile z15, 214.320 celle z14 certificate, 85.391 way roundabout, 2.098 circular) non va rigenerata. Dopo disinstallazione, verificare/reimportare pacchetto e grafo Valhalla, se assenti. Firmware ESP32 e BLE non modificati dalle ultime correzioni Android.
+
+**Modifiche recenti effettive:** fix `OpenFreeMapRouteCorridor.missing()` che ora certifica `coverage_z14.txt` con manifest v4; lettura separata delle geometrie di corridoio OpenFreeMap a richiesta (prive di originali NodeId OSM); eliminazione delle richieste HTTP/endpoint Overpass mantenendo le utilità coordinate `GatewayRoadTiles`; documentazione aggiornabile. **Il download online OpenFreeMap e la visualizzazione corretta di tutte le uscite delle rotatorie non sono ancora collaudati su strada**.
+
+**Prossimo passo (12/11/2026):** test stradale con diagnostica Android attiva, giro noto con rotatorie problematiche, ricalcoli e tappa intermedia se possibile; raccogliere screenshot/osservazioni e log `OSM_RING`, `OSM_RING_SEARCH`, `OFM_COVERAGE` per diagnosi. Mantenere `valhalla` invariato e branch test aperto; nessun altro intervento o CI richiesti per questa sola documentazione.
+
 ## Pulizia definitiva client Overpass — 2026-11-11
 
 **Branch:** `test/roundabout-topology-20261110`; base `07e761639fc3`. L'utente richiede l'eliminazione completa del vecchio client Overpass dopo l'introduzione di MotoMap v4 e del corridoio OpenFreeMap a download esplicito.
