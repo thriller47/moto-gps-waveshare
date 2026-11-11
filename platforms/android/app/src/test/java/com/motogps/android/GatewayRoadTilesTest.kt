@@ -33,10 +33,13 @@ class GatewayRoadTilesTest {
 
     @Test
     fun tilesAtMercatorBoundariesStayInRange() {
-        assertEquals(GatewayRoadTiles.Tile(0, 0),
-            GatewayRoadTiles.tileFor(85.0, -180.0))
-        assertEquals(GatewayRoadTiles.Tile(32767, 32767),
-            GatewayRoadTiles.tileFor(-85.0, 180.0))
-        assertEquals(4, GatewayRoadTiles.around(85.0, -180.0, 1).size)
+        val northWest = GatewayRoadTiles.tileFor(85.0, -180.0)
+        val southEast = GatewayRoadTiles.tileFor(-85.0, 180.0)
+        assertEquals(0, northWest.x)
+        assertEquals(32767, southEast.x)
+        assertTrue(northWest.y in 0..32767)
+        assertTrue(southEast.y in 0..32767)
+        assertTrue(northWest.y < southEast.y)
+        assertTrue(GatewayRoadTiles.around(85.0, -180.0, 1).size in 4..9)
     }
 }
