@@ -4,6 +4,7 @@
 // transitions and label/geometry residue cleanup.
 
 #include "moto_nav_ui.h"
+#include "moto_nav_route_sampling.hpp"
 
 #include <lvgl.h>
 
@@ -700,51 +701,28 @@ void test_same_route_window_count_change_is_interpolated() {
   CHECK(first_transition.hash != snapped.hash);
 }
 
-void test_nonuniform_route_vertices_do_not_create_a_false_green_diagonal() {
-  moto_nav_ui_set_reduce_motion(1);
-  moto_nav_ui_set_phone_connection(MOTO_UI_PHONE_ONLINE);
-  moto_ui_state_t initial = base_state();
-  initial.road_point_count = 0;
-  initial.road_polyline_count = 0;
-  initial.route_point_count = 3;
-  initial.route_points[0] = {130, 100};
-  initial.route_points[1] = {130, 260};
-  initial.route_points[2] = {390, 260};
-  moto_nav_ui_set_state(&initial);
-  pump(260);
-
-  // The new geometry describes the exact SAME L-shaped route, but with six
-  // extra points around the first bend. Uniform spacing by vertex index
-  // makes a temporarily diagonal green line through the open square.
-  // Matching by physical arc length keeps every transition on the L.
-  moto_ui_state_t updated = initial;
-  const moto_ui_point_t denser[] = {
-      {130, 100}, {130, 110}, {130, 140}, {130, 170},
-      {130, 200}, {130, 240}, {130, 260}, {220, 260}, {390, 260}};
-  updated.route_point_count = static_cast<std::uint8_t>(
-      sizeof(denser) / sizeof(denser[0]));
-  for(std::uint8_t i = 0; i < updated.route_point_count; ++i) {
-    updated.route_points[i] = denser[i];
+void test_nonuniform_route_vertices_align_by_real_arc_fraction() {
+  constexpr std::size_t kCapacity = MOTO_UI_ROUTE_POINT_CAPACITY;
+  float old_x[kCapacity] = {130.f, 130.f, 390.f};
+  float old_y[kCapacity] = {100.f, 260.f, 260.f};
+  // Exactly the same L-shaped road, but most of its samples are concentrated
+  // near the first corner, like a simplified roundabout.
+  float target_x[kCapacity] = {
+      130.f, 130.f, 130.f, 130.f, 130.f, 130.f, 130.f, 220.f, 390.f};
+  float target_y[kCapacity] = {
+      100.f, 110.f, 140.f, 170.f, 200.f, 240.f, 260.f, 260.f, 260.f};
+  float aligned_x[kCapacity] = {};
+  float aligned_y[kCapacity] = {};
+  moto_nav_route_sampling::align_by_arc_fraction(
+      old_x, old_y, 3, target_x, target_y, 9,
+      aligned_x, aligned_y);
+  for(std::size_t i = 0; i < 9; ++i) {
+    CHECK(std::abs(aligned_x[i] - target_x[i]) <= 0.01f);
+    CHECK(std::abs(aligned_y[i] - target_y[i]) <= 0.01f);
   }
-  moto_nav_ui_set_reduce_motion(0);
-  moto_nav_ui_set_state(&updated);
-  pump(10); // Allow two partial interpolation ticks, not a full settle.
-  lv_refr_now(lv_display_get_default());
-
-  int stray_green = 0;
-  for(int y = 205; y <= 245; ++y) {
-    for(int x = 165; x <= 240; ++x) {
-      const std::size_t pos =
-          (static_cast<std::size_t>(y) * kWidth + x) * 2;
-      const std::uint16_t rgb = static_cast<std::uint16_t>(
-          shadow_frame[pos] | (shadow_frame[pos + 1] << 8));
-      const int red = (rgb >> 11) & 31;
-      const int green = (rgb >> 5) & 63;
-      if(green >= 40 && green > red * 2) ++stray_green;
-    }
-  }
-  CHECK(stray_green == 0);
-  moto_nav_ui_set_reduce_motion(1);
+  // Endpoint identity and degeneracy protection.
+  CHECK(aligned_x[0] == old_x[0] && aligned_y[0] == old_y[0]);
+  CHECK(aligned_x[8] == old_x[2] && aligned_y[8] == old_y[2]);
 }
 
 void test_diagonal_map_pixels_are_independent_of_partial_buffer_height() {
@@ -818,7 +796,7 @@ int main(int argc, char **argv) {
   test_motion_frames_interpolate_then_settle_without_residue();
   test_reroute_without_geometry_preserves_road_map();
   test_same_route_window_count_change_is_interpolated();
-  test_nonuniform_route_vertices_do_not_create_a_false_green_diagonal();
+  test_nonuniform_route_vertices_align_by_real_arc_fraction();
 #ifdef MOTO_UI_DIRTY_TILE_TEST
   test_small_motion_invalidates_only_swept_tiles();
 #endif

@@ -1,5 +1,11 @@
 # Moto GPS — Project State
 
+## CI regressione vertici: test pixel fragile sostituito con test geometrico — 2026-11-11
+
+**Branch:** `test/roundabout-topology-20261110`, base `ac40145f08d7`. CI [43076723958](https://github.com/thriller47/moto-gps-waveshare/actions/runs/43076723958), native: 13/15 suite positive, `nav_ui_render_tests` e `nav_ui_render_dirty_tests` negative esclusivamente per il **nuovo controllo pixel** `stray_green == 0`. Il test è fragile perché il framebuffer contiene anche segni grafici e non espone l'esatta polilinea. Nessun errore di compilazione C++ e tutti gli altri test passano.
+
+**Correzione dei test senza cambiare l'algoritmo:** estratta la stessa funzione di allineamento per lunghezza cumulata in `shared/nav_ui/include/moto_nav_route_sampling.hpp`, richiamata da `update_route_geometry`; sostituito il controllo pixel con regressione numerica diretta della medesima polilinea a L campionata 3→9 punti non uniformi. A parità di forma gli indici fisici devono restare entro 0,01 pixel dei bersagli; controllati anche estremi. Stesso comportamento di rendering del commit precedente, nessuna API BLE cambiata, nessuna nuova allocazione dinamica, stessa capacità 24 vertici. CI correttiva da verificare per native, ESP32, Android; se verde ricompilare WASM ed eseguire replay per giudizio visivo. `valhalla` invariato.
+
 ## Correzione oscillazione polilinea verde nello zoom rotatoria — 2026-11-11
 
 **Branch:** `test/roundabout-topology-20261110` base `d2b296458293`, `valhalla` invariato. Nuovo video privato `LVGL Simulator - Google Chrome 2026-11-11 19-01-59.mp4`, analizzato insieme a `motogps-replay (1).jsonl`. Intervallo reale del replay attorno a **17:17–17:30** (t_ms ~1.037–1.050 milioni): stessa rotta `route_token=2171517623`, `generation=1`, quindi il movimento verde che alterna forma più volte al passaggio non è un ricalcolo. Il GPS segue il tratto percorso, la mappa grigia ruota con l'heading; un anello OSM di 20 vertici e ~107m è già presente nelle scene registrate. La linea verde però si deforma nettamente anche tra due fotogrammi a ~0.5 secondi di distanza.

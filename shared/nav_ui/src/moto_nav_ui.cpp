@@ -1,4 +1,5 @@
 #include "moto_nav_ui.h"
+#include "moto_nav_route_sampling.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -842,39 +843,12 @@ void update_route_geometry(const moto_ui_state_t *state) {
     const bool count_changed = previous_count != count;
     if(same_route && count_changed && previous_count >= 2 &&
        !ui.reduce_motion) {
-        float cumulative[MOTO_UI_ROUTE_POINT_CAPACITY]{};
         float resampled_x[MOTO_UI_ROUTE_POINT_CAPACITY]{};
         float resampled_y[MOTO_UI_ROUTE_POINT_CAPACITY]{};
-        for(std::uint8_t i = 1; i < previous_count; ++i) {
-            cumulative[i] = cumulative[i - 1] +
-                std::hypot(ui.nav_route_x[i] - ui.nav_route_x[i - 1],
-                           ui.nav_route_y[i] - ui.nav_route_y[i - 1]);
-        }
-        const float total = cumulative[previous_count - 1];
-        float target_cumulative[MOTO_UI_ROUTE_POINT_CAPACITY]{};
-        for(std::uint8_t i = 1; i < count; ++i) {
-            target_cumulative[i] = target_cumulative[i - 1] +
-                std::hypot(ui.nav_route_target_x[i] - ui.nav_route_target_x[i - 1],
-                           ui.nav_route_target_y[i] - ui.nav_route_target_y[i - 1]);
-        }
-        const float target_total = target_cumulative[count - 1];
-        std::uint8_t segment = 1;
-        for(std::uint8_t i = 0; i < count; ++i) {
-            const float fraction_along = target_total > 0.001F
-                ? target_cumulative[i] / target_total
-                : static_cast<float>(i) / static_cast<float>(count - 1);
-            const float along = total * fraction_along;
-            while(segment + 1 < previous_count &&
-                  cumulative[segment] < along) ++segment;
-            const float length = cumulative[segment] - cumulative[segment - 1];
-            const float fraction = length > 0.001F
-                ? std::clamp((along - cumulative[segment - 1]) / length, 0.0F, 1.0F)
-                : 0.0F;
-            resampled_x[i] = ui.nav_route_x[segment - 1] +
-                fraction * (ui.nav_route_x[segment] - ui.nav_route_x[segment - 1]);
-            resampled_y[i] = ui.nav_route_y[segment - 1] +
-                fraction * (ui.nav_route_y[segment] - ui.nav_route_y[segment - 1]);
-        }
+        moto_nav_route_sampling::align_by_arc_fraction(
+            ui.nav_route_x, ui.nav_route_y, previous_count,
+            ui.nav_route_target_x, ui.nav_route_target_y, count,
+            resampled_x, resampled_y);
         for(std::uint8_t i = 0; i < count; ++i) {
             ui.nav_route_x[i] = resampled_x[i];
             ui.nav_route_y[i] = resampled_y[i];
