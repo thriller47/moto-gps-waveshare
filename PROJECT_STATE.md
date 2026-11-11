@@ -1,5 +1,15 @@
 # Moto GPS — Project State
 
+## MotoMap v4 nativa, senza compatibilità v3 — 2026-11-11
+
+**Branch:** `test/roundabout-topology-20261110`, base `f8d448ac2bc2`; `valhalla` invariato. L'utente autorizza a rigenerare MotoMap da PBF e sceglie esplicitamente **un nuovo formato v4 senza retrocompatibilità v3**.
+
+**Formato:** `pbf_to_motomap.py` genera solo `motomap_v4.json`, versione 4, marcatura obbligatoria `junction=osm-junction-way-v4`. La riga di ogni way z15 diventa `classe,speed,layer,osmWayId,junctionKind|bbox|coordinate+OSM-NodeId`, valori 0=nessuna, 1=`junction=roundabout`, 2=`junction=circular`. I NodeId distinti restano conservati anche quando condividono coordinate arrotondate E6. Manifest con conteggi way OSM esplicitamente marcati, copertura z14 identica. **Non** è ancora incluso `highway=mini_roundabout` quando OSM rappresenta l'incrocio con un solo nodo.
+
+**Android:** importatore ZIP accetta soltanto manifest v4 valido, respinge v2/v3; repository ignora anche i vecchi ZIP già installati senza manifest v4 e rifiuta le righe pre-v4. `MapRoadSegment.junctionKind` è solo metadata Android, NON modifica BLE. In `RoadContextJunctions`, way con tag OSM vengono prioritizzate nei 90 archi e nel controllo single-way; soltanto percorsi composti interamente da archi marcati possono salire da otto a diciotto way, rispettando gli altri limiti DFS. Un anello verificato e localmente rilevante riceve bonus limitato +22 anche se alcune uscite mancano; in caso di due candidati sul medesimo tratto reale, il tagged ring prevale sul circuito geometrico non marcato. Circuiti non marcati mantengono il fallback, le verifiche contro falsi bypass e il controllo geografico. Grafi Valhalla, ESP32, protocollo BLE, zoom, matcher e budget 20/160 invariati.
+
+**Test e verifiche:** Python contratto v4 in `test_motomap_v4.py` (nuova intestazione/tag/nodi E6); Android `HybridMapRepositoryTest` (lettura campi v4 e ZIP v3 ignorati), `MotomapPackImporterTest` (manifest obbligatorio), `RoadContextJunctionsTest` (rotatoria reale da 12 way vs 95 strade urbane, quattro uscite). Workflow unico CI Android/native/ESP verificabile al termine. Nessun PBF italiano presente in GitHub, quindi generazione Italia e collaudo su strada **non** effettuati. Prossimo passo: CI verde, poi `italy-v4.motomap.zip` da PBF sul PC e importazione su APK del medesimo commit; controllare nei log `OSM_RING osm_tagged=true` e `OSM_RING_SEARCH osm_ways`, più grafica del ring prima dell'ingresso. Manuale `docs/MANUALE_OPERATIVO.md` aggiornato con procedura PowerShell e avviso incompatibilità v3.
+
 ## Diagnostica mirata ricostruzione rotatorie / budget DFS — 2026-11-11
 
 **Branch attivo:** `test/roundabout-topology-20261110`, base `b7adef2a23e9`. L'utente autorizza il primo esperimento *più semplice e importante*: **osservabilità soltanto**, senza modificare selezione delle rotatorie, filtri di accesso, soglie OSM, DFS, Valhalla, ESP32, protocollo BLE o tetto scene 20/160. Le analisi esterne sono ipotesi, non prove di `search_limit`.

@@ -82,6 +82,45 @@ class RoadContextJunctionsTest {
             flatAnalysis.excluded["shape_circularity"])
     }
 
+    @Test fun explicitlyTaggedTwelveWayRingSurvivesDenseUrbanGraph() {
+        val vertices = (0 until 12).map { i ->
+            val angle = i * Math.PI * 2.0 / 12
+            p((205 * kotlin.math.sin(angle)).toInt(),
+              (290 * kotlin.math.cos(angle)).toInt())
+        }
+        val ids = (1_000L until 1_012L).toList()
+        val tagged = vertices.mapIndexed { index, point ->
+            road(1_000L + index,
+                listOf(point, vertices[(index + 1) % 12]),
+                listOf(ids[index], ids[(index + 1) % 12])
+            ).copy(junctionKind = 1)
+        }
+        val exits = (0 until 12 step 3).map { index ->
+            val attach = vertices[index]
+            val angle = index * Math.PI * 2.0 / 12
+            road(2_000L + index,
+                listOf(attach, p(
+                    (850 * kotlin.math.sin(angle)).toInt(),
+                    (1150 * kotlin.math.cos(angle)).toInt()
+                )), listOf(ids[index], 2_000L + index))
+        }
+        val urban = (0 until 95).map { i ->
+            road(30_000L + i,
+                listOf(p((i % 8) * 8, (i % 7) * 8),
+                       p(350 + (i % 8) * 8, 350 + (i % 7) * 8)),
+                listOf(70_000L + i * 2, 70_001L + i * 2))
+        }
+        val analysis = RoadContextJunctions.analyze(
+            urban + tagged + exits, 45.0, 8.0, vertices.first())
+        assertTrue(analysis.graphEligibleEdges > 90)
+        assertEquals(90, analysis.graphSelectedEdges)
+        assertNotNull(analysis.focus)
+        assertEquals(12, analysis.focus!!.members.size)
+        assertTrue(analysis.focus!!.osmTagged)
+        assertEquals(4, analysis.focus!!.distinctExitBranches)
+        assertTrue(analysis.focus!!.ring.points.first() == analysis.focus!!.ring.points.last())
+    }
+
     @Test fun singleWayRingIsSelectedWithRealExits() {
         val unrelated = road(4, listOf(p(-50, -60), p(-50, 400)), listOf(400, 401))
         val analysis = RoadContextJunctions.analyze(

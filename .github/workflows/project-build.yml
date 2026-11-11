@@ -130,7 +130,7 @@ jobs:
         run: node scripts/generate_jinan_demo_fixture.mjs --check
 
       - name: Verify MotoMap v3 converter contract
-        run: python3 -m unittest discover -s scripts/offline_map -p 'test_motomap_v3.py'
+        run: python3 -m unittest discover -s scripts/offline_map -p 'test_motomap_v4.py'
 
 
 

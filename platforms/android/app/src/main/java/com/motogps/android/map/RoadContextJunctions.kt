@@ -17,6 +17,8 @@ internal object RoadContextJunctions {
     // Show more distinct physical branches when the scene has spare road slots.
     const val MAX_PRIORITIZED_EXITS = 7
     private const val MAX_WAYS = 8
+    // Only an explicitly OSM-tagged circuit may use a deeper search.
+    private const val MAX_TAGGED_WAYS = 18
     private const val MAX_EDGES = 90
     private const val MAX_SEARCH_STATES = 3500
     private const val MAX_CANDIDATES = 48
@@ -177,7 +179,8 @@ internal object RoadContextJunctions {
         val forwardRouteAlongM: Double = Double.POSITIVE_INFINITY,
         val forwardRouteOverlapM: Double = 0.0,
         val circularity: Double = 0.0,
-        val perimeterM: Double = 0.0
+        val perimeterM: Double = 0.0,
+        val osmTagged: Boolean = false
     )
     data class Analysis(
         val focus: Priority?,
@@ -400,6 +403,8 @@ internal object RoadContextJunctions {
                 return
             }
             val memberSet = members.toSet()
+            val osmTagged = members.isNotEmpty() &&
+                members.all { it.junctionKind in 1..2 }
             val ringNodeIds = if (nodeIds.size == points.size)
                 nodeIds.filter { it > 0L }.toHashSet() else hashSetOf<Long>()
             val choices = chooseExits(roads, memberSet, points, nodeIds,
@@ -431,7 +436,10 @@ internal object RoadContextJunctions {
                 (if (close) 10 else 0) + 15 +
                 (if (closeEnough) 15 else 8) + connectionScore +
                 classScore - scarcityPenalty +
-                (if (forwardRing) 28 else 0)
+                (if (forwardRing) 28 else 0) +
+                // A geometrically verified, explicitly tagged roundabout
+                // remains credible even if adjacent exit ways are absent.
+                (if (osmTagged && (gpsDistance <= 100.0 || forwardRing)) 22 else 0)
             if (score < MIN_SCORE) {
                 reject("confidence")
                 if (exits.isEmpty()) reject("confidence_no_exits")
@@ -446,13 +454,14 @@ internal object RoadContextJunctions {
                 minLonE6 = points.minOf { it.longitudeE6 },
                 maxLatE6 = points.maxOf { it.latitudeE6 },
                 maxLonE6 = points.maxOf { it.longitudeE6 },
-                points = points, nodeIds = nodeIds
+                points = points, nodeIds = nodeIds,
+                junctionKind = if (osmTagged) members.first().junctionKind else 0
             )
             val option = Priority(ring, members, exits, protected, score,
                 gpsDistance, aheadDistance, key,
                 choices.connectedWays, choices.distinctBranches,
                 routeGap, routeAlong, routeOverlap,
-                ringCircularity(points, metric), length(points, metric))
+                ringCircularity(points, metric), length(points, metric), osmTagged)
             val previous = best
             // On an equal confidence score choose the first eligible ring
             // along the forward route, not the one closest to an *upcoming*
@@ -496,6 +505,10 @@ internal object RoadContextJunctions {
             val prefer = when {
                 previous == null -> true
                 farSeparated && optionLocal != previousLocal -> optionLocal
+                // Only compare tags if the candidates genuinely describe the
+                // SAME immediately traversed junction, never consecutive rings.
+                sameLocalRoundaboutWindow && option.osmTagged != previous.osmTagged ->
+                    option.osmTagged
                 option.confidence != previous.confidence ->
                     option.confidence > previous.confidence
                 sameLocalRoundaboutWindow && abs(qualityGap) >= 7.0 ->
@@ -507,7 +520,7 @@ internal object RoadContextJunctions {
 
         // First, recognize complete single-way loops. Without OSM IDs the ring
         // can still be drawn in normal context but is unlikely to pass scoring.
-        for (road in roads) {
+        for (road in roads.sortedByDescending { it.junctionKind in 1..2 }) {
             if (candidates >= MAX_CANDIDATES) break
             if (isClosedRing(road)) {
                 candidate(listOf(road), road.points, road.nodeIds,
@@ -526,10 +539,16 @@ internal object RoadContextJunctions {
                 upcoming?.let { metric.nearest(road.points, it) } ?: Double.POSITIVE_INFINITY)
             if (distance > 300.0) return@mapNotNull null
             val meters = length(road.points, metric)
-            if (meters !in 3.0..300.0) return@mapNotNull null
+            val minimumLength = if (road.junctionKind in 1..2) 0.5 else 3.0
+            if (meters !in minimumLength..300.0) return@mapNotNull null
             Edge(road, ids.first(), ids.last(), meters) to distance
         }.onEach { eligibleGraphEdges++ }
-            .sortedBy { it.second }.take(MAX_EDGES).map { it.first }.toList()
+            // Tagged junction arcs must be present even when ninety nearby
+            // ordinary urban ways would otherwise crowd them out.
+            .sortedWith(compareByDescending<Pair<Edge, Double>> {
+                it.first.road.junctionKind in 1..2
+            }.thenBy { it.second })
+            .take(MAX_EDGES).map { it.first }.toList()
 
         val adjacency = HashMap<Long, MutableList<Int>>()
         edges.forEachIndexed { index, edge ->
@@ -577,14 +596,17 @@ internal object RoadContextJunctions {
         val used = HashSet<Int>()
         val visitedNodes = HashSet<Long>()
         fun walk(startNode: Long, current: Long, distance: Double) {
+            val taggedOnly = path.isNotEmpty() &&
+                path.all { edges[it.index].road.junctionKind in 1..2 }
+            val wayLimit = if (taggedOnly) MAX_TAGGED_WAYS else MAX_WAYS
             if (searchStates >= MAX_SEARCH_STATES || candidates >= MAX_CANDIDATES ||
-                distance > 550.0 || path.size > MAX_WAYS) return
+                distance > 550.0 || path.size > wayLimit) return
             searchStates++
             if (current == startNode) {
                 if (path.size >= 2) assemble(path)
                 return
             }
-            if (path.size == MAX_WAYS) return
+            if (path.size == wayLimit) return
             for (edgeIndex in adjacency[current].orEmpty()) {
                 if (edgeIndex in used) continue
                 val edge = edges[edgeIndex]

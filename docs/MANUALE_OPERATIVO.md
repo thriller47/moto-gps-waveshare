@@ -236,10 +236,10 @@ Per esempio scaricare **italy-latest.osm.pbf**, oppure una sottoregione come **n
 mkdir C:\MotoGPS\PBF
 cd /d C:\MotoGPS\moto-gps-waveshare
 python -m pip install osmium
-python scripts\offline_map\pbf_to_motomap.py C:\MotoGPS\PBF\italy-latest.osm.pbf -o C:\MotoGPS\PBF\italia.motomap.zip
+python scripts\offline_map\pbf_to_motomap.py C:\MotoGPS\PBF\italy-latest.osm.pbf -o C:\MotoGPS\PBF\italia-v4.motomap.zip
 ~~~
 
-L'ultimo comando genera **italia.motomap.zip**, leggibile direttamente dall'app: **Gestione mappe → Importa mappa ZIP**. Non decomprimere il pacchetto sul telefono.
+L'ultimo comando genera **italia-v4.motomap.zip**, leggibile direttamente dall'app: **Gestione mappe → Importa mappa ZIP**. Non decomprimere il pacchetto sul telefono.
 
 Per una sottoregione, sostituire il nome del PBF e usare un output differente:
 
@@ -249,31 +249,36 @@ python scripts\offline_map\pbf_to_motomap.py C:\MotoGPS\PBF\nord-ovest-latest.os
 
 Il convertitore Python è in memoria e l'intera Italia può usare diversi GB di RAM: chiudere programmi pesanti e controllare spazio disco. I PBF di Geofabrik **non sono** direttamente importabili come MotoMap.
 
-### MotoMap v3: poligono di copertura e topologia dei cavalcavia (branch test)
+### MotoMap v4: rotatorie OSM esplicite (branch test, 11 novembre 2026)
 
-**Stato al 4 novembre 2026:** nel branch sperimentale `test/road-contrast-cleanup-20261104`, il convertitore genera **MotoMap v3** (`motomap_v3.json`). Oltre alle tile z15, conserva gli ID dei nodi OSM (base36) e il livello strada/ponte/galleria, disponibili per l'analisi topologica delle connessioni; **il filtro di livello/cavalcavia è attualmente disabilitato** dopo regressioni su strada, quindi questi metadati non vengono usati per nascondere strade. Il file `coverage_z14.txt` continua a certificare solo le celle interamente comprese nel perimetro Geofabrik. I pacchetti v2 restano supportati dall'app; `valhalla` rimane separato fino alla prova completa.
+**MotoMap v4 sostituisce v3, senza retrocompatibilità.** L'APK sperimentale legge solo i pacchetti con manifest `motomap_v4.json`, `version=4`, `junction=osm-junction-way-v4`. Gli ZIP v3 precedenti non vengono più caricati. L'importazione rifiuta i pacchetti che non rispettano il nuovo formato. Conservare un backup del vecchio ZIP su PC per sicurezza, poi rimuoverlo dall'elenco mappe Android e importare il nuovo ZIP v4.
 
-Conservare PBF e `.poly` in `C:\MotoGPS\PBF` e usare lo **script del branch test**, non quello di `valhalla` finché il merge non sarà approvato. Esempio PowerShell:
+Ogni riga di strada ha intestazione obbligatoria `classe,velocita,layer,osmWayId,junctionKind|bbox|latE6,lonE6,nodeIdBase36;...`:
+`junctionKind=0` è una strada ordinaria, `1` corrisponde a `junction=roundabout` OSM, `2` a `junction=circular`. Rimangono gli ID dei nodi OSM originali, anche quando più nodi condividono coordinate E6 arrotondate. Il lettore non accetta le righe v3 senza il nuovo campo. Nel riconoscimento Android gli archi OSM esplicitamente taggati hanno precedenza entro il budget esistente di 90 archi e possono comporre anelli fino a 18 way, mentre il DFS geometrico ordinario conserva gli otto way precedenti. **Non cambia il routing Valhalla, né il formato BLE o i 20/160 punti della scena.** Le `highway=mini_roundabout` rappresentate come soli nodi non vengono ancora sintetizzate come cerchi; richiederanno un indice dedicato in una fase successiva.
+
+In **Windows PowerShell**, dopo aver aggiornato il branch sperimentale e installato `osmium` (e `shapely` soltanto con `--coverage-poly`):
 
 ~~~powershell
 cd C:\MotoGPS\moto-gps-waveshare
-git switch test/road-contrast-cleanup-20261104
+git fetch origin
+git switch test/roundabout-topology-20261110
+git pull --ff-only origin test/roundabout-topology-20261110
 python -m pip install osmium shapely
-python scripts\offline_map\pbf_to_motomap.py C:\MotoGPS\PBF\italy-261101.osm.pbf -o C:\MotoGPS\PBF\italy-v3.motomap.zip --coverage-poly C:\MotoGPS\PBF\italy.poly
+python scripts\offline_map\pbf_to_motomap.py C:\MotoGPS\PBF\italy-261101.osm.pbf -o C:\MotoGPS\PBF\italy-v4.motomap.zip --coverage-poly C:\MotoGPS\PBF\italy.poly
 ~~~
 
-Sostituire il nome del PBF con quello reale: lo script non richiede una cartella diversa da `C:\MotoGPS\PBF`. **Non rigenerare** un pacchetto v3 già valido soltanto perché il file si chiama `italy-v2.motomap.zip`: la versione effettiva dipende dal metadata interno, non dal nome ZIP. Per controllare il file già prodotto:
+Sostituire il PBF con il nome effettivamente presente in `C:\MotoGPS\PBF` e assicurarsi che `italy.poly` descriva **lo stesso estratto**. Per verificare prima dell'importazione:
 
 ~~~powershell
-python -c "import zipfile,json; p=r'C:\MotoGPS\PBF\italy-v2.motomap.zip'; z=zipfile.ZipFile(p); print(json.dumps(json.loads(z.read('motomap_v3.json')),indent=2)); print('Coverage:', 'coverage_z14.txt' in z.namelist())"
+python -c "import zipfile,json; z=zipfile.ZipFile(r'C:\MotoGPS\PBF\italy-v4.motomap.zip'); print(json.dumps(json.loads(z.read('motomap_v4.json')),indent=2))"
 ~~~
 
-**Pacchetto verificato dall'utente:** `version=3`, `zoom=15`, `topology=osm-node-ids-base36`, `level=osm-layer-or-bridge-tunnel`, 278.048 tile stradali e 214.320 celle z14 certificate. Dopo la correzione Android del controllo di copertura (commit `35a5e02`), sul percorso Cuneo → Reggio Calabria il conteggio è passato da **667 a 0 tile mancanti**. Nel successivo test su strada l'autostrada sotto un cavalcavia è stata correttamente esclusa dalla scena di contesto. Per sfruttare la v3 serve **un APK compilato dal branch test**; lo ZIP da solo non aggiorna Android.
+La conversione dell'intera Italia richiede diversi GB di RAM e spazio su disco, come in v3. Per provare rapidamente usare prima un PBF Geofabrik piccolo, con output `test-v4.motomap.zip` e senza `--coverage-poly`, poi rigenerare Italia solo dopo il test sulla rotatoria problematica. Controllare nel log Android `OSM_RING` il nuovo campo `osm_tagged=true` quando viene selezionato un anello davvero marcato in OSM. `OSM_RING_SEARCH` include la quantità di `osm_ways` disponibili.
 
-**Esperimento successivo (solo Android, ancora da collaudare):** commit `985700e` alza il limite della scena da 12/96 a **16 strade / 128 punti**, senza modificare firmware ESP32 o dati MotoMap. Resta sotto il massimo firmware di 24/192. Non è necessario rigenerare il PBF, reinstallare il grafo Valhalla o riflashare l'ESP32; compilare/installare Android dal branch test. Verificare sul campo la continuità delle strade grigie e l'assenza di congestione BLE prima del merge.
+**Stato:** convertitore e lettore v4 sono sperimentali; CI/test Android e test reale devono risultare positivi prima di sostituire la mappa utilizzata per navigare. Non modificare né rigenerare `valhalla_tiles.tar.zst`.
 
-**Attenzione:** il poligono `italy.poly` deve corrispondere all'estratto Italia. Non rinominare un PBF di sottoregione come Italia, né usarlo con la certificazione dell'intero Paese. Senza `--coverage-poly` l'archivio resta leggibile ma non certifica le aree prive di strade. Conservare lo ZIP precedente finché l'importazione e un percorso di prova non sono riusciti.
-
+---
+ 
 ## 5. Creare o importare i grafi Valhalla
 
 ### A. Importare un grafo già pronto

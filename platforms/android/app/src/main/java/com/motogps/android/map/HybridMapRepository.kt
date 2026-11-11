@@ -23,11 +23,13 @@ data class MapRoadSegment(
     val maxLatE6: Int,
     val maxLonE6: Int,
     val points: List<GeoPointE6>,
-    /** Present only for MotoMap v3; old tiles remain drawable without filtering. */
+    /** Original OSM identity, required by MotoMap v4. */
     val osmWayId: Long? = null,
     val layer: Int? = null,
     /** Aligned with points: IDs shared by OSM ways denote actual junctions. */
-    val nodeIds: List<Long> = emptyList()
+    val nodeIds: List<Long> = emptyList(),
+    /** MotoMap v4: 0=ordinary, 1=OSM roundabout, 2=OSM circular. */
+    val junctionKind: Int = 0
 )
 
 data class BoundingBox(
@@ -128,7 +130,11 @@ class HybridMapRepository(
         for (archive in packFiles) {
             try {
                 ZipFile(archive).use { zip ->
-                    for (name in wantedNames) {
+                    // An already-installed v3 ZIP is ignored, not silently
+                    // interpreted as v4. The user will replace it with v4.
+                    if (!MotomapPackImporter.isV4Pack(zip)) {
+                        Log.w("HybridMapRepository", "Ignoring non-v4 MotoMap pack: ${archive.name}")
+                    } else for (name in wantedNames) {
                         val entry = zip.getEntry(name) ?: continue
                         if (entry.size <= 0L || entry.size > 5L * 1024 * 1024) continue
                         zip.getInputStream(entry).bufferedReader().useLines { lines ->
@@ -171,11 +177,14 @@ class HybridMapRepository(
         if (parts.size < 3) return
 
         val headerParts = parts[0].split(",")
-        if (headerParts.size < 2) return
-        val roadClass = headerParts[0].toIntOrNull() ?: 5
-        val maxSpeedKph = headerParts[1].toIntOrNull() ?: getDefaultSpeedLimitForClass(roadClass)
-        val layer = if (headerParts.size >= 4) headerParts[2].toIntOrNull() else null
-        val osmWayId = if (headerParts.size >= 4) headerParts[3].toLongOrNull() else null
+        // MotoMap v4 has a mandatory fifth header field: OSM junction kind.
+        // Deliberately reject v3 and legacy 2/4-field rows.
+        if (headerParts.size != 5) return
+        val roadClass = headerParts[0].toIntOrNull() ?: return
+        val maxSpeedKph = headerParts[1].toIntOrNull() ?: return
+        val layer = headerParts[2].toIntOrNull() ?: return
+        val osmWayId = headerParts[3].toLongOrNull() ?: return
+        val junctionKind = headerParts[4].toIntOrNull()?.takeIf { it in 0..2 } ?: return
 
         val bboxParts = parts[1].split(",")
         if (bboxParts.size < 4) return
@@ -193,15 +202,13 @@ class HybridMapRepository(
 
         val coordStr = parts[2]
         val points = parseCoordinates(coordStr)
-        // MotoMap v3 appends the original OSM node ID in base36 to each
-        // coordinate. An incomplete row is treated as unverified geometry;
-        // it can still be displayed but must not drive topology filtering.
-        val parsedNodeIds = if (osmWayId != null && layer != null) {
-            coordStr.split(";").map { it.substringAfterLast(",", missingDelimiterValue = "").toLongOrNull(36) }
-        } else emptyList()
-        val nodeIds = if (parsedNodeIds.size == points.size &&
-            parsedNodeIds.all { it != null && it > 0L }) parsedNodeIds.filterNotNull()
-            else emptyList()
+        val parsedNodeIds = coordStr.split(";").map {
+            it.substringAfterLast(",", missingDelimiterValue = "").toLongOrNull(36)
+        }
+        // Never draw a v4 way whose topology cannot be interpreted reliably.
+        if (parsedNodeIds.size != points.size || parsedNodeIds.any { it == null || it <= 0L })
+            return
+        val nodeIds = parsedNodeIds.filterNotNull()
         if (points.isNotEmpty()) {
             results.add(
                 MapRoadSegment(
@@ -214,7 +221,8 @@ class HybridMapRepository(
                     points = points,
                     osmWayId = osmWayId,
                     layer = layer,
-                    nodeIds = nodeIds
+                    nodeIds = nodeIds,
+                    junctionKind = junctionKind
                 )
             )
         }

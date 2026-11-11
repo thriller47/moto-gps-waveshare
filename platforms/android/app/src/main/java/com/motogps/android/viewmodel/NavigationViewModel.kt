@@ -923,6 +923,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager) : ViewModel()
                     DiagnosticLog.event("OSM_RING",
                         "candidates=" + analysis.candidates +
                         " qualified=" + analysis.qualified +
+                        " osm_tagged=" + (analysis.focus?.osmTagged ?: false) +
                         " focus=" + (focus?.key ?: "none") +
                         " score=" + (focus?.confidence ?: 0) +
                         " circularity_pct=" + (focus?.circularity?.times(100)?.toInt() ?: -1) +
@@ -943,6 +944,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager) : ViewModel()
                     // separate events rather than appending to OSM_RING.
                     DiagnosticLog.event("OSM_RING_SEARCH",
                         "roads=${contextRoads.size} " +
+                        "osm_ways=${contextRoads.count { it.junctionKind in 1..2 }} " +
                         "edges=${analysis.graphSelectedEdges}/${analysis.graphEligibleEdges} " +
                         "starts=${analysis.dfsStartEdges} " +
                         "states=${analysis.dfsStates} " +
