@@ -65,6 +65,48 @@ class RoadContextJunctionsTest {
         assertEquals(first.distinctExitBranches, reorder.distinctExitBranches)
     }
 
+    @Test fun overlappingShortcutDoesNotStealCompleteSixExitRing() {
+        // Synthetic topology mimics a multi-way two-lane junction. The false
+        // closed wedge shares two genuine route arcs with the full ring; both
+        // have the same forward score and both can be near the GPS.
+        // The old equal-score tie kept whichever candidate was first.
+        val vertices = (0 until 8).map { i ->
+            val angle = i * 2.0 * Math.PI / 8.0
+            p((200 * kotlin.math.sin(angle)).toInt(),
+              (270 * kotlin.math.cos(angle)).toInt())
+        }
+        val ids = (1000L..1007L).toList()
+        val falseWedge = road(901, listOf(
+            vertices[0], vertices[1], vertices[2], vertices[0]),
+            listOf(ids[0], ids[1], ids[2], ids[0]))
+        val complete = road(902, vertices + vertices.first(), ids + ids.first())
+        val exits = vertices.take(6).mapIndexed { i, at ->
+            val angle = i * 2.0 * Math.PI / 8.0
+            road(910 + i.toLong(), listOf(at,
+                p((850 * kotlin.math.sin(angle)).toInt(),
+                  (1150 * kotlin.math.cos(angle)).toInt())),
+                listOf(ids[i], 2000L + i))
+        }
+        val roads = listOf(falseWedge, complete) + exits
+        val forward = listOf(vertices[0], vertices[1], vertices[2],
+                             vertices[3], vertices[4])
+        val reverse = listOf(vertices[2], vertices[1], vertices[0],
+                             vertices[7], vertices[6])
+        for ((gps, route) in listOf(
+            vertices[0] to forward, vertices[2] to reverse
+        )) {
+            val focus = RoadContextJunctions.find(
+                roads, gps.latitudeE6 / 1e6, gps.longitudeE6 / 1e6,
+                route.last(), route)
+            assertNotNull("A route-connected ring should be selected", focus)
+            assertEquals("Complete circuit must win over shared-arc wedge",
+                902L, focus!!.ring.osmWayId)
+            assertEquals(6, focus.distinctExitBranches)
+            assertTrue(focus.circularity >= 0.8)
+            assertTrue(focus.ring.points.first() == focus.ring.points.last())
+        }
+    }
+
     @Test fun multiContactWayUsesGenuineOutgoingAttachmentNotNearestRingNode() {
         // Regression for the 2026-11-11 double-roundabout trace: a way can
         // follow a ring edge before leaving it. The nearest shared node is

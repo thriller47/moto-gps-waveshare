@@ -2,6 +2,7 @@ package com.motogps.android.map
 
 import com.motogps.android.jni.GeoPointE6
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.sqrt
@@ -174,7 +175,9 @@ internal object RoadContextJunctions {
         val distinctExitBranches: Int,
         val forwardRouteDistanceM: Double = Double.POSITIVE_INFINITY,
         val forwardRouteAlongM: Double = Double.POSITIVE_INFINITY,
-        val forwardRouteOverlapM: Double = 0.0
+        val forwardRouteOverlapM: Double = 0.0,
+        val circularity: Double = 0.0,
+        val perimeterM: Double = 0.0
     )
     data class Analysis(
         val focus: Priority?,
@@ -289,6 +292,19 @@ internal object RoadContextJunctions {
     private fun length(points: List<GeoPointE6>, metric: Metric): Double =
         points.zipWithNext().sumOf { (a, b) -> metric.distance(a, b) }
 
+    private fun ringCircularity(points: List<GeoPointE6>, metric: Metric): Double {
+        val total = length(points, metric)
+        if (total < 1.0 || points.size < 4) return 0.0
+        val origin = points.first()
+        val coords = points.map { metric.toXY(it, origin) }
+        var twiceArea = 0.0
+        for (i in 0 until coords.lastIndex) {
+            twiceArea += coords[i].first * coords[i + 1].second -
+                coords[i + 1].first * coords[i].second
+        }
+        return 2.0 * PI * abs(twiceArea) / (total * total)
+    }
+
     private fun validLoop(points: List<GeoPointE6>, metric: Metric): Boolean {
         if (points.size < 4 || metric.squared(points.first(), points.last()) > 6.25) return false
         val total = length(points, metric)
@@ -299,14 +315,9 @@ internal object RoadContextJunctions {
         val height = coords.maxOf { it.second } - coords.minOf { it.second }
         val diameter = hypot(width, height)
         if (diameter !in 12.0..160.0) return false
-        var twiceArea = 0.0
-        for (i in 0 until coords.lastIndex) {
-            twiceArea += coords[i].first * coords[i + 1].second -
-                coords[i + 1].first * coords[i].second
-        }
-        val compactness = 2.0 * PI * kotlin.math.abs(twiceArea) / (total * total)
-        // Exclude U-turns, degenerate and extremely elongated loops.
-        return compactness in 0.17..1.06
+        // Keep existing shape threshold: irregular isolated roundabouts
+        // must not disappear just because a geometrically rounder road exists.
+        return ringCircularity(points, metric) in 0.17..1.06
     }
 
     fun isClosedRing(road: MapRoadSegment): Boolean {
@@ -420,7 +431,8 @@ internal object RoadContextJunctions {
             val option = Priority(ring, members, exits, protected, score,
                 gpsDistance, aheadDistance, key,
                 choices.connectedWays, choices.distinctBranches,
-                routeGap, routeAlong, routeOverlap)
+                routeGap, routeAlong, routeOverlap,
+                ringCircularity(points, metric), length(points, metric))
             val previous = best
             // On an equal confidence score choose the first eligible ring
             // along the forward route, not the one closest to an *upcoming*
@@ -443,11 +455,31 @@ internal object RoadContextJunctions {
             val previousLocal = previous?.gpsDistanceM?.let { it <= 45.0 } ?: false
             val farSeparated = previous != null &&
                 maxOf(option.gpsDistanceM, previous.gpsDistanceM) >= 90.0
+            // Two overlapping circuits can score 128 alike: a short triangular
+            // shortcut on an approach can mimic an OSM roundabout while a
+            // proper circuit with six connected arms is also present.
+            // Compare topology quality ONLY when both candidates belong to
+            // the same immediate route window. Keep existing early/upcoming
+            // ordering for distinct consecutive roundabouts.
+            val sameLocalRoundaboutWindow = previous != null &&
+                option.gpsDistanceM <= 70.0 && previous.gpsDistanceM <= 70.0 &&
+                option.forwardRouteDistanceM <= 18.0 &&
+                previous.forwardRouteDistanceM <= 18.0 &&
+                option.forwardRouteOverlapM >= MIN_FORWARD_RING_OVERLAP_M &&
+                previous.forwardRouteOverlapM >= MIN_FORWARD_RING_OVERLAP_M &&
+                abs(option.forwardRouteAlongM - previous.forwardRouteAlongM) <= 45.0
+            fun quality(priority: Priority): Double =
+                priority.circularity * 35.0 +
+                    minOf(priority.distinctExitBranches, MAX_PRIORITIZED_EXITS) * 3.0
+            val qualityGap = if (previous != null)
+                quality(option) - quality(previous) else 0.0
             val prefer = when {
                 previous == null -> true
                 farSeparated && optionLocal != previousLocal -> optionLocal
                 option.confidence != previous.confidence ->
                     option.confidence > previous.confidence
+                sameLocalRoundaboutWindow && abs(qualityGap) >= 7.0 ->
+                    qualityGap > 0.0
                 else -> focusOrder(option) < focusOrder(previous)
             }
             if (prefer) best = option

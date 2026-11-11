@@ -925,6 +925,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager) : ViewModel()
                         " qualified=" + analysis.qualified +
                         " focus=" + (focus?.key ?: "none") +
                         " score=" + (focus?.confidence ?: 0) +
+                        " circularity_pct=" + (focus?.circularity?.times(100)?.toInt() ?: -1) +
+                        " perimeter_m=" + (focus?.perimeterM?.toInt() ?: -1) +
                         " gps_m=" + (focus?.gpsDistanceM?.toInt() ?: -1) +
                         " ahead_m=" + (focus?.upcomingDistanceM?.takeIf { it.isFinite() }?.toInt() ?: -1) +
                         " route_gap_m=" + (focus?.forwardRouteDistanceM?.takeIf { it.isFinite() }?.toInt() ?: -1) +
