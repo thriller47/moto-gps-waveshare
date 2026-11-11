@@ -470,11 +470,19 @@ void test_near_turn_zooms_route_and_roads_together_and_restores_scale() {
   CHECK(presenter.ui_state().maneuver_map_zoom_active == 1);
   CHECK(presenter.ui_state().road_point_count == 0);
   CHECK(presenter.ui_state().route_points[1].y == at_max_zoom.y);
-  // Completing the roundabout releases zoom even without scene data.
+  // A transient has_next_maneuver=false at distance 0 is still inside the
+  // roundabout: the old immediate 4x -> 1x drop is a visible regression.
   snapshot.has_next_maneuver = false;
   presenter.update(snapshot);
+  CHECK(presenter.ui_state().maneuver_map_zoom_active == 1);
+  CHECK(std::abs(presenter.applied_zoom_factor() - 4.0) < 0.001);
+  // Once the rider actually travels beyond the exit, the zoom returns to 1x.
+  for (int i = 0; i < 13; ++i) {
+    snapshot.route_view_origin.latitude_deg += 0.00012; // ~13m per fix
+    presenter.update(snapshot);
+  }
   CHECK(presenter.ui_state().maneuver_map_zoom_active == 0);
-  CHECK(presenter.ui_state().route_points[1].y == far.y);
+  CHECK(std::abs(presenter.applied_zoom_factor() - 1.0) < 0.001);
 
   // Missing selected-route geometry is different from missing optional
   // background map data: do not try to zoom without route vertices.
@@ -485,6 +493,64 @@ void test_near_turn_zooms_route_and_roads_together_and_restores_scale() {
   CHECK(presenter.ui_state().route_point_count == 0);
 }
 
+
+void test_roundabout_dropout_holds_zoom_between_nearby_circuits() {
+  NavPresenter presenter;
+  NavSnapshot snapshot;
+  snapshot.state = NavState::Navigating;
+  snapshot.route_id = "entry-a";
+  snapshot.route_generation = 1;
+  snapshot.has_route_view = true;
+  snapshot.route_view_origin = {44.3956, 7.8200};
+  snapshot.route_view_point_count = 2;
+  snapshot.route_view_points[0] = snapshot.route_view_origin;
+  snapshot.route_view_points[1] = {44.3960, 7.8200};
+  snapshot.has_road_context = true;
+  snapshot.road_context_point_count = 2;
+  snapshot.road_context_points[0] = snapshot.route_view_origin;
+  snapshot.road_context_points[1] = snapshot.route_view_points[1];
+  snapshot.road_context_polyline_count = 1;
+  snapshot.road_context_polylines[0] = {0, 2};
+  snapshot.has_next_maneuver = true;
+  snapshot.next_maneuver.type = ManeuverType::Roundabout;
+  snapshot.distance_to_next_maneuver_m = 7.0;
+  presenter.update(snapshot);
+  CHECK(presenter.applied_zoom_factor() > 3.7);
+
+  // First replay has a ~5s gap; the second a ~20s gap at turn_m=0.
+  snapshot.has_next_maneuver = false;
+  snapshot.distance_to_next_maneuver_m = 0.0;
+  presenter.update(snapshot);
+  CHECK(presenter.applied_zoom_factor() > 3.7);
+  for (int i = 0; i < 6; ++i) {
+    snapshot.route_view_origin.latitude_deg += 0.0001; // ~11m per fix
+    presenter.update(snapshot);
+  }
+  CHECK(presenter.applied_zoom_factor() > 3.0);
+  CHECK(presenter.ui_state().road_points[1].x ==
+        presenter.ui_state().route_points[1].x);
+  CHECK(presenter.ui_state().road_points[1].y ==
+        presenter.ui_state().route_points[1].y);
+
+  // Next nearby circle becomes the next maneuver at 152m; do not snap
+  // immediately to 1x before it enters the normal 100m zoom window.
+  snapshot.has_next_maneuver = true;
+  snapshot.distance_to_next_maneuver_m = 152.0;
+  presenter.update(snapshot);
+  CHECK(presenter.applied_zoom_factor() > 3.0);
+
+  // A new route must discard the previous ring's spatial zoom context.
+  snapshot.route_id = "entry-b";
+  snapshot.route_generation = 2;
+  presenter.update(snapshot);
+  CHECK(std::abs(presenter.applied_zoom_factor() - 1.0) < 0.001);
+  snapshot.distance_to_next_maneuver_m = 25.0;
+  presenter.update(snapshot);
+  CHECK(presenter.applied_zoom_factor() > 3.0);
+  snapshot.state = NavState::Idle;
+  presenter.update(snapshot);
+  CHECK(std::abs(presenter.applied_zoom_factor() - 1.0) < 0.001);
+}
 
 void test_experimental_curve_zoom_does_not_change_default_or_roundabouts() {
   NavPresenter presenter;
@@ -698,6 +764,7 @@ int main() {
   test_map_scene_classes_and_capacity_share_route_transform();
   test_map_scale_does_not_jump_at_maneuver_distance_thresholds();
   test_near_turn_zooms_route_and_roads_together_and_restores_scale();
+  test_roundabout_dropout_holds_zoom_between_nearby_circuits();
   test_experimental_curve_zoom_does_not_change_default_or_roundabouts();
   test_missing_or_incomplete_geometry_stays_empty();
   test_presenter_owns_road_name_storage();
