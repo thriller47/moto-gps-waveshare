@@ -1,5 +1,15 @@
 # Moto GPS — Project State
 
+## Pulizia definitiva client Overpass — 2026-11-11
+
+**Branch:** `test/roundabout-topology-20261110`; base `07e761639fc3`. L'utente richiede l'eliminazione completa del vecchio client Overpass dopo l'introduzione di MotoMap v4 e del corridoio OpenFreeMap a download esplicito.
+
+**Codice:** `GatewayRoadTiles.kt` diventa un'utilità locale pura per la griglia Web Mercator z15: rimangono `ZOOM`, `Tile`, `tileFor()`, `around()`. Rimossi **`query()`, `writeTile()`, `writeOsmWays()`, lista `ENDPOINTS`, URL `overpass.private.coffee` e `overpass-api.de`, rete HTTP e diagnostica `OVERPASS_ENDPOINT_ERROR`**. Eliminati i test delle query HTTP e del parser JSON Overpass in `GatewayRoadTilesTest.kt`; preservati i test di indicizzazione tile e aggiunta verifica bordi Mercator. Aggiornati commenti residui in `HybridMapRepository.kt`, `OpenFreeMapTileProbe.kt`, `NavigationViewModel.kt`.
+
+**Impatto:** nessun cambio agli algoritmi MotoMap v4, copertura z14, online OpenFreeMap o Valhalla; nessun cambio BLE/ESP32, formato ZIP e budget 20/160. I file di cache storici Overpass possono esistere sul dispositivo, ma il loro formato non è più letto come v4. Le precedenti diagnostiche già esportate possono ancora citare eventi Overpass storici; **nessun endpoint Overpass resta in produzione**.
+
+**Test e CI:** inviare un solo commit, verificare CI Android (incluse regressioni MotoMap v4 / OpenFreeMap), esito non presunto al momento del commit. La CI precedente per la correzione tile v4 e online OpenFreeMap risultava ancora in coda al controllo iniziale. Nessuna reinstallazione MotoMap o firmware necessaria; servirà il nuovo APK dopo CI verde. Manuale aggiornato solo nel paragrafo della v4. `valhalla` invariato.
+
 ## MotoMap v4: correzione copertura e contesto strade online — 2026-11-11
 
 **Branch:** `test/roundabout-topology-20261110`, base `86b01fe0f904`. Dopo conversione Italia (4.106.642 segmenti, 278.048 tile z15, 214.320 celle z14 certificate, 85.391 way roundabout, 2.098 circular) e importazione Android, l'utente segnala tile mancanti. Diagnosi verificata in `OpenFreeMapRouteCorridor.missing()`: il manifest v4 veniva trovato tramite `MotomapPackImporter.METADATA`, ma poi confrontato con `version=3`; `coverage_z14.txt` non certificava celle senza strade.

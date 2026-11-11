@@ -4,10 +4,6 @@ import com.motogps.android.map.GatewayRoadTiles
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import org.json.JSONArray
-import org.json.JSONObject
-import java.io.StringWriter
-import java.io.BufferedWriter
 
 class GatewayRoadTilesTest {
     @Test
@@ -36,43 +32,11 @@ class GatewayRoadTilesTest {
     }
 
     @Test
-    fun overpassQueryTargetsSingleTileNotRender() {
-        val q = GatewayRoadTiles.query(GatewayRoadTiles.tileFor(45.62, 8.85))
-        assertTrue(q.contains("way[highway"))
-        assertTrue(q.contains("out geom"))
-        assertTrue(q.contains("[timeout:12]"))
-        assertTrue(!q.contains("onrender"))
+    fun tilesAtMercatorBoundariesStayInRange() {
+        assertEquals(GatewayRoadTiles.Tile(0, 0),
+            GatewayRoadTiles.tileFor(85.0, -180.0))
+        assertEquals(GatewayRoadTiles.Tile(32767, 32767),
+            GatewayRoadTiles.tileFor(-85.0, 180.0))
+        assertEquals(4, GatewayRoadTiles.around(85.0, -180.0, 1).size)
     }
-
-    @Test
-    fun expandedRoadContextIncludesAdjacentTileSpace() {
-        val tile = GatewayRoadTiles.tileFor(45.62, 8.85)
-        val q = GatewayRoadTiles.query(tile)
-        val bbox = q.substringAfter("](").substringBefore(");out geom")
-            .split(',')
-        assertEquals(4, bbox.size)
-        val grid = (1 shl GatewayRoadTiles.ZOOM).toDouble()
-        val left = tile.x / grid * 360.0 - 180.0
-        val right = (tile.x + 1) / grid * 360.0 - 180.0
-        assertTrue(bbox[1].toDouble() < left)
-        assertTrue(bbox[3].toDouble() > right)
-    }
-
-    @Test
-    fun overpassGeometryProducesMotomapRoadSegments() {
-        val way = JSONObject().put("type", "way")
-            .put("tags", JSONObject().put("highway", "residential").put("maxspeed", "30"))
-            .put("geometry", JSONArray()
-                .put(JSONObject().put("lat", 45.62).put("lon", 8.85))
-                .put(JSONObject().put("lat", 45.6201).put("lon", 8.8501)))
-        val response = JSONObject().put("elements", JSONArray().put(way))
-        val output = StringWriter()
-        val writer = BufferedWriter(output)
-        val count = GatewayRoadTiles.writeOsmWays(response, writer)
-        writer.flush()
-        assertEquals(1, count)
-        assertTrue(output.toString().startsWith("3,30|"))
-        assertTrue(output.toString().contains("45620000,8850000;45620100,8850100"))
-    }
-
 }

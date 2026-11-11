@@ -454,8 +454,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager) : ViewModel()
                     ?: snapshot
                 // Keep the source of the ACTUAL navigation route visible.
                 _routingSource.value = lastRoutingProvider
-                // Road context is loaded locally from MotoMap/OpenFreeMap;
-                // no Overpass network fallback is invoked.
+                // Road context is loaded locally from MotoMap/previously downloaded
+                // OpenFreeMap tiles; no implicit network requests are made.
                 if (geometry != null) {
                     sendNearbyRouteGeometry(geometry)
                 }

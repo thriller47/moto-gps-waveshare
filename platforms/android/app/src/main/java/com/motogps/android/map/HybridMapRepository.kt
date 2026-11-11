@@ -39,7 +39,7 @@ data class BoundingBox(
     val maxLon: Double
 )
 
-/** Offline road cache backed by real OSM ways fetched from Overpass, never Render. */
+/** Local MotoMap v4 road cache plus explicitly downloaded OpenFreeMap context. */
 class HybridMapRepository(
     private val context: Context
 ) {
