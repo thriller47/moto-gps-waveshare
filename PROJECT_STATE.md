@@ -1,5 +1,12 @@
 # Moto GPS — Project State
 
+## CI post-merge Photon offline conclusa — 2026-11-12
+
+**Branch:** `valhalla`, merge `ef4df4643f6069cc44544152d32aa46be4731636` con due genitori, integrati tutti i 14 commit del branch Photon (inclusi due aggiornamenti documentali). CI post-merge GitHub Actions [43291805715](https://github.com/thriller47/moto-gps-waveshare/actions/runs/43291805715): **detect-changes SUCCESS, native SUCCESS, android SUCCESS, esp32 SKIPPED** (nessuna variazione firmware). Una sola CI finale sul merge, senza nuove variazioni funzionali; successivo aggiornamento stato solo `[skip ci]`. Il precedente test Android [43286583016](https://github.com/thriller47/moto-gps-waveshare/actions/runs/43286583016) era gia' verde, e l'utente ha collaudato positivamente l'indice offline sul telefono prima dell'autorizzazione al merge.
+
+**Manuale e asset:** `docs/MANUALE_OPERATIVO.md` ora contiene URL ufficiale dump GraphHopper Italia, link allo script `scripts/offline_map/photon_to_sqlite.py`, installazione Zstandard, percorsi `C:\MotoGPS\PBF`, conversione streaming, controllo SQLite e import Android. Resta valido l'indice locale da 2.016,8 MiB e non va rigenerato. Nessun impatto a Valhalla/MotoMap/ESP32; firmware prestazionale invariato. Il branch test risulta interamente integrato, ma la rimozione remota non e' possibile tramite gli strumenti GitHub qui disponibili; prima di cancellarlo verificare che nessun nuovo commit sia stato aggiunto dopo il merge. Prossima azione: eventuale pulizia ramo `test/photon-offline-20261112` e prosecuzione del progetto solo a richiesta, senza riaprire LVGL in assenza di scatti.
+
+
 ## Merge Photon offline autorizzato — 2026-11-12
 
 **Autorizzazione e prova utente:** l'utente ha verificato direttamente su telefono il database Photon offline e ha dichiarato "Funziona perfettamente"; ha successivamente autorizzato il merge in `valhalla` e richiesto una guida completa nel manuale con link al dump e script convertitore. Il programma usa 8.362.870 luoghi italiani indicizzati, SQLite 2.016,8 MiB e nessun servizio online quando e' presente il database. Sorgente locale `C:\MotoGPS\PBF\photon-dump-italy-1.0-latest.jsonl.zst` (non inserita nel repo). Nessuna nuova conversione necessaria.
