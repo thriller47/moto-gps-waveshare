@@ -40,6 +40,8 @@ class MapOriginPredictor {
       last_fix_ms_ = now_ms;
       correction_north_m_ = 0.0;
       correction_east_m_ = 0.0;
+      last_anchor_heading_deg_ = heading_deg;
+      last_anchor_speed_mps_ = speed_mps;
       return pose_;
     }
 
@@ -66,9 +68,46 @@ class MapOriginPredictor {
       last_fix_ms_ = now_ms;
       const double lat_m = metres_per_degree_lat();
       const double lon_m = metres_per_degree_lon(measured.latitude_deg);
-      const double north = (measured.latitude_deg - pose_.latitude_deg) * lat_m;
-      const double east = (measured.longitude_deg - pose_.longitude_deg) * lon_m;
-      if (std::hypot(north, east) > 75.0) {
+      double north = (measured.latitude_deg - pose_.latitude_deg) * lat_m;
+      double east = (measured.longitude_deg - pose_.longitude_deg) * lon_m;
+      const double raw_gap_m = std::hypot(north, east);
+      // A geometry window contains the GPS position when Android CREATED it,
+      // not at BLE receipt. At cruising speed the predicted pose has already
+      // advanced while that anchor was in flight. Pulling it all the way back
+      // causes a visible delay at fixed junctions even when FPS is smooth.
+      // Cancel only a bounded part of a BACKWARD correction on a stable
+      // straight. Never add forward movement to an already aligned anchor.
+      // Angular changes (roundabouts/hairpins), changing speed, stops and
+      // route changes retain the unmodified GPS correction.
+      const bool steady = std::isfinite(speed_mps) &&
+          speed_mps >= 3.0F && speed_mps <= 35.0F &&
+          std::isfinite(heading_deg) &&
+          std::isfinite(last_anchor_heading_deg_) &&
+          std::isfinite(last_anchor_speed_mps_) &&
+          std::abs(std::remainder(heading_deg - last_anchor_heading_deg_,
+                                  360.0F)) <= 15.0F &&
+          std::abs(speed_mps - last_anchor_speed_mps_) <=
+              std::max(2.0F, speed_mps * 0.25F);
+      if (steady && raw_gap_m <= 35.0 && raw_gap_m > 0.5) {
+        constexpr double kMaxAgeCompensationSeconds = 0.70;
+        constexpr double kMaxAgeCompensationMeters = 14.0;
+        const double heading = static_cast<double>(heading_deg) *
+                               3.14159265358979323846 / 180.0;
+        const double north_unit = std::cos(heading);
+        const double east_unit = std::sin(heading);
+        const double behind_m = -(north * north_unit + east * east_unit);
+        if (behind_m > 0.0) {
+          const double reduction_m = std::min(
+              behind_m, std::min(static_cast<double>(speed_mps) *
+                                kMaxAgeCompensationSeconds,
+                                kMaxAgeCompensationMeters));
+          north += north_unit * reduction_m;
+          east += east_unit * reduction_m;
+        }
+      }
+      last_anchor_heading_deg_ = heading_deg;
+      last_anchor_speed_mps_ = speed_mps;
+      if (raw_gap_m > 75.0) {
         // New route snap, a tunnel exit or a large GPS correction must not
         // cause several seconds of inaccurate movement.
         pose_ = measured;
@@ -118,5 +157,7 @@ class MapOriginPredictor {
   std::uint64_t last_fix_ms_ = 0;
   double correction_north_m_ = 0.0;
   double correction_east_m_ = 0.0;
+  float last_anchor_heading_deg_ = NAN;
+  float last_anchor_speed_mps_ = 0.0F;
   bool initialized_ = false;
 };

@@ -72,6 +72,46 @@ void test_three_second_ble_geometry_cadence_stays_in_motion() {
   CHECK(east_metres(renewed, start.longitude_deg) < 62.0);
 }
 
+void test_cruising_speed_reduces_only_backward_anchor_correction() {
+  MapOriginPredictor predictor;
+  const MapOriginPredictor::Position start{45.0, 9.0};
+  const double scale = 111'195.0 *
+      std::cos(45.0 * 3.14159265358979323846 / 180.0);
+  predictor.advance(start, 1'000, 1, "route", 1, 20, 90, true);
+  // Previous prediction has advanced 60m in three seconds.
+  MapOriginPredictor::Position cruising{};
+  for (std::uint64_t ms = 1'025; ms <= 4'000; ms += 25)
+    cruising = predictor.advance(start, ms, 1, "route", 1, 20, 90, true);
+  const double before = east_metres(cruising, start.longitude_deg);
+  CHECK(before > 59.0 && before < 61.0);
+  // Incoming BLE anchor is 12m behind the predicted current position.
+  const MapOriginPredictor::Position delayed{45.0, 9.0 + 48.0 / scale};
+  const auto corrected = predictor.advance(delayed, 4'025, 2, "route", 1, 20, 90, true);
+  // 0.7s at 20m/s compensates up to 14m. No backward pull.
+  CHECK(east_metres(corrected, start.longitude_deg) >= before);
+  CHECK(east_metres(corrected, start.longitude_deg) < before + 1.0);
+}
+
+void test_turning_and_stopping_do_not_hide_backward_corrections() {
+  const MapOriginPredictor::Position start{45.0, 9.0};
+  const double scale = 111'195.0 *
+      std::cos(45.0 * 3.14159265358979323846 / 180.0);
+  const MapOriginPredictor::Position delayed{45.0, 9.0 + 48.0 / scale};
+  auto run = [&](float update_speed, float update_heading) {
+    MapOriginPredictor predictor;
+    predictor.advance(start, 1'000, 1, "route", 1, 20, 90, true);
+    for (std::uint64_t ms = 1'025; ms <= 4'000; ms += 25)
+      predictor.advance(start, ms, 1, "route", 1, 20, 90, true);
+    return predictor.advance(delayed, 4'025, 2, "route", 1,
+                             update_speed, update_heading, true);
+  };
+  const auto bend = run(20, 45);
+  const auto stopped = run(0, 90);
+  // Both scenarios must keep the GPS correction, unlike steady cruising.
+  CHECK(east_metres(bend, start.longitude_deg) < 60.0);
+  CHECK(east_metres(stopped, start.longitude_deg) < 60.0);
+}
+
 void test_stale_stop_and_route_changes() {
   MapOriginPredictor predictor;
   const MapOriginPredictor::Position start{45.0, 9.0};
@@ -99,6 +139,8 @@ int main() {
   test_stale_stop_and_route_changes();
   test_prediction_freezes_after_missing_geometry_anchor();
   test_three_second_ble_geometry_cadence_stays_in_motion();
+  test_cruising_speed_reduces_only_backward_anchor_correction();
+  test_turning_and_stopping_do_not_hide_backward_corrections();
   if (failures) {
     std::cerr << failures << " map predictor checks failed\n";
     return EXIT_FAILURE;
