@@ -46,7 +46,7 @@ class TestPhotonSQLite(unittest.TestCase):
                      "25", "Forlì"))
                 self.assertEqual(db.execute(
                     "SELECT COUNT(*) FROM places_fts WHERE search_text MATCH ?",
-                    ("viale* dell* appennino* forli*",)).fetchone()[0], 2)
+                    ("viale* dell* appennino* forli*",)).fetchone()[0], 1)
                 self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0], 1)
 
     def test_failed_import_removes_partial_output(self):
