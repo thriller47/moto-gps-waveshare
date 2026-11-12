@@ -49,7 +49,9 @@ internal object RoadContextSceneSelector {
         val offRouteGpsRoads: Int,
         val roadsNotDrawn: Int,
         val nearRouteRoadsDrawn: Int = 0,
-        val secondaryClosedRings: Int = 0
+        val secondaryClosedRings: Int = 0,
+        val continuedExitWays: Int = 0,
+        val continuedExitBranches: Int = 0
     ) {
         val slots: Int get() = drawn.size
         val points: Int get() = drawn.sumOf { it.points.size }
@@ -92,7 +94,21 @@ internal object RoadContextSceneSelector {
         val gps = GeoPointE6((latitude * 1e6).roundToInt(),
             (longitude * 1e6).roundToInt())
         val ringMembers = focus?.members?.toSet().orEmpty()
-        val available = roads.filter { it !in ringMembers }
+        val chosenExits = focus?.exits?.take(MAX_EXITS).orEmpty()
+        val ringNodeIds = focus?.ring?.nodeIds?.filter { it > 0L }?.toSet().orEmpty()
+        val exitExtensions = LinkedHashMap<MapRoadSegment, RoadContextExitContinuations.Extension>()
+        val consumedWays = HashSet<MapRoadSegment>()
+        // Spend existing EXIT polylines on the continuation of each branch
+        // instead of allocating a new BLE road slot to every successive way.
+        // Never reuse one continuation for two different exits.
+        for (exit in chosenExits) {
+            val extension = RoadContextExitContinuations.extend(
+                exit, roads, ringNodeIds, ringMembers,
+                chosenExits.toSet(), consumedWays, latitude)
+            exitExtensions[exit] = extension
+            consumedWays.addAll(extension.consumedWays)
+        }
+        val available = roads.filter { it !in ringMembers && it !in consumedWays }
         val gpsOrder = available.sortedBy {
             metric.distance(gps, it.points) + importancePenaltyMeters(it)
         }
@@ -157,7 +173,7 @@ internal object RoadContextSceneSelector {
             if (priority.size < MAX_ROADS) priority.putIfAbsent(road, role)
         }
         focus?.ring?.let { add(it, Role.RING) }
-        focus?.exits?.take(MAX_EXITS)?.forEach { add(it, Role.EXIT) }
+        chosenExits.forEach { add(it, Role.EXIT) }
         // Retain the six-road GPS reserve, but trade at most two purely
         // proximity-ranked slots for streets on the immediate route.
         // No active/credible route: use the existing six nearest roads.
@@ -200,7 +216,7 @@ internal object RoadContextSceneSelector {
                 role != Role.EXIT && RoadContextJunctions.isClosedRing(road)
             val limit = minOf(allowance, when (role) {
                 Role.RING -> 20
-                Role.EXIT -> 10
+                Role.EXIT -> 14
                 else -> if (secondaryClosedRing) 16 else 8
             })
             val shape = if (secondaryClosedRing && limit >= 4) {
@@ -213,7 +229,8 @@ internal object RoadContextSceneSelector {
                 }
                 Role.EXIT -> {
                     val connection = road.points.firstOrNull { it in focus?.junctionPoints.orEmpty() }
-                    RoadContextWindow.around(road.points,
+                    RoadContextWindow.around(
+                        exitExtensions[road]?.points ?: road.points,
                         connection?.latitudeE6?.div(1e6) ?: latitude,
                         connection?.longitudeE6?.div(1e6) ?: longitude, limit)
                 }
@@ -250,8 +267,11 @@ internal object RoadContextSceneSelector {
                 item.points.first() == item.points.last() &&
                 RoadContextJunctions.isClosedRing(item.road)
         }
+        val sentExits = drawn.filter { it.role == Role.EXIT }.map { it.road }
         return Result(drawn, slots, points, offRoute, items.size - drawn.size,
-            nearRouteDrawn, secondaryClosed)
+            nearRouteDrawn, secondaryClosed,
+            sentExits.sumOf { exitExtensions[it]?.consumedWays?.size ?: 0 },
+            sentExits.count { exitExtensions[it]?.consumedWays?.isNotEmpty() == true })
     }
 }
 

@@ -775,17 +775,16 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager) : ViewModel()
             val distFromLastScene = calculateDistanceMeters(lastMapSceneLat, lastMapSceneLon, latitude, longitude)
             // Refresh the existing local MotoMap context earlier near a turn,
             // but never at the 200 ms snapshot cadence: map scenes are large.
-            val nearTurn = currentSnapshot?.let {
-                it.maneuverName !in setOf("continue", "none", "arrive") &&
-                    it.distanceToManeuverM <= 260L
-            } ?: false
+            val refresh = MapSceneRefreshPolicy.limits(
+                currentSnapshot?.maneuverName,
+                currentSnapshot?.distanceToManeuverM ?: Long.MAX_VALUE,
+                currentSnapshot?.roundaboutExit ?: 0)
             val sinceSceneMs = now - lastMapSceneSendTimeMs
-            // Refresh before the approach: one extra map scene at most every
-            // 3.5s near a genuine maneuver, never on every GPS update.
-            val minimumIntervalMs = if (nearTurn) 3_500L else 6_000L
-            val movementThresholdM = if (nearTurn) 30.0 else 60.0
-            if (sinceSceneMs >= minimumIntervalMs &&
-                (distFromLastScene >= movementThresholdM || sinceSceneMs >= 25_000L)) {
+            // Near an identified roundabout, refresh sooner as the motorcycle
+            // enters the junction. Keep the ordinary rate limits elsewhere.
+            if (sinceSceneMs >= refresh.minimumIntervalMs &&
+                (distFromLastScene >= refresh.movementThresholdM ||
+                    sinceSceneMs >= 25_000L)) {
                 lastMapSceneSendTimeMs = now
                 lastMapSceneLat = latitude
                 lastMapSceneLon = longitude
@@ -920,6 +919,13 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager) : ViewModel()
                             roadClass = drawn.road.roadClass, points = drawn.points))
                     }
                     val focus = analysis.focus
+                    DiagnosticLog.event("OSM_EXIT_CONT",
+                        "ways=" + sceneSelection.continuedExitWays +
+                        " branches=" + sceneSelection.continuedExitBranches +
+                        " exits_sent=" +
+                        sceneSelection.count(RoadContextSceneSelector.Role.EXIT) +
+                        " slots=" + sceneSelection.slots +
+                        " points=" + sceneSelection.points)
                     DiagnosticLog.event("OSM_RING",
                         "candidates=" + analysis.candidates +
                         " qualified=" + analysis.qualified +
