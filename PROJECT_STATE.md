@@ -1,5 +1,15 @@
 # Moto GPS — Project State
 
+## Idea da valutare: riduzione strade MotoMap non utili alla moto — 2026-11-12
+
+**Proposta utente (brainstorming, NON autorizzazione a modificare):** ridurre la dimensione del futuro MotoMap / pacchetto Italia omettendo strade private o non percorribili, agricole, sterrate e sentieri quando non utili alla navigazione motociclistica. L'idea va studiata insieme alle altre ottimizzazioni di spazio Photon, MotoMap e Valhalla domani; non modificare la versione stabile adesso.
+
+**Distinzioni necessarie:** non tutte le strade sterrate sono vietate o non percorribili: per turismo/enduro alcune sono interessanti. Separare `highway` (tipo di via), `access`, `motor_vehicle` / `motorcycle`, `surface`, `tracktype`, eventualmente `smoothness`, evitando di dedurre il divieto da `surface=unpaved` o da `highway=track` da soli. Le restrizioni di accesso possono avere eccezioni e essere incomplete. Sentieri footway/path/pedonali e strade private con divieto esplicito sono candidati di esclusione, ma prima verificare combinazioni reali dei tag OSM e impatto sulla copertura. Possibile futuro profilo cartografico stradale vs adventure, ma non necessario come prima implementazione.
+
+**Architettura attuale:** `scripts/offline_map/pbf_to_motomap.py` importa le way OSM selezionate e produce MotoMap v4 ZIP z15. Il formato serializzato e la `MapRoadSegment` Android non conservano per ogni via tutte le caratteristiche di accesso/superficie/tracktype necessarie al filtraggio in lettura. Eventuale riduzione sicura va studiata sul PBF e nel convertitore, con misure di quanti segmenti/tile/byte siano effettivamente risparmiabili. Valhalla deve inizialmente restare invariato: il routing e le strade grigie sono problemi diversi. Non sacrificare la topologia delle rotatorie, le uscite, i collegamenti secondari necessari e la compatibilita' 20/160; verificare test geografici su percorso stradale, rotonde e possibili tratti consentiti ma non asfaltati.
+
+**Prossimo passo:** dopo misura SQLite Photon, analisi statistica OSM per classi/highway/access/surface/tracktype e simulazione del filtro su una regione campione, confronto dimensioni e copertura prima di qualunque rigenerazione nazionale. Nessun build/CI per questa nota.
+
 ## Da riprendere domani: MotoMap completo e riduzione Photon — 12 novembre 2026
 
 **Richiesta utente:** non e' al PC, rinviare la discussione operativa al 13 novembre 2026. Conservare le decisioni e il piano senza generare file, rigenerare database o modificare la app.
