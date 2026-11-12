@@ -61,7 +61,7 @@ data class RouteOption(
     val rawRouteJson: JSONObject
 )
 
-class NavigationViewModel(internal val bleManager: MotoBLEManager) : ViewModel() {
+class NavigationViewModel(internal val bleManager: MotoBLEManager, private val appContext: Context? = null) : ViewModel() {
     private val _connectionState = MutableStateFlow("Non connesso")
     val connectionState: StateFlow<String> = _connectionState
 
@@ -110,8 +110,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager) : ViewModel()
             _waypointSearching.value = true
             try {
                 val results = withContext(Dispatchers.IO) {
-                    PhotonPlaceSearch.search(query,
-                        if (hasFirstFix) currentLocation.value else null)
+                    searchPhotonPlaces(query)
                 }
                 _waypointSearchResults.value = results
                 if (results.isEmpty()) _waypointSearchError.value = "Nessun luogo trovato"
@@ -232,6 +231,13 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager) : ViewModel()
     val isDownloadingMap: StateFlow<Boolean> = _isDownloadingMap
 
     private var mapDownloadJob: Job? = null
+    private val _photonInstalledBytes = MutableStateFlow(0L)
+    val photonInstalledBytes: StateFlow<Long> = _photonInstalledBytes
+    private val _photonImporting = MutableStateFlow(false)
+    val photonImporting: StateFlow<Boolean> = _photonImporting
+    private val _photonStatus = MutableStateFlow<String?>(null)
+    val photonStatus: StateFlow<String?> = _photonStatus
+
     private val _valhallaInstalledBytes = MutableStateFlow(0L)
     val valhallaInstalledBytes: StateFlow<Long> = _valhallaInstalledBytes
     private val _valhallaImporting = MutableStateFlow(false)
@@ -307,6 +313,15 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager) : ViewModel()
         }
     }
 
+    /** Installed Photon index takes precedence, with no network fallback on a miss. */
+    private fun searchPhotonPlaces(query: String): List<PlaceSearchResult> {
+        val gps = if (hasFirstFix) currentLocation.value else null
+        val context = appContext
+        return if (context != null && OfflinePhotonPlaceSearch.installed(context))
+            OfflinePhotonPlaceSearch.search(context, query, gps)
+        else PhotonPlaceSearch.search(query, gps)
+    }
+
     fun searchDestination(query: String) {
         if (query.isBlank()) return
 
@@ -327,7 +342,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager) : ViewModel()
 
             try {
                 val results = withContext(Dispatchers.IO) {
-                    PhotonPlaceSearch.search(query, if (hasFirstFix) currentLocation.value else null)
+                    searchPhotonPlaces(query)
                 }
                 _searchResults.value = results
                 if (results.isEmpty()) {
@@ -1142,6 +1157,40 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager) : ViewModel()
         )
     }
 
+    fun importPhotonIndex(context: Context, uri: Uri) {
+        if (_photonImporting.value || _isNavigating.value) return
+        viewModelScope.launch {
+            _photonImporting.value = true
+            _photonStatus.value = "Importazione Photon offline..."
+            try {
+                val installed = withContext(Dispatchers.IO) {
+                    OfflinePhotonPlaceSearch.install(context.applicationContext, uri) { copied ->
+                        _photonStatus.value = "Photon: copiati " + (copied / 1048576L) + " MiB"
+                    }
+                }
+                _photonInstalledBytes.value = installed
+                _photonStatus.value = "Indice Photon offline installato"
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _photonStatus.value = "Importazione Photon fallita: " + e.message
+            } finally {
+                _photonImporting.value = false
+            }
+        }
+    }
+
+    fun deletePhotonIndex(context: Context) {
+        if (_photonImporting.value || _isNavigating.value) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val removed = OfflinePhotonPlaceSearch.delete(context.applicationContext)
+            _photonInstalledBytes.value = if (removed) 0L
+                else OfflinePhotonPlaceSearch.file(context).length()
+            _photonStatus.value = if (removed) "Indice Photon eliminato"
+                else "Impossibile eliminare l'indice Photon"
+        }
+    }
+
     fun importValhallaGraph(context: Context, uri: Uri) {
         if (_valhallaImporting.value || _isNavigating.value) return
         val appContext = context.applicationContext
@@ -1228,6 +1277,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager) : ViewModel()
     }
 
     fun refreshSavedMaps(context: Context) {
+        _photonInstalledBytes.value = OfflinePhotonPlaceSearch.file(context)
+            .let { if (it.isFile) it.length() else 0L }
         _valhallaInstalledBytes.value = OfflineValhallaRouter.tileFile(context)
             .let { if (it.isFile) it.length() else 0L }
         val list = getOrCreateRepo(context).listSavedMaps()
@@ -1739,7 +1790,7 @@ class NavigationViewModelFactory(private val context: Context) : ViewModelProvid
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(NavigationViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")
-            return NavigationViewModel(MotoBLEManager(context.applicationContext)) as T
+            return NavigationViewModel(MotoBLEManager(context.applicationContext), context.applicationContext) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

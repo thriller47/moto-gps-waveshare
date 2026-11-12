@@ -854,3 +854,135 @@ Guida completa: platforms/web/simulator/README.md. La vecchia platforms/web/shel
 Il vecchio backend/gateway è fuori uso. La **radio seriale di test è ancora presente nel codice firmware**, ma si usa esclusivamente dopo il passaggio alla **modalità radio isolata** (sezione 7), mai nella normale schermata GPS. Non considerarla una funzione audio stabile o contemporanea alla navigazione.
 
 **Prima del flash:** leggere `PROJECT_STATE.md`, controllare commit e run degli artifact. CI verde non equivale a test su strada.
+
+
+---
+
+## Ricerca indirizzi offline Photon (collaudata — 12 novembre 2026)
+
+**Branch stabile:** `valhalla`. La ricerca Photon offline e' stata collaudata sul
+telefono il 12 novembre 2026; il job Android del test
+[43286583016](https://github.com/thriller47/moto-gps-waveshare/actions/runs/43286583016)
+e' verde. Nessun flash ESP32, nuovo pacchetto MotoMap o rigenerazione
+dei tile Valhalla. Il database da circa 2 GiB si installa separatamente
+dall'APK Android.
+
+### Dove scaricare il dump Photon Italia
+
+**Pagina di origine ufficiale (GraphHopper / Photon):**
+https://download1.graphhopper.com/public/europe/italy/
+
+**File esatto da scaricare (dump JSONL compresso Zstandard):**
+https://download1.graphhopper.com/public/europe/italy/photon-dump-italy-1.0-latest.jsonl.zst
+
+Il suffisso *latest* indica una versione aggiornata nel tempo: dimensioni,
+numero di luoghi e contenuto possono cambiare. Scegliere il dump
+`photon-dump-italy-1.0-latest.jsonl.zst`, **NON** un
+`photon-db*.tar.bz2`: quest'ultimo e' un indice server e non e'
+supportato dal convertitore SQLite. Il progetto Photon documenta i
+dump GraphHopper: https://github.com/komoot/photon
+
+**Script ufficiale del nostro progetto (sorgente Python per la conversione):**
+https://github.com/thriller47/moto-gps-waveshare/blob/valhalla/scripts/offline_map/photon_to_sqlite.py
+
+Scaricare il dump nella cartella `C:\MotoGPS\PBF` (fuori dal repository).
+L'archivio originale puo' restare compresso e non va messo su GitHub.
+
+### Preparazione strumenti Windows — PowerShell
+
+Python 3 con comando `py -3` e' necessario. Per leggere lo Zstandard
+compresso serve `zstd`. Se non installato:
+
+~~~powershell
+winget install --id Meta.Zstandard -e
+~~~
+
+Chiudere e riaprire PowerShell dopo l'installazione, quindi controllare:
+
+~~~powershell
+py -3 --version
+zstd --version
+Test-Path "C:\MotoGPS\PBF\photon-dump-italy-1.0-latest.jsonl.zst"
+~~~
+
+Il comando `Test-Path` deve restituire `True`. Se `zstd` risulta
+sconosciuto, verificare il PATH o riaprire la shell; non avviare il
+convertitore finche' `zstd --version` non funziona.
+
+### Origine e conversione sul PC — PowerShell
+
+Sorgente disponibile sul PC:
+C:\MotoGPS\PBF\photon-dump-italy-1.0-latest.jsonl.zst.
+È il dump Photon Italia derivato da OpenStreetMap; non confonderlo con un file
+.jsonl non compresso. La conversione è già stata **completata dall'utente**
+con il primo convertitore: **8.362.870 luoghi**, **15.908 scartati**,
+**2.016,8 MiB** per C:\MotoGPS\PBF\photon-italy.sqlite.
+**Non ripetere la conversione:** l'indice esistente è compatibile con questa
+funzionalità. Il convertitore è conservato nel repository in
+scripts/offline_map/photon_to_sqlite.py per futuri aggiornamenti.
+
+Per una nuova conversione, soltanto quando serve:
+
+~~~powershell
+cd C:\MotoGPS\moto-gps-waveshare
+git switch valhalla
+zstd --version
+py -3 .\scripts\offline_map\photon_to_sqlite.py --input "C:\MotoGPS\PBF\photon-dump-italy-1.0-latest.jsonl.zst" --output "C:\MotoGPS\PBF\photon-italy.sqlite"
+~~~
+
+La conversione avviene **in streaming** (nessuna estrazione separata del JSONL).
+Il programma rifiuta di sovrascrivere un database gia' presente: non
+eliminare l'indice gia' collaudato per ripetere la procedura. In seguito,
+per una nuova versione, scegliere un nome di output diverso e verificare
+il risultato prima di sostituire quello installato. I file sorgente e il
+database **non vanno caricati su GitHub**.
+
+Per verificare il file prodotto:
+
+~~~powershell
+Get-Item "C:\MotoGPS\PBF\photon-italy.sqlite" |
+    Select-Object Name, Length
+~~~
+
+Nel test reale del 12/11/2026: 8.362.870 luoghi, 15.908 saltati,
+2.016,8 MiB di indice SQLite. Esito e dimensioni di future versioni
+del dump potrebbero essere diversi.
+
+### Importazione nell'app Android — procedura collaudata
+
+1. Aggiornare il checkout sul branch `valhalla` e compilare/installare
+   l'APK con Android Studio secondo la sezione Android di questo manuale.
+   Mantenere la **stessa firma** dell'app gia' installata per non perdere
+   MotoMap, grafo Valhalla e database; non disinstallarla.
+2. Copiare C:\MotoGPS\PBF\photon-italy.sqlite nella cartella **Download**
+   del telefono tramite USB; mantenere almeno 2–3 GiB liberi per questa copia
+   **e almeno altri 2,1 GiB** per l'importazione nello spazio privato
+   dell'app (di più in caso di sostituzione di un indice già installato).
+3. Aprire l'app → **Gestione mappe** → **Ricerca indirizzi offline — Photon**
+   → **Importa indice Photon SQLite**; scegliere il file .sqlite.
+   Attendere il completamento mostrato dall'app.
+4. Disattivare Wi-Fi e dati mobili, cercare **Courmayeur**,
+   **Passo Stelvio**, **Via Roma Torino**, poi provare una tappa intermedia.
+   La ricerca deve usare SQLite, non effettuare chiamate online.
+5. Per ripristinare la ricerca Photon online, eliminare l'indice dalla stessa
+   schermata (operazione bloccata durante la navigazione).
+
+Con indice installato, le ricerche di destinazioni e tappe usano esclusivamente
+il database locale anche quando restituisce zero risultati. Senza indice,
+l'app continua a utilizzare Photon online. Coordinate GPS scritte direttamente
+rimangono disponibili offline.
+
+**Ordinamento:** la prima prova reale del 12/11 con lo script diagnostico
+photon_search_test.py ha individuato correttamente Courmayeur (città),
+Passo Stelvio (località) e Via Roma a Torino, ma mostrava ancora più segmenti
+della stessa strada. Il ranker Android raggruppa i segmenti stradali con lo
+stesso nome e comune, preservando i numeri civici distinti. Gestisce case,
+accenti e prefissi di parola; non effettua ancora correzioni di refusi reali.
+La CI Android del ramo sperimentale e' verde, e l'utente ha confermato
+la **prova sul telefono riuscita** il 12 novembre 2026. Questo non
+garantisce che ogni indirizzo italiano sia georeferenziato, e la ricerca
+non corregge ancora i veri errori di battitura.
+
+**Dati e diritti:** derivato OpenStreetMap/Photon; mantenere attribuzione
+OpenStreetMap contributors e verificare i requisiti ODbL 1.0 prima della
+distribuzione dell'indice derivato.
