@@ -26,6 +26,17 @@ internal object RoadContextSceneSelector {
     // A lane near the next manoeuvre must outrank unrelated lanes just behind
     // the rider; six local GPS roads remain protected when navigating off-route.
     private const val MAX_FORWARD_DISTANCE_M = 58.0
+
+    // MotoMap v4 records highway classes, but not OSM access=private.
+    // A modest soft penalty favours major roads without removing local roads
+    // or suppressing a junction's protected ring/exits. Keep tagged rings
+    // neutral when they are candidates for secondary circuit context.
+    private fun importancePenaltyMeters(road: MapRoadSegment): Double = when {
+        road.junctionKind != 0 -> 0.0
+        road.roadClass <= 1 -> 0.0
+        road.roadClass == 2 -> 4.0
+        else -> 18.0
+    }
     private data class ForwardRoad(val road: MapRoadSegment,
         val anchor: GeoPointE6, val score: Double, val forwardM: Double)
 
@@ -82,7 +93,9 @@ internal object RoadContextSceneSelector {
             (longitude * 1e6).roundToInt())
         val ringMembers = focus?.members?.toSet().orEmpty()
         val available = roads.filter { it !in ringMembers }
-        val gpsOrder = available.sortedBy { metric.distance(gps, it.points) }
+        val gpsOrder = available.sortedBy {
+            metric.distance(gps, it.points) + importancePenaltyMeters(it)
+        }
         // The old forward probes started 90m ahead. On a small ring the
         // unprotected 0-90m corridor can contain almost the entire junction.
         // Preserve four nearest GPS roads plus two independent near-route
@@ -100,8 +113,7 @@ internal object RoadContextSceneSelector {
                         metric.distance(probe, road.points) <= 13.0
                     }
             }.sortedBy { road ->
-                metric.distance(gps, road.points) +
-                    road.roadClass.coerceIn(0, 4) * 1.5
+                metric.distance(gps, road.points) + importancePenaltyMeters(road)
             }.toList()
         } else emptyList()
         // Sample the *forward route corridor*, not a single point 90-220m
@@ -119,7 +131,7 @@ internal object RoadContextSceneSelector {
                 }.minBy { it.first + it.second * 0.015 }
                 if (best.first > MAX_FORWARD_DISTANCE_M) null
                 else ForwardRoad(road, best.third, best.first + best.second * 0.015 +
-                    road.roadClass.coerceIn(0, 4) * 1.5, best.second)
+                    importancePenaltyMeters(road), best.second)
             }.sortedBy { it.score }
         } else emptyList()
         val forwardAnchor = forwardRoads.associate { it.road to it.anchor }
@@ -133,7 +145,9 @@ internal object RoadContextSceneSelector {
                 (near.take(3) + far.take(3) + forwardRoads)
                     .distinctBy { it.road }.map { it.road }
             }
-            upcoming != null -> available.sortedBy { metric.distance(upcoming, it.points) }
+            upcoming != null -> available.sortedBy {
+                metric.distance(upcoming, it.points) + importancePenaltyMeters(it)
+            }
             else -> emptyList()
         }
         // LinkedHashMap de-duplicates overlapping GPS/focus/upcoming lists

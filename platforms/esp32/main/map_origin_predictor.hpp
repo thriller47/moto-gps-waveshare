@@ -77,18 +77,14 @@ class MapOriginPredictor {
       // causes a visible delay at fixed junctions even when FPS is smooth.
       // Cancel only a bounded part of a BACKWARD correction on a stable
       // straight. Never add forward movement to an already aligned anchor.
-      // Angular changes (roundabouts/hairpins), changing speed, stops and
-      // route changes retain the unmodified GPS correction.
-      const bool steady = std::isfinite(speed_mps) &&
+      // Sharp turns, stops, large cross-track errors and route changes
+      // retain the unmodified GPS correction.
+      const bool moving = std::isfinite(speed_mps) &&
           speed_mps >= 3.0F && speed_mps <= 35.0F &&
           std::isfinite(heading_deg) &&
           std::isfinite(last_anchor_heading_deg_) &&
-          std::isfinite(last_anchor_speed_mps_) &&
-          std::abs(std::remainder(heading_deg - last_anchor_heading_deg_,
-                                  360.0F)) <= 15.0F &&
-          std::abs(speed_mps - last_anchor_speed_mps_) <=
-              std::max(2.0F, speed_mps * 0.25F);
-      if (steady && raw_gap_m <= 35.0 && raw_gap_m > 0.5) {
+          std::isfinite(last_anchor_speed_mps_);
+      if (moving && raw_gap_m <= 35.0 && raw_gap_m > 0.5) {
         constexpr double kMaxAgeCompensationSeconds = 0.70;
         constexpr double kMaxAgeCompensationMeters = 14.0;
         const double heading = static_cast<double>(heading_deg) *
@@ -96,11 +92,32 @@ class MapOriginPredictor {
         const double north_unit = std::cos(heading);
         const double east_unit = std::sin(heading);
         const double behind_m = -(north * north_unit + east * east_unit);
-        if (behind_m > 0.0) {
+        const double lateral_m = std::abs(-north * east_unit +
+                                          east * north_unit);
+        // The heading change between BLE geometry anchors is a conservative
+        // proxy for road curvature. Smoothly fade a backward-only correction
+        // from full effect at <=12 deg to zero at >=70 deg. At a hairpin or
+        // roundabout exit do not extrapolate through the next road.
+        const double turn_delta = std::abs(std::remainder(
+            static_cast<double>(heading_deg - last_anchor_heading_deg_),
+            360.0));
+        const double turn_weight = std::clamp(
+            (70.0 - turn_delta) / 58.0, 0.0, 1.0);
+        const double speed_tolerance = std::max(
+            2.0, static_cast<double>(speed_mps) * 0.25);
+        const double speed_delta = std::abs(
+            static_cast<double>(speed_mps - last_anchor_speed_mps_));
+        const double speed_weight = std::clamp(
+            (2.0 * speed_tolerance - speed_delta) / speed_tolerance,
+            0.0, 1.0);
+        // Reject large lateral offsets: they could be an actual lane change,
+        // missed turn or GPS jump rather than delayed BLE delivery.
+        if (behind_m > 0.0 && lateral_m <= 14.0) {
           const double reduction_m = std::min(
               behind_m, std::min(static_cast<double>(speed_mps) *
                                 kMaxAgeCompensationSeconds,
-                                kMaxAgeCompensationMeters));
+                                kMaxAgeCompensationMeters)) *
+              turn_weight * speed_weight;
           north += north_unit * reduction_m;
           east += east_unit * reduction_m;
         }

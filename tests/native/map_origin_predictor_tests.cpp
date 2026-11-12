@@ -112,6 +112,34 @@ void test_turning_and_stopping_do_not_hide_backward_corrections() {
   CHECK(east_metres(stopped, start.longitude_deg) < 60.0);
 }
 
+void test_curve_compensation_tapers_instead_of_switching_off() {
+  const MapOriginPredictor::Position start{45.0, 9.0};
+  const double scale = 111'195.0 *
+      std::cos(45.0 * 3.14159265358979323846 / 180.0);
+  const MapOriginPredictor::Position delayed{45.0, 9.0 + 48.0 / scale};
+  auto after_anchor = [&](float new_heading, float new_speed) {
+    MapOriginPredictor predictor;
+    predictor.advance(start, 1'000, 1, "same-route", 1, 20, 90, true);
+    for (std::uint64_t ms = 1'025; ms <= 4'000; ms += 25)
+      predictor.advance(start, ms, 1, "same-route", 1, 20, 90, true);
+    return predictor.advance(delayed, 4'025, 2, "same-route", 1,
+                             new_speed, new_heading, true);
+  };
+  const auto straight = after_anchor(90, 20);
+  const auto gentle = after_anchor(70, 20);   // 20-degree curve: partial.
+  const auto bend = after_anchor(45, 20);     // 45-degree curve: less.
+  const auto sharp = after_anchor(0, 20);     // 90-degree turn: no boost.
+  const auto stopped = after_anchor(90, 0);   // stop: no boost.
+  const double straight_e = east_metres(straight, start.longitude_deg);
+  const double gentle_e = east_metres(gentle, start.longitude_deg);
+  const double bend_e = east_metres(bend, start.longitude_deg);
+  const double sharp_e = east_metres(sharp, start.longitude_deg);
+  CHECK(straight_e > gentle_e);
+  CHECK(gentle_e > bend_e);
+  CHECK(bend_e > sharp_e);
+  CHECK(stopped.longitude_deg < straight.longitude_deg);
+}
+
 void test_stale_stop_and_route_changes() {
   MapOriginPredictor predictor;
   const MapOriginPredictor::Position start{45.0, 9.0};
@@ -141,6 +169,7 @@ int main() {
   test_three_second_ble_geometry_cadence_stays_in_motion();
   test_cruising_speed_reduces_only_backward_anchor_correction();
   test_turning_and_stopping_do_not_hide_backward_corrections();
+  test_curve_compensation_tapers_instead_of_switching_off();
   if (failures) {
     std::cerr << failures << " map predictor checks failed\n";
     return EXIT_FAILURE;
