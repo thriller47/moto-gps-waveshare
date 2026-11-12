@@ -1,5 +1,16 @@
 # Moto GPS — Project State
 
+## Merge Photon offline autorizzato — 2026-11-12
+
+**Autorizzazione e prova utente:** l'utente ha verificato direttamente su telefono il database Photon offline e ha dichiarato "Funziona perfettamente"; ha successivamente autorizzato il merge in `valhalla` e richiesto una guida completa nel manuale con link al dump e script convertitore. Il programma usa 8.362.870 luoghi italiani indicizzati, SQLite 2.016,8 MiB e nessun servizio online quando e' presente il database. Sorgente locale `C:\MotoGPS\PBF\photon-dump-italy-1.0-latest.jsonl.zst` (non inserita nel repo). Nessuna nuova conversione necessaria.
+
+**Ramo integrato:** `test/photon-offline-20261112` e' avanti di 12 commit e indietro di 0 rispetto a `valhalla` al controllo iniziale. Diff limitato a 9 file: Android search/UI/test, script convertitore/test, manuale e stato del progetto; nessuna modifica a ESP32, BLE, Valhalla o MotoMap. CI del ramo test `43286583016`: Android success (incluse prove unitarie), native/ESP32 skipped correttamente. La documentazione successiva ha saltato la CI. Il branch `valhalla` mantiene le opzioni firmware collaudate e non si riaprono i temi LVGL/CPU senza un problema percepibile.
+
+**Documentazione:** manuale operativo integrato con pagina GraphHopper, URL diretto al dump italiano `.jsonl.zst`, sorgente `photon_to_sqlite.py` nel repo, installazione `zstd` con winget, comandi PowerShell con `C:\MotoGPS\PBF`, controllo SQLite, copia sul telefono, importazione via Gestione mappe, spazio disco e attribuzione OSM. Se il dump `latest` cambia nel tempo, non presumere che abbia lo stesso contenuto o dimensione.
+
+**Prossimo passo:** verificare CI Android dopo merge su `valhalla`, poi rimuovere i rami test gia' integralmente integrati se accesso e protezioni lo permettono. Non confondere la CI verde sul test con la CI di `valhalla` finche' non viene effettivamente completata.
+
+
 ## Ricerca indirizzi offline Photon (sperimentale) — 2026-11-12
 
 **Branch:** test/photon-offline-20261112 da valhalla 5b285d3; nessun merge su valhalla autorizzato. Decisione utente: esclusivamente Photon, niente ANNCSU/OpenAddresses. Dataset scaricato su Windows C:\MotoGPS\PBF\photon-dump-italy-1.0-latest.jsonl.zst; conversione eseguita realmente dall'utente a photon-italy.sqlite: 8.362.870 luoghi, 15.908 ignorati, 2.016,8 MiB. Non riconvertire: il nuovo codice Android consuma direttamente il suo SQLite. Provenienza OSM/Photon, rispettare ODbL 1.0.
