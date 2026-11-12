@@ -321,6 +321,11 @@ fun MapDownloadProgressBox(
 @Composable
 fun OfflineMapsDialog(
     savedMaps: List<SavedMapInfo>,
+    photonInstalledBytes: Long,
+    photonImporting: Boolean,
+    photonStatus: String?,
+    onImportPhoton: () -> Unit,
+    onDeletePhoton: () -> Unit,
     valhallaInstalledBytes: Long,
     valhallaImporting: Boolean,
     valhallaStatus: String?,
@@ -378,6 +383,40 @@ fun OfflineMapsDialog(
                             )
                         } else if (!downloadStatus.isNullOrBlank()) {
                             Text(downloadStatus, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text("Ricerca indirizzi offline — Photon",
+                            style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            if (photonInstalledBytes > 0L)
+                                "Indice installato: " +
+                                    String.format("%.1f MiB", photonInstalledBytes / 1048576.0)
+                            else "Importa il file photon-italy.sqlite preparato sul PC.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        if (!photonStatus.isNullOrBlank())
+                            Text(photonStatus, style = MaterialTheme.typography.bodySmall)
+                        FilledTonalButton(
+                            onClick = onImportPhoton,
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = !isNavigating && !photonImporting
+                        ) {
+                            Text(if (photonImporting) "Importazione in corso..."
+                                 else "Importa indice Photon SQLite")
+                        }
+                        if (photonInstalledBytes > 0L) {
+                            OutlinedButton(
+                                onClick = onDeletePhoton,
+                                modifier = Modifier.fillMaxWidth(),
+                                enabled = !isNavigating && !photonImporting
+                            ) { Text("Elimina indice Photon") }
                         }
                     }
                 }
@@ -456,6 +495,11 @@ fun NavigationScreen(
     hasArrived: Boolean = false,
     currentLocation: Pair<Double, Double>? = null,
     savedMaps: List<SavedMapInfo> = emptyList(),
+    photonInstalledBytes: Long = 0L,
+    photonImporting: Boolean = false,
+    photonStatus: String? = null,
+    onImportPhoton: () -> Unit = {},
+    onDeletePhoton: () -> Unit = {},
     valhallaInstalledBytes: Long = 0L,
     valhallaImporting: Boolean = false,
     valhallaStatus: String? = null,
@@ -609,6 +653,11 @@ fun NavigationScreen(
     if (showOfflineDialog) {
         OfflineMapsDialog(
             savedMaps = savedMaps,
+            photonInstalledBytes = photonInstalledBytes,
+            photonImporting = photonImporting,
+            photonStatus = photonStatus,
+            onImportPhoton = onImportPhoton,
+            onDeletePhoton = onDeletePhoton,
             valhallaInstalledBytes = valhallaInstalledBytes,
             valhallaImporting = valhallaImporting,
             valhallaStatus = valhallaStatus,
