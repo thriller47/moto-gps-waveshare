@@ -350,6 +350,10 @@ void PhoneNavBridge::on_link_state(bool active) {
       phone_snapshot.network = moto::nav::NetworkState::Connecting;
     } else {
       phone_session_id_ = 0;
+      waypoint_seen_index_ = 0;
+      waypoint_pending_index_ = 0;
+      waypoint_pending_total_ = 0;
+      waypoint_clear_pending_ = true;
       // A lost BLE session must not leave a previous turn instruction active.
       // Reconnecting will populate a fresh navigation snapshot and geometry.
       phone_snapshot.state = moto::nav::NavState::Idle;
@@ -700,6 +704,26 @@ void PhoneNavBridge::consume_navigation(
                                input.flags, moto::ble::NavigationGnssStale));
 
     phone_snapshot.state = map_state(input.state);
+    // A waypoint notice reuses the existing bounded instruction string.
+    // Keep notification state separate from actual maneuvers and route geometry.
+    if (input.state == moto::ble::NavigationState::Idle ||
+        input.state == moto::ble::NavigationState::Arrived) {
+      waypoint_seen_index_ = 0;
+      waypoint_pending_index_ = 0;
+      waypoint_pending_total_ = 0;
+      waypoint_clear_pending_ = true;
+    } else {
+      unsigned reached = 0;
+      unsigned total = 0;
+      if (std::sscanf(input.instruction.c_str(),
+                      "WP_REACHED:%u/%u", &reached, &total) == 2 &&
+          reached > 0 && reached <= total && total <= 99 &&
+          reached != waypoint_seen_index_) {
+        waypoint_seen_index_ = static_cast<std::uint8_t>(reached);
+        waypoint_pending_index_ = static_cast<std::uint8_t>(reached);
+        waypoint_pending_total_ = static_cast<std::uint8_t>(total);
+      }
+    }
     power_arrived_.store(input.state == moto::ble::NavigationState::Arrived,
                          std::memory_order_relaxed);
     phone_snapshot.network = map_network(input.network);
@@ -1096,6 +1120,12 @@ void PhoneNavBridge::render_pending() {
       render_phone_connection_ = ui_phone_connection_;
       render_demo_active_ = demo_active_;
       render_music_page_enabled_ = music_page_enabled_;
+      render_waypoint_index_ = waypoint_pending_index_;
+      render_waypoint_total_ = waypoint_pending_total_;
+      render_waypoint_clear_ = waypoint_clear_pending_;
+      waypoint_pending_index_ = 0;
+      waypoint_pending_total_ = 0;
+      waypoint_clear_pending_ = false;
     }
     if (media) {
       render_media_state_ = media_state_;
@@ -1176,6 +1206,10 @@ void PhoneNavBridge::render_pending() {
     moto_nav_ui_set_music_page_enabled(
         render_music_page_enabled_ ? 1U : 0U);
     presenter_.apply_to_lvgl();
+    if (render_waypoint_clear_) moto_nav_ui_clear_waypoint_reached();
+    if (render_waypoint_index_ > 0)
+      moto_nav_ui_show_waypoint_reached(render_waypoint_index_,
+                                       render_waypoint_total_);
   } else if (motion) {
     moto_nav_ui_set_motion_state(&presenter_.ui_state());
   }

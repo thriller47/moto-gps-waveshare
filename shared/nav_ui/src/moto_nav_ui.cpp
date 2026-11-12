@@ -1,4 +1,5 @@
 #include "moto_nav_ui.h"
+#include "moto_nav_route_sampling.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -115,9 +116,12 @@ struct Ui {
     std::uint8_t nav_route_target_count = 0;
     std::uint32_t nav_route_identity = 0;
     std::uint32_t nav_route_generation = 0;
+    std::uint32_t nav_route_geometry_signature = 0;
     lv_timer_t *nav_route_motion_timer = nullptr;
     lv_obj_t *nav_marker = nullptr;
     lv_obj_t *nav_status = nullptr;
+    lv_obj_t *nav_waypoint_notice = nullptr;
+    lv_timer_t *nav_waypoint_timer = nullptr;
     lv_obj_t *nav_battery = nullptr;
     lv_obj_t *nav_distance = nullptr;
     lv_obj_t *nav_unit = nullptr;
@@ -754,7 +758,11 @@ void update_road_geometry(const moto_ui_state_t *state) {
     // A wide point can move more than 96 px during a perfectly ordinary fast
     // yaw. Treating screen-space distance as a route replacement made the
     // whole map jump. Only topology/revision changes snap; motion interpolates.
-    const bool snap = spans_changed || ui.reduce_motion;
+    // A new route window must not snap while the gray context still lags.
+    const bool route_window_replaced =
+        state->route_geometry_signature != 0 &&
+        state->route_geometry_signature != ui.nav_route_geometry_signature;
+    const bool snap = spans_changed || ui.reduce_motion || route_window_replaced;
     ui.nav_road_point_count = point_count;
     ui.nav_road_polyline_count = polyline_count;
     ui.nav_road_scene_revision = state->map_scene_revision;
@@ -792,6 +800,7 @@ void update_route_geometry(const moto_ui_state_t *state) {
         ui.nav_route_target_count = 0;
         ui.nav_route_identity = state->route_identity;
         ui.nav_route_generation = state->route_generation;
+        ui.nav_route_geometry_signature = 0;
         lv_obj_add_flag(ui.nav_route_shadow, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(ui.nav_route, LV_OBJ_FLAG_HIDDEN);
         // Keep the rider marker and the last valid gray road scene visible
@@ -827,47 +836,44 @@ void update_route_geometry(const moto_ui_state_t *state) {
     // the rider advances. Previously this count difference snapped the entire
     // green line every second. Reparameterize the currently drawn polyline by
     // arc length BEFORE changing its point count, then blend to the new
-    // projected targets. The first visible frame is the old line, not a jump.
+    // projected targets. Importantly, the new vertices are NOT distributed
+    // uniformly: bends retain many more vertices than long straights. Match
+    // each old point to the new point's *fractional distance along its own
+    // polyline*, never to its vertex index. Otherwise a corner vertex can
+    // temporarily animate from a straight road hundreds of metres farther
+    // along the route, making the green line swing across roundabouts.
+    // The first visible frame stays on the old path, not a jump.
     const std::uint8_t previous_count = ui.nav_route_point_count;
     const bool same_route = ui.nav_route_identity == state->route_identity &&
                             ui.nav_route_generation == state->route_generation;
     const bool count_changed = previous_count != count;
+    // Vertices of successive GPS windows can refer to different segments,
+    // EVEN WITH THE SAME COUNT. Never morph unrelated vertex indices.
+    // Leave ordinary camera/heading motion smoothly interpolated.
+    const bool geometry_replaced =
+        state->route_geometry_signature != 0 &&
+        state->route_geometry_signature != ui.nav_route_geometry_signature;
+    // Legacy/manual states without signatures retain arc-length fallback.
     if(same_route && count_changed && previous_count >= 2 &&
-       !ui.reduce_motion) {
-        float cumulative[MOTO_UI_ROUTE_POINT_CAPACITY]{};
+       !ui.reduce_motion && !geometry_replaced) {
         float resampled_x[MOTO_UI_ROUTE_POINT_CAPACITY]{};
         float resampled_y[MOTO_UI_ROUTE_POINT_CAPACITY]{};
-        for(std::uint8_t i = 1; i < previous_count; ++i) {
-            cumulative[i] = cumulative[i - 1] +
-                std::hypot(ui.nav_route_x[i] - ui.nav_route_x[i - 1],
-                           ui.nav_route_y[i] - ui.nav_route_y[i - 1]);
-        }
-        const float total = cumulative[previous_count - 1];
-        std::uint8_t segment = 1;
-        for(std::uint8_t i = 0; i < count; ++i) {
-            const float along = total * static_cast<float>(i) /
-                                static_cast<float>(count - 1);
-            while(segment + 1 < previous_count &&
-                  cumulative[segment] < along) ++segment;
-            const float length = cumulative[segment] - cumulative[segment - 1];
-            const float fraction = length > 0.001F
-                ? std::clamp((along - cumulative[segment - 1]) / length, 0.0F, 1.0F)
-                : 0.0F;
-            resampled_x[i] = ui.nav_route_x[segment - 1] +
-                fraction * (ui.nav_route_x[segment] - ui.nav_route_x[segment - 1]);
-            resampled_y[i] = ui.nav_route_y[segment - 1] +
-                fraction * (ui.nav_route_y[segment] - ui.nav_route_y[segment - 1]);
-        }
+        moto_nav_route_sampling::align_by_arc_fraction(
+            ui.nav_route_x, ui.nav_route_y, previous_count,
+            ui.nav_route_target_x, ui.nav_route_target_y, count,
+            resampled_x, resampled_y);
         for(std::uint8_t i = 0; i < count; ++i) {
             ui.nav_route_x[i] = resampled_x[i];
             ui.nav_route_y[i] = resampled_y[i];
         }
     }
-    const bool snap = !same_route || previous_count < 2 || ui.reduce_motion;
+    const bool snap = !same_route || previous_count < 2 ||
+        ui.reduce_motion || geometry_replaced;
     ui.nav_route_target_count = count;
     ui.nav_route_point_count = count;
     ui.nav_route_identity = state->route_identity;
     ui.nav_route_generation = state->route_generation;
+    ui.nav_route_geometry_signature = state->route_geometry_signature;
     if(snap) {
         for(std::uint8_t i = 0; i < count; ++i) {
             ui.nav_route_x[i] = ui.nav_route_target_x[i];
@@ -1268,6 +1274,12 @@ void connection_success_timeout(lv_timer_t *timer) {
     refresh_lifecycle();
 }
 
+void waypoint_notice_timeout(lv_timer_t *timer) {
+    lv_timer_pause(timer);
+    if(ui.nav_waypoint_notice != nullptr)
+        lv_obj_add_flag(ui.nav_waypoint_notice, LV_OBJ_FLAG_HIDDEN);
+}
+
 void set_navigation_guidance_visible(bool visible) {
     lv_obj_t *objects[] = {
         ui.nav_distance,
@@ -1554,6 +1566,18 @@ void create_navigation_page() {
     lv_obj_set_width(ui.nav_status, px(220));
     lv_obj_set_style_text_align(ui.nav_status, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(ui.nav_status, LV_ALIGN_TOP_MID, 0, px(16));
+
+    // Small overlay above the active route; route, distance and zoom remain
+    // visible. No full-screen modal and no directional arrow.
+    ui.nav_waypoint_notice = make_label(
+        page, &lv_font_montserrat_20, kGreen, "");
+    lv_obj_set_width(ui.nav_waypoint_notice, px(300));
+    lv_obj_set_style_text_align(ui.nav_waypoint_notice, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(ui.nav_waypoint_notice, LV_ALIGN_TOP_MID, 0, px(55));
+    lv_obj_clear_flag(ui.nav_waypoint_notice, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(ui.nav_waypoint_notice, LV_OBJ_FLAG_HIDDEN);
+    ui.nav_waypoint_timer = lv_timer_create(waypoint_notice_timeout, 7000, nullptr);
+    lv_timer_pause(ui.nav_waypoint_timer);
 
     // Arrival is signalled by a separate checkered flag. No turn arrow
     // widgets or callbacks exist: the map geometry is the turn indicator.
@@ -1989,6 +2013,26 @@ extern "C" void moto_nav_ui_set_state(const moto_ui_state_t *state) {
         case MOTO_UI_PAGE_MUSIC:
         case MOTO_UI_PAGE_COUNT: break;
     }
+}
+
+extern "C" void moto_nav_ui_show_waypoint_reached(uint8_t index, uint8_t total) {
+    if(index == 0 || total == 0 || index > total ||
+       ui.nav_waypoint_notice == nullptr || ui.nav_waypoint_timer == nullptr)
+        return;
+    char message[40];
+    std::snprintf(message, sizeof(message), "TAPPA %u/%u RAGGIUNTA",
+                  static_cast<unsigned>(index), static_cast<unsigned>(total));
+    lv_label_set_text(ui.nav_waypoint_notice, message);
+    lv_obj_remove_flag(ui.nav_waypoint_notice, LV_OBJ_FLAG_HIDDEN);
+    lv_timer_set_period(ui.nav_waypoint_timer, 7000);
+    lv_timer_reset(ui.nav_waypoint_timer);
+    lv_timer_resume(ui.nav_waypoint_timer);
+}
+
+extern "C" void moto_nav_ui_clear_waypoint_reached(void) {
+    if(ui.nav_waypoint_timer != nullptr) lv_timer_pause(ui.nav_waypoint_timer);
+    if(ui.nav_waypoint_notice != nullptr)
+        lv_obj_add_flag(ui.nav_waypoint_notice, LV_OBJ_FLAG_HIDDEN);
 }
 
 extern "C" void moto_nav_ui_set_motion_state(const moto_ui_state_t *state) {

@@ -17,6 +17,10 @@ void* music_callback_context = nullptr;
 moto_demo_change_callback_t demo_callback = nullptr;
 void* demo_callback_context = nullptr;
 int apply_count = 0;
+int waypoint_notice_count = 0;
+int waypoint_clear_count = 0;
+uint8_t last_waypoint_index = 0;
+uint8_t last_waypoint_total = 0;
 int board_lock_count = 0;
 bool board_lock_available = true;
 std::string last_road_name;
@@ -88,6 +92,18 @@ extern "C" void moto_nav_ui_set_state(const moto_ui_state_t* state) {
   last_distance_to_maneuver_m = state->distance_to_maneuver_m;
 }
 
+extern "C" void moto_nav_ui_show_waypoint_reached(uint8_t index, uint8_t total) {
+  const std::lock_guard<std::mutex> lock(probe_mutex);
+  ++waypoint_notice_count;
+  last_waypoint_index = index;
+  last_waypoint_total = total;
+}
+
+extern "C" void moto_nav_ui_clear_waypoint_reached(void) {
+  const std::lock_guard<std::mutex> lock(probe_mutex);
+  ++waypoint_clear_count;
+}
+
 extern "C" void moto_nav_ui_set_motion_state(const moto_ui_state_t* state) {
   moto_nav_ui_set_state(state);
 }
@@ -153,6 +169,10 @@ namespace moto::test {
 void reset_phone_nav_bridge_probe() {
   const std::lock_guard<std::mutex> lock(probe_mutex);
   apply_count = 0;
+  waypoint_notice_count = 0;
+  waypoint_clear_count = 0;
+  last_waypoint_index = 0;
+  last_waypoint_total = 0;
   board_lock_count = 0;
   board_lock_available = true;
   last_road_name.clear();
@@ -215,6 +235,26 @@ void emit_demo_change(bool enabled) {
   if (callback == nullptr) return;
   const std::lock_guard<std::recursive_mutex> lock(board_mutex);
   callback(enabled ? 1U : 0U, context);
+}
+
+int phone_nav_bridge_waypoint_notice_events() {
+  const std::lock_guard<std::mutex> lock(probe_mutex);
+  return waypoint_notice_count;
+}
+
+int phone_nav_bridge_waypoint_clear_events() {
+  const std::lock_guard<std::mutex> lock(probe_mutex);
+  return waypoint_clear_count;
+}
+
+uint8_t phone_nav_bridge_last_waypoint_notice_index() {
+  const std::lock_guard<std::mutex> lock(probe_mutex);
+  return last_waypoint_index;
+}
+
+uint8_t phone_nav_bridge_last_waypoint_notice_total() {
+  const std::lock_guard<std::mutex> lock(probe_mutex);
+  return last_waypoint_total;
 }
 
 int phone_nav_bridge_apply_count() {

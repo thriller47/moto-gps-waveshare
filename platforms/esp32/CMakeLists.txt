@@ -37,6 +37,13 @@ if(NOT DEFINED IDF_TARGET)
     set(IDF_TARGET "esp32s3" CACHE STRING "ESP-IDF chip target")
 endif()
 
+# The standard local ESP32 configuration now includes FreeRTOS runtime stats,
+# matching the road-tested firmware and the valhalla CI command. Existing
+# sdkconfig files must be checked/reconfigured: defaults do not override them.
+if(NOT DEFINED SDKCONFIG_DEFAULTS)
+    set(SDKCONFIG_DEFAULTS "sdkconfig.defaults;sdkconfig.perf.defaults")
+endif()
+
 set(PROJECT_VER "0.2.1")
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(moto_gps_esp32)

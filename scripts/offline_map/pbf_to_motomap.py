@@ -5,7 +5,7 @@ Requires: python -m pip install osmium
 Usage: python scripts/offline_map/pbf_to_motomap.py italy-nord-ovest.osm.pbf -o nord-ovest.motomap.zip
 
 Import resulting ZIP in Moto-GPS Android > Gestione Mappe Offline.
-MotoMap v3 stores OSM node IDs and road levels for safe junction filtering.
+MotoMap v4 stores OSM node IDs, road levels, and explicit OSM roundabout tags.
 A ZIP contains standard tile_15_X_Y.motomap entries; no Render or Overpass calls.
 """
 import argparse
@@ -27,6 +27,10 @@ KEEP = {
     "residential": 3, "unclassified": 3, "service": 3,
 }
 SPEED = [110, 90, 70, 50]
+# Mandatory v4 junction code: 0=ordinary way, 1=junction=roundabout,
+# 2=junction=circular. Never infer roundabouts from the highway class.
+JUNCTION_KIND = {"roundabout": 1, "circular": 2}
+JUNCTION_SCHEMA = "osm-junction-way-v4"
 
 
 def tile(lat, lon):
@@ -70,13 +74,16 @@ def rows_for_way(way):
     m = re.fullmatch(r"(\d{1,3})(?: km/h)?", raw_speed.strip())
     speed = int(m.group(1)) if m and 5 <= int(m.group(1)) <= 140 else SPEED[cls]
     level = road_level(way.tags)
+    junction_kind = JUNCTION_KIND.get(way.tags.get("junction"), 0)
     points = []
     for node in way.nodes:
         if not node.location.valid() or node.ref <= 0:
             continue
         coord = (round(node.lat * 1_000_000), round(node.lon * 1_000_000),
                  to_base36(node.ref))
-        if not points or points[-1][:2] != coord[:2]:
+        # Do not drop different OSM nodes just because their coordinates
+        # round to the same E6 position: exits depend on exact NodeId links.
+        if not points or points[-1] != coord:
             points.append(coord)
     if len(points) < 2:
         return ()
@@ -87,7 +94,7 @@ def rows_for_way(way):
             continue
         box = (min(p[0] for p in segment), min(p[1] for p in segment),
                max(p[0] for p in segment), max(p[1] for p in segment))
-        line = f"{cls},{speed},{level},{way.id}|{','.join(map(str, box))}|" + ";".join(
+        line = f"{cls},{speed},{level},{way.id},{junction_kind}|{','.join(map(str, box))}|" + ";".join(
             f"{lat},{lon},{node_id}" for lat, lon, node_id in segment) + "\n"
         # Assign to all tile cells intersected by polyline, rather than just
         # the way's starting point. Long ways must remain accessible everywhere.
@@ -161,9 +168,18 @@ class Converter(osmium.SimpleHandler):
         self.buckets = collections.defaultdict(list)
         self.ways = 0
         self.roads = 0
+        self.roundabout_ways = 0
+        self.circular_ways = 0
 
     def way(self, way):
-        for touched, line in rows_for_way(way):
+        rows = rows_for_way(way)
+        if rows:
+            junction_kind = JUNCTION_KIND.get(way.tags.get("junction"), 0)
+            if junction_kind == 1:
+                self.roundabout_ways += 1
+            elif junction_kind == 2:
+                self.circular_ways += 1
+        for touched, line in rows:
             for x, y in touched:
                 self.buckets[(x, y)].append(line)
                 self.roads += 1
@@ -193,14 +209,19 @@ def main():
             archive.writestr("coverage_z14.txt",
                 "".join(f"{x},{y}\n" for x, y in covered),
                 compress_type=zipfile.ZIP_DEFLATED)
-        archive.writestr("motomap_v3.json", json.dumps({
-            "format": "motomap", "version": 3, "zoom": ZOOM,
+        archive.writestr("motomap_v4.json", json.dumps({
+            "format": "motomap", "version": 4, "zoom": ZOOM,
             "topology": "osm-node-ids-base36", "level": "osm-layer-or-bridge-tunnel",
+            "junction": JUNCTION_SCHEMA,
             "coverage": "poly-full-z14" if args.coverage_poly else "unknown",
-            "certified_z14": len(covered), "road_tiles": count
+            "certified_z14": len(covered), "road_tiles": count,
+            "roundabout_ways": handler.roundabout_ways,
+            "circular_ways": handler.circular_ways
         }), compress_type=zipfile.ZIP_DEFLATED)
     print(f"{handler.ways} road segments -> {count} tiles ({handler.roads} indexed road records)")
     print(f"Certified z14 coverage cells: {len(covered)}")
+    print(f"OSM junction-tagged ways: roundabout={handler.roundabout_ways}, "
+          f"circular={handler.circular_ways}")
     print(f"Import on Android: {args.output}")
 
 

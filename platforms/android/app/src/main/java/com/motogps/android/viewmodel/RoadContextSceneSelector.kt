@@ -8,10 +8,11 @@ import kotlin.math.hypot
 import kotlin.math.roundToInt
 
 /**
- * Explicit BLE scene allocation. Focus + exits have priority, but at least
- * six independent GPS-local roads are reserved BEFORE upcoming/extra roads.
+ * Explicit BLE scene allocation. Focus + exits have priority; six independent
+ * GPS-local roads stay reserved, with two of those slots favouring genuine
+ * near-route context when the motorcycle is on the route.
  * A single ring and up to seven distinct outgoing branches take precedence
- * over additional, less relevant local streets (20 roads / 160 points total).
+ * over less relevant local streets (20 roads / 160 points total).
  * All geometry is chosen from MotoMap, never restricted to the calculated
  * route: the rider must still see streets during a deviation.
  */
@@ -25,8 +26,19 @@ internal object RoadContextSceneSelector {
     // A lane near the next manoeuvre must outrank unrelated lanes just behind
     // the rider; six local GPS roads remain protected when navigating off-route.
     private const val MAX_FORWARD_DISTANCE_M = 58.0
+
+    // MotoMap v4 records highway classes, but not OSM access=private.
+    // A modest soft penalty favours major roads without removing local roads
+    // or suppressing a junction's protected ring/exits. Keep tagged rings
+    // neutral when they are candidates for secondary circuit context.
+    private fun importancePenaltyMeters(road: MapRoadSegment): Double = when {
+        road.junctionKind != 0 -> 0.0
+        road.roadClass <= 1 -> 0.0
+        road.roadClass == 2 -> 4.0
+        else -> 18.0
+    }
     private data class ForwardRoad(val road: MapRoadSegment,
-        val anchor: GeoPointE6, val score: Double)
+        val anchor: GeoPointE6, val score: Double, val forwardM: Double)
 
     enum class Role { RING, EXIT, GPS, UPCOMING, EXTRA }
     data class Drawn(val road: MapRoadSegment, val points: List<GeoPointE6>, val role: Role)
@@ -35,7 +47,11 @@ internal object RoadContextSceneSelector {
         val slotCounts: Map<Role, Int>,
         val pointCounts: Map<Role, Int>,
         val offRouteGpsRoads: Int,
-        val roadsNotDrawn: Int
+        val roadsNotDrawn: Int,
+        val nearRouteRoadsDrawn: Int = 0,
+        val secondaryClosedRings: Int = 0,
+        val continuedExitWays: Int = 0,
+        val continuedExitBranches: Int = 0
     ) {
         val slots: Int get() = drawn.size
         val points: Int get() = drawn.sumOf { it.points.size }
@@ -78,8 +94,44 @@ internal object RoadContextSceneSelector {
         val gps = GeoPointE6((latitude * 1e6).roundToInt(),
             (longitude * 1e6).roundToInt())
         val ringMembers = focus?.members?.toSet().orEmpty()
-        val available = roads.filter { it !in ringMembers }
-        val gpsOrder = available.sortedBy { metric.distance(gps, it.points) }
+        val chosenExits = focus?.exits?.take(MAX_EXITS).orEmpty()
+        val ringNodeIds = focus?.ring?.nodeIds?.filter { it > 0L }?.toSet().orEmpty()
+        val exitExtensions = LinkedHashMap<MapRoadSegment, RoadContextExitContinuations.Extension>()
+        val consumedWays = HashSet<MapRoadSegment>()
+        // Spend existing EXIT polylines on the continuation of each branch
+        // instead of allocating a new BLE road slot to every successive way.
+        // Never reuse one continuation for two different exits.
+        for (exit in chosenExits) {
+            val extension = RoadContextExitContinuations.extend(
+                exit, roads, ringNodeIds, ringMembers,
+                chosenExits.toSet(), consumedWays, latitude)
+            exitExtensions[exit] = extension
+            consumedWays.addAll(extension.consumedWays)
+        }
+        val available = roads.filter { it !in ringMembers && it !in consumedWays }
+        val gpsOrder = available.sortedBy {
+            metric.distance(gps, it.points) + importancePenaltyMeters(it)
+        }
+        // The old forward probes started 90m ahead. On a small ring the
+        // unprotected 0-90m corridor can contain almost the entire junction.
+        // Preserve four nearest GPS roads plus two independent near-route
+        // roads (when actually on-route), never suppress the off-route map.
+        val nearRouteProbes = if (route.size >= 2 &&
+            metric.distance(gps, route) <= 25.0) {
+            RoadContextUpcoming.probes(route, latitude)
+                .filter { (metres, _) -> metres <= 75.0 }
+                .map { it.second }
+        } else emptyList()
+        val nearRouteOrder = if (nearRouteProbes.isNotEmpty()) {
+            available.asSequence().filter { road ->
+                metric.distance(gps, road.points) <= 95.0 &&
+                    nearRouteProbes.any { probe ->
+                        metric.distance(probe, road.points) <= 13.0
+                    }
+            }.sortedBy { road ->
+                metric.distance(gps, road.points) + importancePenaltyMeters(road)
+            }.toList()
+        } else emptyList()
         // Sample the *forward route corridor*, not a single point 90-220m
         // ahead. A long OSM way must later be clipped at its own junction,
         // otherwise the chosen exit can remain outside its transmitted window.
@@ -95,13 +147,23 @@ internal object RoadContextSceneSelector {
                 }.minBy { it.first + it.second * 0.015 }
                 if (best.first > MAX_FORWARD_DISTANCE_M) null
                 else ForwardRoad(road, best.third, best.first + best.second * 0.015 +
-                    road.roadClass.coerceIn(0, 4) * 1.5)
+                    importancePenaltyMeters(road), best.second)
             }.sortedBy { it.score }
         } else emptyList()
         val forwardAnchor = forwardRoads.associate { it.road to it.anchor }
         val upcomingOrder = when {
-            forwardRoads.isNotEmpty() -> forwardRoads.map { it.road }
-            upcoming != null -> available.sortedBy { metric.distance(upcoming, it.points) }
+            forwardRoads.isNotEmpty() -> {
+                // Immediate 20-75m probes must not crowd out junctions
+                // 90-500m ahead. Protect three nearby and three farther
+                // candidates before returning to the overall score order.
+                val near = forwardRoads.filter { it.forwardM < 90.0 }
+                val far = forwardRoads.filter { it.forwardM >= 90.0 }
+                (near.take(3) + far.take(3) + forwardRoads)
+                    .distinctBy { it.road }.map { it.road }
+            }
+            upcoming != null -> available.sortedBy {
+                metric.distance(upcoming, it.points) + importancePenaltyMeters(it)
+            }
             else -> emptyList()
         }
         // LinkedHashMap de-duplicates overlapping GPS/focus/upcoming lists
@@ -111,10 +173,23 @@ internal object RoadContextSceneSelector {
             if (priority.size < MAX_ROADS) priority.putIfAbsent(road, role)
         }
         focus?.ring?.let { add(it, Role.RING) }
-        focus?.exits?.take(MAX_EXITS)?.forEach { add(it, Role.EXIT) }
-        // This reserve is independent of the route, even when GPS is off-route.
-        gpsOrder.asSequence().filterNot { it in priority }.take(MIN_GPS_ROADS)
-            .forEach { add(it, Role.GPS) }
+        chosenExits.forEach { add(it, Role.EXIT) }
+        // Retain the six-road GPS reserve, but trade at most two purely
+        // proximity-ranked slots for streets on the immediate route.
+        // No active/credible route: use the existing six nearest roads.
+        val gpsReserve = LinkedHashSet<MapRoadSegment>()
+        gpsOrder.asSequence().filterNot { it in priority }.take(
+            if (nearRouteOrder.isEmpty()) MIN_GPS_ROADS else 4
+        ).forEach { gpsReserve.add(it) }
+        if (nearRouteOrder.isNotEmpty()) {
+            nearRouteOrder.asSequence().filterNot { it in priority || it in gpsReserve }
+                .take(2).forEach { gpsReserve.add(it) }
+        }
+        for (road in gpsOrder) {
+            if (gpsReserve.size >= MIN_GPS_ROADS) break
+            if (road !in priority) gpsReserve.add(road)
+        }
+        gpsReserve.forEach { add(it, Role.GPS) }
         upcomingOrder.asSequence().filterNot { it in priority }.take(
             if (forwardRoads.isEmpty()) 4 else MAX_UPCOMING_ROADS
         ).forEach { add(it, Role.UPCOMING) }
@@ -134,12 +209,19 @@ internal object RoadContextSceneSelector {
             // spend all 160 points while local context is still outstanding.
             val later = items.size - index - 1
             val allowance = (remaining - 2 * later).coerceAtLeast(2)
+            // A closed OSM circuit must remain closed even when it is NOT
+            // the selected focus ring. Otherwise generic around() clips its
+            // 10-20 vertices to an open 8-point fragment.
+            val secondaryClosedRing = role != Role.RING &&
+                role != Role.EXIT && RoadContextJunctions.isClosedRing(road)
             val limit = minOf(allowance, when (role) {
                 Role.RING -> 20
-                Role.EXIT -> 10
-                else -> 8
+                Role.EXIT -> 14
+                else -> if (secondaryClosedRing) 16 else 8
             })
-            val shape = when (role) {
+            val shape = if (secondaryClosedRing && limit >= 4) {
+                RoadContextWindow.closedRing(road.points, latitude, limit)
+            } else when (role) {
                 Role.RING -> RoadContextWindow.closedRing(
                     road.points, latitude, limit, focus?.junctionPoints.orEmpty()
                 ).ifEmpty {
@@ -147,7 +229,8 @@ internal object RoadContextSceneSelector {
                 }
                 Role.EXIT -> {
                     val connection = road.points.firstOrNull { it in focus?.junctionPoints.orEmpty() }
-                    RoadContextWindow.around(road.points,
+                    RoadContextWindow.around(
+                        exitExtensions[road]?.points ?: road.points,
                         connection?.latitudeE6?.div(1e6) ?: latitude,
                         connection?.longitudeE6?.div(1e6) ?: longitude, limit)
                 }
@@ -178,7 +261,17 @@ internal object RoadContextSceneSelector {
                 metric.length(point, gps)
             }?.let { nearest -> metric.distance(nearest, route) > 20.0 } == true
         }
-        return Result(drawn, slots, points, offRoute, items.size - drawn.size)
+        val nearRouteDrawn = drawn.count { it.road in nearRouteOrder }
+        val secondaryClosed = drawn.count { item ->
+            item.role != Role.RING && item.points.size >= 4 &&
+                item.points.first() == item.points.last() &&
+                RoadContextJunctions.isClosedRing(item.road)
+        }
+        val sentExits = drawn.filter { it.role == Role.EXIT }.map { it.road }
+        return Result(drawn, slots, points, offRoute, items.size - drawn.size,
+            nearRouteDrawn, secondaryClosed,
+            sentExits.sumOf { exitExtensions[it]?.consumedWays?.size ?: 0 },
+            sentExits.count { exitExtensions[it]?.consumedWays?.isNotEmpty() == true })
     }
 }
 
@@ -194,7 +287,10 @@ internal object RoadContextUpcoming {
                 (b.longitudeE6 - a.longitudeE6) / 1e6 * lonScale)
         }
         if (lengthM < 35.0) return emptyList()
-        return listOf(90.0, 160.0, 240.0, 320.0, 420.0, 500.0)
+        // Keep the next 20-75m visible through a turn/roundabout before
+        // reserving distant lanes. This is still a bounded sparse set.
+        return listOf(20.0, 45.0, 75.0, 90.0, 160.0,
+            240.0, 320.0, 420.0, 500.0)
             .filter { it <= lengthM }
             .ifEmpty { listOf(lengthM) }
             .mapNotNull { metres ->

@@ -82,7 +82,7 @@ class HybridMapRepositoryTest {
     }
 
     @Test
-    fun readsLegacyCheckpointTilesWithoutNewDownloads() {
+    fun ignoresLegacyCheckpointRowsWithoutV4JunctionHeader() {
         val context = mock(Context::class.java)
         `when`(context.filesDir).thenReturn(temporaryFiles.root)
         val cache = HybridMapRepository(context)
@@ -94,8 +94,7 @@ class HybridMapRepositoryTest {
             "# completed tile\n3,50|45000000,8000000,45000100,8000000|45000000,8000000;45000100,8000000\n"
         )
         val roads = cache.loadFromRegionalFiles(44_995_000, 7_995_000, 45_005_000, 8_005_000)
-        assertEquals(1, roads.size)
-        assertEquals(2, roads.single().points.size)
+        assertEquals(0, roads.size)
     }
 
     @Test
@@ -108,9 +107,12 @@ class HybridMapRepositoryTest {
         val tile = GatewayRoadTiles.tileFor(45.0, 8.0)
         val archive = File(packages, "italy-test.motomap.zip")
         ZipOutputStream(archive.outputStream().buffered()).use { zip ->
+            zip.putNextEntry(ZipEntry("motomap_v4.json"))
+            zip.write("""{"format":"motomap","version":4,"zoom":15,"topology":"osm-node-ids-base36","junction":"osm-junction-way-v4"}""".toByteArray())
+            zip.closeEntry()
             zip.putNextEntry(ZipEntry("tile_${tile.key}.motomap"))
             zip.write(
-                "# OSM import\\n3,50,1,34567|45000000,8000000,45000100,8000000|45000000,8000000,2s;45000100,8000000,2t\\n"
+                "# OSM import\\n3,50,1,34567,1|45000000,8000000,45000100,8000000|45000000,8000000,2s;45000100,8000000,2t\\n"
                     .replace("\\n", "\n").toByteArray(Charsets.UTF_8)
             )
             zip.closeEntry()
@@ -123,6 +125,49 @@ class HybridMapRepositoryTest {
         assertEquals(34567L, roads.first().osmWayId)
         assertEquals(1, roads.first().layer)
         assertEquals(listOf(100L, 101L), roads.first().nodeIds)
+        assertEquals(1, roads.first().junctionKind)
+    }
+
+    @Test
+    fun ignoresPreviouslyInstalledV3ZipInsteadOfSilentlyParsingIt() {
+        val context = mock(Context::class.java)
+        `when`(context.filesDir).thenReturn(temporaryFiles.root)
+        val packages = File(temporaryFiles.root, "maps/.osm_packages")
+        assertTrue(packages.mkdirs())
+        val tile = GatewayRoadTiles.tileFor(45.0, 8.0)
+        val archive = File(packages, "old-italy.motomap.zip")
+        ZipOutputStream(archive.outputStream()).use { zip ->
+            zip.putNextEntry(ZipEntry("motomap_v3.json"))
+            zip.write("""{"format":"motomap","version":3,"zoom":15}""".toByteArray())
+            zip.closeEntry()
+            zip.putNextEntry(ZipEntry("tile_${tile.key}.motomap"))
+            zip.write("3,50,1,34567|45000000,8000000,45000100,8000000|45000000,8000000,2s;45000100,8000000,2t\n".toByteArray())
+            zip.closeEntry()
+        }
+        val roads = HybridMapRepository(context).loadFromRegionalFiles(
+            44_995_000, 7_995_000, 45_005_000, 8_005_000)
+        assertTrue(roads.isEmpty())
+    }
+
+    @Test
+    fun readsExplicitOpenFreeMapCorridorWithoutInventingTopology() {
+        val context = mock(Context::class.java)
+        `when`(context.filesDir).thenReturn(temporaryFiles.root)
+        val maps = File(temporaryFiles.root, "maps")
+        assertTrue(maps.mkdirs())
+        val base = GatewayRoadTiles.tileFor(45.0, 8.0)
+        val online = File(maps,
+            "ofm_trial_14_${base.x / 2}_${base.y / 2}.motomap")
+        online.writeText(
+            "3,50|45000000,8000000,45000100,80000100|45000000,8000000;45000100,80000100\n")
+        val roads = HybridMapRepository(context).loadFromRegionalFiles(
+            44_995_000, 7_995_000, 45_005_000, 8_005_000)
+        assertEquals(1, roads.size)
+        assertEquals(2, roads.single().points.size)
+        assertEquals(3, roads.single().roadClass)
+        assertEquals(0, roads.single().junctionKind)
+        assertTrue(roads.single().nodeIds.isEmpty())
+        assertEquals(null, roads.single().osmWayId)
     }
 
     @Test

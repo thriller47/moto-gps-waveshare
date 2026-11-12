@@ -22,8 +22,8 @@ internal object OpenFreeMapTileProbe {
 
     fun downloadOneTile(context: Context, latitude: Double, longitude: Double): Result {
         // OpenFreeMap/OpenMapTiles vector data has maxzoom=14. The shared
-        // GatewayRoadTiles grid is z15 for Overpass and must not be used
-        // directly in the OpenFreeMap HTTP tile path.
+        // GatewayRoadTiles uses z15 for MotoMap geometry and cannot be used
+        // directly as a z14 OpenFreeMap HTTP tile coordinate.
         val osmTile = GatewayRoadTiles.tileFor(latitude, longitude)
         val z = 14
         val tile = GatewayRoadTiles.Tile(osmTile.x / 2, osmTile.y / 2)

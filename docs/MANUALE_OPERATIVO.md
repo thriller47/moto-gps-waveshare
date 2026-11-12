@@ -3,7 +3,7 @@
 **Riferimento:** repository thriller47/moto-gps-waveshare, branch principale **valhalla**. 
 **Scheda:** Waveshare ESP32-S3-Touch-AMOLED-1.75C, 32 MB flash, 8 MB PSRAM.
 **Porta negli esempi:** **COM3**. I blocchi sono etichettati **PowerShell** o **CMD**: usare la shell indicata. 
-**Aggiornato:** 10 novembre 2026 (matcher validato su strada e strumenti diagnostici integrati in `valhalla`). Controllare prima PROJECT_STATE.md e AGENTS.md.
+**Aggiornato:** 12 novembre 2026 (merge del test sulle rotonde, MotoMap v4 e opzioni ESP32 prestazionali attive anche in valhalla). Controllare prima PROJECT_STATE.md e AGENTS.md.
 
 > **Attenzione:** il branch main è stato eliminato; signal resta solo come storico OSM online. Non usare né main né NoOta come base. Effettuare il flash soltanto con immagini della scheda 1.75C.
 
@@ -104,14 +104,14 @@ Dopo `moto`, nella finestra CMD:
 
 ~~~cmd
 idf.py --version
-idf.py build
+idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.perf.defaults" build
 ~~~
 
 Solo in caso di necessità di pulizia della build (verificare di essere nella cartella del firmware):
 
 ~~~cmd
 idf.py fullclean
-idf.py build
+idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.perf.defaults" build
 ~~~
 
 Con scheda Waveshare connessa a COM3 e monitor seriale chiuso:
@@ -119,6 +119,8 @@ Con scheda Waveshare connessa a COM3 e monitor seriale chiuso:
 ~~~cmd
 idf.py -p COM3 flash monitor
 ~~~
+
+**Dal 12 novembre, su valhalla sono abilitate di default le opzioni ESP32 CURVE_ZOOM, SUBPIXEL, MAP_DIRTY_TILES e PERF_TELEMETRY.** Anche le build CI di valhalla usano questi quattro flag e `sdkconfig.perf.defaults`. Per una build locale precedentemente configurata senza statistiche FreeRTOS, verificare le righe `CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS` in `platforms\\esp32\\sdkconfig`: i nuovi defaults non sovrascrivono un sdkconfig già esistente. Se la configurazione rimane precedente, rigenerarla con cura (salvando eventuali impostazioni personalizzate), senza cancellare partizioni flash, mappe o NVS. La telemetria periodica aiuta la diagnosi LVGL ma non è di per sé una garanzia di fluidità.
 
 La riuscita del comando `moto` **non dimostra da sola** che compilazione, flash o prova su strada siano passati.
 
@@ -192,6 +194,80 @@ C:\MotoGPS\ESP32-Firmware\
 
 Se lo ZIP è stato estratto in una cartella aggiuntiva, aprire quella che contiene i tre percorsi qui sopra. **Non rinominare né appiattire le sottocartelle**.
 
+## 2A. Compilare l'APK Android in locale con Android Studio (Windows, verificato 11/11/2026)
+
+**Quando usarlo:** alternativa a GitHub Actions se una build rimane `queued`, oppure per test rapidi. L'utente ha confermato apertura del progetto senza errori, compilazione locale, installazione dell'APK e navigazione senza richiesta di tile mancanti. **Non** equivale a un collaudo su strada delle rotatorie v4 o del download online. Dopo il merge del 12 novembre usare **`valhalla`** per il lavoro ordinario e per le nuove build; la descrizione del vecchio branch sperimentale rimane soltanto storica.
+
+### A. Aggiornare il codice — Windows PowerShell
+
+Aprire **PowerShell** e verificare prima che non ci siano modifiche locali da perdere:
+
+~~~powershell
+Set-Location "C:\MotoGPS\moto-gps-waveshare"
+git status --short
+git fetch origin
+git switch test/roundabout-topology-20261110
+git pull --ff-only origin test/roundabout-topology-20261110
+git submodule update --init --recursive
+git log -1 --oneline
+~~~
+
+**Versione usata nel collaudo locale dell'11/11/2026:** `83c7133` (pulizia Overpass e test bordi Mercator); il commit della presente documentazione può essere successivo. Non confondere un APK locale di un branch test con una build di `valhalla`.
+
+### B. Aprire il progetto e configurare gli strumenti
+
+Installare **Android Studio**; dalla schermata iniziale selezionare **Open**, senza creare un progetto nuovo, e aprire **esattamente**:
+
+`C:\MotoGPS\moto-gps-waveshare\platforms\android`
+
+Il progetto richiede **Gradle 8.11.1** (wrapper `gradlew.bat`), **Android Gradle Plugin 8.10.1**, **Kotlin 2.2.10** e **Android SDK Platform 36**. In **SDK Manager** controllare e installare, se richiesti, **Build-Tools**, **NDK 27.0.12077973** e **CMake 3.22.1**. La prima importazione/sincronizzazione Gradle può scaricare dipendenze e richiedere tempo.
+
+In **Settings → Build, Execution, Deployment → Build Tools → Gradle → Gradle JDK** scegliere il **JDK 21 (JBR 21)** integrato, come usato nella prova locale. Il codice continua a compilare con **source/target Java 17**: non occorre cambiare il `jvmTarget`. Anche JDK 17 è supportato; non aggiornare alla cieca il wrapper Gradle o i plugin quando Android Studio suggerisce nuove versioni.
+
+Attendere **Gradle Sync** senza errori. Se la sincronizzazione non riesce, leggere il primo errore e verificare SDK, NDK, CMake, Gradle JDK e connessione: **non** cancellare cache o cartelle del progetto senza diagnosi.
+
+### C. Test unitari e APK debug — Terminale PowerShell di Android Studio
+
+Aprire **View → Tool Windows → Terminal** (scorciatoia `Alt+F12`), selezionando un terminale **PowerShell**. Portarsi nella radice del progetto Android:
+
+~~~powershell
+Set-Location "C:\MotoGPS\moto-gps-waveshare\platforms\android"
+.\gradlew.bat testDebugUnitTest assembleDebug
+~~~
+
+Per produrre solo l'APK, senza lanciare tutti i test unitari:
+
+~~~powershell
+.\gradlew.bat assembleDebug
+~~~
+
+Accettare soltanto il risultato esplicito **`BUILD SUCCESSFUL`**; con `BUILD FAILED` leggere il primo errore, senza presumere che l'APK sia valido. Il gradle task `testDebugUnitTest` esegue test **JVM Android**: non sostituisce test stradali, Android instrumentation test, ESP32 o native CI. Nel collaudo riportato dall'utente sono confermati compilazione e installazione riuscite, ma **non è stato fornito un report indipendente del numero di test Gradle superati**.
+
+L'APK generato si trova in:
+
+`C:\MotoGPS\moto-gps-waveshare\platforms\android\app\build\outputs\apk\debug\app-debug.apk`
+
+### D. Installazione Android e precauzioni sulla firma
+
+Trasferire `app-debug.apk` al telefono e installarlo; in alternativa, con ADB configurato e debug USB autorizzato:
+
+~~~powershell
+adb devices
+adb install -r "C:\MotoGPS\moto-gps-waveshare\platforms\android\app\build\outputs\apk\debug\app-debug.apk"
+~~~
+
+`app-debug.apk` **è firmato automaticamente** con una chiave debug, **non è privo di firma**. La chiave locale può differire da quella generata da GitHub Actions; Android accetta un aggiornamento `adb install -r` solo con **firma compatibile** e **versionCode non inferiore**. Nel `app/build.gradle.kts` locale il `versionCode` predefinito è `2` se `MOTO_GPS_VERSION_CODE` non è impostato. Se un futuro APK ha firma/versione incompatibile, **non disinstallare impulsivamente**: prima eseguire backup degli archivi.
+
+Nel collaudo dell'11/11/2026 **l'app precedente era già stata disinstallata**, quindi non c'era alcuna firma installata da confrontare. La disinstallazione può cancellare i file privati: potrebbe essere necessario reimportare `italy-v4.motomap.zip` e il grafo Italia Valhalla `.tar`/`.tar.zst`, senza rigenerarli sul PC. Conservare sempre gli originali fuori dalla cartella privata Android. Per una firma persistente consultare `docs/android-apk-signing.md`.
+
+### E. Verifica funzionale dopo l'installazione
+
+Aprire Moto Chat GPS; verificare che MotoMap **v4** e il grafo **Valhalla** risultino installati (reimportarli solo se assenti), calcolare un percorso italiano e premere **Avvia navigazione**. Con un percorso all'interno della copertura certificata `coverage_z14.txt`, il dialogo di scaricamento non deve comparire inutilmente. Il test locale del **11 novembre 2026** ha dato esito positivo su **un percorso provato**: l'utente segnala **navigazione avviata senza richiesta di download**. Questo non prova ancora tutte le rotatorie o il corridoio OpenFreeMap online.
+
+**Prossima prova su strada:** ripetere il giro delle rotatorie problematiche con diagnostica Android attiva; osservare anello completo, uscite, zoom, eventuali ricalcoli e tappa; esportare il log e controllare `OSM_RING` (`osm_tagged`), `OSM_RING_SEARCH` e `OFM_COVERAGE`. Nessun aggiornamento ESP32 necessario **per la sola correzione v4/online/Overpass**; altri sviluppi firmware sperimentali vanno verificati separatamente.
+
+---
+
 ## 3. Flash ESP32 su COM3 — dall'artifact GitHub
 
 Scollegare monitor seriali/Arduino IDE prima di usare esptool: COM3 deve essere libera. Installare esptool, se necessario, oppure usare l'esptool.exe già disponibile.
@@ -236,10 +312,10 @@ Per esempio scaricare **italy-latest.osm.pbf**, oppure una sottoregione come **n
 mkdir C:\MotoGPS\PBF
 cd /d C:\MotoGPS\moto-gps-waveshare
 python -m pip install osmium
-python scripts\offline_map\pbf_to_motomap.py C:\MotoGPS\PBF\italy-latest.osm.pbf -o C:\MotoGPS\PBF\italia.motomap.zip
+python scripts\offline_map\pbf_to_motomap.py C:\MotoGPS\PBF\italy-latest.osm.pbf -o C:\MotoGPS\PBF\italia-v4.motomap.zip
 ~~~
 
-L'ultimo comando genera **italia.motomap.zip**, leggibile direttamente dall'app: **Gestione mappe → Importa mappa ZIP**. Non decomprimere il pacchetto sul telefono.
+L'ultimo comando genera **italia-v4.motomap.zip**, leggibile direttamente dall'app: **Gestione mappe → Importa mappa ZIP**. Non decomprimere il pacchetto sul telefono.
 
 Per una sottoregione, sostituire il nome del PBF e usare un output differente:
 
@@ -249,31 +325,40 @@ python scripts\offline_map\pbf_to_motomap.py C:\MotoGPS\PBF\nord-ovest-latest.os
 
 Il convertitore Python è in memoria e l'intera Italia può usare diversi GB di RAM: chiudere programmi pesanti e controllare spazio disco. I PBF di Geofabrik **non sono** direttamente importabili come MotoMap.
 
-### MotoMap v3: poligono di copertura e topologia dei cavalcavia (branch test)
+### MotoMap v4: rotatorie OSM esplicite (integrate in valhalla, 12 novembre 2026)
 
-**Stato al 4 novembre 2026:** nel branch sperimentale `test/road-contrast-cleanup-20261104`, il convertitore genera **MotoMap v3** (`motomap_v3.json`). Oltre alle tile z15, conserva gli ID dei nodi OSM (base36) e il livello strada/ponte/galleria, disponibili per l'analisi topologica delle connessioni; **il filtro di livello/cavalcavia è attualmente disabilitato** dopo regressioni su strada, quindi questi metadati non vengono usati per nascondere strade. Il file `coverage_z14.txt` continua a certificare solo le celle interamente comprese nel perimetro Geofabrik. I pacchetti v2 restano supportati dall'app; `valhalla` rimane separato fino alla prova completa.
+**MotoMap v4 sostituisce v3, senza retrocompatibilità.** L'APK sperimentale legge solo i pacchetti con manifest `motomap_v4.json`, `version=4`, `junction=osm-junction-way-v4`. Gli ZIP v3 precedenti non vengono più caricati. L'importazione rifiuta i pacchetti che non rispettano il nuovo formato. Conservare un backup del vecchio ZIP su PC per sicurezza, poi rimuoverlo dall'elenco mappe Android e importare il nuovo ZIP v4.
 
-Conservare PBF e `.poly` in `C:\MotoGPS\PBF` e usare lo **script del branch test**, non quello di `valhalla` finché il merge non sarà approvato. Esempio PowerShell:
+Ogni riga di strada ha intestazione obbligatoria `classe,velocita,layer,osmWayId,junctionKind|bbox|latE6,lonE6,nodeIdBase36;...`:
+`junctionKind=0` è una strada ordinaria, `1` corrisponde a `junction=roundabout` OSM, `2` a `junction=circular`. Rimangono gli ID dei nodi OSM originali, anche quando più nodi condividono coordinate E6 arrotondate. Il lettore non accetta le righe v3 senza il nuovo campo. Nel riconoscimento Android gli archi OSM esplicitamente taggati hanno precedenza entro il budget esistente di 90 archi e possono comporre anelli fino a 18 way, mentre il DFS geometrico ordinario conserva gli otto way precedenti. **Non cambia il routing Valhalla, né il formato BLE o i 20/160 punti della scena.** Le `highway=mini_roundabout` rappresentate come soli nodi non vengono ancora sintetizzate come cerchi; richiederanno un indice dedicato in una fase successiva.
+
+In **Windows PowerShell**, dopo aver aggiornato il branch sperimentale e installato `osmium` (e `shapely` soltanto con `--coverage-poly`):
 
 ~~~powershell
 cd C:\MotoGPS\moto-gps-waveshare
-git switch test/road-contrast-cleanup-20261104
+git fetch origin
+git switch test/roundabout-topology-20261110
+git pull --ff-only origin test/roundabout-topology-20261110
 python -m pip install osmium shapely
-python scripts\offline_map\pbf_to_motomap.py C:\MotoGPS\PBF\italy-261101.osm.pbf -o C:\MotoGPS\PBF\italy-v3.motomap.zip --coverage-poly C:\MotoGPS\PBF\italy.poly
+python scripts\offline_map\pbf_to_motomap.py C:\MotoGPS\PBF\italy-261101.osm.pbf -o C:\MotoGPS\PBF\italy-v4.motomap.zip --coverage-poly C:\MotoGPS\PBF\italy.poly
 ~~~
 
-Sostituire il nome del PBF con quello reale: lo script non richiede una cartella diversa da `C:\MotoGPS\PBF`. **Non rigenerare** un pacchetto v3 già valido soltanto perché il file si chiama `italy-v2.motomap.zip`: la versione effettiva dipende dal metadata interno, non dal nome ZIP. Per controllare il file già prodotto:
+Sostituire il PBF con il nome effettivamente presente in `C:\MotoGPS\PBF` e assicurarsi che `italy.poly` descriva **lo stesso estratto**. Per verificare prima dell'importazione:
 
 ~~~powershell
-python -c "import zipfile,json; p=r'C:\MotoGPS\PBF\italy-v2.motomap.zip'; z=zipfile.ZipFile(p); print(json.dumps(json.loads(z.read('motomap_v3.json')),indent=2)); print('Coverage:', 'coverage_z14.txt' in z.namelist())"
+python -c "import zipfile,json; z=zipfile.ZipFile(r'C:\MotoGPS\PBF\italy-v4.motomap.zip'); print(json.dumps(json.loads(z.read('motomap_v4.json')),indent=2))"
 ~~~
 
-**Pacchetto verificato dall'utente:** `version=3`, `zoom=15`, `topology=osm-node-ids-base36`, `level=osm-layer-or-bridge-tunnel`, 278.048 tile stradali e 214.320 celle z14 certificate. Dopo la correzione Android del controllo di copertura (commit `35a5e02`), sul percorso Cuneo → Reggio Calabria il conteggio è passato da **667 a 0 tile mancanti**. Nel successivo test su strada l'autostrada sotto un cavalcavia è stata correttamente esclusa dalla scena di contesto. Per sfruttare la v3 serve **un APK compilato dal branch test**; lo ZIP da solo non aggiorna Android.
+La conversione dell'intera Italia richiede diversi GB di RAM e spazio su disco, come in v3. Per provare rapidamente usare prima un PBF Geofabrik piccolo, con output `test-v4.motomap.zip` e senza `--coverage-poly`, poi rigenerare Italia solo dopo il test sulla rotatoria problematica. Controllare nel log Android `OSM_RING` il nuovo campo `osm_tagged=true` quando viene selezionato un anello davvero marcato in OSM. `OSM_RING_SEARCH` include la quantità di `osm_ways` disponibili.
 
-**Esperimento successivo (solo Android, ancora da collaudare):** commit `985700e` alza il limite della scena da 12/96 a **16 strade / 128 punti**, senza modificare firmware ESP32 o dati MotoMap. Resta sotto il massimo firmware di 24/192. Non è necessario rigenerare il PBF, reinstallare il grafo Valhalla o riflashare l'ESP32; compilare/installare Android dal branch test. Verificare sul campo la continuità delle strade grigie e l'assenza di congestione BLE prima del merge.
+**Correzione copertura v4 e corridoio online (11 novembre 2026):** l'APK originale poteva segnalare tile mancanti nel pacchetto Italia già importato, perché il controllo si aspettava ancora `version=3`. L'APK correttivo usa `motomap_v4.json` e certifica `coverage_z14.txt` anche senza strade nella cella. **Non rigenerare né reimportare `italy-v4.motomap.zip`**. Uscendo dalla copertura Italia, la schermata di avvio navigazione offre **"Avvia e scarica"** per il corridoio OpenFreeMap: download esplicito max 3000 tile/50MB, geometrie grigie salvate in `ofm_trial_14_...` e lette separatamente dai file MotoMap v4. MVT non fornisce NodeId OSM, quindi non garantisce le stesse rotatorie topologiche v4; Valhalla online è un fallback indipendente. Nessun download automatico durante gli aggiornamenti GPS né riattivazione Overpass. Verificare la CI Android dell'APK correttivo.
 
-**Attenzione:** il poligono `italy.poly` deve corrispondere all'estratto Italia. Non rinominare un PBF di sottoregione come Italia, né usarlo con la certificazione dell'intero Paese. Senza `--coverage-poly` l'archivio resta leggibile ma non certifica le aree prive di strade. Conservare lo ZIP precedente finché l'importazione e un percorso di prova non sono riusciti.
+**Pulizia del client Overpass (11 novembre 2026):** rimossi definitivamente dal codice Android i vecchi endpoint pubblici Overpass e le funzioni HTTP di query/download e parsing JSON. `GatewayRoadTiles` rimane soltanto come utilità per individuare le tile z15 di MotoMap e z14 di OpenFreeMap. Il download delle strade grigie online usa esclusivamente il corridoio OpenFreeMap **su richiesta dell'utente**; i servizi Valhalla online e Photon (ricerca indirizzi) sono indipendenti. Per questa pulizia basta aggiornare l'APK Android dopo CI; non occorre rigenerare ZIP v4, né flashare ESP32.
 
+**Stato al 12 novembre:** il test reale ha confermato anelli e uscite da diversi ingressi, con MotoMap v4 e firmware di prova. L'integrazione in valhalla è autorizzata; attendere la CI del merge prima di utilizzare nuovi artifact. Non modificare né rigenerare `valhalla_tiles.tar.zst`.
+
+---
+ 
 ## 5. Creare o importare i grafi Valhalla
 
 ### A. Importare un grafo già pronto
@@ -501,6 +586,12 @@ Il separatore `|` mantiene gli spazi nel nome rete: ad esempio `wifi set Hotspot
 **Sicurezza:** la console può mostrare in chiaro la password digitata, e le credenziali NVS potrebbero non essere cifrate. Per prove e screenshot/log usare solo una rete di test; non pubblicare password, SSID personali o log con dati sensibili. **Non eseguire streaming radio in parallelo alla navigazione.**
 
 ## 8. Simulatore browser Windows e registrazione GPS Android
+
+### Avviso tappa intermedia raggiunta (sperimentale, 10 novembre 2026)
+
+Sulla revisione integrata in `valhalla`, il raggiungimento di una tappa programmata è confermato dal **display ESP32** con `TAPPA 1/3 RAGGIUNTA` per **7 secondi**. La notifica è sovrapposta senza nascondere mappa, linea verde, distanza all'arrivo e limite di velocità; non equivale all'arrivo finale. Per verificare la funzione è necessario **installare sia il nuovo APK Android sia il nuovo firmware ESP32** generati dalla CI del branch valhalla, altrimenti il vecchio firmware ignora il segnale. Impostare due tappe, avviare navigazione e attraversarle: il testo deve apparire **una sola volta per tappa** e svanire automaticamente. Il log Android conserva `WAYPOINT_REACHED`; non è previsto un nuovo campo BLE. Il marker geografico sulla linea verde resta una funzione futura distinta perché richiede l'effettiva coordinata della tappa, non presente nello snapshot. **Non usare su strada prima di CI verde e verifica funzionale**.
+
+
 
 **Stato attuale (10 novembre 2026):** simulatore, registrazione GPS senza limite complessivo e correzioni matcher/ricalcolo verificati su strada sono integrati in **`valhalla`** tramite PR #73 e PR #74. Non utilizzare i branch di test completati o eliminati per il normale utilizzo. Le prove sulla rotatoria multi-way disallineata di ~11 m rimangono aperte.
 

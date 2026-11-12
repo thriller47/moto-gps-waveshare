@@ -6,6 +6,7 @@ import android.provider.OpenableColumns
 import java.io.File
 import java.io.IOException
 import java.util.zip.ZipFile
+import org.json.JSONObject
 
 /**
  * Keep regional .motomap.zip archives compressed on disk. A complete Italy
@@ -14,8 +15,8 @@ import java.util.zip.ZipFile
  */
 internal object MotomapPackImporter {
     private val tileName = Regex("^tile_15_[0-9]{1,5}_[0-9]{1,5}\\.motomap$")
-    const val METADATA = "motomap_v3.json"
-    private const val LEGACY_METADATA = "motomap_v2.json"
+    const val METADATA = "motomap_v4.json"
+    private const val JUNCTION_SCHEMA = "osm-junction-way-v4"
     const val COVERAGE = "coverage_z14.txt"
     const val MAX_COVERAGE_BYTES = 16L * 1024 * 1024
     private val packName = Regex("[^a-zA-Z0-9._-]")
@@ -24,8 +25,31 @@ internal object MotomapPackImporter {
     private const val MAX_ARCHIVE_BYTES = 8L * 1024 * 1024 * 1024
     private const val MAX_ENTRIES = 500_000
 
-    fun safeName(name: String): Boolean = (tileName.matches(name) || (name == METADATA || name == LEGACY_METADATA) || name == COVERAGE) &&
+    fun safeName(name: String): Boolean = (tileName.matches(name) || name == METADATA || name == COVERAGE) &&
         !name.contains('/') && !name.contains('\\')
+
+    /** Strict v4 contract: a v3 archive must never be loaded as tagged v4. */
+    internal fun isV4Manifest(manifest: String): Boolean = try {
+        val json = JSONObject(manifest)
+        json.optString("format") == "motomap" &&
+            json.optInt("version") == 4 &&
+            json.optInt("zoom") == 15 &&
+            json.optString("topology") == "osm-node-ids-base36" &&
+            json.optString("junction") == JUNCTION_SCHEMA
+    } catch (_: Exception) {
+        false
+    }
+
+    internal fun isV4Pack(zip: ZipFile): Boolean {
+        val entry = zip.getEntry(METADATA) ?: return false
+        if (entry.size !in 1L..4096L) return false
+        return try {
+            val manifest = zip.getInputStream(entry).bufferedReader().use { it.readText() }
+            isV4Manifest(manifest)
+        } catch (_: Exception) {
+            false
+        }
+    }
 
     fun packagesDir(context: Context): File =
         File(HybridMapRepository.getSharedMapsDir(context), ".osm_packages")
@@ -77,13 +101,13 @@ internal object MotomapPackImporter {
                         throw IOException("Tile ZIP non valida: ${entry.name}")
                     if (++count > MAX_ENTRIES) throw IOException("Troppe tile OSM")
                     val limit = when (entry.name) {
-                        METADATA, LEGACY_METADATA -> 4096L
+                        METADATA -> 4096L
                         COVERAGE -> MAX_COVERAGE_BYTES
                         else -> MAX_ENTRY_BYTES
                     }
                     if (entry.size <= 0 || entry.size > limit || entry.compressedSize < 0)
                         throw IOException("Dimensione tile non valida: ${entry.name} (${entry.size} byte, limite $limit)")
-                    if (entry.name == METADATA || entry.name == LEGACY_METADATA) {
+                    if (entry.name == METADATA) {
                         if (metadata) throw IOException("Metadata duplicate")
                         metadata = true
                     }
@@ -95,9 +119,11 @@ internal object MotomapPackImporter {
                     if (total > MAX_TOTAL_BYTES) throw IOException("Pacchetto OSM troppo grande")
                     if (count % 1000 == 0) onProgress(count)
                 }
+                if (!metadata || !isV4Pack(zip)) {
+                    throw IOException("MotoMap v4 obbligatoria: rigenerare lo ZIP dal PBF con il nuovo convertitore")
+                }
             }
-            if (count == 0) throw IOException("Archivio vuoto")
-            if (coverage && !metadata) throw IOException("Coverage requires MotoMap metadata")
+            if (count <= 1) throw IOException("Archivio MotoMap senza tile stradali")
             // Keep the previous archive intact if publishing the new one fails.
             val backup = File(dir, destination.name + ".backup")
             if (destination.exists()) {

@@ -130,7 +130,7 @@ jobs:
         run: node scripts/generate_jinan_demo_fixture.mjs --check
 
       - name: Verify MotoMap v3 converter contract
-        run: python3 -m unittest discover -s scripts/offline_map -p 'test_motomap_v3.py'
+        run: python3 -m unittest discover -s scripts/offline_map -p 'test_motomap_v4.py'
 
 
 
@@ -260,13 +260,15 @@ jobs:
           esp_idf_version: v5.5.5
           target: esp32s3
           path: platforms/esp32
-          # Test branches enable FreeRTOS ESP_TIMER runtime stats only in the
-          # experimental image, plus the dirty-map, subpixel, zoom, and logger
-          # flags. Production valhalla keeps default sdkconfig and code flags.
+          # The four display/runtime options were road-tested on 12 Nov 2026.
+          # Keep the valhalla build aligned with the validated test firmware.
           command: >-
-            ${{ startsWith(github.ref, 'refs/heads/test/') &&
-                'idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.perf.defaults" set-target esp32s3 && idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.perf.defaults" -DMOTO_ESP_CURVE_ZOOM_EXPERIMENT=ON -DMOTO_ESP_SUBPIXEL_EXPERIMENT=ON -DMOTO_ESP_MAP_DIRTY_TILES_EXPERIMENT=ON -DMOTO_ESP_PERF_TELEMETRY_EXPERIMENT=ON build' ||
-                'idf.py set-target esp32s3 && idf.py build' }}
+            idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.perf.defaults" set-target esp32s3 &&
+            idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.perf.defaults"
+            -DMOTO_ESP_CURVE_ZOOM_EXPERIMENT=ON
+            -DMOTO_ESP_SUBPIXEL_EXPERIMENT=ON
+            -DMOTO_ESP_MAP_DIRTY_TILES_EXPERIMENT=ON
+            -DMOTO_ESP_PERF_TELEMETRY_EXPERIMENT=ON build
 
       - name: Rename output binary
         run: |

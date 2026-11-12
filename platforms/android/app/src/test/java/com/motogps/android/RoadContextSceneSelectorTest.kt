@@ -34,6 +34,164 @@ class RoadContextSceneSelectorTest {
             (0..12).map { j -> 5000L + i * 100 + j })
     }
 
+    @Test fun majorRoadsGetGpsSlotsBeforeSlightlyCloserResidentialWays() {
+        val localResidential = (0 until 9).map { i ->
+            road(40_000L + i, listOf(p(30 + 8 * i, 0), p(38 + 8 * i, 0)),
+                listOf(60_000L + i * 2, 60_001L + i * 2))
+        }
+        val primary = road(41_000L, listOf(p(140, 0), p(165, 0)),
+            listOf(62_000, 62_001)).copy(roadClass = 1)
+        val secondary = road(41_001L, listOf(p(148, 0), p(173, 0)),
+            listOf(62_002, 62_003)).copy(roadClass = 2)
+        val result = RoadContextSceneSelector.select(
+            localResidential + listOf(primary, secondary), null, 45.0, 8.0, null)
+        assertTrue(result.drawn.any {
+            it.road == primary && it.role == RoadContextSceneSelector.Role.GPS
+        })
+        assertTrue(result.drawn.any {
+            it.road == secondary && it.role == RoadContextSceneSelector.Role.GPS
+        })
+        assertTrue(result.drawn.any { it.road in localResidential })
+        assertTrue(result.count(RoadContextSceneSelector.Role.GPS) >= 6)
+        assertTrue(result.slots <= 20 && result.points <= 160)
+    }
+
+    @Test fun routeLinkedResidentialIsRetainedAgainstNearbyMajorRoads() {
+        val majorNearby = (0 until 22).map { i ->
+            road(42_000L + i,
+                listOf(p(-210 + i * 22, 280), p(-192 + i * 22, 280)),
+                listOf(63_000L + i * 2, 63_001L + i * 2)).copy(roadClass = 1)
+        }
+        val localOnRoute = road(43_000L,
+            listOf(p(165, 0), p(330, 0)), listOf(64_000, 64_001))
+        val result = RoadContextSceneSelector.select(
+            majorNearby + localOnRoute, null, 45.0, 8.0, p(800, 0),
+            listOf(p(0, 0), p(5_000, 0)))
+        assertTrue("Local way crossed by the immediate route must remain visible",
+            result.drawn.any { it.road == localOnRoute })
+        assertTrue(result.count(RoadContextSceneSelector.Role.GPS) >= 6)
+        assertTrue(result.slots <= 20 && result.points <= 160)
+    }
+
+    @Test fun focusRingAndResidentialExitsRemainProtectedFromMajorRoads() {
+        val focus = RoadContextJunctions.find(
+            listOf(ring) + exits, 45.0, 8.0, p(120, 0))
+        assertTrue(focus != null)
+        val majorNearby = (0 until 20).map { i ->
+            road(44_000L + i,
+                listOf(p(-200 + i * 25, 220), p(-180 + i * 25, 300)),
+                listOf(65_000L + i * 2, 65_001L + i * 2))
+                .copy(roadClass = 1)
+        }
+        val result = RoadContextSceneSelector.select(
+            listOf(ring) + exits + majorNearby, focus,
+            45.0, 8.0, p(120, 0))
+        assertEquals(1, result.count(RoadContextSceneSelector.Role.RING))
+        assertEquals(focus!!.exits.size,
+            result.count(RoadContextSceneSelector.Role.EXIT))
+        assertTrue(focus.exits.all { exit -> result.drawn.any { it.road == exit } })
+        assertTrue(result.count(RoadContextSceneSelector.Role.GPS) >= 6)
+        assertTrue(result.slots <= 20 && result.points <= 160)
+    }
+
+    @Test fun immediateRouteSegmentWinsSpaceAgainstDenseSideStreets() {
+        // With only 90m+ probes this 10-27m segment was absent from the
+        // six closest GPS roads and all six upcoming roads.
+        val sideStreets = (0 until 28).map { index ->
+            val north = -70 + index * 5
+            road(5000L + index,
+                listOf(p(north, 125), p(north + 12, 155)),
+                listOf(10000L + index * 2, 10001L + index * 2))
+        }
+        val immediate = road(5999L,
+            listOf(p(110, 0), p(315, 0)), listOf(50000, 50001))
+        val route = listOf(p(0, 0), p(4500, 0))
+        val selected = RoadContextSceneSelector.select(
+            sideStreets + immediate, null, 45.0, 8.0, null, route)
+        assertTrue("Route corridor in first 30m must remain visible",
+            selected.drawn.any { it.road == immediate })
+        assertTrue(selected.nearRouteRoadsDrawn >= 1)
+        assertTrue(selected.count(RoadContextSceneSelector.Role.GPS) >= 6)
+        assertTrue(selected.slots <= 20 && selected.points <= 160)
+    }
+
+    @Test fun crowdedSceneProtectsNearAndDistantRouteRoadsTogether() {
+        val side = (0 until 32).map { i ->
+            road(7000L + i, listOf(p(-120 + i * 8, -75),
+                p(-120 + i * 8, 75)),
+                listOf(90000L + i * 2, 90001L + i * 2))
+        }
+        val near = road(7300L, listOf(p(150, 0), p(360, 0)),
+            listOf(77000, 77001))
+        val far = road(7301L, listOf(p(2200, 320), p(4100, 320)),
+            listOf(78000, 78001))
+        val selected = RoadContextSceneSelector.select(
+            side + near + far, null, 45.0, 8.0,
+            p(800, 0), listOf(p(0, 0), p(5100, 0)))
+        assertTrue(selected.drawn.any { it.road == near })
+        assertTrue(selected.drawn.any { it.road == far })
+        assertTrue(selected.count(RoadContextSceneSelector.Role.GPS) >= 6)
+        assertTrue(selected.slots <= 20 && selected.points <= 160)
+    }
+
+    @Test fun completeSecondaryCircuitIsNotClippedToAnOpenFragment() {
+        // Even if a nearby triangular wedge wins topological focus, a
+        // real standalone OSM loop in ordinary context must keep closure.
+        val vertices = (0 until 12).map { index ->
+            val angle = index * 2.0 * Math.PI / 12.0
+            p((180 * kotlin.math.sin(angle)).toInt(),
+              500 + (210 * kotlin.math.cos(angle)).toInt())
+        }
+        val ids = (30000L..30011L).toList()
+        val actualLoop = road(6300L, vertices + vertices.first(),
+            ids + ids.first())
+        val scene = RoadContextSceneSelector.select(
+            local + actualLoop, null, 45.0, 8.0, p(0, 850),
+            listOf(p(0, 0), p(0, 4500)))
+        val displayed = scene.drawn.firstOrNull { it.road == actualLoop }
+        assertTrue("A real secondary loop must win an upcoming slot", displayed != null)
+        assertTrue("More than eight vertices should fit the BLE budget",
+            displayed!!.points.size > 8)
+        assertEquals(displayed.points.first(), displayed.points.last())
+        assertTrue(scene.secondaryClosedRings >= 1)
+        assertTrue(scene.count(RoadContextSceneSelector.Role.GPS) >= 6)
+        assertTrue(scene.slots <= 20 && scene.points <= 160)
+    }
+
+    @Test fun sixExitCircuitStaysClosedFromOppositeApproaches() {
+        // Relative synthetic coordinates: never commit customer GPS traces.
+        val vertices = (0 until 6).map { i ->
+            val angle = i * 2.0 * Math.PI / 6.0
+            p((180 * kotlin.math.sin(angle)).toInt(),
+              (230 * kotlin.math.cos(angle)).toInt())
+        }
+        val ids = (1100L..1105L).toList()
+        val circuit = road(300L, vertices + vertices.first(), ids + ids.first())
+        val exits = vertices.mapIndexed { i, at ->
+            val angle = i * 2.0 * Math.PI / 6.0
+            val far = p((850 * kotlin.math.sin(angle)).toInt(),
+                        (1000 * kotlin.math.cos(angle)).toInt())
+            road(310L + i, listOf(at, far), listOf(ids[i], 2100L + i))
+        }
+        val roads = listOf(circuit) + exits + local
+        for (gps in listOf(p(-650, 0), p(650, 0))) {
+            val lat = gps.latitudeE6 / 1e6
+            val lon = gps.longitudeE6 / 1e6
+            val focus = RoadContextJunctions.find(roads, lat, lon, p(0, 0))
+            assertTrue("Both approaches must find the complete ring", focus != null)
+            assertEquals(300L, focus!!.ring.osmWayId)
+            assertEquals(6, focus.distinctExitBranches)
+            val scene = RoadContextSceneSelector.select(roads, focus, lat, lon, p(0, 0))
+            assertEquals(1, scene.count(RoadContextSceneSelector.Role.RING))
+            assertEquals(6, scene.count(RoadContextSceneSelector.Role.EXIT))
+            assertTrue(scene.count(RoadContextSceneSelector.Role.GPS) >= 6)
+            val points = scene.drawn.first().points
+            assertEquals(points.first(), points.last())
+            assertTrue(points.containsAll(focus.junctionPoints))
+            assertTrue(scene.slots <= 20 && scene.points <= 160)
+        }
+    }
+
     @Test fun denseSceneGuaranteesSixNonFocusGpsRoadsWithinTwentyAnd160() {
         val roads = listOf(ring) + exits + local
         val focus = RoadContextJunctions.find(roads, 45.0, 8.0, p(240, 0))

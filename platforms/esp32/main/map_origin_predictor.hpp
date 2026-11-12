@@ -40,6 +40,8 @@ class MapOriginPredictor {
       last_fix_ms_ = now_ms;
       correction_north_m_ = 0.0;
       correction_east_m_ = 0.0;
+      last_anchor_heading_deg_ = heading_deg;
+      last_anchor_speed_mps_ = speed_mps;
       return pose_;
     }
 
@@ -48,12 +50,13 @@ class MapOriginPredictor {
     const double dt = std::min<std::uint64_t>(elapsed_ms, 250U) / 1'000.0;
     const double speed = static_cast<double>(speed_mps);
 
-    // Stop translation within 1.5 s of the latest geometry anchor; a BLE
-    // interruption must not carry the map far past a junction or roundabout.
+    // Normal BLE route windows can arrive 3.1s apart. The old 1.5s cap
+    // froze the moving map until the next window, causing 30m catch-ups.
+    // Bound prediction at 3.4s, still freezing during a genuine outage.
     // GPS remains authoritative and the route geometry is not modified.
     if (std::isfinite(speed) && speed >= 1.5 && speed <= 60.0 &&
         std::isfinite(heading_deg) &&
-        now_ms - last_fix_ms_ <= 1'500U) {
+        now_ms - last_fix_ms_ <= 3'400U) {
       const double heading = static_cast<double>(heading_deg) *
                              3.14159265358979323846 / 180.0;
       move(std::cos(heading) * speed * dt,
@@ -65,9 +68,63 @@ class MapOriginPredictor {
       last_fix_ms_ = now_ms;
       const double lat_m = metres_per_degree_lat();
       const double lon_m = metres_per_degree_lon(measured.latitude_deg);
-      const double north = (measured.latitude_deg - pose_.latitude_deg) * lat_m;
-      const double east = (measured.longitude_deg - pose_.longitude_deg) * lon_m;
-      if (std::hypot(north, east) > 75.0) {
+      double north = (measured.latitude_deg - pose_.latitude_deg) * lat_m;
+      double east = (measured.longitude_deg - pose_.longitude_deg) * lon_m;
+      const double raw_gap_m = std::hypot(north, east);
+      // A geometry window contains the GPS position when Android CREATED it,
+      // not at BLE receipt. At cruising speed the predicted pose has already
+      // advanced while that anchor was in flight. Pulling it all the way back
+      // causes a visible delay at fixed junctions even when FPS is smooth.
+      // Cancel only a bounded part of a BACKWARD correction on a stable
+      // straight. Never add forward movement to an already aligned anchor.
+      // Sharp turns, stops, large cross-track errors and route changes
+      // retain the unmodified GPS correction.
+      const bool moving = std::isfinite(speed_mps) &&
+          speed_mps >= 3.0F && speed_mps <= 35.0F &&
+          std::isfinite(heading_deg) &&
+          std::isfinite(last_anchor_heading_deg_) &&
+          std::isfinite(last_anchor_speed_mps_);
+      if (moving && raw_gap_m <= 35.0 && raw_gap_m > 0.5) {
+        constexpr double kMaxAgeCompensationSeconds = 0.70;
+        constexpr double kMaxAgeCompensationMeters = 14.0;
+        const double heading = static_cast<double>(heading_deg) *
+                               3.14159265358979323846 / 180.0;
+        const double north_unit = std::cos(heading);
+        const double east_unit = std::sin(heading);
+        const double behind_m = -(north * north_unit + east * east_unit);
+        const double lateral_m = std::abs(-north * east_unit +
+                                          east * north_unit);
+        // The heading change between BLE geometry anchors is a conservative
+        // proxy for road curvature. Smoothly fade a backward-only correction
+        // from full effect at <=12 deg to zero at >=70 deg. At a hairpin or
+        // roundabout exit do not extrapolate through the next road.
+        const double turn_delta = std::abs(std::remainder(
+            static_cast<double>(heading_deg - last_anchor_heading_deg_),
+            360.0));
+        const double turn_weight = std::clamp(
+            (70.0 - turn_delta) / 58.0, 0.0, 1.0);
+        const double speed_tolerance = std::max(
+            2.0, static_cast<double>(speed_mps) * 0.25);
+        const double speed_delta = std::abs(
+            static_cast<double>(speed_mps - last_anchor_speed_mps_));
+        const double speed_weight = std::clamp(
+            (2.0 * speed_tolerance - speed_delta) / speed_tolerance,
+            0.0, 1.0);
+        // Reject large lateral offsets: they could be an actual lane change,
+        // missed turn or GPS jump rather than delayed BLE delivery.
+        if (behind_m > 0.0 && lateral_m <= 14.0) {
+          const double reduction_m = std::min(
+              behind_m, std::min(static_cast<double>(speed_mps) *
+                                kMaxAgeCompensationSeconds,
+                                kMaxAgeCompensationMeters)) *
+              turn_weight * speed_weight;
+          north += north_unit * reduction_m;
+          east += east_unit * reduction_m;
+        }
+      }
+      last_anchor_heading_deg_ = heading_deg;
+      last_anchor_speed_mps_ = speed_mps;
+      if (raw_gap_m > 75.0) {
         // New route snap, a tunnel exit or a large GPS correction must not
         // cause several seconds of inaccurate movement.
         pose_ = measured;
@@ -117,5 +174,7 @@ class MapOriginPredictor {
   std::uint64_t last_fix_ms_ = 0;
   double correction_north_m_ = 0.0;
   double correction_east_m_ = 0.0;
+  float last_anchor_heading_deg_ = NAN;
+  float last_anchor_speed_mps_ = 0.0F;
   bool initialized_ = false;
 };

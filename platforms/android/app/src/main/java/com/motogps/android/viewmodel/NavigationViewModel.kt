@@ -88,6 +88,10 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager) : ViewModel()
     private var waypointSearchJob: Job? = null
     private var activeWaypoints: List<PlaceSearchResult> = emptyList()
     private var nextWaypointIndex = 0
+    // Short-lived display-only notice; does not change route progress or maneuvers.
+    private var waypointNoticeIndex = 0
+    private var waypointNoticeTotal = 0
+    private var waypointNoticeStartedMs = 0L
 
     fun searchWaypoint(query: String) {
         waypointSearchJob?.cancel()
@@ -432,6 +436,9 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager) : ViewModel()
                 activeDestination = place
                 activeWaypoints = _routeWaypoints.value.toList()
                 nextWaypointIndex = 0
+                waypointNoticeIndex = 0
+                waypointNoticeTotal = 0
+                waypointNoticeStartedMs = 0L
                 _isNavigating.value = true
                 _currentDevicePage.value = 0 // Reset to navigation page on start
                 currentSnapshot = snapshot
@@ -447,8 +454,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager) : ViewModel()
                     ?: snapshot
                 // Keep the source of the ACTUAL navigation route visible.
                 _routingSource.value = lastRoutingProvider
-                // Road context is loaded locally from MotoMap/OpenFreeMap;
-                // no Overpass network fallback is invoked.
+                // Road context is loaded locally from MotoMap/previously downloaded
+                // OpenFreeMap tiles; no implicit network requests are made.
                 if (geometry != null) {
                     sendNearbyRouteGeometry(geometry)
                 }
@@ -494,7 +501,10 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager) : ViewModel()
                         remainingDurationS = if (_hasArrived.value) 0L else updatedSnap.remainingDurationS,
                         routeProgressM = if (_hasArrived.value) updatedSnap.totalDistanceM else updatedSnap.routeProgressM,
                         instructionText = if (_hasArrived.value) "Destinazione raggiunta"
-                            else updatedSnap.instructionText,
+                            else WaypointReachedNotice.message(
+                                waypointNoticeIndex, waypointNoticeTotal,
+                                waypointNoticeStartedMs, SystemClock.elapsedRealtime())
+                                ?: updatedSnap.instructionText,
                         displayPageName = pageName,
                         speedLimitKPH = lastSpeedLimitKph,
                         speedDeciKPH = currentSpeedDeciKph,
@@ -578,6 +588,9 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager) : ViewModel()
         activeDestination = null
         activeWaypoints = emptyList()
         nextWaypointIndex = 0
+        waypointNoticeIndex = 0
+        waypointNoticeTotal = 0
+        waypointNoticeStartedMs = 0L
         _routeWaypoints.value = emptyList()
         _routingSource.value = null
         currentSnapshot = null
@@ -762,17 +775,16 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager) : ViewModel()
             val distFromLastScene = calculateDistanceMeters(lastMapSceneLat, lastMapSceneLon, latitude, longitude)
             // Refresh the existing local MotoMap context earlier near a turn,
             // but never at the 200 ms snapshot cadence: map scenes are large.
-            val nearTurn = currentSnapshot?.let {
-                it.maneuverName !in setOf("continue", "none", "arrive") &&
-                    it.distanceToManeuverM <= 260L
-            } ?: false
+            val refresh = MapSceneRefreshPolicy.limits(
+                currentSnapshot?.maneuverName,
+                currentSnapshot?.distanceToManeuverM ?: Long.MAX_VALUE,
+                currentSnapshot?.roundaboutExit ?: 0)
             val sinceSceneMs = now - lastMapSceneSendTimeMs
-            // Refresh before the approach: one extra map scene at most every
-            // 3.5s near a genuine maneuver, never on every GPS update.
-            val minimumIntervalMs = if (nearTurn) 3_500L else 6_000L
-            val movementThresholdM = if (nearTurn) 30.0 else 60.0
-            if (sinceSceneMs >= minimumIntervalMs &&
-                (distFromLastScene >= movementThresholdM || sinceSceneMs >= 25_000L)) {
+            // Near an identified roundabout, refresh sooner as the motorcycle
+            // enters the junction. Keep the ordinary rate limits elsewhere.
+            if (sinceSceneMs >= refresh.minimumIntervalMs &&
+                (distFromLastScene >= refresh.movementThresholdM ||
+                    sinceSceneMs >= 25_000L)) {
                 lastMapSceneSendTimeMs = now
                 lastMapSceneLat = latitude
                 lastMapSceneLon = longitude
@@ -786,6 +798,9 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager) : ViewModel()
                 latitude, longitude)
             if (reachedIndex != nextWaypointIndex) {
                 nextWaypointIndex = reachedIndex
+                waypointNoticeIndex = nextWaypointIndex
+                waypointNoticeTotal = activeWaypoints.size
+                waypointNoticeStartedMs = SystemClock.elapsedRealtime()
                 Log.i("NavigationVM", "Tappa completata: $nextWaypointIndex/${activeWaypoints.size}")
                 DiagnosticLog.event("WAYPOINT_REACHED",
                     "index=$nextWaypointIndex total=${activeWaypoints.size}")
@@ -904,14 +919,25 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager) : ViewModel()
                             roadClass = drawn.road.roadClass, points = drawn.points))
                     }
                     val focus = analysis.focus
+                    DiagnosticLog.event("OSM_EXIT_CONT",
+                        "ways=" + sceneSelection.continuedExitWays +
+                        " branches=" + sceneSelection.continuedExitBranches +
+                        " exits_sent=" +
+                        sceneSelection.count(RoadContextSceneSelector.Role.EXIT) +
+                        " slots=" + sceneSelection.slots +
+                        " points=" + sceneSelection.points)
                     DiagnosticLog.event("OSM_RING",
                         "candidates=" + analysis.candidates +
                         " qualified=" + analysis.qualified +
+                        " osm_tagged=" + (analysis.focus?.osmTagged ?: false) +
                         " focus=" + (focus?.key ?: "none") +
                         " score=" + (focus?.confidence ?: 0) +
+                        " circularity_pct=" + (focus?.circularity?.times(100)?.toInt() ?: -1) +
+                        " perimeter_m=" + (focus?.perimeterM?.toInt() ?: -1) +
                         " gps_m=" + (focus?.gpsDistanceM?.toInt() ?: -1) +
                         " ahead_m=" + (focus?.upcomingDistanceM?.takeIf { it.isFinite() }?.toInt() ?: -1) +
                         " route_gap_m=" + (focus?.forwardRouteDistanceM?.takeIf { it.isFinite() }?.toInt() ?: -1) +
+                        " route_overlap_m=" + (focus?.forwardRouteOverlapM?.toInt() ?: 0) +
                         " route_along_m=" + (focus?.forwardRouteAlongM?.takeIf { it.isFinite() }?.toInt() ?: -1) +
                         " exit_ways=" + (focus?.rawExitWays ?: 0) +
                         " branches=" + (focus?.distinctExitBranches ?: 0) +
@@ -919,6 +945,30 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager) : ViewModel()
                         " excluded=" + analysis.excluded.entries.joinToString(",") {
                             it.key + ":" + it.value
                         })
+                    // DiagnosticLog truncates each entry to 240 characters.
+                    // Keep search budgets and rejection causes in short,
+                    // separate events rather than appending to OSM_RING.
+                    DiagnosticLog.event("OSM_RING_SEARCH",
+                        "roads=${contextRoads.size} " +
+                        "osm_ways=${contextRoads.count { it.junctionKind in 1..2 }} " +
+                        "edges=${analysis.graphSelectedEdges}/${analysis.graphEligibleEdges} " +
+                        "starts=${analysis.dfsStartEdges} " +
+                        "states=${analysis.dfsStates} " +
+                        "candidates=${analysis.candidates} " +
+                        "qualified=${analysis.qualified} " +
+                        "cap_edges=${analysis.graphEligibleEdges > analysis.graphSelectedEdges} " +
+                        "cap_dfs=${analysis.searchLimitHit} " +
+                        "cap_candidates=${analysis.candidateLimitHit}")
+                    DiagnosticLog.event("OSM_RING_REJECT",
+                        "shape=${analysis.excluded["shape"] ?: 0} " +
+                        "closure=${analysis.excluded["shape_closure"] ?: 0} " +
+                        "length=${analysis.excluded["shape_length"] ?: 0} " +
+                        "diameter=${analysis.excluded["shape_diameter"] ?: 0} " +
+                        "circularity=${analysis.excluded["shape_circularity"] ?: 0} " +
+                        "far=${analysis.excluded["far"] ?: 0} " +
+                        "confidence=${analysis.excluded["confidence"] ?: 0} " +
+                        "no_exits=${analysis.excluded["confidence_no_exits"] ?: 0} " +
+                        "class0=${analysis.excluded["confidence_class0"] ?: 0}")
                     DiagnosticLog.event("OSM_SCENE_POLICY",
                         "focus=" + (sceneSelection.count(RoadContextSceneSelector.Role.RING) +
                             sceneSelection.count(RoadContextSceneSelector.Role.EXIT)) +
@@ -930,6 +980,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager) : ViewModel()
                         " focus_pts=" + ((sceneSelection.pointCounts[RoadContextSceneSelector.Role.RING] ?: 0) +
                             (sceneSelection.pointCounts[RoadContextSceneSelector.Role.EXIT] ?: 0)) +
                         " gps_pts=" + (sceneSelection.pointCounts[RoadContextSceneSelector.Role.GPS] ?: 0) +
+                        " route_local=" + sceneSelection.nearRouteRoadsDrawn +
+                        " secondary_rings_closed=" + sceneSelection.secondaryClosedRings +
                         " upcoming_pts=" + (sceneSelection.pointCounts[RoadContextSceneSelector.Role.UPCOMING] ?: 0) +
                         " omitted=" + sceneSelection.roadsNotDrawn +
                         " total=" + sceneSelection.slots + "/" + sceneSelection.points)

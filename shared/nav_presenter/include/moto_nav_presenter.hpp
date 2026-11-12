@@ -43,6 +43,17 @@ class NavPresenter {
   double curve_prev_lon_ = 0.0;
   std::uint32_t curve_route_identity_ = 0;
   bool curve_prev_fix_ = false;
+
+  // Navigation can temporarily report no upcoming maneuver while the rider is
+  // still inside a roundabout. Retain the last close-approach zoom using actual
+  // distance travelled, then release it gradually; never hold across routes.
+  double roundabout_zoom_held_ = 1.0;
+  double roundabout_distance_since_apex_m_ = 0.0;
+  double roundabout_prev_lat_ = 0.0;
+  double roundabout_prev_lon_ = 0.0;
+  std::uint32_t roundabout_route_identity_ = 0;
+  std::uint32_t roundabout_route_generation_ = 0;
+  bool roundabout_prev_fix_ = false;
 };
 
 }  // namespace moto::nav

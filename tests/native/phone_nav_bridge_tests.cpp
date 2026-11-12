@@ -616,11 +616,50 @@ void test_imu_presentation_preserves_40hz_phase_and_stale_course_is_ignored() {
   CHECK(moto::test::phone_nav_bridge_last_heading_deg() == before_stale);
 }
 
+
+void test_waypoint_notice_deduplicates_and_clears_on_idle() {
+  moto::test::reset_phone_nav_bridge_probe();
+  moto::nav::NavPresenter presenter;
+  PhoneNavBridge bridge(presenter);
+  bridge.on_link_state(true);
+  moto::ble::NavigationSnapshot nav;
+  nav.state = moto::ble::NavigationState::Navigating;
+  nav.instruction = "WP_REACHED:1/2";
+  CHECK(bridge.on_message(make_message(moto::ble::Message{nav}, 100)) ==
+        moto::ble::AckStatus::Ok);
+  pump(bridge);
+  CHECK(moto::test::phone_nav_bridge_waypoint_notice_events() == 1);
+  CHECK(moto::test::phone_nav_bridge_last_waypoint_notice_index() == 1);
+  CHECK(moto::test::phone_nav_bridge_last_waypoint_notice_total() == 2);
+
+  // The same notice is present in many 250ms BLE snapshots; it must not
+  // restart the 7-second UI timer or become another reached-stop event.
+  CHECK(bridge.on_message(make_message(moto::ble::Message{nav}, 101)) ==
+        moto::ble::AckStatus::Ok);
+  pump(bridge);
+  CHECK(moto::test::phone_nav_bridge_waypoint_notice_events() == 1);
+
+  nav.instruction = "WP_REACHED:2/2";
+  CHECK(bridge.on_message(make_message(moto::ble::Message{nav}, 102)) ==
+        moto::ble::AckStatus::Ok);
+  pump(bridge);
+  CHECK(moto::test::phone_nav_bridge_waypoint_notice_events() == 2);
+  CHECK(moto::test::phone_nav_bridge_last_waypoint_notice_index() == 2);
+
+  nav.state = moto::ble::NavigationState::Idle;
+  nav.instruction.clear();
+  CHECK(bridge.on_message(make_message(moto::ble::Message{nav}, 103)) ==
+        moto::ble::AckStatus::Ok);
+  pump(bridge);
+  CHECK(moto::test::phone_nav_bridge_waypoint_clear_events() >= 1);
+}
+
 }  // namespace
 
 int main() {
   test_sender_is_called_without_bridge_state_lock();
   test_navigation_and_touch_updates_are_serialized();
+  test_waypoint_notice_deduplicates_and_clears_on_idle();
   test_diagnostic_control_is_opt_in_and_requires_link();
   test_power_monitor_tracks_arrival_and_phone_reconnection();
   test_ble_submission_never_waits_for_lvgl_and_retries_latest_state();

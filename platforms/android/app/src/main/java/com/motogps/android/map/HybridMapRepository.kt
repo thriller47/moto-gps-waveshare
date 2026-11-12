@@ -23,11 +23,13 @@ data class MapRoadSegment(
     val maxLatE6: Int,
     val maxLonE6: Int,
     val points: List<GeoPointE6>,
-    /** Present only for MotoMap v3; old tiles remain drawable without filtering. */
+    /** Original OSM identity, required by MotoMap v4. */
     val osmWayId: Long? = null,
     val layer: Int? = null,
     /** Aligned with points: IDs shared by OSM ways denote actual junctions. */
-    val nodeIds: List<Long> = emptyList()
+    val nodeIds: List<Long> = emptyList(),
+    /** MotoMap v4: 0=ordinary, 1=OSM roundabout, 2=OSM circular. */
+    val junctionKind: Int = 0
 )
 
 data class BoundingBox(
@@ -37,7 +39,7 @@ data class BoundingBox(
     val maxLon: Double
 )
 
-/** Offline road cache backed by real OSM ways fetched from Overpass, never Render. */
+/** Local MotoMap v4 road cache plus explicitly downloaded OpenFreeMap context. */
 class HybridMapRepository(
     private val context: Context
 ) {
@@ -102,8 +104,9 @@ class HybridMapRepository(
         queryMaxLonE6: Int
     ): List<MapRoadSegment> {
         val results = mutableListOf<MapRoadSegment>()
-        val mapFiles = mapsDir.listFiles { _, name -> name.endsWith(".motomap") }
-            ?.toList().orEmpty()
+        val mapFiles = mapsDir.listFiles { _, name ->
+            name.endsWith(".motomap") && !name.startsWith("ofm_trial_")
+        }?.toList().orEmpty()
         // Route-corridor downloads checkpoint each tile immediately but only
         // assemble the final .motomap when the entire download finishes.
         // Read already-completed nearby tiles as well: otherwise the rider can
@@ -111,6 +114,20 @@ class HybridMapRepository(
         val midLat = (queryMinLatE6.toLong() + queryMaxLatE6.toLong()) / 2_000_000.0
         val midLon = (queryMinLonE6.toLong() + queryMaxLonE6.toLong()) / 2_000_000.0
         val nearTiles = GatewayRoadTiles.around(midLat, midLon, 2)
+        // OpenFreeMap is a separate z14 vector source without OSM node IDs.
+        // Limit disk I/O to a 3x3 local window, never the entire corridor.
+        val nearZ15 = GatewayRoadTiles.tileFor(midLat, midLon)
+        val z14X = nearZ15.x / 2
+        val z14Y = nearZ15.y / 2
+        val openFreeMapFiles = (-1..1).flatMap { dy ->
+            (-1..1).mapNotNull { dx ->
+                val x = z14X + dx
+                val y = z14Y + dy
+                if (x !in 0 until (1 shl 14) || y !in 0 until (1 shl 14)) null
+                else File(mapsDir, "ofm_trial_14_${x}_${y}.motomap")
+                    .takeIf { it.isFile && it.length() > 0L }
+            }
+        }
         val checkpointFiles = mapsDir.listFiles { file ->
             file.isDirectory && file.name.endsWith("_parts")
         }?.flatMap { folder ->
@@ -128,7 +145,10 @@ class HybridMapRepository(
         for (archive in packFiles) {
             try {
                 ZipFile(archive).use { zip ->
-                    for (name in wantedNames) {
+                    // An already-installed v3 ZIP is ignored, not silently
+                    // interpreted as v4. The user will replace it with v4.
+                    if (MotomapPackImporter.isV4Pack(zip)) {
+                        for (name in wantedNames) {
                         val entry = zip.getEntry(name) ?: continue
                         if (entry.size <= 0L || entry.size > 5L * 1024 * 1024) continue
                         zip.getInputStream(entry).bufferedReader().useLines { lines ->
@@ -138,17 +158,24 @@ class HybridMapRepository(
                             }
                         }
                     }
+                    }
                 }
             } catch (e: Exception) {
                 Log.e("HybridMapRepository", "Error reading pack ${archive.name}: ${e.message}")
             }
         }
-        for (file in mapFiles + checkpointFiles) {
+        for (file in mapFiles + checkpointFiles + openFreeMapFiles) {
             try {
+                val fromOpenFreeMap = file in openFreeMapFiles
                 file.bufferedReader().useLines { lines ->
                     for (line in lines) {
-                        parseRoadLine(line, queryMinLatE6, queryMinLonE6,
-                            queryMaxLatE6, queryMaxLonE6, seenRoads, results)
+                        if (fromOpenFreeMap) {
+                            parseOpenFreeMapLine(line, queryMinLatE6, queryMinLonE6,
+                                queryMaxLatE6, queryMaxLonE6, seenRoads, results)
+                        } else {
+                            parseRoadLine(line, queryMinLatE6, queryMinLonE6,
+                                queryMaxLatE6, queryMaxLonE6, seenRoads, results)
+                        }
                     }
                 }
             } catch (e: Exception) {
@@ -156,6 +183,42 @@ class HybridMapRepository(
             }
         }
         return results
+    }
+
+    /**
+     * OpenFreeMap MVT geometry is genuine but does not contain original OSM
+     * way/node IDs. It may draw grey roads but must not invent topology.
+     * This parser is called only for ofm_trial_14_x_y.motomap cache files;
+     * the MotoMap v4 ZIP parser remains strict and does NOT accept v3 rows.
+     */
+    private fun parseOpenFreeMapLine(
+        line: String, queryMinLatE6: Int, queryMinLonE6: Int,
+        queryMaxLatE6: Int, queryMaxLonE6: Int,
+        seenRoads: MutableSet<String>, results: MutableList<MapRoadSegment>
+    ) {
+        val parts = line.trim().split("|", limit = 3)
+        if (parts.size != 3) return
+        val header = parts[0].split(",")
+        if (header.size != 2) return
+        val roadClass = header[0].toIntOrNull()?.takeIf { it in 0..3 } ?: return
+        val speed = header[1].toIntOrNull()?.takeIf { it in 5..140 } ?: return
+        val bbox = parts[1].split(",").map { it.toIntOrNull() }
+        if (bbox.size != 4 || bbox.any { it == null }) return
+        val minLatE6 = bbox[0]!!
+        val minLonE6 = bbox[1]!!
+        val maxLatE6 = bbox[2]!!
+        val maxLonE6 = bbox[3]!!
+        if (maxLatE6 < queryMinLatE6 || minLatE6 > queryMaxLatE6 ||
+            maxLonE6 < queryMinLonE6 || minLonE6 > queryMaxLonE6) return
+        val points = parseCoordinates(parts[2])
+        if (points.size < 2 || !seenRoads.add("ofm:" + line.trim())) return
+        results.add(MapRoadSegment(
+            roadClass = roadClass, maxSpeedKph = speed,
+            minLatE6 = minLatE6, minLonE6 = minLonE6,
+            maxLatE6 = maxLatE6, maxLonE6 = maxLonE6,
+            points = points
+            // osmWayId=null, nodeIds empty, junctionKind=0 (no false exits).
+        ))
     }
 
     private fun parseRoadLine(
@@ -171,11 +234,14 @@ class HybridMapRepository(
         if (parts.size < 3) return
 
         val headerParts = parts[0].split(",")
-        if (headerParts.size < 2) return
-        val roadClass = headerParts[0].toIntOrNull() ?: 5
-        val maxSpeedKph = headerParts[1].toIntOrNull() ?: getDefaultSpeedLimitForClass(roadClass)
-        val layer = if (headerParts.size >= 4) headerParts[2].toIntOrNull() else null
-        val osmWayId = if (headerParts.size >= 4) headerParts[3].toLongOrNull() else null
+        // MotoMap v4 has a mandatory fifth header field: OSM junction kind.
+        // Deliberately reject v3 and legacy 2/4-field rows.
+        if (headerParts.size != 5) return
+        val roadClass = headerParts[0].toIntOrNull() ?: return
+        val maxSpeedKph = headerParts[1].toIntOrNull() ?: return
+        val layer = headerParts[2].toIntOrNull() ?: return
+        val osmWayId = headerParts[3].toLongOrNull() ?: return
+        val junctionKind = headerParts[4].toIntOrNull()?.takeIf { it in 0..2 } ?: return
 
         val bboxParts = parts[1].split(",")
         if (bboxParts.size < 4) return
@@ -193,15 +259,13 @@ class HybridMapRepository(
 
         val coordStr = parts[2]
         val points = parseCoordinates(coordStr)
-        // MotoMap v3 appends the original OSM node ID in base36 to each
-        // coordinate. An incomplete row is treated as unverified geometry;
-        // it can still be displayed but must not drive topology filtering.
-        val parsedNodeIds = if (osmWayId != null && layer != null) {
-            coordStr.split(";").map { it.substringAfterLast(",", missingDelimiterValue = "").toLongOrNull(36) }
-        } else emptyList()
-        val nodeIds = if (parsedNodeIds.size == points.size &&
-            parsedNodeIds.all { it != null && it > 0L }) parsedNodeIds.filterNotNull()
-            else emptyList()
+        val parsedNodeIds = coordStr.split(";").map {
+            it.substringAfterLast(",", missingDelimiterValue = "").toLongOrNull(36)
+        }
+        // Never draw a v4 way whose topology cannot be interpreted reliably.
+        if (parsedNodeIds.size != points.size || parsedNodeIds.any { it == null || it <= 0L })
+            return
+        val nodeIds = parsedNodeIds.filterNotNull()
         if (points.isNotEmpty()) {
             results.add(
                 MapRoadSegment(
@@ -214,7 +278,8 @@ class HybridMapRepository(
                     points = points,
                     osmWayId = osmWayId,
                     layer = layer,
-                    nodeIds = nodeIds
+                    nodeIds = nodeIds,
+                    junctionKind = junctionKind
                 )
             )
         }

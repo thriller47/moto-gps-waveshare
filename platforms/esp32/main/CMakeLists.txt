@@ -100,13 +100,12 @@ if(MOTO_SIGNAL_WIFI_LAB_BOOT AND NOT MOTO_SIGNAL_MODE_SWITCH)
 endif()
 
 # Experimental navigation rendering for the ESP32 test branch. These are
-# deliberately OFF by default: normal releases keep their original geometry
-# layout, zoom behavior and 25 ms / 0.39 motion timer. For one test firmware,
-# enable either option independently with idf.py -D<OPTION>=ON build.
+# Enabled by default after 12 Nov 2026 hardware validation on the test branch.
+# Keep curve zoom and subpixel geometry consistent between local and CI images.
 option(MOTO_ESP_CURVE_ZOOM_EXPERIMENT
-    "Opt in to the simulator's hairpin zoom on ESP32" OFF)
+    "Opt in to the simulator's hairpin zoom on ESP32" ON)
 option(MOTO_ESP_SUBPIXEL_EXPERIMENT
-    "Opt in to float subpixel route/context vertices on ESP32" OFF)
+    "Opt in to float subpixel route/context vertices on ESP32" ON)
 if(MOTO_ESP_CURVE_ZOOM_EXPERIMENT)
     target_compile_definitions(${COMPONENT_LIB} PRIVATE
         MOTO_ESP_CURVE_ZOOM_EXPERIMENT=1)
@@ -116,19 +115,18 @@ if(MOTO_ESP_SUBPIXEL_EXPERIMENT)
         MOTO_ESP_SUBPIXEL_EXPERIMENT=1)
 endif()
 
-# Safe A/B experiment: restrict interpolation redraw to swept map tiles.
-# OFF on valhalla; the test branch enables it in its ESP32 CI artifact.
+# Validated swept-tile redraw: now enabled on valhalla as well as test images.
 option(MOTO_ESP_MAP_DIRTY_TILES_EXPERIMENT
-    "Use conservative 4x4 swept tile invalidation for map motion" OFF)
+    "Use conservative 4x4 swept tile invalidation for map motion" ON)
 if(MOTO_ESP_MAP_DIRTY_TILES_EXPERIMENT)
     target_compile_definitions(${COMPONENT_LIB} PRIVATE
         MOTO_ESP_MAP_DIRTY_TILES_EXPERIMENT=1)
 endif()
 
-# Optional 5s FreeRTOS per-core/task runtime telemetry.
-# Requires sdkconfig.perf.defaults IN ADDITION TO sdkconfig.defaults.
+# Keep 5s FreeRTOS runtime telemetry enabled for the upcoming LVGL tuning.
+# Requires sdkconfig.perf.defaults in addition to sdkconfig.defaults.
 option(MOTO_ESP_PERF_TELEMETRY_EXPERIMENT
-    "Enable optional serial CPU0/CPU1 and per-task runtime logger" OFF)
+    "Enable optional serial CPU0/CPU1 and per-task runtime logger" ON)
 if(MOTO_ESP_PERF_TELEMETRY_EXPERIMENT)
     target_compile_definitions(${COMPONENT_LIB} PRIVATE
         MOTO_ESP_PERF_TELEMETRY_EXPERIMENT=1)

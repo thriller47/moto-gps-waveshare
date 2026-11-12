@@ -221,6 +221,26 @@ std::uint32_t route_identity(const std::string& route_id) {
   return hash == 0 ? 1 : hash;
 }
 
+// Camera-independent fingerprint of a route view. The geometry moves through
+// the 550m window while Valhalla's route identity stays the same.
+std::uint32_t route_geometry_signature(const NavSnapshot& snapshot) {
+  if (!snapshot.has_route_view || snapshot.route_view_point_count < 2) return 0;
+  std::uint32_t hash = 2'166'136'261U;
+  const auto mix = [&hash](std::uint32_t component) {
+    for (int byte = 0; byte < 4; ++byte) {
+      hash ^= (component >> (byte * 8)) & 0xFFU;
+      hash *= 16'777'619U;
+    }
+  };
+  mix(snapshot.route_view_point_count);
+  for (std::size_t i = 0; i < snapshot.route_view_point_count; ++i) {
+    const auto& p = snapshot.route_view_points[i];
+    mix(static_cast<std::uint32_t>(std::lround(p.latitude_deg * 1'000'000.0)));
+    mix(static_cast<std::uint32_t>(std::lround(p.longitude_deg * 1'000'000.0)));
+  }
+  return hash == 0 ? 1U : hash;
+}
+
 struct MapTransform {
   double origin_latitude_deg = 0.0;
   double origin_longitude_deg = 0.0;
@@ -412,6 +432,7 @@ void NavPresenter::update(const NavSnapshot& snapshot) {
       snapshot.route_request_in_flight ? 1 : 0;
   ui_state_.route_identity = route_identity(snapshot.route_id);
   ui_state_.route_generation = snapshot.route_generation;
+  ui_state_.route_geometry_signature = route_geometry_signature(snapshot);
   ui_state_.map_scene_revision = snapshot.map_scene_revision;
   ui_state_.maneuver_map_zoom_active =
       maneuver_zoom_available(snapshot) ? 1U : 0U;
@@ -490,9 +511,75 @@ void NavPresenter::update(const NavSnapshot& snapshot) {
     curve_zoom = std::max(curve_zoom, retained);
     if (release >= 1.0) curve_zoom_held_ = 1.0;
   }
-  // Preserve the original maneuver zoom (including the 4x roundabout).
-  // Both road context and green route use the same final map transform.
-  applied_zoom_factor_ = std::max(maneuver_zoom_factor(snapshot), curve_zoom);
+  // A roundabout may remain the current maneuver at distance 0 while the
+  // incoming BLE snapshot has has_next_maneuver=false. The previous behavior
+  // instantly collapsed 4x to 1x at the entry/apex (11 Nov replay: 12:08:01
+  // and 12:15:04), hiding the small physical circuit beneath the rider marker.
+  // Retain zoom *through* the roundabout, releasing by distance rather than
+  // by elapsed frames/time. All geometry uses this same transform.
+  const double maneuver_zoom = maneuver_zoom_factor(snapshot);
+  double roundabout_retained = 1.0;
+  auto reset_roundabout_hold = [this]() {
+    roundabout_zoom_held_ = 1.0;
+    roundabout_distance_since_apex_m_ = 0.0;
+    roundabout_prev_fix_ = false;
+  };
+  if (snapshot.state != NavState::Navigating ||
+      !snapshot.has_route_view || snapshot.route_view_point_count < 2 ||
+      !valid_fix) {
+    reset_roundabout_hold();
+  } else {
+    if (roundabout_route_identity_ != ui_state_.route_identity ||
+        roundabout_route_generation_ != ui_state_.route_generation) {
+      reset_roundabout_hold();
+      roundabout_route_identity_ = ui_state_.route_identity;
+      roundabout_route_generation_ = ui_state_.route_generation;
+    }
+    double moved_m = 0.0;
+    if (roundabout_prev_fix_) {
+      const double north_m =
+          (snapshot.route_view_origin.latitude_deg - roundabout_prev_lat_) *
+          (kPi / 180.0) * kEarthRadiusM;
+      const double east_m =
+          (snapshot.route_view_origin.longitude_deg - roundabout_prev_lon_) *
+          (kPi / 180.0) * kEarthRadiusM *
+          std::cos(radians(snapshot.route_view_origin.latitude_deg));
+      moved_m = std::hypot(north_m, east_m);
+      // A discontinuous fix or a replay seek must not preserve stale zoom.
+      if (!std::isfinite(moved_m) || moved_m > 55.0) {
+        reset_roundabout_hold();
+        moved_m = 0.0;
+      }
+    }
+    roundabout_prev_lat_ = snapshot.route_view_origin.latitude_deg;
+    roundabout_prev_lon_ = snapshot.route_view_origin.longitude_deg;
+    roundabout_prev_fix_ = true;
+    const bool at_roundabout =
+        maneuver_zoom_available(snapshot) &&
+        snapshot.next_maneuver.type == ManeuverType::Roundabout &&
+        snapshot.distance_to_next_maneuver_m <= 30.0;
+    if (at_roundabout) {
+      roundabout_zoom_held_ = std::max(roundabout_zoom_held_, maneuver_zoom);
+      roundabout_distance_since_apex_m_ = 0.0;
+    } else if (roundabout_zoom_held_ > 1.0) {
+      roundabout_distance_since_apex_m_ += moved_m;
+    }
+    // Keep the circuit legible through the exit and the immediate adjoining
+    // road. Gradually return to 1x; subsequent maneuvers may raise it again.
+    constexpr double kRoundaboutHoldDistanceM = 55.0;
+    constexpr double kRoundaboutReleaseDistanceM = 85.0;
+    const double release = std::clamp(
+        (roundabout_distance_since_apex_m_ - kRoundaboutHoldDistanceM) /
+            kRoundaboutReleaseDistanceM,
+        0.0, 1.0);
+    roundabout_retained =
+        1.0 + (roundabout_zoom_held_ - 1.0) * (1.0 - release);
+    if (release >= 1.0) roundabout_zoom_held_ = 1.0;
+  }
+  applied_zoom_factor_ = std::max({maneuver_zoom, curve_zoom,
+                                   roundabout_retained});
+  ui_state_.maneuver_map_zoom_active =
+      maneuver_zoom_available(snapshot) || roundabout_retained > 1.01 ? 1U : 0U;
   const MapTransform transform = map_transform(snapshot, applied_zoom_factor_);
   project_route_view(snapshot, transform, ui_state_);
   project_road_context(snapshot, transform, ui_state_);

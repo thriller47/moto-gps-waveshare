@@ -28,6 +28,99 @@ class RoadContextJunctionsTest {
         road(14, listOf(p(120, -120), p(0, 0)), listOf(103, 100))
     )
 
+    @Test fun diagnosticsCountGraphExplorationWithoutChangingTheSelectedRing() {
+        val roads = multipleWays() + exitA + exitB
+        val analysis = RoadContextJunctions.analyze(
+            roads, 45.0, 8.0, p(120, 0))
+        assertNotNull(analysis.focus)
+        assertEquals(6, analysis.graphEligibleEdges)
+        assertEquals(6, analysis.graphSelectedEdges)
+        assertEquals(6, analysis.dfsStartEdges)
+        assertTrue(analysis.dfsStates >= analysis.dfsStartEdges)
+        assertFalse(analysis.searchLimitHit)
+        assertFalse(analysis.candidateLimitHit)
+        assertTrue(analysis.qualified >= 1)
+    }
+
+    @Test fun diagnosticRevealsWhenNinetyGraphEdgeSlotsAreExhausted() {
+        // 95 unrelated ways close to the GPS: none forms a circle, but all
+        // pass the graph filters. The telemetry must show 95 vs 90 edges.
+        val roads = (0 until 95).map { i ->
+            road(1_000L + i,
+                listOf(p(i * 20, 0), p(i * 20, 200)),
+                listOf(10_000L + 2L * i, 10_001L + 2L * i))
+        }
+        val analysis = RoadContextJunctions.analyze(roads, 45.0, 8.0, null)
+        assertNull(analysis.focus)
+        assertEquals(95, analysis.graphEligibleEdges)
+        assertEquals(90, analysis.graphSelectedEdges)
+        assertEquals(90, analysis.dfsStartEdges)
+        assertEquals(90, analysis.dfsStates)
+        assertFalse(analysis.searchLimitHit)
+        assertFalse(analysis.candidateLimitHit)
+    }
+
+    @Test fun diagnosticDistinguishesTooShortFromTooFlatCompositeRings() {
+        fun triangle(vertices: List<GeoPointE6>, startId: Long): List<MapRoadSegment> =
+            (0 until 3).map { i ->
+                road(startId + i,
+                    listOf(vertices[i], vertices[(i + 1) % 3]),
+                    listOf(startId * 10 + i, startId * 10 + (i + 1) % 3))
+            }
+        // Every individual edge is > 3 m, but total perimeter is < 35 m.
+        val tiny = triangle(listOf(p(0, 0), p(0, 80), p(80, 40)), 301L)
+        val tinyAnalysis = RoadContextJunctions.analyze(tiny, 45.0, 8.0, null)
+        assertNull(tinyAnalysis.focus)
+        assertTrue((tinyAnalysis.excluded["shape_length"] ?: 0) > 0)
+
+        // ~126m perimeter, realistic diameter, but near-zero circularity.
+        val flat = triangle(listOf(p(0, 0), p(0, 800), p(30, 400)), 401L)
+        val flatAnalysis = RoadContextJunctions.analyze(flat, 45.0, 8.0, null)
+        assertNull(flatAnalysis.focus)
+        assertTrue((flatAnalysis.excluded["shape_circularity"] ?: 0) > 0)
+        assertEquals(flatAnalysis.excluded["shape"],
+            flatAnalysis.excluded["shape_circularity"])
+    }
+
+    @Test fun explicitlyTaggedTwelveWayRingSurvivesDenseUrbanGraph() {
+        val vertices = (0 until 12).map { i ->
+            val angle = i * Math.PI * 2.0 / 12
+            p((205 * kotlin.math.sin(angle)).toInt(),
+              (290 * kotlin.math.cos(angle)).toInt())
+        }
+        val ids = (1_000L until 1_012L).toList()
+        val tagged = vertices.mapIndexed { index, point ->
+            road(1_000L + index,
+                listOf(point, vertices[(index + 1) % 12]),
+                listOf(ids[index], ids[(index + 1) % 12])
+            ).copy(junctionKind = 1)
+        }
+        val exits = (0 until 12 step 3).map { index ->
+            val attach = vertices[index]
+            val angle = index * Math.PI * 2.0 / 12
+            road(2_000L + index,
+                listOf(attach, p(
+                    (850 * kotlin.math.sin(angle)).toInt(),
+                    (1150 * kotlin.math.cos(angle)).toInt()
+                )), listOf(ids[index], 2_000L + index))
+        }
+        val urban = (0 until 95).map { i ->
+            road(30_000L + i,
+                listOf(p((i % 8) * 8, (i % 7) * 8),
+                       p(350 + (i % 8) * 8, 350 + (i % 7) * 8)),
+                listOf(70_000L + i * 2, 70_001L + i * 2))
+        }
+        val analysis = RoadContextJunctions.analyze(
+            urban + tagged + exits, 45.0, 8.0, vertices.first())
+        assertTrue(analysis.graphEligibleEdges > 90)
+        assertEquals(90, analysis.graphSelectedEdges)
+        assertNotNull(analysis.focus)
+        assertEquals(12, analysis.focus!!.members.size)
+        assertTrue(analysis.focus!!.osmTagged)
+        assertEquals(4, analysis.focus!!.distinctExitBranches)
+        assertTrue(analysis.focus!!.ring.points.first() == analysis.focus!!.ring.points.last())
+    }
+
     @Test fun singleWayRingIsSelectedWithRealExits() {
         val unrelated = road(4, listOf(p(-50, -60), p(-50, 400)), listOf(400, 401))
         val analysis = RoadContextJunctions.analyze(
@@ -51,6 +144,89 @@ class RoadContextJunctionsTest {
         assertTrue(focus?.junctionPoints?.contains(p(120, 120)) == true)
         assertTrue(focus?.junctionPoints?.contains(p(240, 0)) == true)
         assertTrue(analysis.qualified >= 1)
+    }
+
+    @Test fun compositeRingKeyIsStableAcrossRoadOrdering() {
+        val roads = multipleWays() + exitA + exitB
+        val first = RoadContextJunctions.analyze(roads, 45.0, 8.0, p(120, 0)).focus
+        val reorder = RoadContextJunctions.analyze(
+            roads.reversed(), 45.0, 8.0, p(120, 0)).focus
+        assertNotNull(first)
+        assertNotNull(reorder)
+        assertTrue(first!!.key.startsWith("m:"))
+        assertEquals(first.key, reorder!!.key)
+        assertEquals(first.distinctExitBranches, reorder.distinctExitBranches)
+    }
+
+    @Test fun overlappingShortcutDoesNotStealCompleteSixExitRing() {
+        // Synthetic topology mimics a multi-way two-lane junction. The false
+        // closed wedge shares two genuine route arcs with the full ring; both
+        // have the same forward score and both can be near the GPS.
+        // The old equal-score tie kept whichever candidate was first.
+        val vertices = (0 until 8).map { i ->
+            val angle = i * 2.0 * Math.PI / 8.0
+            p((200 * kotlin.math.sin(angle)).toInt(),
+              (270 * kotlin.math.cos(angle)).toInt())
+        }
+        val ids = (1000L..1007L).toList()
+        val falseWedge = road(901, listOf(
+            vertices[0], vertices[1], vertices[2], vertices[0]),
+            listOf(ids[0], ids[1], ids[2], ids[0]))
+        val complete = road(902, vertices + vertices.first(), ids + ids.first())
+        val exits = vertices.take(6).mapIndexed { i, at ->
+            val angle = i * 2.0 * Math.PI / 8.0
+            road(910 + i.toLong(), listOf(at,
+                p((850 * kotlin.math.sin(angle)).toInt(),
+                  (1150 * kotlin.math.cos(angle)).toInt())),
+                listOf(ids[i], 2000L + i))
+        }
+        val roads = listOf(falseWedge, complete) + exits
+        val forward = listOf(vertices[0], vertices[1], vertices[2],
+                             vertices[3], vertices[4])
+        val reverse = listOf(vertices[2], vertices[1], vertices[0],
+                             vertices[7], vertices[6])
+        for ((gps, route) in listOf(
+            vertices[0] to forward, vertices[2] to reverse
+        )) {
+            val focus = RoadContextJunctions.find(
+                roads, gps.latitudeE6 / 1e6, gps.longitudeE6 / 1e6,
+                route.last(), route)
+            assertNotNull("A route-connected ring should be selected", focus)
+            assertEquals("Complete circuit must win over shared-arc wedge",
+                902L, focus!!.ring.osmWayId)
+            assertEquals(6, focus.distinctExitBranches)
+            assertTrue(focus.circularity >= 0.8)
+            assertTrue(focus.ring.points.first() == focus.ring.points.last())
+        }
+    }
+
+    @Test fun multiContactWayUsesGenuineOutgoingAttachmentNotNearestRingNode() {
+        // Regression for the 2026-11-11 double-roundabout trace: a way can
+        // follow a ring edge before leaving it. The nearest shared node is
+        // NOT necessarily an exit. No fake branch may consume a slot.
+        val followsRingThenLeaves = road(91,
+            listOf(p(0, 0), p(120, 120), p(120, 550)),
+            listOf(100, 101, 990))
+        val result = RoadContextJunctions.find(
+            listOf(ring, followsRingThenLeaves, exitB), 45.0, 8.0,
+            p(0, 0))
+        assertNotNull(result)
+        assertTrue(result!!.exits.contains(followsRingThenLeaves))
+        assertTrue(result.junctionPoints.contains(p(120, 120)))
+        assertFalse("Internal attachment must not be labelled an exit",
+            result.junctionPoints.contains(p(0, 0)))
+        assertEquals(2, result.distinctExitBranches)
+    }
+
+    @Test fun ringToRingConnectorWithoutOutsideNeighbourIsNotAnExit() {
+        val internal = road(92, listOf(p(0, 0), p(120, 120)),
+            listOf(100, 101))
+        val result = RoadContextJunctions.find(
+            listOf(ring, internal, exitA, exitB), 45.0, 8.0, p(0, 0))
+        assertNotNull(result)
+        assertEquals(setOf(2L, 3L),
+            result!!.exits.mapNotNull { it.osmWayId }.toSet())
+        assertEquals(2, result.rawExitWays)
     }
 
     @Test fun incompleteExitNodesAreNotInventedByVisualCrossings() {
@@ -113,7 +289,8 @@ class RoadContextJunctionsTest {
         assertNull(RoadContextJunctions.find(data, 45.0, 8.0, p(900, 0)))
         val selected = RoadContextJunctions.find(
             data, 45.0, 8.0, p(900, 0),
-            route = listOf(p(0, 0), p(6000, 0)))
+            route = listOf(p(0, 0), p(offset, 0),
+                p(offset + 120, 120), p(offset + 240, 0), p(6000, 0)))
         assertNotNull(selected)
         assertEquals(2, selected?.exits?.size)
         assertTrue((selected?.forwardRouteAlongM ?: 0.0) > 350.0)
@@ -146,6 +323,80 @@ class RoadContextJunctionsTest {
         assertTrue(analysis.focus!!.forwardRouteAlongM < 35.0)
         assertEquals(setOf(2L, 3L),
             analysis.focus!!.exits.mapNotNull { it.osmWayId }.toSet())
+    }
+
+
+    @Test fun bypassElevenMetresAwayDoesNotEarnOnRouteRingBonus() {
+        val bypass = listOf(p(340, -450), p(340, 450))
+        val focus = RoadContextJunctions.find(
+            multipleWays() + exitA + exitB, 45.00034, 8.0, p(340, 450), bypass)!!
+        assertEquals(4, focus.members.size)
+        assertTrue(focus.forwardRouteDistanceM in 8.0..20.0)
+        assertEquals(0.0, focus.forwardRouteOverlapM, 0.01)
+        assertEquals(setOf(2L, 3L),
+            focus.exits.mapNotNull { it.osmWayId }.toSet())
+        assertTrue(focus.confidence < 120)
+    }
+
+    @Test fun outerLaneCurveOfWideRoundaboutEarnsRingBonus() {
+        // A wider two-lane roundabout: the route follows a parallel outer
+        // sweep, up to ~12m away from the OSM ring's centreline. Its shape
+        // bends around the ring over two connected arcs.
+        val outerLane = listOf(
+            p(-140, -10), p(120, 270), p(380, -10)
+        )
+        val focus = RoadContextJunctions.find(
+            multipleWays() + exitA + exitB,
+            45.00012, 8.00024, p(120, 270), outerLane)!!
+        assertTrue("Outer curved lane must be associated with ring",
+            focus.forwardRouteOverlapM >= 12.0)
+        assertTrue("Outer lane must earn forward ring score", focus.confidence >= 120)
+        assertEquals(2, focus.exits.size)
+    }
+
+    @Test fun curvedBypassOutsideRingMustNotEarnBonusWithoutTwoArcTracking() {
+        // A bend only tangent to a single side of a ring is not a roundabout
+        // traversal. The generous outer-lane allowance must not turn this
+        // into an on-route ring.
+        val bypass = listOf(p(450, -600), p(440, 0), p(450, 600))
+        val focus = RoadContextJunctions.find(
+            multipleWays() + exitA + exitB,
+            45.00023, 8.00043, p(440, 0), bypass)!!
+        assertTrue(focus.forwardRouteOverlapM < 12.0)
+        assertTrue(focus.confidence < 120)
+    }
+
+    @Test fun routeFollowingRingArcEarnsOnRouteBonus() {
+        val actualArc = listOf(p(-100, 0), p(0, 0), p(120, 120),
+            p(240, 0), p(450, 0))
+        val focus = RoadContextJunctions.find(
+            multipleWays() + exitA + exitB, 45.0, 8.0,
+            p(120, 120), actualArc)!!
+        assertTrue(focus.forwardRouteOverlapM >= 12.0)
+        assertTrue(focus.confidence >= 120)
+    }
+
+    @Test fun nearbyBypassRingStaysVisibleBeforeSecondTrueRing() {
+        val offset = 1750 // ~195m separation
+        val farRing = road(200, ringPoints.map {
+            p(it.latitudeE6 - 45_000_000 + offset,
+              it.longitudeE6 - 8_000_000)
+        }, listOf(800, 801, 802, 803, 800))
+        val farA = road(201,
+            listOf(p(offset + 120, 120), p(offset + 120, 550)),
+            listOf(801, 901))
+        val farB = road(202,
+            listOf(p(offset + 240, 0), p(offset + 700, 0)),
+            listOf(802, 902))
+        val route = listOf(p(340, -450), p(340, 0), p(340, 450),
+            p(offset, 0), p(offset + 120, 120),
+            p(offset + 240, 0), p(offset + 500, 0))
+        val focus = RoadContextJunctions.find(
+            multipleWays() + exitA + exitB + farRing + farA + farB,
+            45.00034, 8.0, p(offset + 120, 120), route)!!
+        assertEquals(4, focus.members.size)
+        assertTrue(focus.gpsDistanceM < 45.0)
+        assertEquals(0.0, focus.forwardRouteOverlapM, 0.01)
     }
 
     @Test fun aDistantRingIsNotChosenAndOrdinaryRoadsRemainAvailable() {

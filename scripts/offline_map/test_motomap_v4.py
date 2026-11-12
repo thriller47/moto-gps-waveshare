@@ -1,4 +1,4 @@
-"""Small converter contract tests; no PBF file or pyosmium installation needed."""
+"""MotoMap v4 converter contract; no PBF file or pyosmium required."""
 import importlib.util
 from pathlib import Path
 import sys
@@ -41,7 +41,7 @@ class FakeWay:
         self.nodes = nodes
 
 
-class MotoMapV3Tests(unittest.TestCase):
+class MotoMapV4Tests(unittest.TestCase):
     def test_crossing_keeps_distinct_osm_node_ids(self):
         bridge = FakeWay(
             {"highway": "primary", "bridge": "yes"},
@@ -51,12 +51,35 @@ class MotoMapV3Tests(unittest.TestCase):
             [FakeNode(45.0005, 7.999, 200), FakeNode(45.0005, 8.001, 201)])
         top = module.rows_for_way(bridge)[0][1]
         below = module.rows_for_way(motorway)[0][1]
-        self.assertTrue(top.startswith("1,90,1,34567|"))
-        self.assertTrue(below.startswith("0,110,0,34567|"))
+        self.assertTrue(top.startswith("1,90,1,34567,0|"))
+        self.assertTrue(below.startswith("0,110,0,34567,0|"))
         self.assertIn("45000000,8000000,2s", top)
         self.assertIn("45001000,8000000,2t", top)
         self.assertIn("5k", below)  # 200 = 5k in base36
         self.assertNotIn("2s", below)
+
+    def test_explicit_roundabout_and_circular_tags_are_preserved(self):
+        nodes = [FakeNode(45.0, 8.0, 100),
+                 FakeNode(45.0001, 8.0001, 101)]
+        self.assertTrue(module.rows_for_way(FakeWay(
+            {"highway": "residential", "junction": "roundabout"}, nodes
+        ))[0][1].startswith("3,50,0,34567,1|"))
+        self.assertTrue(module.rows_for_way(FakeWay(
+            {"highway": "secondary", "junction": "circular"}, nodes
+        ))[0][1].startswith("2,70,0,34567,2|"))
+        self.assertTrue(module.rows_for_way(FakeWay(
+            {"highway": "residential", "junction": "not_a_roundabout"}, nodes
+        ))[0][1].startswith("3,50,0,34567,0|"))
+
+    def test_distinct_osm_ids_at_same_rounded_position_are_kept(self):
+        way = FakeWay({"highway": "residential"}, [
+            FakeNode(45.0, 8.0, 100),
+            FakeNode(45.0, 8.0, 101),
+            FakeNode(45.001, 8.0, 102),
+        ])
+        line = module.rows_for_way(way)[0][1]
+        self.assertIn("45000000,8000000,2s;45000000,8000000,2t", line)
+        self.assertEqual(3, len(line.strip().split("|")[2].split(";")))
 
     def test_explicit_layer_takes_precedence(self):
         self.assertEqual(-2, module.road_level(

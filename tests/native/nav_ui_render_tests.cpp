@@ -4,6 +4,7 @@
 // transitions and label/geometry residue cleanup.
 
 #include "moto_nav_ui.h"
+#include "moto_nav_route_sampling.hpp"
 
 #include <lvgl.h>
 
@@ -700,6 +701,59 @@ void test_same_route_window_count_change_is_interpolated() {
   CHECK(first_transition.hash != snapped.hash);
 }
 
+void test_new_gps_window_snaps_green_and_gray_together() {
+  moto_nav_ui_set_reduce_motion(1);
+  moto_nav_ui_set_phone_connection(MOTO_UI_PHONE_ONLINE);
+  auto initial = base_state();
+  fill_route(initial, 3);
+  fill_streets(initial);
+  initial.route_geometry_signature = 1001;
+  moto_nav_ui_set_state(&initial);
+  pump(260);
+
+  auto updated = initial;
+  fill_route(updated, 8);
+  updated.route_geometry_signature = 1002;
+  for (int i = 0; i < 8; ++i) {
+    updated.route_points[i].x += 38;
+    updated.route_points[i].y += 16;
+    updated.road_points[i].x += 38;
+    updated.road_points[i].y += 16;
+  }
+  moto_nav_ui_set_reduce_motion(0);
+  moto_nav_ui_set_state(&updated);
+  lv_refr_now(lv_display_get_default());
+  const auto first_hash = frame_hash();
+  moto_nav_ui_set_reduce_motion(1);
+  moto_nav_ui_set_state(&updated);
+  lv_refr_now(lv_display_get_default());
+  CHECK(frame_hash() == first_hash);
+}
+
+void test_nonuniform_route_vertices_align_by_real_arc_fraction() {
+  constexpr std::size_t kCapacity = MOTO_UI_ROUTE_POINT_CAPACITY;
+  float old_x[kCapacity] = {130.f, 130.f, 390.f};
+  float old_y[kCapacity] = {100.f, 260.f, 260.f};
+  // Exactly the same L-shaped road, but most of its samples are concentrated
+  // near the first corner, like a simplified roundabout.
+  float target_x[kCapacity] = {
+      130.f, 130.f, 130.f, 130.f, 130.f, 130.f, 130.f, 220.f, 390.f};
+  float target_y[kCapacity] = {
+      100.f, 110.f, 140.f, 170.f, 200.f, 240.f, 260.f, 260.f, 260.f};
+  float aligned_x[kCapacity] = {};
+  float aligned_y[kCapacity] = {};
+  moto_nav_route_sampling::align_by_arc_fraction(
+      old_x, old_y, 3, target_x, target_y, 9,
+      aligned_x, aligned_y);
+  for(std::size_t i = 0; i < 9; ++i) {
+    CHECK(std::abs(aligned_x[i] - target_x[i]) <= 0.01f);
+    CHECK(std::abs(aligned_y[i] - target_y[i]) <= 0.01f);
+  }
+  // Endpoint identity and degeneracy protection.
+  CHECK(aligned_x[0] == old_x[0] && aligned_y[0] == old_y[0]);
+  CHECK(aligned_x[8] == old_x[2] && aligned_y[8] == old_y[2]);
+}
+
 void test_diagonal_map_pixels_are_independent_of_partial_buffer_height() {
   moto_nav_ui_set_reduce_motion(1);
   moto_nav_ui_set_phone_connection(MOTO_UI_PHONE_ONLINE);
@@ -771,6 +825,8 @@ int main(int argc, char **argv) {
   test_motion_frames_interpolate_then_settle_without_residue();
   test_reroute_without_geometry_preserves_road_map();
   test_same_route_window_count_change_is_interpolated();
+  test_new_gps_window_snaps_green_and_gray_together();
+  test_nonuniform_route_vertices_align_by_real_arc_fraction();
 #ifdef MOTO_UI_DIRTY_TILE_TEST
   test_small_motion_invalidates_only_swept_tiles();
 #endif

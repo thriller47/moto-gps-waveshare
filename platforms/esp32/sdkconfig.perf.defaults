@@ -1,5 +1,5 @@
-# Additional defaults for the *opt-in* ESP32 core telemetry firmware.
-# Must be combined with sdkconfig.defaults; do not use for valhalla builds.
+# Core telemetry defaults enabled in the standard valhalla firmware from
+# 12 November 2026; keep combined with sdkconfig.defaults.
 CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y
 CONFIG_FREERTOS_RUN_TIME_STATS_USING_ESP_TIMER=y
 CONFIG_FREERTOS_RUN_TIME_COUNTER_TYPE_U64=y
