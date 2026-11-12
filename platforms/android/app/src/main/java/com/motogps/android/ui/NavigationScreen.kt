@@ -403,6 +403,8 @@ fun OfflineMapsDialog(
                         )
                         if (!photonStatus.isNullOrBlank())
                             Text(photonStatus, style = MaterialTheme.typography.bodySmall)
+                        Text("Dati © OpenStreetMap contributors — ODbL 1.0",
+                            style = MaterialTheme.typography.labelSmall)
                         FilledTonalButton(
                             onClick = onImportPhoton,
                             modifier = Modifier.fillMaxWidth(),
