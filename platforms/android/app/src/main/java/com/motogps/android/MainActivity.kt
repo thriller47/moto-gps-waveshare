@@ -126,6 +126,12 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         if (uri != null) viewModel.importOsmRoadPack(this, uri)
     }
 
+    private val importPhotonLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) viewModel.importPhotonIndex(this, uri)
+    }
+
     private val importValhallaGraphLauncher = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -217,6 +223,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             val downloadStatus = viewModel.downloadStatus.collectAsState().value
             val downloadProgress = viewModel.downloadProgress.collectAsState().value
             val isDownloadingMap = viewModel.isDownloadingMap.collectAsState().value
+            val photonInstalledBytes = viewModel.photonInstalledBytes.collectAsState().value
+            val photonImporting = viewModel.photonImporting.collectAsState().value
+            val photonStatus = viewModel.photonStatus.collectAsState().value
             val valhallaInstalledBytes = viewModel.valhallaInstalledBytes.collectAsState().value
             val valhallaImporting = viewModel.valhallaImporting.collectAsState().value
             val valhallaStatus = viewModel.valhallaStatus.collectAsState().value
@@ -325,6 +334,15 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     downloadStatus = downloadStatus,
                     downloadProgress = downloadProgress,
                     isDownloadingMap = isDownloadingMap,
+                    photonInstalledBytes = photonInstalledBytes,
+                    photonImporting = photonImporting,
+                    photonStatus = photonStatus,
+                    onImportPhoton = {
+                        importPhotonLauncher.launch(arrayOf(
+                            "application/x-sqlite3", "application/octet-stream", "*/*"
+                        ))
+                    },
+                    onDeletePhoton = { viewModel.deletePhotonIndex(this@MainActivity) },
                     valhallaInstalledBytes = valhallaInstalledBytes,
                     valhallaImporting = valhallaImporting,
                     valhallaStatus = valhallaStatus,
