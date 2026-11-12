@@ -854,3 +854,72 @@ Guida completa: platforms/web/simulator/README.md. La vecchia platforms/web/shel
 Il vecchio backend/gateway è fuori uso. La **radio seriale di test è ancora presente nel codice firmware**, ma si usa esclusivamente dopo il passaggio alla **modalità radio isolata** (sezione 7), mai nella normale schermata GPS. Non considerarla una funzione audio stabile o contemporanea alla navigazione.
 
 **Prima del flash:** leggere `PROJECT_STATE.md`, controllare commit e run degli artifact. CI verde non equivale a test su strada.
+
+
+---
+
+## Ricerca indirizzi offline Photon (esperimento 12 novembre 2026)
+
+**Branch:** test/photon-offline-20261112 (non effettuare merge in valhalla prima
+del test). Questo componente modifica **solo Android**. Nessun flash ESP32,
+nessun nuovo pacchetto MotoMap e nessuna rigenerazione dei tile Valhalla.
+
+### Origine e conversione sul PC — PowerShell
+
+Sorgente disponibile sul PC:
+C:\MotoGPS\PBF\photon-dump-italy-1.0-latest.jsonl.zst.
+È il dump Photon Italia derivato da OpenStreetMap; non confonderlo con un file
+.jsonl non compresso. La conversione è già stata **completata dall'utente**
+con il primo convertitore: **8.362.870 luoghi**, **15.908 scartati**,
+**2.016,8 MiB** per C:\MotoGPS\PBF\photon-italy.sqlite.
+**Non ripetere la conversione:** l'indice esistente è compatibile con questa
+funzionalità. Il convertitore è conservato nel repository in
+scripts/offline_map/photon_to_sqlite.py per futuri aggiornamenti.
+
+Per una nuova conversione, soltanto quando serve:
+
+~~~powershell
+cd C:\MotoGPS\moto-gps-waveshare
+git switch test/photon-offline-20261112
+zstd --version
+py -3 .\scripts\offline_map\photon_to_sqlite.py --input "C:\MotoGPS\PBF\photon-dump-italy-1.0-latest.jsonl.zst" --output "C:\MotoGPS\PBF\photon-italy.sqlite"
+~~~
+
+Il programma rifiuta di sovrascrivere un database già presente. Il comando
+zstd deve essere nel PATH per leggere .zst, mentre Python legge direttamente
+.jsonl. I file sorgente e il database **non vanno caricati su GitHub**.
+
+### Installazione nell'app Android (dopo CI Android riuscita)
+
+1. Aggiornare il checkout sul branch test/photon-offline-20261112 e compilare
+   l'APK con Android Studio secondo la sezione Android di questo manuale.
+2. Copiare C:\MotoGPS\PBF\photon-italy.sqlite nella cartella **Download**
+   del telefono tramite USB; mantenere almeno 2–3 GiB liberi per questa copia
+   **e almeno altri 2,1 GiB** per l'importazione nello spazio privato
+   dell'app (di più in caso di sostituzione di un indice già installato).
+3. Aprire l'app → **Gestione mappe** → **Ricerca indirizzi offline — Photon**
+   → **Importa indice Photon SQLite**; scegliere il file .sqlite.
+   Attendere il completamento mostrato dall'app.
+4. Disattivare Wi-Fi e dati mobili, cercare **Courmayeur**,
+   **Passo Stelvio**, **Via Roma Torino**, poi provare una tappa intermedia.
+   La ricerca deve usare SQLite, non effettuare chiamate online.
+5. Per ripristinare la ricerca Photon online, eliminare l'indice dalla stessa
+   schermata (operazione bloccata durante la navigazione).
+
+Con indice installato, le ricerche di destinazioni e tappe usano esclusivamente
+il database locale anche quando restituisce zero risultati. Senza indice,
+l'app continua a utilizzare Photon online. Coordinate GPS scritte direttamente
+rimangono disponibili offline.
+
+**Ordinamento:** la prima prova reale del 12/11 con lo script diagnostico
+photon_search_test.py ha individuato correttamente Courmayeur (città),
+Passo Stelvio (località) e Via Roma a Torino, ma mostrava ancora più segmenti
+della stessa strada. Il ranker Android raggruppa i segmenti stradali con lo
+stesso nome e comune, preservando i numeri civici distinti. Gestisce case,
+accenti e prefissi di parola; non effettua ancora correzioni di refusi reali.
+I risultati della **build Android sul branch** e la prova sul telefono devono
+essere verificati separatamente.
+
+**Dati e diritti:** derivato OpenStreetMap/Photon; mantenere attribuzione
+OpenStreetMap contributors e verificare i requisiti ODbL 1.0 prima della
+distribuzione dell'indice derivato.
