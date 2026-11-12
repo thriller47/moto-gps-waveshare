@@ -1,5 +1,13 @@
 # Moto GPS — Project State
 
+## Rebranding Moto Chat GPS: tema Android Dark Touring — 2026-11-12
+
+**Decisione UX utente:** rebranding completo Moto Chat GPS approvato. Stile touring tecnologico elegante, non racing aggressivo: nero AMOLED, verde navigazione e bianco; aggiungere esplicitamente anche **tema scuro nell'app Android con dettagli verdi e bianchi** (non solo splash e icona). Coordinare identita' e splash Android, schermata d'avvio ESP32 sul display AMOLED circolare 466x466, icona Android e README, preservando la leggibilita' delle mappe e della rotta verde. Possibile testo attribuzioni Valhalla/OpenStreetMap in schermata informazioni senza rimuovere licenze/NOTICE.
+
+**Indicazioni per il tema Android:** sfondo quasi nero, superfici grigio-verde scuro, verde accent per pulsanti principali e navigazione/stato attivo, testo bianco per dati importanti e grigio chiaro per secondari. Applicare coerentemente a schermata di ricerca destinazione, anteprima percorso, preferenze, tappe, gestione mappe/import, log e dialoghi Material3. Evitare pulsanti poco leggibili, eccesso di verde, modifiche automatiche ai colori delle strade grigie/rotta o agli stili osmdroid senza verifica. Assicurare contrasto e risorse Android dark/splash/API compatibili. ESP32 splash leggera, nessun ritardo BLE o navigazione. Proposta UI mostrata in chat, non codice approvato pixel-per-pixel.
+
+**Stato:** requisito estetico concordato per prossima sessione; nessun codice modificato, nessuna build, nessuna immagine prodotta. Implementare su branch sperimentale da valhalla dopo verifica risorse, temi Compose e startup ESP32; prova visiva Android e hardware prima di merge. Collegato al piano ottimizzazione Photon/MotoMap/Valhalla e al futuro pacchetto unico, ma indipendente.
+
 ## Idea da valutare: riduzione strade MotoMap non utili alla moto — 2026-11-12
 
 **Proposta utente (brainstorming, NON autorizzazione a modificare):** ridurre la dimensione del futuro MotoMap / pacchetto Italia omettendo strade private o non percorribili, agricole, sterrate e sentieri quando non utili alla navigazione motociclistica. L'idea va studiata insieme alle altre ottimizzazioni di spazio Photon, MotoMap e Valhalla domani; non modificare la versione stabile adesso.
