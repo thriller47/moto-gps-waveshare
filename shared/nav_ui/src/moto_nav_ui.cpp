@@ -464,7 +464,7 @@ void draw_road_scene(lv_event_t *event) {
     const lv_event_code_t code = lv_event_get_code(event);
     if(code == LV_EVENT_REFR_EXT_DRAW_SIZE) {
         auto *size = static_cast<int32_t *>(lv_event_get_param(event));
-        *size = std::max(*size, px(4));
+        *size = std::max(*size, static_cast<std::int32_t>(px(4)));
         return;
     }
     if(code != LV_EVENT_DRAW_MAIN || ui.nav_road_polyline_count == 0) return;
