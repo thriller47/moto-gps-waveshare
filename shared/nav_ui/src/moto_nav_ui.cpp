@@ -1987,28 +1987,86 @@ extern "C" void moto_nav_ui_show_boot_screen(void) {
     const lv_color_t boot_black = LV_COLOR_MAKE(0x00, 0x00, 0x00);
     const lv_color_t boot_white = LV_COLOR_MAKE(0xF3, 0xF7, 0xF5);
     const lv_color_t boot_green = LV_COLOR_MAKE(0x50, 0xD9, 0x95);
+    const lv_color_t boot_muted = LV_COLOR_MAKE(0xA3, 0xB2, 0xAC);
     lv_obj_set_style_bg_color(ui.screen, boot_black, 0);
     lv_obj_set_style_bg_opa(ui.screen, LV_OPA_COVER, 0);
 
-    // Moto Chat GPS: same Dark Touring identity as Android. Keep the existing
-    // lightweight fade and 1.25-second boot sequence, with no image assets.
+    // Lightweight circular Dark Touring mark: LVGL primitives only, no
+    // decoded bitmap, full-frame image allocation, or animation timers.
+    // Coordinates are 360-design units scaled to the 466px AMOLED.
     lv_obj_t *content = make_layer(ui.screen);
     lv_obj_set_style_opa(content, LV_OPA_TRANSP, 0);
 
-    lv_obj_t *moto = make_label(content, &lv_font_montserrat_48,
+    lv_obj_t *ring = lv_arc_create(content);
+    lv_obj_set_size(ring, px(344), px(344));
+    lv_obj_align(ring, LV_ALIGN_CENTER, 0, 0);
+    lv_arc_set_bg_angles(ring, 0, 360);
+    lv_obj_set_style_arc_color(ring, boot_green, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(ring, px(2), LV_PART_MAIN);
+    lv_obj_remove_style(ring, nullptr, LV_PART_INDICATOR);
+    lv_obj_remove_style(ring, nullptr, LV_PART_KNOB);
+    lv_obj_remove_flag(ring, LV_OBJ_FLAG_CLICKABLE);
+
+    // Retained static coordinates: LVGL line objects reference these arrays.
+    static lv_point_precise_t peaks_a[3];
+    static lv_point_precise_t peaks_b[3];
+    static lv_point_precise_t road_outer[4];
+    static lv_point_precise_t road_inner[4];
+    static lv_point_precise_t road_dash[2];
+    auto set_point = [](lv_point_precise_t &point, int x, int y) {
+        point.x = static_cast<lv_value_precise_t>(px(x));
+        point.y = static_cast<lv_value_precise_t>(px(y));
+    };
+    set_point(peaks_a[0], 77, 124);
+    set_point(peaks_a[1], 131, 91);
+    set_point(peaks_a[2], 162, 110);
+    set_point(peaks_b[0], 145, 123);
+    set_point(peaks_b[1], 214, 69);
+    set_point(peaks_b[2], 287, 126);
+    set_point(road_outer[0], 75, 257);
+    set_point(road_outer[1], 130, 236);
+    set_point(road_outer[2], 230, 216);
+    set_point(road_outer[3], 245, 196);
+    set_point(road_inner[0], 175, 265);
+    set_point(road_inner[1], 194, 241);
+    set_point(road_inner[2], 260, 220);
+    set_point(road_inner[3], 245, 196);
+    set_point(road_dash[0], 155, 249);
+    set_point(road_dash[1], 178, 243);
+
+    auto add_boot_line = [&](lv_point_precise_t *points, std::uint32_t count,
+                             int width) {
+        lv_obj_t *line = lv_line_create(content);
+        lv_obj_set_size(line, MOTO_UI_CANVAS_WIDTH, MOTO_UI_CANVAS_HEIGHT);
+        lv_obj_set_pos(line, 0, 0);
+        lv_line_set_points_mutable(line, points, count);
+        lv_obj_set_style_line_width(line, px(width), 0);
+        lv_obj_set_style_line_color(line, boot_green, 0);
+        lv_obj_set_style_line_rounded(line, true, 0);
+    };
+    add_boot_line(peaks_a, 3, 3);
+    add_boot_line(peaks_b, 3, 4);
+
+    lv_obj_t *moto = make_label(content, &lv_font_montserrat_28,
                                 boot_white, "MOTO");
-    lv_obj_set_style_text_letter_space(moto, px(4), 0);
-    lv_obj_align(moto, LV_ALIGN_CENTER, 0, px(-80));
-
-    lv_obj_t *chat = make_label(content, &lv_font_montserrat_48,
+    lv_obj_align(moto, LV_ALIGN_CENTER, px(-112), px(-14));
+    lv_obj_t *chat = make_label(content, &lv_font_montserrat_28,
                                 boot_green, "CHAT");
-    lv_obj_set_style_text_letter_space(chat, px(4), 0);
-    lv_obj_align(chat, LV_ALIGN_CENTER, 0, 0);
-
-    lv_obj_t *gps = make_label(content, &lv_font_montserrat_48,
+    lv_obj_align(chat, LV_ALIGN_CENTER, 0, px(-14));
+    lv_obj_t *gps = make_label(content, &lv_font_montserrat_28,
                                boot_white, "GPS");
-    lv_obj_set_style_text_letter_space(gps, px(8), 0);
-    lv_obj_align(gps, LV_ALIGN_CENTER, 0, px(80));
+    lv_obj_align(gps, LV_ALIGN_CENTER, px(105), px(-14));
+
+    add_boot_line(road_outer, 4, 5);
+    add_boot_line(road_inner, 4, 4);
+    add_boot_line(road_dash, 2, 2);
+
+    lv_obj_t *powered = make_label(content, &lv_font_montserrat_16,
+                                   boot_muted, "Powered by");
+    lv_obj_align(powered, LV_ALIGN_CENTER, 0, px(111));
+    lv_obj_t *credits = make_label(content, &lv_font_montserrat_16,
+                                   boot_white, "Valhalla, OSM and Photon");
+    lv_obj_align(credits, LV_ALIGN_CENTER, 0, px(132));
 
     lv_anim_t fade;
     lv_anim_init(&fade);
