@@ -1,3 +1,11 @@
+## Build Android fase 1 separazione predizioni riuscita — 2026-11-13
+
+**Branch sperimentale:** `test/lvgl-single-road-renderer-20261113`; `valhalla` invariato. L'utente conferma la riuscita della **build Android** successiva alla rimozione dell'anticipazione Android della posizione GPS. Non sono stati comunicati in questa chat gli ID della nuova run e dei job: il successo e' registrato come conferma dell'utente, non come riesecuzione indipendente dei test. Il workflow selettivo ha coinvolto Android; native e ESP32 non erano necessari per una modifica ai soli sorgenti Android.
+
+**Modifica effettiva, non cambiare fase:** la posizione GPS accettata e filtrata resta autorevole per progresso, distanze, manovre, BLE e replay; snapshot replay marcati `position_source=accepted_gps`. L'ESP32 mantiene `MapOriginPredictor` come unico predittore grafico, **senza alcuna modifica al firmware in questa fase**. Fix GNSS piu' vecchio di 3 s marcato con `gnssStale`; non sono aggiunti campi BLE di `fix_age_ms` e non c'e' ancora proiezione ESP vincolata alla rotta. Preservare rotatorie v4, topologia e zoom.
+
+**Passo successivo:** installare APK dal branch test, non riflashare ESP32, avviare navigazione reale e raccogliere nuovo replay JSONL e diagnostica Android (log seriale ESP se disponibile). Confrontare soprattutto rotonde, curve, distanze e allineamento della moto rispetto alla geometria verde; in auto/moto montare rigidamente ESP per non confondere la fusione heading con rotazioni del dispositivo sul sedile. La fase 2 ESP32 va progettata solo dopo valutazione del confronto A/B. Manuale operativo invariato; nota di documentazione `[skip ci]`.
+
 ## Separazione GPS autorevole / predizione grafica — 2026-11-13
 
 **Branch:** `test/lvgl-single-road-renderer-20261113`, unico commit consolidato a partire da `c93f00a2`. `valhalla` NON modificato. L'utente conferma che il replay 13 novembre con interpolazione tra fix GPS reali segue la rotta molto meglio della versione con predizione Android; nella prova auto l'ESP era libero sul sedile, quindi l'IMU potrebbe aver introdotto rotazioni non rappresentative del veicolo, ma il difetto compare anche nel replay browser senza IMU fisica.
