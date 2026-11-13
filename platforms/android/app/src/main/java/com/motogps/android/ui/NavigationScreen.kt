@@ -73,7 +73,7 @@ fun RouteMapView(
             if (geoPoints.size >= 2) {
                 mapView.overlays.add(Polyline().apply {
                     setPoints(geoPoints)
-                    outlinePaint.color = android.graphics.Color.BLUE
+                    outlinePaint.color = android.graphics.Color.rgb(80, 217, 149) // Dark Touring route green
                     outlinePaint.strokeWidth = 12f
                 })
                 viewPoints.addAll(geoPoints)
