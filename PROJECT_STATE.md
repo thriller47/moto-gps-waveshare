@@ -1,5 +1,12 @@
 # Moto GPS — Project State
 
+## Fix compilazione renderer unico ESP32 — 2026-11-13
+
+**CI fallita realmente:** workflow https://github.com/thriller47/moto-gps-waveshare/actions/runs/43388703184/job/131763259138, nel file `shared/nav_ui/src/moto_nav_ui.cpp:467`: `error: no matching function for call to 'max(long int&, int)'`. `LV_EVENT_REFR_EXT_DRAW_SIZE` riceve `std::int32_t*` nella toolchain Xtensa; `px(4)` restituisce `int`. Risolto sul solo `test/lvgl-single-road-renderer-20261113` usando `static_cast<std::int32_t>(px(4))` in `std::max`. Commit fix `0c070861`. Non modificati renderer, stili, geometrie, buffer, TE o QSPI; `valhalla` invariato.
+
+**Verifica:** log del job letto tramite GitHub; compilazione precedente FAILED, gli altri warning di funzioni UI non usate non sono la causa. Nuova CI e prova hardware non ancora verificate. Prossima azione: controllare una sola CI dopo il fix, poi test su ESP e confronto log seriali FPS/render/flush, soprattutto presso rotonde.
+
+
 ## Esperimento renderer unico strade LVGL — 2026-11-13
 
 **Autorizzazione utente:** dopo due prove QSPI 40 MHz fallite (DMA underflow con direct PSRAM, no-mem con DMA staging), l'utente elimina il vecchio branch `test/lvgl-qspi-render-20261113` e autorizza il solo renderer delle strade. Nuovo ramo `test/lvgl-single-road-renderer-20261113` da `valhalla` stabile, senza merge e senza modifiche al clock (30 MHz), al DMA diretto PSRAM, alla TE sync, a buffer, BLE, Android, Valhalla, MotoMap, rotta verde e logica di zoom.
