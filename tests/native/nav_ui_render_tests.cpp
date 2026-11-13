@@ -792,6 +792,58 @@ void test_diagonal_map_pixels_are_independent_of_partial_buffer_height() {
   CHECK(draw_with_buffer(short_buffer) == tall_frame);
 }
 
+// The single renderer must preserve disconnected streets, class colors and
+// the absence of stale gray pixels when a scene is cleared and restored.
+void test_single_road_renderer_scene_boundaries_and_class_changes() {
+  moto_nav_ui_set_reduce_motion(1);
+  moto_nav_ui_set_phone_connection(MOTO_UI_PHONE_ONLINE);
+  auto state = base_state();
+  fill_route(state, 12);
+  state.road_point_count = 4;
+  state.road_polyline_count = 2;
+  state.road_points[0] = {30, 120};
+  state.road_points[1] = {145, 120};
+  state.road_points[2] = {310, 120};
+  state.road_points[3] = {440, 120};
+  state.road_polylines[0] = {0, 2, 1};
+  state.road_polylines[1] = {2, 2, 4};
+  state.map_scene_revision = 405;
+  moto_nav_ui_set_state(&state);
+  const Frame separated = capture();
+
+  // The visual break between the two polylines must not accidentally turn
+  // into a connecting road when they are drawn by the same LVGL object.
+  state.road_polyline_count = 1;
+  state.road_polylines[0] = {0, 4, 1};
+  ++state.map_scene_revision;
+  moto_nav_ui_set_state(&state);
+  const Frame connected = capture();
+  CHECK(connected.hash != separated.hash);
+
+  state.road_polyline_count = 2;
+  state.road_polylines[0] = {0, 2, 1};
+  state.road_polylines[1] = {2, 2, 4};
+  ++state.map_scene_revision;
+  moto_nav_ui_set_state(&state);
+  CHECK(capture().hash == separated.hash);
+
+  state.road_polylines[1].road_class = 1;
+  // Class changes must render even without an incremented scene revision.
+  moto_nav_ui_set_state(&state);
+  CHECK(capture().hash != separated.hash);
+
+  state.road_point_count = 0;
+  state.road_polyline_count = 0;
+  moto_nav_ui_set_state(&state);
+  CHECK(capture().hash != separated.hash);
+  state.road_point_count = 4;
+  state.road_polyline_count = 2;
+  state.road_polylines[1].road_class = 4;
+  ++state.map_scene_revision;
+  moto_nav_ui_set_state(&state);
+  CHECK(capture().hash == separated.hash);
+}
+
 }  // namespace
 
 int main(int argc, char **argv) {
@@ -831,6 +883,7 @@ int main(int argc, char **argv) {
   test_small_motion_invalidates_only_swept_tiles();
 #endif
   test_diagonal_map_pixels_are_independent_of_partial_buffer_height();
+  test_single_road_renderer_scene_boundaries_and_class_changes();
 
   // Terminal screens run last: they tear the full UI down.
   moto_nav_ui_show_boot_screen();
