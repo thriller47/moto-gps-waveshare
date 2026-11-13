@@ -46,7 +46,9 @@ constexpr int kCompassTickCount = 24;
 constexpr int kSpeedTickCount = 18;
 constexpr int kDesignWidth = 360;
 constexpr std::uint32_t kPageDotsVisibleMs = 5'000;
-constexpr std::uint16_t MOTO_UI_ROAD_LINE_WIDGET_LIMIT = 40;
+// Keep the BLE road-scene limit; unlike the former 40-widget layer, one
+// draw object handles all 24 polylines without joining disconnected streets.
+constexpr std::uint16_t MOTO_UI_ROAD_LINE_WIDGET_LIMIT = MOTO_UI_ROAD_POLYLINE_CAPACITY;
 constexpr std::uint32_t kRouteMotionFrameMs = 25;
 #ifdef __EMSCRIPTEN__
 // Simulator-only counters: requested route geometry versus pixel movement.
@@ -91,8 +93,7 @@ struct Ui {
     bool page_dots_visible = true;
 
     lv_obj_t *nav_map = nullptr;
-    lv_obj_t *nav_roads[MOTO_UI_ROAD_LINE_WIDGET_LIMIT]{};
-    MapPolyline nav_road_lines[MOTO_UI_ROAD_POLYLINE_CAPACITY]{};
+    lv_obj_t *nav_roads_layer = nullptr;
     lv_point_precise_t nav_road_points[MOTO_UI_ROAD_POINT_CAPACITY]{};
     float nav_road_x[MOTO_UI_ROAD_POINT_CAPACITY]{};
     float nav_road_y[MOTO_UI_ROAD_POINT_CAPACITY]{};
@@ -455,6 +456,54 @@ void draw_map_polyline(lv_event_t *event) {
     }
 }
 
+// One road layer instead of one LVGL object per street. Preserve the exact
+// per-class style and disconnected polyline boundaries of the old renderer.
+// The map's existing dirty-tile invalidation covers motion, while new scenes
+// invalidate this single layer once.
+void draw_road_scene(lv_event_t *event) {
+    const lv_event_code_t code = lv_event_get_code(event);
+    if(code == LV_EVENT_REFR_EXT_DRAW_SIZE) {
+        auto *size = static_cast<int32_t *>(lv_event_get_param(event));
+        *size = std::max(*size, px(4));
+        return;
+    }
+    if(code != LV_EVENT_DRAW_MAIN || ui.nav_road_polyline_count == 0) return;
+    lv_obj_t *object = lv_event_get_target_obj(event);
+    lv_layer_t *layer = lv_event_get_layer(event);
+    lv_area_t object_area;
+    lv_obj_get_coords(object, &object_area);
+    lv_draw_line_dsc_t line;
+    lv_draw_line_dsc_init(&line);
+    line.base.layer = layer;
+    lv_obj_init_draw_line_dsc(object, LV_PART_MAIN, &line);
+    for(std::uint8_t index = 0; index < ui.nav_road_polyline_count; ++index) {
+        const moto_ui_polyline_span_t span = ui.nav_road_spans[index];
+        if(span.point_count < 2 ||
+           static_cast<unsigned>(span.first_point_index) + span.point_count >
+               ui.nav_road_point_count) continue;
+        const bool major = span.road_class <= 2U;
+        const bool service = span.road_class >= 4U;
+        line.width = px(major ? 4 : (service ? 2 : 3));
+        line.color = major ? kRoadMajor : (service ? kRoadMinor : kRoadGray);
+        line.opa = LV_OPA_COVER;
+        line.round_start = 1;
+        line.round_end = 1;
+        const unsigned end = static_cast<unsigned>(span.first_point_index) +
+                             span.point_count;
+        for(unsigned i = static_cast<unsigned>(span.first_point_index) + 1;
+            i < end; ++i) {
+            line.p1 = ui.nav_road_points[i - 1];
+            line.p2 = ui.nav_road_points[i];
+            line.p1.x += object_area.x1;
+            line.p2.x += object_area.x1;
+            line.p1.y += object_area.y1;
+            line.p2.y += object_area.y1;
+            draw_map_line(layer, line);
+            line.round_start = 0;
+        }
+    }
+}
+
 lv_obj_t *create_map_polyline(lv_obj_t *parent, MapPolyline &polyline) {
     lv_obj_t *object = lv_obj_create(parent);
     lv_obj_remove_style_all(object);
@@ -518,15 +567,7 @@ bool apply_road_geometry_frame(bool rebind_lines = true) {
                          ui.nav_road_points[i].y != y;
         ui.nav_road_points[i] = {x, y};
     }
-    if(rebind_lines) {
-        for(std::uint8_t i = 0; i < ui.nav_road_polyline_count; ++i) {
-            const moto_ui_polyline_span_t span = ui.nav_road_spans[i];
-            set_map_polyline_points(
-                ui.nav_roads[i],
-                &ui.nav_road_points[span.first_point_index],
-                span.point_count);
-        }
-    }
+    if(rebind_lines) lv_obj_invalidate(ui.nav_roads_layer);
     return pixels_changed || rebind_lines;
 }
 
@@ -726,9 +767,8 @@ void update_road_geometry(const moto_ui_state_t *state) {
         ui.nav_road_point_count = 0;
         ui.nav_road_polyline_count = 0;
         ui.nav_road_scene_revision = state->map_scene_revision;
-        for(lv_obj_t *road : ui.nav_roads) {
-            if (road != nullptr) lv_obj_add_flag(road, LV_OBJ_FLAG_HIDDEN);
-        }
+        if(ui.nav_roads_layer != nullptr)
+            lv_obj_add_flag(ui.nav_roads_layer, LV_OBJ_FLAG_HIDDEN);
         return;
     }
 
@@ -773,20 +813,8 @@ void update_road_geometry(const moto_ui_state_t *state) {
         }
     }
     if(spans_changed) {
-        for(std::uint8_t i = 0; i < MOTO_UI_ROAD_LINE_WIDGET_LIMIT; ++i) {
-            if(i < polyline_count && ui.nav_roads[i] != nullptr) {
-                const std::uint8_t road_class = ui.nav_road_spans[i].road_class;
-                const bool major = road_class <= 2U;
-                const bool service = road_class >= 4U;
-                lv_obj_set_style_line_width(
-                    ui.nav_roads[i], px(major ? 4 : (service ? 2 : 3)), 0);
-                lv_obj_set_style_line_color(
-                    ui.nav_roads[i], major ? kRoadMajor : (service ? kRoadMinor : kRoadGray), 0);
-                lv_obj_remove_flag(ui.nav_roads[i], LV_OBJ_FLAG_HIDDEN);
-            } else if(ui.nav_roads[i] != nullptr) {
-                lv_obj_add_flag(ui.nav_roads[i], LV_OBJ_FLAG_HIDDEN);
-            }
-        }
+        lv_obj_remove_flag(ui.nav_roads_layer, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_invalidate(ui.nav_roads_layer);
     }
     if(snap) apply_road_geometry_frame();
 }
@@ -1518,19 +1546,15 @@ void create_navigation_page() {
     lv_obj_add_flag(ui.nav_map, LV_OBJ_FLAG_GESTURE_BUBBLE);
     lv_obj_set_height(ui.nav_map, px(232));
 
-    // Quiet, real street context sits behind the selected route. Each road is
-    // its own LVGL line so disconnected streets are never joined by a fake
-    // diagonal. The bundled Jinan fixture uses all eight bounded slots; a
-    // future online provider must simplify its response to the same limit.
-    for(std::uint8_t i = 0; i < MOTO_UI_ROAD_LINE_WIDGET_LIMIT; ++i) {
-        ui.nav_roads[i] = create_map_polyline(ui.nav_map, ui.nav_road_lines[i]);
-        lv_obj_set_size(ui.nav_roads[i], MOTO_UI_CANVAS_WIDTH, px(232));
-        lv_obj_set_style_line_width(ui.nav_roads[i], px(3), 0);
-        lv_obj_set_style_line_color(ui.nav_roads[i], kRoadGray, 0);
-        lv_obj_set_style_line_opa(ui.nav_roads[i], LV_OPA_COVER, 0);
-        lv_obj_set_style_line_rounded(ui.nav_roads[i], true, 0);
-        lv_obj_add_flag(ui.nav_roads[i], LV_OBJ_FLAG_HIDDEN);
-    }
+    // All gray streets share one draw object. Per-class styles are applied
+    // inside draw_road_scene; disconnected spans never acquire join segments.
+    ui.nav_roads_layer = lv_obj_create(ui.nav_map);
+    lv_obj_remove_style_all(ui.nav_roads_layer);
+    lv_obj_remove_flag(ui.nav_roads_layer, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(ui.nav_roads_layer, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_size(ui.nav_roads_layer, MOTO_UI_CANVAS_WIDTH, px(232));
+    lv_obj_add_event_cb(ui.nav_roads_layer, draw_road_scene, LV_EVENT_ALL, nullptr);
+    lv_obj_add_flag(ui.nav_roads_layer, LV_OBJ_FLAG_HIDDEN);
 
     ui.nav_route_shadow = create_map_polyline(ui.nav_map, ui.nav_route_shadow_line);
     lv_obj_set_size(ui.nav_route_shadow, MOTO_UI_CANVAS_WIDTH, px(232));
