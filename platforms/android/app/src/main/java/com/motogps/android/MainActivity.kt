@@ -23,7 +23,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -33,6 +32,7 @@ import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import com.motogps.android.ble.MotoBLEManager
 import com.motogps.android.location.LocationForegroundService
+import com.motogps.android.ui.MotoChatDarkColorScheme
 import com.motogps.android.ui.NavigationScreen
 import com.motogps.android.viewmodel.NavigationViewModel
 import com.motogps.android.viewmodel.NavigationViewModelFactory
@@ -243,7 +243,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 }
             }
 
-            MaterialTheme(colorScheme = lightColorScheme()) {
+            MaterialTheme(colorScheme = MotoChatDarkColorScheme) {
                 NavigationScreen(
                     onExportDiagnostics = { exportDiagnostics() },
                     replayRecording = replayRecording,
