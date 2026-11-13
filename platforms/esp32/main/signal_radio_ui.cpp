@@ -5,6 +5,7 @@
 #include "lvgl.h"
 #include <cmath>
 #include <cstdint>
+#include <initializer_list>
 
 #ifdef MOTO_SIGNAL_MODE_SWITCH
 extern "C" void signal_request_mode(int radio);
@@ -18,6 +19,7 @@ constexpr int kButtonsRadius = 144;
 constexpr uint32_t kOrange = 0xF59E0B;
 constexpr uint32_t kMuted = 0x8E8E93;
 constexpr uint32_t kGreen = 0x10B981;
+constexpr uint32_t kAcidGreen = 0xB7FF39;
 constexpr uint32_t kDark = 0x1C1C1E;
 constexpr uint32_t kRed = 0xEF4444;
 constexpr float kPi = 3.14159265359f;
@@ -126,6 +128,14 @@ lv_obj_t* circle_button(lv_obj_t* parent, const char* text, int size,
   polar(button, kButtonsRadius, angle);
   return button;
 }
+void style_radio_control(lv_obj_t* button) {
+  lv_obj_set_style_bg_color(button, lv_color_hex(kAcidGreen), 0);
+  lv_obj_set_style_border_color(button, lv_color_hex(kAcidGreen), 0);
+  lv_obj_set_style_bg_color(button, lv_color_hex(0x8CC92C), LV_STATE_PRESSED);
+  lv_obj_set_style_text_color(button, lv_color_black(), 0);
+  lv_obj_t* caption = lv_obj_get_child(button, 0);
+  if (caption) lv_obj_set_style_text_color(caption, lv_color_black(), 0);
+}
 } // namespace
 
 bool radio_ui_start(RadioUiControl& state) {
@@ -196,16 +206,17 @@ bool radio_ui_start(RadioUiControl& state) {
   wifi_button = circle_button(screen, LV_SYMBOL_WIFI, 50, 225, wifi_connect);
   lv_obj_set_style_border_color(wifi_button, lv_color_hex(kMuted), 0);
 
-  circle_button(screen, "-", 50, 180, change_volume,
+  lv_obj_t* volume_down = circle_button(screen, "-", 50, 180, change_volume,
                 reinterpret_cast<void*>(static_cast<intptr_t>(-5)));
-  circle_button(screen, LV_SYMBOL_PREV, 54, 125, prior);
+  lv_obj_t* station_prev = circle_button(screen, LV_SYMBOL_PREV, 54, 125, prior);
   lv_obj_t* play_button = circle_button(screen, LV_SYMBOL_PLAY, 64, 90, play_stop);
-  lv_obj_set_style_bg_color(play_button, lv_color_white(), 0);
-  play_label = lv_obj_get_child(play_button, 0);
-  lv_obj_set_style_text_color(play_label, lv_color_black(), 0);
-  circle_button(screen, LV_SYMBOL_NEXT, 54, 55, next);
-  circle_button(screen, "+", 50, 0, change_volume,
+  lv_obj_t* station_next = circle_button(screen, LV_SYMBOL_NEXT, 54, 55, next);
+  lv_obj_t* volume_up = circle_button(screen, "+", 50, 0, change_volume,
                 reinterpret_cast<void*>(static_cast<intptr_t>(5)));
+  for (lv_obj_t* button : {volume_down, station_prev, play_button, station_next, volume_up}) {
+    style_radio_control(button);
+  }
+  play_label = lv_obj_get_child(play_button, 0);
   refresh_selection();
 #ifdef MOTO_SIGNAL_MODE_SWITCH
   // Mirror Wi-Fi at 225 degrees horizontally across the vertical dial axis: 315 degrees.
