@@ -812,10 +812,10 @@ void update_road_geometry(const moto_ui_state_t *state) {
             ui.nav_road_y[i] = ui.nav_road_target_y[i];
         }
     }
-    if(spans_changed) {
+    if(spans_changed)
         lv_obj_remove_flag(ui.nav_roads_layer, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_invalidate(ui.nav_roads_layer);
-    }
+    // The snap/rebind already invalidates the single road layer; avoid
+    // submitting the same dirty rectangle twice on a scene replacement.
     if(snap) apply_road_geometry_frame();
 }
 
