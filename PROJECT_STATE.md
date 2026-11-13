@@ -1,12 +1,12 @@
 # Moto GPS — Project State
 
-## Build Android riuscita (conferma utente) — 2026-11-13
+## Build Android sperimentale riuscita: precisazione ramo — 2026-11-13
 
-**Branch di riferimento:** `valhalla` (ultimo commit del repository verificato prima di questa nota: `e6f56c4d6d58ec32f3ed6197eba5810e60d994dc`). L'utente comunica che **la build Android e' riuscita**. Non e' stato fornito il numero della run GitHub Actions ne' il log della compilazione: si registra la conferma dell'utente, senza attribuirle un risultato CI specifico o assumere che siano passati test separati.
+**Correzione alla nota precedente:** la build Android riuscita, confermata dall'utente il 13 novembre, riguarda la **fase 1 della separazione GPS/predizione sul branch sperimentale** `test/lvgl-single-road-renderer-20261113`, e NON una nuova build di funzionalita' su `valhalla`. Questa precisazione corregge l'attribuzione errata della nota precedentemente aggiunta nel branch stabile. La CI post-merge Photon del 12 novembre resta una verifica distinta e gia' documentata.
 
-**Modifiche in questa sessione:** aggiornato solo `PROJECT_STATE.md`, nessuna modifica a sorgenti Android, firmware ESP32, routing Valhalla, MotoMap o database Photon. Nessuna nuova compilazione o prova hardware eseguita dall'assistente; nessuna CI rilanciata per la documentazione (`[skip ci]`). La CI post-merge Photon del 12 novembre resta documentata qui sotto come verifica distinta.
+**Lavoro sperimentale:** Android usa la posizione GNSS accettata, senza anticipazione `NavigationPositionPrediction`, per progresso, manovre, distanze, BLE e replay. `NavigationFixFreshness` segnala fix vecchio oltre 3000 ms attraverso il flag BLE `gnssStale` gia' esistente. Il predittore grafico `MapOriginPredictor` su ESP32 resta attivo e invariato; protocollo BLE, Valhalla e rotatorie v4 invariati. La modifica e' isolata sul ramo test ed e' gia' documentata nel suo `PROJECT_STATE.md`.
 
-**Stato e prossima azione:** build Android confermata; installazione/avvio dell'APK, navigazione, BLE e regressioni su telefono **non deducibili** dalla sola build. Il rebranding Dark Touring, annotato il 12 novembre, rimane una proposta da implementare e verificare separatamente. Al prossimo test verificare sul telefono l'APK appena compilato e segnalare eventuali anomalie prima di nuove modifiche funzionali. Il manuale operativo non richiede aggiornamenti: nessuna procedura cambiata.
+**Verifica e prossima azione:** build Android comunicata come riuscita dall'utente; nessun ID o log specifico della nuova run fornito in questa chat, nessun test fisico successivo dichiarato. Prossimo passo: installare APK sperimentale, **senza riflash ESP32**, ripetere replay/diagnostica in movimento confrontando curve e rotonde con la prova precedente; fissare il dispositivo al mezzo per evitare che l'IMU ruoti sul sedile. La futura fase 2 (freschezza temporale BLE e predizione vincolata alla rotta nell'ESP32) NON e' stata ancora implementata. Nessuna variazione di procedure nel manuale. Questa correzione documentale non avvia CI (`[skip ci]`).
 
 ## Rebranding Moto Chat GPS: tema Android Dark Touring — 2026-11-12
 
