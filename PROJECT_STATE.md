@@ -1,5 +1,16 @@
 # Moto GPS — Project State
 
+## Rendering dirty tiles: coalescenza aree e prova in movimento — 2026-11-13
+
+**Nuova evidenza del test (utente):** campioni seriali `serial_20261113_120113.txt` + diagnostico Android `motogps-android-diagnostics(20261113-112031).zip` + replay `motogps-replay(10).jsonl`. L'utente percepisce migliore fluidita' col clipping per span. Il replay colloca i peggiori FPS ~4–5 a velocita' GPS 0: non sono prova da soli di freeze; mediana nei campioni di movimento >=5.4km/h circa 18.6 FPS (analisi di sessione chat). Durante gli aggiornamenti il renderer resta costoso: ~50–53ms/render, 3.2 flush/frame e LVGL 80–95% di un core. BLE e memoria generalmente stabili nel seriale. Nessun merge in `valhalla` finche' non e' provato su strada e confrontato con firmware stabile.
+
+**Nuova modifica su `test/lvgl-single-road-renderer-20261113`:** `shared/nav_ui/src/moto_nav_ui.cpp` riduce l'overhead di invalidazione della griglia 4x4. In `MapMotionDirtyTiles::invalidate` le tile orizzontali contigue diventano run, e run identici tra righe successive vengono uniti in un unico rettangolo; tutte le tile marcate (vecchio + nuovo tratto) restano coperte. Soglia per invalidare tutta la mappa alzata da 8 a 12 tile per preservare redraw parziale in casi medi; per >=12 tile mantiene il fallback affidabile alla mappa completa. Nessuna modifica a zoom, BLE, clock QSPI 30MHz, DMA, profili Valhalla, MotoMap o geometria strade. Il beneficio atteso e' meno chiamate LVGL su movimenti distribuiti in poche aree: non si promettono fps superiori nei ridisegni completi.
+
+**Test aggiunto:** `test_multi_road_motion_dirty_rectangles_leave_no_trails` in `tests/native/nav_ui_render_tests.cpp` confronta l'output finale dopo un movimento di due span grigi + rotta verde con il rendering diretto; rimane `test_small_motion_invalidates_only_swept_tiles` nella suite dirty-tile, e gli altri test di clipping/snap/partial-buffer. CI, test nativi ed ESP32 e prova fisica non ancora confermati al momento della nota. Nessun cambiamento operativo da documentare in `docs/MANUALE_OPERATIVO.md`.
+
+**Prossima azione concreta:** una CI consolidata, poi test A/B a piedi/da fermo e su percorso sicuro con seriale ESP32 + replay Android sincronizzati; confrontare FPS **solo nei periodi con movimento** e rendere espliciti render avg/max, numero flush/frame, lock_max e stabilita' ai cambi scena. Fermarsi/ripristinare `valhalla` se il display si congela e non recupera; nessun merge senza approvazione.
+
+
 ## Renderer strade unico: congelamenti e clipping per span — 2026-11-13
 
 **Prova hardware utente:** firmware del ramo `test/lvgl-single-road-renderer-20261113` con QSPI stabile 30 MHz, BLE funzionale ma display scende fino a 4.8–5 FPS durante navigazione; `display perf` fino a ~71 ms render/frame, ~4 flush/frame, con ripresa spontanea e nuovo congelamento al cambio scena. Il collegamento al telefono continua per parte del test; il precedente recupero alla disconnessione non dimostra una deadlock BLE. NON approvare merge/uso in guida finche' non passa hardware.
