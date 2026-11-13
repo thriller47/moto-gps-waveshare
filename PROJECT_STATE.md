@@ -1,3 +1,15 @@
+## Separazione GPS autorevole / predizione grafica — 2026-11-13
+
+**Branch:** `test/lvgl-single-road-renderer-20261113`, unico commit consolidato a partire da `c93f00a2`. `valhalla` NON modificato. L'utente conferma che il replay 13 novembre con interpolazione tra fix GPS reali segue la rotta molto meglio della versione con predizione Android; nella prova auto l'ESP era libero sul sedile, quindi l'IMU potrebbe aver introdotto rotazioni non rappresentative del veicolo, ma il difetto compare anche nel replay browser senza IMU fisica.
+
+**Modifica circoscritta, fase 1:** `NavigationViewModel.kt` usa soltanto `currentLocation` gia' accettata da `LocationFixFilter` per `updateManeuverAndDistance` e `ReplayTraceRecorder.snapshot`. Rimossa la chiamata Android `NavigationPositionPrediction.estimate` (che anticipava fino a 12 m sui rettilinei e poteva tagliare curve/rotonde), eliminati helper e test legacy non piu' usati. Il replay marca i nuovi snapshot `position_source=accepted_gps`; file replay precedenti restano validi ma possono contenere coordinate snapshot anticipate e non vanno confrontati ignorando questo fatto. `NavigationFixFreshness` imposta `gnssStale` da eta' monotona dell'ultimo fix: se manca oppure ha piu' di 3000 ms, il flag blocca il predittore ESP via protocollo BLE esistente. Il fatto che una nuova finestra route BLE possa riferirsi a un vecchio fix non lo rende fresco. Nuovi test JVM sulla freshness.
+
+**Confine delle responsabilita':** Android conserva GNSS filtrato per distanze, progresso, manovre, ricalcolo, origine BLE e replay; solo `MapOriginPredictor` ESP32 anticipa il movimento grafico, senza aggiornare la navigazione autorevole. Non modificati protocollo BLE, mapping OSM/MotoMap, Valhalla, UI, IMU/fusione heading o algoritmo del predittore ESP; resta il rischio di extrapolazione rettilinea ESP fino a 3.4 s e di correzione backwards euristica. `fix_age_ms` NON ancora trasmesso nel BLE; `gnssStale` e' un limite di sicurezza compatibile, non una compensazione precisa della latenza. Durante sosta o freno la previsione ESP puo' quindi restare imprecisa prima del nuovo fix. Non considerare la fase 2 completata.
+
+**Test e CI:** test JVM di freshness aggiunti ma non eseguiti localmente; CI Android attesa sul commit unico (workflow selettivo). Nessuna validazione su hardware o in strada. Procedura di build/flash/export invariata, percio' manuale operativo non cambiato.
+
+**Prossima azione:** verificare Android CI; poi installare APK sperimentale e registrare nuovo replay, confrontando rotonde e distanze con la prova 13 novembre; flash ESP non necessario per testare la separazione Android in questa fase. Progettare successivamente time-metadata BLE e predizione vincolata a rotta per ESP con test dedicati, mantenendo `valhalla` intatto fino a conferma dell'utente.
+
 # Moto GPS — Project State
 
 ## Riduzione conservativa polilinee grigie + workflow selettivo — 2026-11-13
