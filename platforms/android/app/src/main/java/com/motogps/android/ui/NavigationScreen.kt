@@ -567,6 +567,7 @@ fun NavigationScreen(
     }
 
     var showDiagnosticsDialog by remember { mutableStateOf(false) }
+    var showInfoDialog by remember { mutableStateOf(false) }
     var showRoutePreferencesDialog by remember { mutableStateOf(false) }
     var showWaypointsSheet by remember { mutableStateOf(false) }
 
@@ -604,6 +605,10 @@ fun NavigationScreen(
             onChange = onRoutePreferencesChange,
             onDismiss = { showRoutePreferencesDialog = false }
         )
+    }
+
+    if (showInfoDialog) {
+        MotoChatInfoDialog(onDismiss = { showInfoDialog = false })
     }
 
     if (showDiagnosticsDialog) {
@@ -688,6 +693,9 @@ fun NavigationScreen(
                         }
                     },
                     actions = {
+                        IconButton(onClick = { showInfoDialog = true }) {
+                            Icon(Icons.Default.Info, contentDescription = "Informazioni e licenze")
+                        }
                         TextButton(onClick = { showDiagnosticsDialog = true }) {
                             Text("LOG")
                         }
@@ -701,7 +709,7 @@ fun NavigationScreen(
                 )
             } else {
                 TopAppBar(
-                    title = { Text("MOTO GPS") },
+                    title = { Text("Moto Chat GPS") },
                     actions = {
                         TextButton(onClick = { showDiagnosticsDialog = true }) {
                             Text("LOG")
