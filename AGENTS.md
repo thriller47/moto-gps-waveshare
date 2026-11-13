@@ -8,6 +8,13 @@ These instructions apply to the repository unless a more specific AGENTS.md exis
 3. Treat PROJECT_STATE.md as a handoff, **not** proof of implementation; resolve discrepancies by inspecting source.
 4. State scope and potential cross-component impact before changing protocol, routing or navigation behavior.
 
+## Current-state handoff at the top of PROJECT_STATE.md
+- **Mandatory: maintain a single section titled `## STATO ATTUALE — RIPARTIRE DA QUI` immediately below the main `# Moto GPS — Project State` heading**. It must be the first section read when opening a new chat or resuming work, followed by the relevant detailed history and actual code/CI verification.
+- Update this section **at the end of every work session whenever state or next steps change**, in the same documentation change as the detailed historical entry. Keep it short, factual and current; do not append a second current-state section or silently rewrite historical entries.
+- Include: **date of last update; integration branch (`valhalla`) and active experimental branch (if any); latest implemented change; latest verified build/CI status with explicit distinction between user-reported and independently verified results; hardware/on-road testing status; known blockers/risks; and one specific next action**.
+- Distinguish work **implemented** from work **planned**, and successful compilation from on-device validation. If branch-specific state differs, say so explicitly. When closing or merging a test branch, update the branch reference and next step.
+- If the section is absent, create it before concluding the next work session. If the document starts with older dated notes before the main heading, normalize the heading/section order without deleting the historical content.
+
 ## Branch lifecycle and cleanup
 - Keep **exactly one integration branch**, `valhalla` (also the repository default), and **normally only one active experimental `test/*` branch** at a time. Do not recreate `main` or maintain `signal`.
 - Start experimental work from the latest `valhalla`; integrate it into `valhalla` only after explicit user approval and relevant validation.
