@@ -50,9 +50,9 @@ import org.osmdroid.views.overlay.Polyline
 // Recolor only the osmdroid base tiles: overlays, route lines and markers stay
 // untouched. The same cached MAPNIK tiles are reused in both modes.
 private val nightMapFilter = ColorMatrixColorFilter(ColorMatrix(floatArrayOf(
-    -0.36f, -0.36f, -0.36f, 0f, 213f,
-    -0.34f, -0.34f, -0.34f, 0f, 222f,
-    -0.32f, -0.32f, -0.32f, 0f, 219f,
+    -0.20f, -0.20f, -0.20f, 0f, 185f,
+    -0.19f, -0.19f, -0.19f, 0f, 193f,
+    -0.18f, -0.18f, -0.18f, 0f, 190f,
      0f,     0f,     0f,    1f,   0f
 )))
 
