@@ -1,5 +1,12 @@
 # Moto GPS — Project State
 
+## CI smart pacing: correzioni post primo run — 2026-11-13
+
+**Run diagnostico:** https://github.com/thriller47/moto-gps-waveshare/actions/runs/43418860441 avviato sul commit `7526e8d`. `detect-changes` ha mostrato erroneamente `android=true` con **unico file modificato** `.github/workflows/project-build.yml`: la negazione `!shared/nav_ui/**` unita al matcher OR di `dorny/paths-filter@v4` corrisponde a file non in quel percorso. Filtro corretto con allowlist positiva di tutti i moduli `shared/` diversi da `nav_ui`, senza perdere trigger `platforms/android/**`, `core/**`, `common/**` (commit `308a97b`, [skip ci]). Verificare che prossima CI salti Android.
+
+**Errore native emerso realmente:** la funzione `test_motion_render_pacing_policy()` in `tests/native/nav_ui_render_tests.cpp` era stata inserita prima del `#define CHECK` e falliva con `error: CHECK was not declared in this scope`. Correzione: spostare la funzione sotto la definizione del macro; nuova CI necessaria. Non confondere l'errore di test C++ con l'implementazione firmware. Stato ESP32 del run originale verificare a parte.
+
+
 ## Smart pacing del renderer e filtro CI Android — 2026-11-13
 
 **Motivazione:** log di test in movimento: `NAV_EXP` fino a 38-40 Hz da fermo, mentre LVGL disegna 14-20 FPS nei tratti densi e spesso occupa 80-95% CPU1; 4-5 FPS durante soste non significano necessariamente freeze. L'utente autorizza smart pacing e chiede di evitare build Android inutili.
