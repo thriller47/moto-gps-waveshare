@@ -2003,6 +2003,7 @@ extern "C" void moto_nav_ui_show_boot_screen(void) {
     lv_arc_set_bg_angles(ring, 0, 360);
     lv_obj_set_style_arc_color(ring, boot_green, LV_PART_MAIN);
     lv_obj_set_style_arc_width(ring, px(2), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(ring, LV_OPA_TRANSP, 0);
     lv_obj_remove_style(ring, nullptr, LV_PART_INDICATOR);
     lv_obj_remove_style(ring, nullptr, LV_PART_KNOB);
     lv_obj_remove_flag(ring, LV_OBJ_FLAG_CLICKABLE);
