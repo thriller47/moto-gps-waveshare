@@ -1,5 +1,16 @@
 # Moto GPS — Project State
 
+## Renderer strade unico: congelamenti e clipping per span — 2026-11-13
+
+**Prova hardware utente:** firmware del ramo `test/lvgl-single-road-renderer-20261113` con QSPI stabile 30 MHz, BLE funzionale ma display scende fino a 4.8–5 FPS durante navigazione; `display perf` fino a ~71 ms render/frame, ~4 flush/frame, con ripresa spontanea e nuovo congelamento al cambio scena. Il collegamento al telefono continua per parte del test; il precedente recupero alla disconnessione non dimostra una deadlock BLE. NON approvare merge/uso in guida finche' non passa hardware.
+
+**Diagnostico Android consegnato** `motogps-android-diagnostics(20261113-090857).zip`, con `current.log` ed `esp32-current.log` (eventi codificati, non seriale LVGL completo). Android emette nuove revisioni `BLE_MAP_SCENE` circa ogni 20 s anche con 20 strade (p.es. 10:07:03 20/107 e 10:07:29 20/115); non ci sono prove di superamento budget di polilinee. Traccia GPS e `NAV_SNAPSHOT` proseguono, ma il diagnostico da solo non correla un freeze con un preciso frame o con una scena: servono log seriali `display perf`, `CORE_PERF`, `NAV_EXP` raccolti sullo stesso intervallo. Nell'archivio esistono anche sessioni precedenti e un GATT status=8 alle 09:42:06, non prova di causa del freeze delle 10:07.
+
+**Correzione sperimentale mirata:** `shared/nav_ui/src/moto_nav_ui.cpp` conserva l'unico oggetto LVGL per tutte le strade e aggiunge bounds locali conservativi per ogni span fino a 24; li ricalcola quando cambiano i pixel/snap della geometria e salta le polilinee completamente fuori dal clip `layer->_clip_area` durante `LV_EVENT_DRAW_MAIN`. Mantiene disegno di tutti i segmenti visibili, stile per classe, alpha/caps, route, dirty tiles 4×4, BLE e 30 MHz invariati. Questo riduce task inutili nei redraw parziali; NON puo' promettere piu' FPS nei redraw completi e non cambia la frequenza di invio scena.
+
+**Regressioni:** aggiunto `test_offscreen_road_culling_preserves_visible_pixels` a `tests/native/nav_ui_render_tests.cpp`, oltre ai test precedenti per classi, interruzioni e partial buffer. Compilazione e CI ancora da confermare; nessun nuovo collaudo hardware dopo la correzione. Manuale operativo invariato (nessun nuovo comando); prossimo passo: una sola build CI finale, flash ESP sperimentale da fermo, confronto seriale e Android sincronizzati, controllo scene 20/100–130, flash/fallback a `valhalla` in caso di nuovo freeze. Merge solo dopo test positivo e approvazione esplicita.
+
+
 ## Fix compilazione renderer unico ESP32 — 2026-11-13
 
 **CI fallita realmente:** workflow https://github.com/thriller47/moto-gps-waveshare/actions/runs/43388703184/job/131763259138, nel file `shared/nav_ui/src/moto_nav_ui.cpp:467`: `error: no matching function for call to 'max(long int&, int)'`. `LV_EVENT_REFR_EXT_DRAW_SIZE` riceve `std::int32_t*` nella toolchain Xtensa; `px(4)` restituisce `int`. Risolto sul solo `test/lvgl-single-road-renderer-20261113` usando `static_cast<std::int32_t>(px(4))` in `std::max`. Commit fix `0c070861`. Non modificati renderer, stili, geometrie, buffer, TE o QSPI; `valhalla` invariato.
