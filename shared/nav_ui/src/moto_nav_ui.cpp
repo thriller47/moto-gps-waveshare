@@ -42,6 +42,8 @@ constexpr lv_color_t kSoft = LV_COLOR_MAKE(0xAE, 0xB2, 0xB0);
 constexpr lv_color_t kAmber = LV_COLOR_MAKE(0xE6, 0xC8, 0x4F);
 constexpr lv_color_t kRed = LV_COLOR_MAKE(0xFF, 0x4B, 0x43);
 constexpr lv_color_t kGreen = LV_COLOR_MAKE(0x69, 0xD4, 0x94);
+// Acid green for connection/ready lifecycle only; navigation colors unchanged.
+constexpr lv_color_t kConnectionAcidGreen = LV_COLOR_MAKE(0xB7, 0xFF, 0x39);
 constexpr double kPi = 3.14159265358979323846;
 constexpr int kCompassTickCount = 24;
 constexpr int kSpeedTickCount = 18;
@@ -1156,13 +1158,13 @@ void draw_connection_symbol(lv_event_t *event) {
              static_cast<lv_value_precise_t>(area.y1 + px(48))},
         };
         draw_segment(layer, kGraphite, px(12), LV_OPA_COVER, route, 4);
-        draw_segment(layer, kWhite, px(5), LV_OPA_COVER, route, 4);
-        draw_disc(layer, route[0].x, route[0].y, px(16), kWhite,
+        draw_segment(layer, kConnectionAcidGreen, px(5), LV_OPA_COVER, route, 4);
+        draw_disc(layer, route[0].x, route[0].y, px(16), kConnectionAcidGreen,
                   LV_OPA_COVER);
 
         lv_draw_arc_dsc_t pin;
         lv_draw_arc_dsc_init(&pin);
-        pin.color = kWhite;
+        pin.color = kConnectionAcidGreen;
         pin.width = px(5);
         pin.opa = LV_OPA_COVER;
         pin.rounded = 1;
@@ -1171,7 +1173,7 @@ void draw_connection_symbol(lv_event_t *event) {
         pin.start_angle = 0;
         pin.end_angle = 360;
         lv_draw_arc(layer, &pin);
-        draw_disc(layer, route[3].x, route[3].y, px(7), kWhite,
+        draw_disc(layer, route[3].x, route[3].y, px(7), kConnectionAcidGreen,
                   LV_OPA_COVER);
 
         if(ui.lifecycle_visual == LifecycleVisual::Planning) {
@@ -1187,24 +1189,24 @@ void draw_connection_symbol(lv_event_t *event) {
             const int y = static_cast<int>(std::lround(
                 route[segment].y +
                 (route[segment + 1].y - route[segment].y) * local));
-            draw_disc(layer, x, y, px(12), kWhite, LV_OPA_COVER);
+            draw_disc(layer, x, y, px(12), kConnectionAcidGreen, LV_OPA_COVER);
         } else {
             const lv_opa_t ready_opa = static_cast<lv_opa_t>(
                 150 + std::lround((std::sin(phase) + 1.0) * 40.0));
-            draw_disc(layer, route[0].x, route[0].y, px(25), kWhite,
+            draw_disc(layer, route[0].x, route[0].y, px(25), kConnectionAcidGreen,
                       ready_opa);
         }
         return;
     }
 
-    draw_phone_body(layer, area, kWhite, LV_OPA_COVER);
+    draw_phone_body(layer, area, kConnectionAcidGreen, LV_OPA_COVER);
     const bool connecting =
         ui.lifecycle_visual == LifecycleVisual::PhoneConnecting;
     const int speed = connecting ? 2 : 1;
     for(int index = 0; index < 3; ++index) {
         lv_draw_arc_dsc_t scan;
         lv_draw_arc_dsc_init(&scan);
-        scan.color = index == 0 ? kWhite : kQuiet;
+        scan.color = index == 0 ? kConnectionAcidGreen : kQuiet;
         scan.width = px(index == 0 ? 4 : 3);
         scan.opa = static_cast<lv_opa_t>(220 - index * 55);
         scan.rounded = 1;
@@ -1221,7 +1223,7 @@ void draw_connection_symbol(lv_event_t *event) {
         std::lround(center_x + std::sin(phase * speed) * px(66.0)));
     const int orbit_y = static_cast<int>(
         std::lround(center_y - std::cos(phase * speed) * px(66.0)));
-    draw_disc(layer, orbit_x, orbit_y, px(connecting ? 11 : 9), kWhite,
+    draw_disc(layer, orbit_x, orbit_y, px(connecting ? 11 : 9), kConnectionAcidGreen,
               LV_OPA_COVER);
 }
 
@@ -1231,10 +1233,10 @@ void set_layer_opacity(void *object, int32_t opacity) {
 
 void apply_lifecycle_content(LifecycleVisual visual) {
     ui.lifecycle_visual = visual;
-    const char *kicker = "MOTO GPS / PHONE LINK";
+    const char *kicker = "MOTO CHAT GPS / PHONE LINK";
     const char *title = "";
     const char *subtitle = "";
-    lv_color_t title_color = kWhite;
+    lv_color_t title_color = kConnectionAcidGreen;
     switch(visual) {
         case LifecycleVisual::PhoneOffline:
             title = "CONNECT PHONE";
@@ -1247,15 +1249,15 @@ void apply_lifecycle_content(LifecycleVisual visual) {
         case LifecycleVisual::Connected:
             title = "CONNECTED";
             subtitle = "CONNECTED";
-            title_color = kGreen;
+            title_color = kConnectionAcidGreen;
             break;
         case LifecycleVisual::Ready:
-            kicker = "MOTO GPS / READY";
+            kicker = "MOTO CHAT GPS / READY";
             title = "READY TO RIDE";
             subtitle = "SELECT DESTINATION";
             break;
         case LifecycleVisual::Planning:
-            kicker = "MOTO GPS / ROUTE";
+            kicker = "MOTO CHAT GPS / ROUTE";
             title = "BUILDING ROUTE";
             subtitle = "CALCULATING ROUTE";
             break;
@@ -1268,7 +1270,7 @@ void apply_lifecycle_content(LifecycleVisual visual) {
     lv_obj_set_style_text_color(ui.nav_lifecycle_title, title_color, 0);
     lv_obj_set_style_text_color(ui.nav_lifecycle_subtitle,
                                 visual == LifecycleVisual::Connected
-                                    ? kGreen : kSoft,
+                                    ? kConnectionAcidGreen : kSoft,
                                 0);
     lv_obj_invalidate(ui.nav_lifecycle_symbol);
 }
@@ -1753,7 +1755,7 @@ void create_navigation_page() {
 
     ui.nav_lifecycle_kicker = make_label(
         ui.nav_lifecycle, &lv_font_montserrat_16, kQuiet,
-        "MOTO GPS / PHONE LINK");
+        "MOTO CHAT GPS / PHONE LINK");
     lv_obj_set_style_text_letter_space(ui.nav_lifecycle_kicker, px(2), 0);
     lv_obj_align(ui.nav_lifecycle_kicker, LV_ALIGN_TOP_MID, 0, px(39));
 
@@ -1766,7 +1768,7 @@ void create_navigation_page() {
                         LV_EVENT_DRAW_MAIN_END, nullptr);
 
     ui.nav_lifecycle_title = make_label(
-        ui.nav_lifecycle, &lv_font_montserrat_28, kWhite, "CONNECT PHONE");
+        ui.nav_lifecycle, &lv_font_montserrat_28, kConnectionAcidGreen, "CONNECT PHONE");
     lv_obj_set_width(ui.nav_lifecycle_title, px(310));
     lv_obj_set_style_text_align(ui.nav_lifecycle_title,
                                 LV_TEXT_ALIGN_CENTER, 0);
