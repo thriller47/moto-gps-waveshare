@@ -20,6 +20,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -39,6 +45,28 @@ import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.MapEventsOverlay
 import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polyline
+
+// Lightweight typographic match for the circular ESP splash: bold italic
+// sans-serif and a mint-green CHAT, without adding a font asset to the APK.
+@Composable
+private fun MotoChatAppBarTitle() {
+    val green = MotoChatColors.Green
+    val white = MaterialTheme.colorScheme.onSurface
+    val wordmark = buildAnnotatedString {
+        withStyle(SpanStyle(color = white)) { append("MOTO ") }
+        withStyle(SpanStyle(color = green)) { append("CHAT") }
+        withStyle(SpanStyle(color = white)) { append(" GPS") }
+    }
+    Text(
+        text = wordmark,
+        style = MaterialTheme.typography.titleLarge.copy(
+            fontWeight = FontWeight.ExtraBold,
+            fontStyle = FontStyle.Italic,
+            letterSpacing = androidx.compose.ui.unit.TextUnit.Unspecified
+        ),
+        maxLines = 1
+    )
+}
 
 @Composable
 fun RouteMapView(
@@ -709,7 +737,7 @@ fun NavigationScreen(
                 )
             } else {
                 TopAppBar(
-                    title = { Text("Moto Chat GPS") },
+                    title = { MotoChatAppBarTitle() },
                     actions = {
                         TextButton(onClick = { showDiagnosticsDialog = true }) {
                             Text("LOG")
