@@ -1,5 +1,18 @@
 # Moto GPS — Project State
 
+## Smart pacing del renderer e filtro CI Android — 2026-11-13
+
+**Motivazione:** log di test in movimento: `NAV_EXP` fino a 38-40 Hz da fermo, mentre LVGL disegna 14-20 FPS nei tratti densi e spesso occupa 80-95% CPU1; 4-5 FPS durante soste non significano necessariamente freeze. L'utente autorizza smart pacing e chiede di evitare build Android inutili.
+
+**Implementazione sul solo ramo sperimentale `test/lvgl-single-road-renderer-20261113`:** nuovo `platforms/esp32/main/motion_render_pacing.h` con policy pura testabile: motion-only (IMU) al massimo una presentazione ogni 50 ms = 20 Hz; con velocita' <0.5 m/s e delta heading modulo 360 <1.5 gradi fra ultimi frame presentati, 250 ms = 4 Hz. In `phone_nav_bridge.cpp` il task `run_renderer` trattiene l'ultimo flag motion e aspetta via `ulTaskNotifyTake` con timeout; le notifiche di `RenderNavigation` (inclusi nuovi snapshot, scene, rotta, waypoint, link), `RenderMedia` bypassano il throttle per non perdere eventi. La proiezione resta fuori dal mutex LVGL. `NAV_EXP` misura tutte le presentazioni navigation+motion: gli snapshot BLE Android a ~5 Hz possono tenere il totale oltre 4 Hz anche con throttle motion in sosta. `lock_max` e' **attesa per acquisire** il lock LVGL, non durata detenzione; aggiunto `apply_max` per misurare separatamente tempo dentro lock fino a unlock.
+
+**Regressione test:** `tests/native/nav_ui_render_tests.cpp` contiene `test_motion_render_pacing_policy` (soglia idle/marcia, wrap heading 359->0, attesa scaduta, primo frame). Il test non copre scheduler FreeRTOS/BLE reale: collaudo ESP resta obbligatorio.
+
+**Workflow:** `.github/workflows/project-build.yml` usava filtro Android `shared/**` e persino il workflow stesso. Ora esclude `shared/nav_ui/**` e non attiva Android solo per edit al workflow; Android continua a partire per `platforms/android/**`, altri `shared/**`, `core/**`, `common/**`. Native e ESP32 continuano a includere il file workflow e modifiche relative. Il workflow `workflow_dispatch` conserva controlli manuali. Verificare i job realmente eseguiti alla nuova CI; non attribuire job skipped a difetto compilazione.
+
+**Validazione:** al momento della presente nota compilazione e test host non eseguiti localmente (SDK ESP32 non disponibile in questo ambiente); CI finale ancora da verificare. Nessuna modifica firmware stabile, app Android, protocollo BLE, Valhalla, MotoMap, QSPI o DMA. Nessuna nuova procedura nel manuale operativo. Prossima azione: una CI conclusiva (native+ESP32, Android skipped), flash solo ESP e log seriale/replay in prova sicura: confrontare motion pacing, `lock_max`, `apply_max`, render avg/max, CPU1 e cambi scena. Non fare merge in `valhalla` senza consenso e test fisico positivo.
+
+
 ## Rendering dirty tiles: coalescenza aree e prova in movimento — 2026-11-13
 
 **Nuova evidenza del test (utente):** campioni seriali `serial_20261113_120113.txt` + diagnostico Android `motogps-android-diagnostics(20261113-112031).zip` + replay `motogps-replay(10).jsonl`. L'utente percepisce migliore fluidita' col clipping per span. Il replay colloca i peggiori FPS ~4–5 a velocita' GPS 0: non sono prova da soli di freeze; mediana nei campioni di movimento >=5.4km/h circa 18.6 FPS (analisi di sessione chat). Durante gli aggiornamenti il renderer resta costoso: ~50–53ms/render, 3.2 flush/frame e LVGL 80–95% di un core. BLE e memoria generalmente stabili nel seriale. Nessun merge in `valhalla` finche' non e' provato su strada e confrontato con firmware stabile.
