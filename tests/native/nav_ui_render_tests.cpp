@@ -5,6 +5,7 @@
 
 #include "moto_nav_ui.h"
 #include "moto_nav_route_sampling.hpp"
+#include "../../platforms/esp32/main/motion_render_pacing.h"
 
 #include <lvgl.h>
 
@@ -19,6 +20,20 @@
 namespace {
 
 int failures = 0;
+
+void test_motion_render_pacing_policy() {
+  using moto::nav::motion_render_period_ms;
+  using moto::nav::remaining_motion_wait_ms;
+  CHECK(motion_render_period_ms(0.0F, 90.0F, 90.5F) == 250U);
+  CHECK(motion_render_period_ms(0.49F, 359.0F, 0.0F) == 250U);
+  CHECK(motion_render_period_ms(0.0F, 90.0F, 92.0F) == 50U);
+  CHECK(motion_render_period_ms(0.5F, 90.0F, 90.0F) == 50U);
+  CHECK(motion_render_period_ms(20.0F, 90.0F, 90.0F) == 50U);
+  CHECK(remaining_motion_wait_ms(1000, 1100, 250) == 150U);
+  CHECK(remaining_motion_wait_ms(1000, 1250, 250) == 0U);
+  CHECK(remaining_motion_wait_ms(1000, 1050, 50) == 0U);
+  CHECK(remaining_motion_wait_ms(0, 1000, 250) == 0U);
+}
 
 #define CHECK(condition)                                                   \
   do {                                                                     \
@@ -940,6 +955,7 @@ int main(int argc, char **argv) {
       [](std::uint8_t byte) { return byte == 0x00; });
   CHECK(all_black);
 
+  test_motion_render_pacing_policy();
   test_frames_are_deterministic();
   test_clearing_geometry_leaves_no_residue();
   test_turn_arrows_and_turn_distance_do_not_move_arrival_distance();
