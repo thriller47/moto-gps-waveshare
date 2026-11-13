@@ -19,7 +19,7 @@ constexpr int kButtonsRadius = 144;
 constexpr uint32_t kOrange = 0xF59E0B;
 constexpr uint32_t kMuted = 0x8E8E93;
 constexpr uint32_t kGreen = 0x10B981;
-constexpr uint32_t kAcidGreen = 0xB7FF39;
+constexpr uint32_t kRadioGreen = 0x50D995; // Same green as Moto Chat GPS boot splash.
 constexpr uint32_t kDark = 0x1C1C1E;
 constexpr uint32_t kRed = 0xEF4444;
 constexpr float kPi = 3.14159265359f;
@@ -129,9 +129,9 @@ lv_obj_t* circle_button(lv_obj_t* parent, const char* text, int size,
   return button;
 }
 void style_radio_control(lv_obj_t* button) {
-  lv_obj_set_style_bg_color(button, lv_color_hex(kAcidGreen), 0);
-  lv_obj_set_style_border_color(button, lv_color_hex(kAcidGreen), 0);
-  lv_obj_set_style_bg_color(button, lv_color_hex(0x8CC92C), LV_STATE_PRESSED);
+  lv_obj_set_style_bg_color(button, lv_color_hex(kRadioGreen), 0);
+  lv_obj_set_style_border_color(button, lv_color_hex(kRadioGreen), 0);
+  lv_obj_set_style_bg_color(button, lv_color_hex(0x37A76F), LV_STATE_PRESSED);
   lv_obj_set_style_text_color(button, lv_color_black(), 0);
   lv_obj_t* caption = lv_obj_get_child(button, 0);
   if (caption) lv_obj_set_style_text_color(caption, lv_color_black(), 0);
