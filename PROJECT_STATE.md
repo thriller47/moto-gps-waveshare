@@ -1,3 +1,21 @@
+# Moto GPS — Project State
+
+## STATO ATTUALE — RIPARTIRE DA QUI
+
+**Aggiornato:** 2026-11-13. **Integrazione:** `valhalla` (intatto). **Esperimento attivo:** `test/lvgl-single-road-renderer-20261113`.
+
+**Ultima modifica:** prima fase del rebranding Android Moto Chat GPS **Dark Touring**, palette approvata dall'utente: AMOLED #080C0B, superfici #151D1B, verde #50D995, testo #F3F7F5, secondario #A3B2AC. Aggiunto schema colori Compose centralizzato, tema Activity/finestre scuro, risorse XML e rotta preview verde. Nessuna modifica a BLE, GNSS, predizione ESP32, Valhalla, MotoMap o UI firmware; branding icona/splash ancora da fare. Resta sperimentale la separazione predizione Android/ESP32 (GNSS autorevole Android, sola predizione grafica ESP32).
+
+**Build/test:** build Android della precedente fase GPS confermata dall'utente; **nuova palette non ancora compilata o validata sul telefono**. CI Android da eseguire sul commit finale del rebranding; native/ESP32 non richiesti per modifica Android-only. Nessun test su strada previsto stasera. Rischi aperti: verificare contrasto in dialoghi, campi, mappa osmdroid, status/navigation bar; testare GPS/rotonde in seguito, con ESP fissato rigidamente.
+
+**Prossima azione:** verificare una sola CI Android per la palette, installare APK sperimentale e controllare visivamente schermata principale, ricerca, gestione mappe, anteprima percorso e dialoghi. Non fare merge senza approvazione. Manuale operativo invariato (nessuna nuova procedura).
+
+## Palette Android Dark Touring approvata — 2026-11-13
+
+L'utente approva la palette Dark Touring in quanto coerente con i colori identitari del display ESP32. Implementazione nel solo branch `test/lvgl-single-road-renderer-20261113`: nuovo `ui/MotoChatTheme.kt` con schema Material3 scuro e colori semantici; `MainActivity.kt` passa da `lightColorScheme()` a `MotoChatDarkColorScheme`; `res/values/themes.xml` configura barre di sistema scure; `colors.xml` espone valori XML; `NavigationScreen.kt` sostituisce il blu della rotta nella preview osmdroid con il verde #50D995. Il layer di tile MAPNIK esterno resta invariato e puo' essere chiaro: non dichiarare mappa interamente scura. Non sono stati cambiati algoritmi o protocollo.
+
+**Verifica:** nessuna build/test locale disponibile nell'ambiente di modifica; CI da verificare dopo push finale. Nessun test hardware o su strada della nuova palette. Il manuale operativo non cambia.
+
 ## Build Android fase 1 separazione predizioni riuscita — 2026-11-13
 
 **Branch sperimentale:** `test/lvgl-single-road-renderer-20261113`; `valhalla` invariato. L'utente conferma la riuscita della **build Android** successiva alla rimozione dell'anticipazione Android della posizione GPS. Non sono stati comunicati in questa chat gli ID della nuova run e dei job: il successo e' registrato come conferma dell'utente, non come riesecuzione indipendente dei test. Il workflow selettivo ha coinvolto Android; native e ESP32 non erano necessari per una modifica ai soli sorgenti Android.
@@ -18,7 +36,6 @@
 
 **Prossima azione:** verificare Android CI; poi installare APK sperimentale e registrare nuovo replay, confrontando rotonde e distanze con la prova 13 novembre; flash ESP non necessario per testare la separazione Android in questa fase. Progettare successivamente time-metadata BLE e predizione vincolata a rotta per ESP con test dedicati, mantenendo `valhalla` intatto fino a conferma dell'utente.
 
-# Moto GPS — Project State
 
 ## Riduzione conservativa polilinee grigie + workflow selettivo — 2026-11-13
 
