@@ -28,6 +28,8 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
 import com.motogps.android.R
 import androidx.core.content.ContextCompat
 import com.motogps.android.map.SavedMapInfo
@@ -44,6 +46,20 @@ import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.MapEventsOverlay
 import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polyline
+
+// Recolor only the osmdroid base tiles: overlays, route lines and markers stay
+// untouched. The same cached MAPNIK tiles are reused in both modes.
+private val nightMapFilter = ColorMatrixColorFilter(ColorMatrix(floatArrayOf(
+    -0.36f, -0.36f, -0.36f, 0f, 213f,
+    -0.34f, -0.34f, -0.34f, 0f, 222f,
+    -0.32f, -0.32f, -0.32f, 0f, 219f,
+     0f,     0f,     0f,    1f,   0f
+)))
+
+private fun applyMapNightMode(map: MapView, night: Boolean) {
+    map.overlayManager.tilesOverlay.setColorFilter(if (night) nightMapFilter else null)
+    map.invalidate()
+}
 
 // Lightweight typographic match for the circular ESP splash: bold italic
 // sans-serif and a mint-green CHAT, without adding a font asset to the APK.
@@ -69,6 +85,7 @@ private fun MotoChatAppBarTitle() {
 @Composable
 fun RouteMapView(
     geoPoints: List<GeoPoint>,
+    nightMode: Boolean = true,
     currentLocation: Pair<Double, Double>? = null,
     destinationLocation: Pair<Double, Double>? = null,
     waypoints: List<PlaceSearchResult> = emptyList(),
@@ -80,10 +97,12 @@ fun RouteMapView(
             Configuration.getInstance().userAgentValue = context.packageName
             MapView(context).apply {
                 setTileSource(TileSourceFactory.MAPNIK)
+                applyMapNightMode(this, nightMode)
                 setMultiTouchControls(true)
             }
         },
         update = { mapView ->
+            applyMapNightMode(mapView, nightMode)
             mapView.overlays.clear()
             if (onWaypointLongPress != null) {
                 mapView.overlays.add(MapEventsOverlay(object : MapEventsReceiver {
@@ -152,6 +171,7 @@ fun MainMapView(
     currentLocation: Pair<Double, Double>?,
     destinationLocation: Pair<Double, Double>?,
     centerTrigger: Int,
+    nightMode: Boolean = true,
     onMapLongPress: (Double, Double) -> Unit,
     onMapViewReady: (MapView) -> Unit,
     modifier: Modifier = Modifier
@@ -171,6 +191,7 @@ fun MainMapView(
             Configuration.getInstance().userAgentValue = ctx.packageName
             MapView(ctx).apply {
                 setTileSource(TileSourceFactory.MAPNIK)
+                applyMapNightMode(this, nightMode)
                 setMultiTouchControls(true)
                 controller.setZoom(15.0)
 
@@ -198,6 +219,7 @@ fun MainMapView(
             }
         },
         update = { mapView ->
+            applyMapNightMode(mapView, nightMode)
             mapViewInstance = mapView
             onMapViewReady(mapView)
 
@@ -603,6 +625,8 @@ fun NavigationScreen(
 
     val focusManager = LocalFocusManager.current
     val context = LocalContext.current
+    val mapPreferences = remember(context) { context.getSharedPreferences("moto_chat_map_style", android.content.Context.MODE_PRIVATE) }
+    var nightMapEnabled by remember { mutableStateOf(mapPreferences.getBoolean("night_map", true)) }
 
 
     LaunchedEffect(showOfflineDialog) {
@@ -719,6 +743,15 @@ fun NavigationScreen(
                         }
                     },
                     actions = {
+                        IconButton(onClick = {
+                            nightMapEnabled = !nightMapEnabled
+                            mapPreferences.edit().putBoolean("night_map", nightMapEnabled).apply()
+                        }) {
+                            Icon(
+                                if (nightMapEnabled) Icons.Default.LightMode else Icons.Default.DarkMode,
+                                contentDescription = if (nightMapEnabled) "Mostra mappa chiara" else "Mostra mappa notturna"
+                            )
+                        }
                         IconButton(onClick = { showInfoDialog = true }) {
                             Icon(Icons.Default.Info, contentDescription = "Informazioni e licenze")
                         }
@@ -737,6 +770,16 @@ fun NavigationScreen(
                 TopAppBar(
                     title = { MotoChatAppBarTitle() },
                     actions = {
+                        IconButton(onClick = {
+                            nightMapEnabled = !nightMapEnabled
+                            mapPreferences.edit().putBoolean("night_map", nightMapEnabled).apply()
+                        }) {
+                            Icon(
+                                if (nightMapEnabled) Icons.Default.LightMode else Icons.Default.DarkMode,
+                                contentDescription = if (nightMapEnabled) "Mostra mappa chiara" else "Mostra mappa notturna"
+                            )
+                        }
+
                         TextButton(onClick = { showDiagnosticsDialog = true }) {
                             Text("LOG")
                         }
@@ -768,6 +811,7 @@ fun NavigationScreen(
                 ) {
                     Box(modifier = Modifier.fillMaxSize()) {
                     RouteMapView(
+                        nightMode = nightMapEnabled,
                         geoPoints = geoPoints,
                         currentLocation = currentLocation,
                         destinationLocation = Pair(routePreview.latitude, routePreview.longitude),
@@ -1058,6 +1102,7 @@ fun NavigationScreen(
                         .clipToBounds()
                 ) {
                     MainMapView(
+                        nightMode = nightMapEnabled,
                         currentLocation = currentLocation,
                         destinationLocation = longPressDestination,
                         centerTrigger = centerOnLocationTrigger,
