@@ -2,13 +2,22 @@
 
 ## STATO ATTUALE — RIPARTIRE DA QUI
 
-**Aggiornato:** 2026-11-13. **Integrazione:** `valhalla` (intatto). **Esperimento attivo:** `test/lvgl-single-road-renderer-20261113`.
+**Aggiornato:** 2026-11-13. **Branch stabile:** `valhalla` (non modificato). **Branch sperimentale attivo:** `test/lvgl-single-road-renderer-20261113`.
 
-**Ultima modifica:** prima fase del rebranding Android Moto Chat GPS **Dark Touring**, palette approvata dall'utente: AMOLED #080C0B, superfici #151D1B, verde #50D995, testo #F3F7F5, secondario #A3B2AC. Aggiunto schema colori Compose centralizzato, tema Activity/finestre scuro, risorse XML e rotta preview verde. Nessuna modifica a BLE, GNSS, predizione ESP32, Valhalla, MotoMap o UI firmware; branding icona/splash ancora da fare. Resta sperimentale la separazione predizione Android/ESP32 (GNSS autorevole Android, sola predizione grafica ESP32).
+**Ultime modifiche:** rebranding Moto Chat GPS Dark Touring Android (Material3 scuro, launcher label Moto Chat GPS senza cambiare icona, preview percorso verde); nuova sezione Informazioni/licenze e ringraziamenti per OpenStreetMap (© contributori/ODbL), Valhalla (MIT), Photon (rimando al testo di licenza upstream). ESP32: boot splash LVGL ora MOTO / CHAT / GPS con CHAT verde, sfondo AMOLED nero e fade esistente. Nessuna modifica a BLE, GPS, Valhalla, MotoMap, rotte o logica di navigazione. Resta sperimentale la separazione tra GNSS Android autorevole e predizione grafica ESP32.
 
-**Build/test:** build Android della precedente fase GPS confermata dall'utente; **nuova palette non ancora compilata o validata sul telefono**. CI Android da eseguire sul commit finale del rebranding; native/ESP32 non richiesti per modifica Android-only. Nessun test su strada previsto stasera. Rischi aperti: verificare contrasto in dialoghi, campi, mappa osmdroid, status/navigation bar; testare GPS/rotonde in seguito, con ESP fissato rigidamente.
+**Verifiche:** precedente build Android per fase GPS confermata dall'utente, **nuove modifiche di branding non ancora compilate o testate**; nessun flash ESP, nessun collaudo visivo Android. Rischi: verificare contrasto UI, leggibilita' splash su display 466x466, navigazione alla schermata Info e URL, avvio Android. La schermata Info non sostituisce LICENSE/NOTICE di terzi. Nessun test su strada previsto stasera.
 
-**Prossima azione:** verificare una sola CI Android per la palette, installare APK sperimentale e controllare visivamente schermata principale, ricerca, gestione mappe, anteprima percorso e dialoghi. Non fare merge senza approvazione. Manuale operativo invariato (nessuna nuova procedura).
+**Prossima azione:** completare una sola CI consolidata Android + ESP32 + native per il rebranding, installare APK sperimentale e riflashare ESP per verificare il boot splash. Poi controllo UI/Info, senza merge fino ad approvazione. Manuale operativo invariato (nessun nuovo comando/procedura).
+
+## Rebranding splash ESP32 e schermata informazioni Android — 2026-11-13
+
+**Decisione utente:** mantenere l'icona Android gia' creata; modificare invece la schermata d'avvio dell'ESP32 e aggiungere nell'app una sezione Info con licenze e ringraziamenti per OpenStreetMap, Valhalla e Photon.
+
+**Implementazione:** `shared/nav_ui/src/moto_nav_ui.cpp` modifica soltanto `moto_nav_ui_show_boot_screen`: da MOTO GPS bianco a tre righe MOTO / CHAT / GPS, bianco e verde Dark Touring su nero AMOLED, mantenendo la stessa animazione fade e durata senza asset aggiuntivi. `platforms/android/app/src/main/java/com/motogps/android/ui/MotoChatInfoDialog.kt` aggiunge dialogo scorrevole con riconoscimenti, OSM copyright/ODbL e link alle licenze upstream Valhalla e Photon. `NavigationScreen.kt` espone pulsante Info nelle due top bar e aggiorna il titolo. `res/values/strings.xml` rinomina l'etichetta app in Moto Chat GPS senza modificare `ic_launcher`. Icona esistente invariata.
+
+**Verifica:** nessuna compilazione o test hardware ancora eseguiti in questa sessione. La schermata Info e' un punto d'accesso ai crediti, non sostituisce la conservazione di licenze/NOTICE richiesti. Prossima azione: CI finale e prove visive Android/ESP. Nessuna procedura manuale cambiata.
+
 
 ## Palette Android Dark Touring approvata — 2026-11-13
 
