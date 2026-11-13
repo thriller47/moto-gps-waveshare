@@ -1,5 +1,16 @@
 # Moto GPS — Project State
 
+## Esperimento renderer unico strade LVGL — 2026-11-13
+
+**Autorizzazione utente:** dopo due prove QSPI 40 MHz fallite (DMA underflow con direct PSRAM, no-mem con DMA staging), l'utente elimina il vecchio branch `test/lvgl-qspi-render-20261113` e autorizza il solo renderer delle strade. Nuovo ramo `test/lvgl-single-road-renderer-20261113` da `valhalla` stabile, senza merge e senza modifiche al clock (30 MHz), al DMA diretto PSRAM, alla TE sync, a buffer, BLE, Android, Valhalla, MotoMap, rotta verde e logica di zoom.
+
+**Implementazione sperimentale:** in `shared/nav_ui/src/moto_nav_ui.cpp` i 40 oggetti LVGL prima predisposti come singole road `lv_obj` sono sostituiti da un unico `nav_roads_layer` con `LV_EVENT_DRAW_MAIN`. Disegna le stesse 24 polilinee massime usando la stessa sorgente di punti interpolati, clip/banding `draw_map_line`, larghezza 4/3/2 per classe major/standard/service e colori grigi esistenti, senza collegare spans distinti. La route shadow/green route rimane sopra, il marker resta top layer, la griglia dirty 4x4 ed il refresh dei punti non sono stati cambiati. La scena vuota nasconde il layer; snap della scena lo invalida; il movimento interpola i punti e invalida la mappa secondo la logica precedente.
+
+**Test di regressione:** `tests/native/nav_ui_render_tests.cpp` esteso con caso su due polilinee disconnesse, classi/cambi senza revisione, clear/recovery; rimangono test preesistenti su geometrie massime 24x192, clipping e buffer 40/320, motion interpolation, reroute e dirty tiles. La compilazione/CI e test visivi non sono ancora conclusi quando questa nota e' stata preparata. Non attribuire un aumento di FPS fino alla prova A/B con il vecchio firmware e stessa scena. Da controllare: crash/artefatti, FPS, render avg/max, TE/DMA wait, flush/frame, over-budget, carico CPU e contesto rotatorie/uscite.
+
+**Manuale operativo:** nessuna procedura di build, flash, diagnostica o import dati e' cambiata; non richiede modifica cosmetica. Prossima azione: un'unica CI consolidata del ramo, poi flash ESP e log seriale in navigazione reale con attenzione alle rotatorie. Merge in `valhalla` solo dopo collaudo esplicito.
+
+
 ## Rebranding Moto Chat GPS: tema Android Dark Touring — 2026-11-12
 
 **Decisione UX utente:** rebranding completo Moto Chat GPS approvato. Stile touring tecnologico elegante, non racing aggressivo: nero AMOLED, verde navigazione e bianco; aggiungere esplicitamente anche **tema scuro nell'app Android con dettagli verdi e bianchi** (non solo splash e icona). Coordinare identita' e splash Android, schermata d'avvio ESP32 sul display AMOLED circolare 466x466, icona Android e README, preservando la leggibilita' delle mappe e della rotta verde. Possibile testo attribuzioni Valhalla/OpenStreetMap in schermata informazioni senza rimuovere licenze/NOTICE.
