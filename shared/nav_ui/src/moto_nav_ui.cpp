@@ -1985,47 +1985,30 @@ extern "C" void moto_nav_ui_show_boot_screen(void) {
     lv_obj_clean(ui.screen);
     lv_obj_remove_flag(ui.screen, LV_OBJ_FLAG_SCROLLABLE);
     const lv_color_t boot_black = LV_COLOR_MAKE(0x00, 0x00, 0x00);
-    const lv_color_t boot_white = LV_COLOR_MAKE(0xFF, 0xFF, 0xFF);
+    const lv_color_t boot_white = LV_COLOR_MAKE(0xF3, 0xF7, 0xF5);
+    const lv_color_t boot_green = LV_COLOR_MAKE(0x50, 0xD9, 0x95);
     lv_obj_set_style_bg_color(ui.screen, boot_black, 0);
     lv_obj_set_style_bg_opa(ui.screen, LV_OPA_COVER, 0);
 
-    // Keep the AMOLED background truly black and animate only the white mark.
-    // A single opacity animation with a delayed reverse is cheaper than
-    // per-letter animation and fits inside the existing 1.25 s boot cadence.
+    // Moto Chat GPS: same Dark Touring identity as Android. Keep the existing
+    // lightweight fade and 1.25-second boot sequence, with no image assets.
     lv_obj_t *content = make_layer(ui.screen);
     lv_obj_set_style_opa(content, LV_OPA_TRANSP, 0);
 
     lv_obj_t *moto = make_label(content, &lv_font_montserrat_48,
                                 boot_white, "MOTO");
     lv_obj_set_style_text_letter_space(moto, px(4), 0);
-    lv_obj_set_style_text_outline_stroke_color(moto, boot_white, 0);
-    lv_obj_set_style_text_outline_stroke_width(moto, px(2), 0);
-    lv_obj_set_style_text_outline_stroke_opa(moto, LV_OPA_COVER, 0);
-    lv_obj_set_style_transform_scale_x(moto, 340, 0);
-    lv_obj_set_style_transform_scale_y(moto, 340, 0);
-    lv_obj_align(moto, LV_ALIGN_CENTER, 0, px(-37));
+    lv_obj_align(moto, LV_ALIGN_CENTER, 0, px(-80));
+
+    lv_obj_t *chat = make_label(content, &lv_font_montserrat_48,
+                                boot_green, "CHAT");
+    lv_obj_set_style_text_letter_space(chat, px(4), 0);
+    lv_obj_align(chat, LV_ALIGN_CENTER, 0, 0);
 
     lv_obj_t *gps = make_label(content, &lv_font_montserrat_48,
                                boot_white, "GPS");
-    lv_obj_set_style_text_letter_space(gps, px(10), 0);
-    lv_obj_set_style_text_outline_stroke_color(gps, boot_white, 0);
-    lv_obj_set_style_text_outline_stroke_width(gps, px(2), 0);
-    lv_obj_set_style_text_outline_stroke_opa(gps, LV_OPA_COVER, 0);
-    lv_obj_set_style_transform_scale_x(gps, 340, 0);
-    lv_obj_set_style_transform_scale_y(gps, 340, 0);
-    lv_obj_align(gps, LV_ALIGN_CENTER, 0, px(35));
-
-    // One deliberate signature: a road-like diagonal cut through two solid
-    // white velocity bars. No grey, colour or decorative loading spinner.
-    for(int i = 0; i < 2; ++i) {
-        lv_obj_t *bar = lv_obj_create(content);
-        lv_obj_remove_style_all(bar);
-        lv_obj_set_size(bar, px(i == 0 ? 56 : 38), px(5));
-        lv_obj_set_pos(bar, px(i == 0 ? 73 : 250), px(i == 0 ? 259 : 94));
-        lv_obj_set_style_bg_color(bar, boot_white, 0);
-        lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
-        lv_obj_set_style_transform_rotation(bar, -120, 0);
-    }
+    lv_obj_set_style_text_letter_space(gps, px(8), 0);
+    lv_obj_align(gps, LV_ALIGN_CENTER, 0, px(80));
 
     lv_anim_t fade;
     lv_anim_init(&fade);
