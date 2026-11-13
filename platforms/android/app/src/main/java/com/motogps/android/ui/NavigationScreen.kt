@@ -20,7 +20,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
@@ -61,8 +60,7 @@ private fun MotoChatAppBarTitle() {
         text = wordmark,
         style = MaterialTheme.typography.titleLarge.copy(
             fontWeight = FontWeight.ExtraBold,
-            fontStyle = FontStyle.Italic,
-            letterSpacing = androidx.compose.ui.unit.TextUnit.Unspecified
+            fontStyle = FontStyle.Italic
         ),
         maxLines = 1
     )
