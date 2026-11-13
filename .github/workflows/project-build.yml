@@ -79,9 +79,10 @@ jobs:
               - 'scripts/offline_map/**'
               - 'third_party/**'
             android:
-              - '.github/workflows/project-build.yml'
               - 'platforms/android/**'
               - 'shared/**'
+              # The LVGL ESP/Web renderer is not linked into Android.
+              - '!shared/nav_ui/**'
               - 'core/**'
               - 'common/**'
             esp32:
