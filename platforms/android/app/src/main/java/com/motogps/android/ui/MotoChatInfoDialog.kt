@@ -16,6 +16,7 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.dp
 
 /** Visible attribution and license references for the core navigation data and engines. */
+// Branding validation is consolidated with the ESP32 boot-screen changes.
 @Composable
 fun MotoChatInfoDialog(onDismiss: () -> Unit) {
     val uriHandler = LocalUriHandler.current
