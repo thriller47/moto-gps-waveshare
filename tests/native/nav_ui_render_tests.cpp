@@ -21,6 +21,16 @@ namespace {
 
 int failures = 0;
 
+
+#define CHECK(condition)                                                   \
+  do {                                                                     \
+    if (!(condition)) {                                                    \
+      std::cerr << __FILE__ << ':' << __LINE__                             \
+                << " CHECK failed: " #condition << '\n';                   \
+      ++failures;                                                          \
+    }                                                                      \
+  } while (false)
+
 void test_motion_render_pacing_policy() {
   using moto::nav::motion_render_period_ms;
   using moto::nav::remaining_motion_wait_ms;
@@ -34,15 +44,6 @@ void test_motion_render_pacing_policy() {
   CHECK(remaining_motion_wait_ms(1000, 1050, 50) == 0U);
   CHECK(remaining_motion_wait_ms(0, 1000, 250) == 0U);
 }
-
-#define CHECK(condition)                                                   \
-  do {                                                                     \
-    if (!(condition)) {                                                    \
-      std::cerr << __FILE__ << ':' << __LINE__                             \
-                << " CHECK failed: " #condition << '\n';                   \
-      ++failures;                                                          \
-    }                                                                      \
-  } while (false)
 
 constexpr int kWidth = MOTO_UI_CANVAS_WIDTH;
 constexpr int kHeight = MOTO_UI_CANVAS_HEIGHT;
