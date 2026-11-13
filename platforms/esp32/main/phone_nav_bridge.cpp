@@ -1,4 +1,5 @@
 #include "phone_nav_bridge.h"
+#include "motion_render_pacing.h"
 
 #include <algorithm>
 #include <cmath>
@@ -1242,6 +1243,11 @@ void PhoneNavBridge::render_pending() {
 #endif
   board_port_unlock();
 #if defined(ESP_PLATFORM) && (defined(MOTO_ESP_CURVE_ZOOM_EXPERIMENT) || defined(MOTO_ESP_SUBPIXEL_EXPERIMENT))
+  static std::uint64_t lvgl_apply_max_us = 0;
+  const std::uint64_t unlock_done_us =
+      static_cast<std::uint64_t>(esp_timer_get_time());
+  lvgl_apply_max_us = std::max(lvgl_apply_max_us,
+                               unlock_done_us - lock_done_us);
   if (navigation || motion) ++telemetry_frames;
   const std::uint64_t end_us =
       static_cast<std::uint64_t>(esp_timer_get_time());
@@ -1249,7 +1255,7 @@ void PhoneNavBridge::render_pending() {
     const std::uint64_t elapsed_us = end_us - telemetry_window_us;
     ESP_LOGI(kTag,
              "NAV_EXP render=%lu/5s hz=%lu projection_avg=%luus max=%luus "
-             "lock_max=%luus zoom_x100=%lu int_free=%lu psram_free=%lu",
+             "lock_max=%luus apply_max=%luus zoom_x100=%lu int_free=%lu psram_free=%lu",
              static_cast<unsigned long>(telemetry_frames),
              static_cast<unsigned long>(
                  telemetry_frames * 1'000'000ULL / elapsed_us),
@@ -1257,6 +1263,7 @@ void PhoneNavBridge::render_pending() {
                  telemetry_frames ? projection_total_us / telemetry_frames : 0),
              static_cast<unsigned long>(projection_max_us),
              static_cast<unsigned long>(lock_wait_max_us),
+             static_cast<unsigned long>(lvgl_apply_max_us),
              static_cast<unsigned long>(
                  std::lround(presenter_.applied_zoom_factor() * 100.0)),
              static_cast<unsigned long>(
@@ -1268,6 +1275,7 @@ void PhoneNavBridge::render_pending() {
     projection_total_us = 0;
     projection_max_us = 0;
     lock_wait_max_us = 0;
+    lvgl_apply_max_us = 0;
   }
 #endif
 }
@@ -1278,9 +1286,43 @@ void PhoneNavBridge::render_task(void* context) {
 }
 
 void PhoneNavBridge::run_renderer() {
+  // Motion-only requests are paced; critical BLE updates must remain immediate.
+  std::uint64_t last_map_apply_ms = 0;
+  float last_heading_deg = 0.0F;
   while (true) {
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-    render_pending();
+    while (true) {
+      const std::uint32_t pending =
+          pending_render_flags_.load(std::memory_order_acquire);
+      if (pending == 0U) break;
+      if (pending == RenderMotion) {
+        float speed_mps = 0.0F;
+        float heading_deg = 0.0F;
+        {
+          const std::lock_guard<std::mutex> lock(state_mutex_);
+          speed_mps = snapshot_.speed_mps;
+          heading_deg = snapshot_.heading_deg;
+        }
+        const std::uint32_t period = moto::nav::motion_render_period_ms(
+            speed_mps, last_heading_deg, heading_deg);
+        const std::uint32_t wait = moto::nav::remaining_motion_wait_ms(
+            last_map_apply_ms, monotonic_ms(), period);
+        if (wait > 0U) {
+          // Keep the motion flag pending. A critical navigation notification
+          // interrupts this wait and will bypass the motion throttle.
+          ulTaskNotifyTake(pdTRUE,
+                           std::max<TickType_t>(1, pdMS_TO_TICKS(wait)));
+          continue;
+        }
+      }
+      const bool updates_map =
+          (pending & (RenderNavigation | RenderMotion)) != 0U;
+      render_pending();
+      if (updates_map) {
+        last_map_apply_ms = monotonic_ms();
+        last_heading_deg = render_snapshot_.heading_deg;
+      }
+    }
   }
 }
 #endif
