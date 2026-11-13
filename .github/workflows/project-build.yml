@@ -65,8 +65,9 @@ jobs:
           base: ${{ github.event_name == 'push' && github.ref_name || github.event.pull_request.base.ref }}
           filters: |
             native:
-              - '.github/workflows/project-build.yml'
               - 'CMakeLists.txt'
+              # Host test also consumes the ESP-only pacing policy.
+              - 'platforms/esp32/main/motion_render_pacing.h'
               - 'shared/**'
               - 'core/**'
               - 'common/**'
@@ -95,7 +96,6 @@ jobs:
               - 'core/**'
               - 'common/**'
             esp32:
-              - '.github/workflows/project-build.yml'
               - 'platforms/esp32/**'
               - 'shared/**'
               - 'core/**'

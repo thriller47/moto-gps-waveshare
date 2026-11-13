@@ -1,4 +1,5 @@
 #include "moto_nav_ui.h"
+#include "road_simplification.hpp"
 #include "moto_nav_route_sampling.hpp"
 
 #include <algorithm>
@@ -97,6 +98,8 @@ struct Ui {
     // Local-space stroke bounds, rebuilt whenever precise road points move.
     // Enables conservative per-polyline culling for partial LVGL redraws.
     lv_area_t nav_road_bounds[MOTO_UI_ROAD_POLYLINE_CAPACITY]{};
+    // Per-pixel-geometry RDP mask; endpoints/roundabout corners stay visible.
+    std::uint8_t nav_road_keep[MOTO_UI_ROAD_POINT_CAPACITY]{};
     lv_point_precise_t nav_road_points[MOTO_UI_ROAD_POINT_CAPACITY]{};
     float nav_road_x[MOTO_UI_ROAD_POINT_CAPACITY]{};
     float nav_road_y[MOTO_UI_ROAD_POINT_CAPACITY]{};
@@ -501,10 +504,12 @@ void draw_road_scene(lv_event_t *event) {
         line.round_end = 1;
         const unsigned end = static_cast<unsigned>(span.first_point_index) +
                              span.point_count;
-        for(unsigned i = static_cast<unsigned>(span.first_point_index) + 1;
-            i < end; ++i) {
-            line.p1 = ui.nav_road_points[i - 1];
+        unsigned previous = span.first_point_index;
+        for(unsigned i = previous + 1; i < end; ++i) {
+            if(!ui.nav_road_keep[i]) continue;
+            line.p1 = ui.nav_road_points[previous];
             line.p2 = ui.nav_road_points[i];
+            previous = i;
             line.p1.x += object_area.x1;
             line.p2.x += object_area.x1;
             line.p1.y += object_area.y1;
@@ -592,6 +597,9 @@ bool apply_road_geometry_frame(bool rebind_lines = true) {
             }
             const unsigned begin = span.first_point_index;
             const unsigned end = begin + span.point_count;
+            moto_road_simplification::retain(
+                ui.nav_road_points + begin, span.point_count,
+                ui.nav_road_keep + begin);
             float min_x = ui.nav_road_points[begin].x;
             float max_x = min_x;
             float min_y = ui.nav_road_points[begin].y;

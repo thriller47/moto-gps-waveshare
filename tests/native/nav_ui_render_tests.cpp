@@ -6,6 +6,7 @@
 #include "moto_nav_ui.h"
 #include "moto_nav_route_sampling.hpp"
 #include "../../platforms/esp32/main/motion_render_pacing.h"
+#include "../../shared/nav_ui/src/road_simplification.hpp"
 
 #include <lvgl.h>
 
@@ -30,6 +31,41 @@ int failures = 0;
       ++failures;                                                          \
     }                                                                      \
   } while (false)
+
+void test_gray_road_simplification_preserves_junctions() {
+  // Long straight street becomes one segment in screen coordinates.
+  lv_point_precise_t straight[12]{};
+  for(int i = 0; i < 12; ++i) straight[i] = {i * 12, 100};
+  std::uint8_t keep[12]{};
+  moto_road_simplification::retain(straight, 12, keep);
+  CHECK(keep[0] == 1 && keep[11] == 1);
+  for(int i = 1; i < 11; ++i) CHECK(keep[i] == 0);
+
+  // Short spans (including road-circle exits) must never lose a point.
+  lv_point_precise_t short_span[5]{
+      {10, 10}, {12, 14}, {18, 18}, {27, 23}, {40, 23}};
+  std::uint8_t short_keep[5]{};
+  moto_road_simplification::retain(short_span, 5, short_keep);
+  for(auto value : short_keep) CHECK(value == 1);
+
+  // Preserve a distinct 90 degree junction within a longer span.
+  lv_point_precise_t turn[12]{};
+  for(int i = 0; i < 6; ++i) turn[i] = {i * 10, 10};
+  for(int i = 6; i < 12; ++i) turn[i] = {50, 10 + (i - 5) * 10};
+  std::uint8_t turn_keep[12]{};
+  moto_road_simplification::retain(turn, 12, turn_keep);
+  CHECK(turn_keep[0] == 1 && turn_keep[5] == 1 &&
+        turn_keep[11] == 1);
+
+  // Screen displacement is meaningful: slight bends within 1.25 px
+  // may be dropped; a visible 4 px deviation must survive.
+  lv_point_precise_t bump[12]{};
+  for(int i = 0; i < 12; ++i) bump[i] = {i * 10, 30};
+  bump[6].y += 4;
+  std::uint8_t bump_keep[12]{};
+  moto_road_simplification::retain(bump, 12, bump_keep);
+  CHECK(bump_keep[6] == 1);
+}
 
 void test_motion_render_pacing_policy() {
   using moto::nav::motion_render_period_ms;
@@ -956,6 +992,7 @@ int main(int argc, char **argv) {
       [](std::uint8_t byte) { return byte == 0x00; });
   CHECK(all_black);
 
+  test_gray_road_simplification_preserves_junctions();
   test_motion_render_pacing_policy();
   test_frames_are_deterministic();
   test_clearing_geometry_leaves_no_residue();
