@@ -82,6 +82,7 @@ jobs:
               - 'platforms/android/**'
               - 'shared/**'
               # The LVGL ESP/Web renderer is not linked into Android.
+              # Keep other shared modules as Android rebuild triggers.
               - '!shared/nav_ui/**'
               - 'core/**'
               - 'common/**'
