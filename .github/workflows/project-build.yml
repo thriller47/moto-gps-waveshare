@@ -80,10 +80,18 @@ jobs:
               - 'third_party/**'
             android:
               - 'platforms/android/**'
-              - 'shared/**'
-              # The LVGL ESP/Web renderer is not linked into Android.
-              # Keep other shared modules as Android rebuild triggers.
-              - '!shared/nav_ui/**'
+              # Explicitly list shared modules relevant to Android instead of
+              # negating nav_ui: dorny/paths-filter uses OR (some) matching,
+              # so a lone negative pattern also matches unrelated files.
+              - 'shared/ble_protocol/**'
+              - 'shared/coordinates/**'
+              - 'shared/demo_fixture/**'
+              - 'shared/nav_app/**'
+              - 'shared/nav_core/**'
+              - 'shared/nav_presenter/**'
+              - 'shared/offline_map/**'
+              - 'shared/port_api/**'
+              - 'shared/protocol/**'
               - 'core/**'
               - 'common/**'
             esp32:
