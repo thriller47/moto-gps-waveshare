@@ -623,7 +623,10 @@ bool apply_road_geometry_frame(bool rebind_lines = true) {
 struct MapMotionDirtyTiles {
     static constexpr int kColumns = 4;
     static constexpr int kRows = 4;
-    static constexpr int kFullMapThreshold = 8;
+    // Keep partial refresh for moderately spread motion; merge adjacent
+    // dirty tiles into rectangles to avoid excess LVGL invalidation entries.
+    // A nearly full map still falls back to one invalidation.
+    static constexpr int kFullMapThreshold = 12;
     std::uint16_t bits = 0;
 
     void mark_segment(const lv_point_precise_t &old_a,
@@ -686,20 +689,49 @@ struct MapMotionDirtyTiles {
         lv_obj_get_coords(map, &map_area);
         const int width = lv_obj_get_width(map);
         const int height = lv_obj_get_height(map);
+        // Merge horizontal runs and identical runs on consecutive rows.
+        // Each submitted rectangle still covers the complete old+new swept
+        // tiles; no pixel is dropped at the boundary between two tiles.
+        struct TileRect { int c1, c2, r1, r2; };
+        TileRect rects[kColumns * kRows]{};
+        int rect_count = 0;
         for(int row = 0; row < kRows; ++row) {
-            for(int col = 0; col < kColumns; ++col) {
-                if(!(bits & (1U << (row * kColumns + col)))) continue;
-                const lv_area_t area{
-                    map_area.x1 + col * width / kColumns,
-                    map_area.y1 + row * height / kRows,
-                    map_area.x1 + (col + 1) * width / kColumns - 1,
-                    map_area.y1 + (row + 1) * height / kRows - 1
-                };
-                // LVGL expects absolute display coordinates and will clip to
-                // the map and its parents. Never invalidate only the new line:
-                // the old pixels must also be cleared to avoid green trails.
-                lv_obj_invalidate_area(map, &area);
+            int col = 0;
+            while(col < kColumns) {
+                if(!(bits & (1U << (row * kColumns + col)))) {
+                    ++col;
+                    continue;
+                }
+                const int first = col;
+                while(col < kColumns &&
+                      (bits & (1U << (row * kColumns + col)))) ++col;
+                const int last = col - 1;
+                int match = -1;
+                for(int i = 0; i < rect_count; ++i) {
+                    if(rects[i].r2 == row - 1 &&
+                       rects[i].c1 == first && rects[i].c2 == last) {
+                        match = i;
+                        break;
+                    }
+                }
+                if(match >= 0) {
+                    rects[match].r2 = row;
+                } else {
+                    rects[rect_count++] = {first, last, row, row};
+                }
             }
+        }
+        for(int i = 0; i < rect_count; ++i) {
+            const TileRect &r = rects[i];
+            const lv_area_t area{
+                map_area.x1 + r.c1 * width / kColumns,
+                map_area.y1 + r.r1 * height / kRows,
+                map_area.x1 + (r.c2 + 1) * width / kColumns - 1,
+                map_area.y1 + (r.r2 + 1) * height / kRows - 1
+            };
+            // LVGL uses absolute coordinates. Invalidating the swept old and
+            // new region clears road/route residues during smooth rotation.
+            lv_obj_invalidate_area(map, &area);
         }
     }
 };
