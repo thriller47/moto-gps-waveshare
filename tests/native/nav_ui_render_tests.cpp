@@ -641,6 +641,53 @@ void test_small_motion_invalidates_only_swept_tiles() {
   CHECK(std::equal(direct.bytes.begin(), direct.bytes.begin() + map_bytes,
                    settled.begin()));
 }
+// An irregular pair of gray street spans crosses more than one dirty tile.
+// Coalescing adjacent tile regions must preserve every old/new stroke pixel,
+// including outside the route, when the motion animation settles.
+void test_multi_road_motion_dirty_rectangles_leave_no_trails() {
+  moto_nav_ui_set_phone_connection(MOTO_UI_PHONE_ONLINE);
+  moto_nav_ui_set_reduce_motion(1);
+  auto state = base_state();
+  state.route_identity = 9'110;
+  state.route_generation = 1;
+  state.map_scene_revision = 9'110;
+  state.route_point_count = 3;
+  state.route_points[0] = {55, 220};
+  state.route_points[1] = {175, 70};
+  state.route_points[2] = {320, 205};
+  state.road_point_count = 6;
+  state.road_polyline_count = 2;
+  state.road_points[0] = {20, 35};
+  state.road_points[1] = {185, 190};
+  state.road_points[2] = {430, 45};
+  state.road_points[3] = {35, 195};
+  state.road_points[4] = {240, 60};
+  state.road_points[5] = {450, 190};
+  state.road_polylines[0] = {0, 3, 1};
+  state.road_polylines[1] = {3, 3, 4};
+  moto_nav_ui_set_state(&state);
+  pump(260);
+  (void)capture();
+
+  moto_nav_ui_set_reduce_motion(0);
+  for(int i = 0; i < 6; ++i) {
+    state.road_points[i].x += 14;
+    state.road_points[i].y += 9;
+  }
+  for(int i = 1; i < 3; ++i)
+    state.route_points[i].x -= 11;
+  moto_nav_ui_set_motion_state(&state);
+  pump(260);
+  const Frame settled = capture();
+
+  moto_nav_ui_set_reduce_motion(1);
+  moto_nav_ui_set_state(&state);
+  const Frame direct = capture();
+  constexpr int map_height = (232 * kWidth + 180) / 360;
+  constexpr std::size_t map_bytes = kWidth * map_height * (LV_COLOR_DEPTH / 8);
+  CHECK(std::equal(direct.bytes.begin(), direct.bytes.begin() + map_bytes,
+                   settled.bytes.begin()));
+}
 #endif
 
 void test_reroute_without_geometry_preserves_road_map() {
@@ -911,6 +958,7 @@ int main(int argc, char **argv) {
   test_nonuniform_route_vertices_align_by_real_arc_fraction();
 #ifdef MOTO_UI_DIRTY_TILE_TEST
   test_small_motion_invalidates_only_swept_tiles();
+  test_multi_road_motion_dirty_rectangles_leave_no_trails();
 #endif
   test_diagonal_map_pixels_are_independent_of_partial_buffer_height();
   test_single_road_renderer_scene_boundaries_and_class_changes();
