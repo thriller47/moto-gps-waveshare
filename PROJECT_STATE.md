@@ -4,11 +4,17 @@
 
 **Aggiornato:** 2026-11-13. **Branch stabile:** `valhalla` (non modificato). **Branch sperimentale attivo:** `test/lvgl-single-road-renderer-20261113`.
 
-**Ultime modifiche:** rebranding Moto Chat GPS Dark Touring Android (Material3 scuro, launcher label Moto Chat GPS senza cambiare icona, preview percorso verde); nuova sezione Informazioni/licenze e ringraziamenti per OpenStreetMap (© contributori/ODbL), Valhalla (MIT), Photon (rimando al testo di licenza upstream). ESP32: boot splash LVGL ora MOTO / CHAT / GPS con CHAT verde, sfondo AMOLED nero e fade esistente. Nessuna modifica a BLE, GPS, Valhalla, MotoMap, rotte o logica di navigazione. Resta sperimentale la separazione tra GNSS Android autorevole e predizione grafica ESP32.
+**Ultime modifiche:** rebranding Moto Chat GPS Dark Touring Android (Material3 scuro, launcher label Moto Chat GPS senza cambiare icona, preview percorso verde); nuova sezione Informazioni/licenze e ringraziamenti per OpenStreetMap (© contributori/ODbL), Valhalla (MIT), Photon (rimando al testo di licenza upstream). ESP32: boot splash LVGL circolare con bordo verde, montagne, strada stilizzata, nome MOTO CHAT GPS e crediti «Powered by / Valhalla, OSM and Photon», sfondo AMOLED nero e fade esistente; composizione vettoriale leggera ispirata al mockup approvato (non bitmap identica). Nessuna modifica a BLE, GPS, Valhalla, MotoMap, rotte o logica di navigazione. Resta sperimentale la separazione tra GNSS Android autorevole e predizione grafica ESP32.
 
 **Verifiche:** precedente build Android per fase GPS confermata dall'utente, **nuove modifiche di branding non ancora compilate o testate**; nessun flash ESP, nessun collaudo visivo Android. Rischi: verificare contrasto UI, leggibilita' splash su display 466x466, navigazione alla schermata Info e URL, avvio Android. La schermata Info non sostituisce LICENSE/NOTICE di terzi. Nessun test su strada previsto stasera.
 
 **Prossima azione:** completare una sola CI consolidata Android + ESP32 + native per il rebranding, installare APK sperimentale e riflashare ESP per verificare il boot splash. Poi controllo UI/Info, senza merge fino ad approvazione. Manuale operativo invariato (nessun nuovo comando/procedura).
+
+## Splash circolare Moto Chat GPS approvato — 2026-11-13
+
+**Richiesta:** l'utente approva il mockup rotondo con montagne, strada verde e la dicitura «Powered by Valhalla, OSM and Photon» e chiede di procedere. La grafica prodotta per la discussione e' un riferimento visivo: per evitare bitmap grandi e costi di decodifica su ESP32, il boot e' stato ricostruito con primitivi LVGL (arco circolare, due linee montagne, strada stilizzata, scritta MOTO CHAT GPS, crediti in due righe). E' una resa vettoriale semplificata, non pixel-identica all'immagine generata. Resta il fade preesistente e non cambia la durata di avvio prevista. File: `shared/nav_ui/src/moto_nav_ui.cpp`. Nessuna modifica alla navigazione.
+
+**Verifica:** nessuna compilazione o prova hardware ancora eseguita. Controllare dimensioni e allineamenti sul display fisico 466x466 e, se necessario, nel simulatore. Unica CI finale Android+native+ESP32 da verificare. `valhalla` intatto.
 
 ## Rebranding splash ESP32 e schermata informazioni Android — 2026-11-13
 
