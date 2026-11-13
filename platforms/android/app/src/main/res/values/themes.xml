@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.MotoGPS" parent="android:style/Theme.Material.NoActionBar">
+    <style name="Theme.MotoGPS" parent="android:Theme.Material.NoActionBar">
         <item name="android:colorAccent">@color/moto_chat_green</item>
         <item name="android:windowBackground">@color/moto_chat_background</item>
         <item name="android:statusBarColor">@color/moto_chat_background</item>
