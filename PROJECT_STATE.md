@@ -1,5 +1,13 @@
 # Moto GPS — Project State
 
+## Build Android riuscita (conferma utente) — 2026-11-13
+
+**Branch di riferimento:** `valhalla` (ultimo commit del repository verificato prima di questa nota: `e6f56c4d6d58ec32f3ed6197eba5810e60d994dc`). L'utente comunica che **la build Android e' riuscita**. Non e' stato fornito il numero della run GitHub Actions ne' il log della compilazione: si registra la conferma dell'utente, senza attribuirle un risultato CI specifico o assumere che siano passati test separati.
+
+**Modifiche in questa sessione:** aggiornato solo `PROJECT_STATE.md`, nessuna modifica a sorgenti Android, firmware ESP32, routing Valhalla, MotoMap o database Photon. Nessuna nuova compilazione o prova hardware eseguita dall'assistente; nessuna CI rilanciata per la documentazione (`[skip ci]`). La CI post-merge Photon del 12 novembre resta documentata qui sotto come verifica distinta.
+
+**Stato e prossima azione:** build Android confermata; installazione/avvio dell'APK, navigazione, BLE e regressioni su telefono **non deducibili** dalla sola build. Il rebranding Dark Touring, annotato il 12 novembre, rimane una proposta da implementare e verificare separatamente. Al prossimo test verificare sul telefono l'APK appena compilato e segnalare eventuali anomalie prima di nuove modifiche funzionali. Il manuale operativo non richiede aggiornamenti: nessuna procedura cambiata.
+
 ## Rebranding Moto Chat GPS: tema Android Dark Touring — 2026-11-12
 
 **Decisione UX utente:** rebranding completo Moto Chat GPS approvato. Stile touring tecnologico elegante, non racing aggressivo: nero AMOLED, verde navigazione e bianco; aggiungere esplicitamente anche **tema scuro nell'app Android con dettagli verdi e bianchi** (non solo splash e icona). Coordinare identita' e splash Android, schermata d'avvio ESP32 sul display AMOLED circolare 466x466, icona Android e README, preservando la leggibilita' delle mappe e della rotta verde. Possibile testo attribuzioni Valhalla/OpenStreetMap in schermata informazioni senza rimuovere licenze/NOTICE.
