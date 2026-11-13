@@ -94,6 +94,9 @@ struct Ui {
 
     lv_obj_t *nav_map = nullptr;
     lv_obj_t *nav_roads_layer = nullptr;
+    // Local-space stroke bounds, rebuilt whenever precise road points move.
+    // Enables conservative per-polyline culling for partial LVGL redraws.
+    lv_area_t nav_road_bounds[MOTO_UI_ROAD_POLYLINE_CAPACITY]{};
     lv_point_precise_t nav_road_points[MOTO_UI_ROAD_POINT_CAPACITY]{};
     float nav_road_x[MOTO_UI_ROAD_POINT_CAPACITY]{};
     float nav_road_y[MOTO_UI_ROAD_POINT_CAPACITY]{};
@@ -481,6 +484,14 @@ void draw_road_scene(lv_event_t *event) {
         if(span.point_count < 2 ||
            static_cast<unsigned>(span.first_point_index) + span.point_count >
                ui.nav_road_point_count) continue;
+        // The road scene is a single object. Reject a complete street before
+        // generating individual LVGL line draw tasks for a partial tile.
+        const lv_area_t &bounds = ui.nav_road_bounds[index];
+        const lv_area_t &clip = layer->_clip_area;
+        if(bounds.x2 + object_area.x1 < clip.x1 ||
+           bounds.x1 + object_area.x1 > clip.x2 ||
+           bounds.y2 + object_area.y1 < clip.y1 ||
+           bounds.y1 + object_area.y1 > clip.y2) continue;
         const bool major = span.road_class <= 2U;
         const bool service = span.road_class >= 4U;
         line.width = px(major ? 4 : (service ? 2 : 3));
@@ -566,6 +577,38 @@ bool apply_road_geometry_frame(bool rebind_lines = true) {
         pixels_changed = pixels_changed || ui.nav_road_points[i].x != x ||
                          ui.nav_road_points[i].y != y;
         ui.nav_road_points[i] = {x, y};
+    }
+    if(pixels_changed || rebind_lines) {
+        // Conservative stroke/antialias bounds in object-local coordinates:
+        // include fractional vertices and the widest road caps (4px class).
+        const float padding = static_cast<float>(px(4) + 3);
+        for(std::uint8_t index = 0; index < ui.nav_road_polyline_count; ++index) {
+            const moto_ui_polyline_span_t span = ui.nav_road_spans[index];
+            if(span.point_count < 2 ||
+               static_cast<unsigned>(span.first_point_index) + span.point_count >
+                   ui.nav_road_point_count) {
+                ui.nav_road_bounds[index] = {0, 0, -1, -1};
+                continue;
+            }
+            const unsigned begin = span.first_point_index;
+            const unsigned end = begin + span.point_count;
+            float min_x = ui.nav_road_points[begin].x;
+            float max_x = min_x;
+            float min_y = ui.nav_road_points[begin].y;
+            float max_y = min_y;
+            for(unsigned point = begin + 1; point < end; ++point) {
+                min_x = std::min(min_x, static_cast<float>(ui.nav_road_points[point].x));
+                max_x = std::max(max_x, static_cast<float>(ui.nav_road_points[point].x));
+                min_y = std::min(min_y, static_cast<float>(ui.nav_road_points[point].y));
+                max_y = std::max(max_y, static_cast<float>(ui.nav_road_points[point].y));
+            }
+            ui.nav_road_bounds[index] = {
+                static_cast<int32_t>(std::floor(min_x - padding)),
+                static_cast<int32_t>(std::floor(min_y - padding)),
+                static_cast<int32_t>(std::ceil(max_x + padding)),
+                static_cast<int32_t>(std::ceil(max_y + padding))
+            };
+        }
     }
     if(rebind_lines) lv_obj_invalidate(ui.nav_roads_layer);
     return pixels_changed || rebind_lines;
