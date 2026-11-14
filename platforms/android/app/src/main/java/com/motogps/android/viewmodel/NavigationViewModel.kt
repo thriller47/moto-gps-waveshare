@@ -23,7 +23,7 @@ import com.motogps.android.map.OpenFreeMapTileProbe
 import com.motogps.android.map.OpenFreeMapRouteCorridor
 import com.motogps.android.map.SavedMapInfo
 import com.motogps.android.location.LocationFixFilter
-import com.motogps.android.location.NavigationPositionPrediction
+import com.motogps.android.location.NavigationFixFreshness
 import com.motogps.android.routing.OfflineValhallaRouter
 import com.motogps.android.routing.OnlineValhallaRouter
 import com.motogps.android.routing.ValhallaGraphImporter
@@ -500,12 +500,13 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
 
                     val (lat, lon) = currentLocation.value
                     val ageMs = SystemClock.elapsedRealtime() - lastFixElapsedMs
-                    val estimated = NavigationPositionPrediction.estimate(
-                        lat, lon, lastGpsSpeedMs, lastFixCourseDeg,
-                        lastFixAccuracyM, ageMs, ageMs)
+                    val gnssStale = NavigationFixFreshness.isStale(hasFirstFix, ageMs)
+                    // GPS accepted by LocationFixFilter is authoritative for
+                    // route progress, distances, maneuvers and recorded replay.
+                    // Prediction belongs exclusively to the ESP32 map renderer.
                     val updatedSnap = if (_hasArrived.value)
                         (currentSnapshot?.copy() ?: snapshot.copy())
-                    else updateManeuverAndDistance(estimated.latitude, estimated.longitude)
+                    else updateManeuverAndDistance(lat, lon)
                         ?: currentSnapshot?.copy() ?: snapshot.copy()
 
                     val activeSnap = updatedSnap.copy(
@@ -524,7 +525,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                         speedLimitKPH = lastSpeedLimitKph,
                         speedDeciKPH = currentSpeedDeciKph,
                         headingCentiDegrees = currentHeadingCentiDeg,
-                        hasFix = hasFirstFix
+                        hasFix = hasFirstFix,
+                        gnssStale = gnssStale
                     )
                     currentSnapshot = activeSnap
                     if (loopCount == 1 || loopCount % 4 == 0) {
@@ -533,9 +535,9 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                             "turn_m=${activeSnap.distanceToManeuverM} remain_m=${activeSnap.remainingDistanceM} " +
                             "speed_dkph=${activeSnap.speedDeciKPH} heading_cdeg=${activeSnap.headingCentiDegrees} " +
                             "fix_age_ms=$ageMs received_ago_ms=${SystemClock.elapsedRealtime() - lastAcceptedFixArrivalMs} " +
-                            "predicted_m=${estimated.extrapolatedMeters.toInt()}")
+                            "gnss_stale=$gnssStale position=accepted_gps")
                     }
-                    ReplayTraceRecorder.snapshot(activeSnap, estimated.latitude, estimated.longitude)
+                    ReplayTraceRecorder.snapshot(activeSnap, lat, lon)
                     bleManager.sendNavigationSnapshot(activeSnap)
 
                     // A stationary GPS provider may stop emitting fixes. Keep

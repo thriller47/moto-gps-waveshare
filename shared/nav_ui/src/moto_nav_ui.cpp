@@ -1,4 +1,5 @@
 #include "moto_nav_ui.h"
+#include "road_simplification.hpp"
 #include "moto_nav_route_sampling.hpp"
 
 #include <algorithm>
@@ -41,12 +42,16 @@ constexpr lv_color_t kSoft = LV_COLOR_MAKE(0xAE, 0xB2, 0xB0);
 constexpr lv_color_t kAmber = LV_COLOR_MAKE(0xE6, 0xC8, 0x4F);
 constexpr lv_color_t kRed = LV_COLOR_MAKE(0xFF, 0x4B, 0x43);
 constexpr lv_color_t kGreen = LV_COLOR_MAKE(0x69, 0xD4, 0x94);
+// Acid green for connection/ready lifecycle only; navigation colors unchanged.
+constexpr lv_color_t kConnectionAcidGreen = LV_COLOR_MAKE(0x32, 0x99, 0x6D); // Muted splash green for connection UI.
 constexpr double kPi = 3.14159265358979323846;
 constexpr int kCompassTickCount = 24;
 constexpr int kSpeedTickCount = 18;
 constexpr int kDesignWidth = 360;
 constexpr std::uint32_t kPageDotsVisibleMs = 5'000;
-constexpr std::uint16_t MOTO_UI_ROAD_LINE_WIDGET_LIMIT = 40;
+// Keep the BLE road-scene limit; unlike the former 40-widget layer, one
+// draw object handles all 24 polylines without joining disconnected streets.
+constexpr std::uint16_t MOTO_UI_ROAD_LINE_WIDGET_LIMIT = MOTO_UI_ROAD_POLYLINE_CAPACITY;
 constexpr std::uint32_t kRouteMotionFrameMs = 25;
 #ifdef __EMSCRIPTEN__
 // Simulator-only counters: requested route geometry versus pixel movement.
@@ -91,8 +96,12 @@ struct Ui {
     bool page_dots_visible = true;
 
     lv_obj_t *nav_map = nullptr;
-    lv_obj_t *nav_roads[MOTO_UI_ROAD_LINE_WIDGET_LIMIT]{};
-    MapPolyline nav_road_lines[MOTO_UI_ROAD_POLYLINE_CAPACITY]{};
+    lv_obj_t *nav_roads_layer = nullptr;
+    // Local-space stroke bounds, rebuilt whenever precise road points move.
+    // Enables conservative per-polyline culling for partial LVGL redraws.
+    lv_area_t nav_road_bounds[MOTO_UI_ROAD_POLYLINE_CAPACITY]{};
+    // Per-pixel-geometry RDP mask; endpoints/roundabout corners stay visible.
+    std::uint8_t nav_road_keep[MOTO_UI_ROAD_POINT_CAPACITY]{};
     lv_point_precise_t nav_road_points[MOTO_UI_ROAD_POINT_CAPACITY]{};
     float nav_road_x[MOTO_UI_ROAD_POINT_CAPACITY]{};
     float nav_road_y[MOTO_UI_ROAD_POINT_CAPACITY]{};
@@ -455,6 +464,64 @@ void draw_map_polyline(lv_event_t *event) {
     }
 }
 
+// One road layer instead of one LVGL object per street. Preserve the exact
+// per-class style and disconnected polyline boundaries of the old renderer.
+// The map's existing dirty-tile invalidation covers motion, while new scenes
+// invalidate this single layer once.
+void draw_road_scene(lv_event_t *event) {
+    const lv_event_code_t code = lv_event_get_code(event);
+    if(code == LV_EVENT_REFR_EXT_DRAW_SIZE) {
+        auto *size = static_cast<int32_t *>(lv_event_get_param(event));
+        *size = std::max(*size, static_cast<std::int32_t>(px(4)));
+        return;
+    }
+    if(code != LV_EVENT_DRAW_MAIN || ui.nav_road_polyline_count == 0) return;
+    lv_obj_t *object = lv_event_get_target_obj(event);
+    lv_layer_t *layer = lv_event_get_layer(event);
+    lv_area_t object_area;
+    lv_obj_get_coords(object, &object_area);
+    lv_draw_line_dsc_t line;
+    lv_draw_line_dsc_init(&line);
+    line.base.layer = layer;
+    lv_obj_init_draw_line_dsc(object, LV_PART_MAIN, &line);
+    for(std::uint8_t index = 0; index < ui.nav_road_polyline_count; ++index) {
+        const moto_ui_polyline_span_t span = ui.nav_road_spans[index];
+        if(span.point_count < 2 ||
+           static_cast<unsigned>(span.first_point_index) + span.point_count >
+               ui.nav_road_point_count) continue;
+        // The road scene is a single object. Reject a complete street before
+        // generating individual LVGL line draw tasks for a partial tile.
+        const lv_area_t &bounds = ui.nav_road_bounds[index];
+        const lv_area_t &clip = layer->_clip_area;
+        if(bounds.x2 + object_area.x1 < clip.x1 ||
+           bounds.x1 + object_area.x1 > clip.x2 ||
+           bounds.y2 + object_area.y1 < clip.y1 ||
+           bounds.y1 + object_area.y1 > clip.y2) continue;
+        const bool major = span.road_class <= 2U;
+        const bool service = span.road_class >= 4U;
+        line.width = px(major ? 4 : (service ? 2 : 3));
+        line.color = major ? kRoadMajor : (service ? kRoadMinor : kRoadGray);
+        line.opa = LV_OPA_COVER;
+        line.round_start = 1;
+        line.round_end = 1;
+        const unsigned end = static_cast<unsigned>(span.first_point_index) +
+                             span.point_count;
+        unsigned previous = span.first_point_index;
+        for(unsigned i = previous + 1; i < end; ++i) {
+            if(!ui.nav_road_keep[i]) continue;
+            line.p1 = ui.nav_road_points[previous];
+            line.p2 = ui.nav_road_points[i];
+            previous = i;
+            line.p1.x += object_area.x1;
+            line.p2.x += object_area.x1;
+            line.p1.y += object_area.y1;
+            line.p2.y += object_area.y1;
+            draw_map_line(layer, line);
+            line.round_start = 0;
+        }
+    }
+}
+
 lv_obj_t *create_map_polyline(lv_obj_t *parent, MapPolyline &polyline) {
     lv_obj_t *object = lv_obj_create(parent);
     lv_obj_remove_style_all(object);
@@ -518,15 +585,42 @@ bool apply_road_geometry_frame(bool rebind_lines = true) {
                          ui.nav_road_points[i].y != y;
         ui.nav_road_points[i] = {x, y};
     }
-    if(rebind_lines) {
-        for(std::uint8_t i = 0; i < ui.nav_road_polyline_count; ++i) {
-            const moto_ui_polyline_span_t span = ui.nav_road_spans[i];
-            set_map_polyline_points(
-                ui.nav_roads[i],
-                &ui.nav_road_points[span.first_point_index],
-                span.point_count);
+    if(pixels_changed || rebind_lines) {
+        // Conservative stroke/antialias bounds in object-local coordinates:
+        // include fractional vertices and the widest road caps (4px class).
+        const float padding = static_cast<float>(px(4) + 3);
+        for(std::uint8_t index = 0; index < ui.nav_road_polyline_count; ++index) {
+            const moto_ui_polyline_span_t span = ui.nav_road_spans[index];
+            if(span.point_count < 2 ||
+               static_cast<unsigned>(span.first_point_index) + span.point_count >
+                   ui.nav_road_point_count) {
+                ui.nav_road_bounds[index] = {0, 0, -1, -1};
+                continue;
+            }
+            const unsigned begin = span.first_point_index;
+            const unsigned end = begin + span.point_count;
+            moto_road_simplification::retain(
+                ui.nav_road_points + begin, span.point_count,
+                ui.nav_road_keep + begin);
+            float min_x = ui.nav_road_points[begin].x;
+            float max_x = min_x;
+            float min_y = ui.nav_road_points[begin].y;
+            float max_y = min_y;
+            for(unsigned point = begin + 1; point < end; ++point) {
+                min_x = std::min(min_x, static_cast<float>(ui.nav_road_points[point].x));
+                max_x = std::max(max_x, static_cast<float>(ui.nav_road_points[point].x));
+                min_y = std::min(min_y, static_cast<float>(ui.nav_road_points[point].y));
+                max_y = std::max(max_y, static_cast<float>(ui.nav_road_points[point].y));
+            }
+            ui.nav_road_bounds[index] = {
+                static_cast<int32_t>(std::floor(min_x - padding)),
+                static_cast<int32_t>(std::floor(min_y - padding)),
+                static_cast<int32_t>(std::ceil(max_x + padding)),
+                static_cast<int32_t>(std::ceil(max_y + padding))
+            };
         }
     }
+    if(rebind_lines) lv_obj_invalidate(ui.nav_roads_layer);
     return pixels_changed || rebind_lines;
 }
 
@@ -539,7 +633,10 @@ bool apply_road_geometry_frame(bool rebind_lines = true) {
 struct MapMotionDirtyTiles {
     static constexpr int kColumns = 4;
     static constexpr int kRows = 4;
-    static constexpr int kFullMapThreshold = 8;
+    // Keep partial refresh for moderately spread motion; merge adjacent
+    // dirty tiles into rectangles to avoid excess LVGL invalidation entries.
+    // A nearly full map still falls back to one invalidation.
+    static constexpr int kFullMapThreshold = 12;
     std::uint16_t bits = 0;
 
     void mark_segment(const lv_point_precise_t &old_a,
@@ -602,20 +699,49 @@ struct MapMotionDirtyTiles {
         lv_obj_get_coords(map, &map_area);
         const int width = lv_obj_get_width(map);
         const int height = lv_obj_get_height(map);
+        // Merge horizontal runs and identical runs on consecutive rows.
+        // Each submitted rectangle still covers the complete old+new swept
+        // tiles; no pixel is dropped at the boundary between two tiles.
+        struct TileRect { int c1, c2, r1, r2; };
+        TileRect rects[kColumns * kRows]{};
+        int rect_count = 0;
         for(int row = 0; row < kRows; ++row) {
-            for(int col = 0; col < kColumns; ++col) {
-                if(!(bits & (1U << (row * kColumns + col)))) continue;
-                const lv_area_t area{
-                    map_area.x1 + col * width / kColumns,
-                    map_area.y1 + row * height / kRows,
-                    map_area.x1 + (col + 1) * width / kColumns - 1,
-                    map_area.y1 + (row + 1) * height / kRows - 1
-                };
-                // LVGL expects absolute display coordinates and will clip to
-                // the map and its parents. Never invalidate only the new line:
-                // the old pixels must also be cleared to avoid green trails.
-                lv_obj_invalidate_area(map, &area);
+            int col = 0;
+            while(col < kColumns) {
+                if(!(bits & (1U << (row * kColumns + col)))) {
+                    ++col;
+                    continue;
+                }
+                const int first = col;
+                while(col < kColumns &&
+                      (bits & (1U << (row * kColumns + col)))) ++col;
+                const int last = col - 1;
+                int match = -1;
+                for(int i = 0; i < rect_count; ++i) {
+                    if(rects[i].r2 == row - 1 &&
+                       rects[i].c1 == first && rects[i].c2 == last) {
+                        match = i;
+                        break;
+                    }
+                }
+                if(match >= 0) {
+                    rects[match].r2 = row;
+                } else {
+                    rects[rect_count++] = {first, last, row, row};
+                }
             }
+        }
+        for(int i = 0; i < rect_count; ++i) {
+            const TileRect &r = rects[i];
+            const lv_area_t area{
+                map_area.x1 + r.c1 * width / kColumns,
+                map_area.y1 + r.r1 * height / kRows,
+                map_area.x1 + (r.c2 + 1) * width / kColumns - 1,
+                map_area.y1 + (r.r2 + 1) * height / kRows - 1
+            };
+            // LVGL uses absolute coordinates. Invalidating the swept old and
+            // new region clears road/route residues during smooth rotation.
+            lv_obj_invalidate_area(map, &area);
         }
     }
 };
@@ -726,9 +852,8 @@ void update_road_geometry(const moto_ui_state_t *state) {
         ui.nav_road_point_count = 0;
         ui.nav_road_polyline_count = 0;
         ui.nav_road_scene_revision = state->map_scene_revision;
-        for(lv_obj_t *road : ui.nav_roads) {
-            if (road != nullptr) lv_obj_add_flag(road, LV_OBJ_FLAG_HIDDEN);
-        }
+        if(ui.nav_roads_layer != nullptr)
+            lv_obj_add_flag(ui.nav_roads_layer, LV_OBJ_FLAG_HIDDEN);
         return;
     }
 
@@ -772,22 +897,10 @@ void update_road_geometry(const moto_ui_state_t *state) {
             ui.nav_road_y[i] = ui.nav_road_target_y[i];
         }
     }
-    if(spans_changed) {
-        for(std::uint8_t i = 0; i < MOTO_UI_ROAD_LINE_WIDGET_LIMIT; ++i) {
-            if(i < polyline_count && ui.nav_roads[i] != nullptr) {
-                const std::uint8_t road_class = ui.nav_road_spans[i].road_class;
-                const bool major = road_class <= 2U;
-                const bool service = road_class >= 4U;
-                lv_obj_set_style_line_width(
-                    ui.nav_roads[i], px(major ? 4 : (service ? 2 : 3)), 0);
-                lv_obj_set_style_line_color(
-                    ui.nav_roads[i], major ? kRoadMajor : (service ? kRoadMinor : kRoadGray), 0);
-                lv_obj_remove_flag(ui.nav_roads[i], LV_OBJ_FLAG_HIDDEN);
-            } else if(ui.nav_roads[i] != nullptr) {
-                lv_obj_add_flag(ui.nav_roads[i], LV_OBJ_FLAG_HIDDEN);
-            }
-        }
-    }
+    if(spans_changed)
+        lv_obj_remove_flag(ui.nav_roads_layer, LV_OBJ_FLAG_HIDDEN);
+    // The snap/rebind already invalidates the single road layer; avoid
+    // submitting the same dirty rectangle twice on a scene replacement.
     if(snap) apply_road_geometry_frame();
 }
 
@@ -1045,13 +1158,13 @@ void draw_connection_symbol(lv_event_t *event) {
              static_cast<lv_value_precise_t>(area.y1 + px(48))},
         };
         draw_segment(layer, kGraphite, px(12), LV_OPA_COVER, route, 4);
-        draw_segment(layer, kWhite, px(5), LV_OPA_COVER, route, 4);
-        draw_disc(layer, route[0].x, route[0].y, px(16), kWhite,
+        draw_segment(layer, kConnectionAcidGreen, px(5), LV_OPA_COVER, route, 4);
+        draw_disc(layer, route[0].x, route[0].y, px(16), kConnectionAcidGreen,
                   LV_OPA_COVER);
 
         lv_draw_arc_dsc_t pin;
         lv_draw_arc_dsc_init(&pin);
-        pin.color = kWhite;
+        pin.color = kConnectionAcidGreen;
         pin.width = px(5);
         pin.opa = LV_OPA_COVER;
         pin.rounded = 1;
@@ -1060,7 +1173,7 @@ void draw_connection_symbol(lv_event_t *event) {
         pin.start_angle = 0;
         pin.end_angle = 360;
         lv_draw_arc(layer, &pin);
-        draw_disc(layer, route[3].x, route[3].y, px(7), kWhite,
+        draw_disc(layer, route[3].x, route[3].y, px(7), kConnectionAcidGreen,
                   LV_OPA_COVER);
 
         if(ui.lifecycle_visual == LifecycleVisual::Planning) {
@@ -1076,24 +1189,24 @@ void draw_connection_symbol(lv_event_t *event) {
             const int y = static_cast<int>(std::lround(
                 route[segment].y +
                 (route[segment + 1].y - route[segment].y) * local));
-            draw_disc(layer, x, y, px(12), kWhite, LV_OPA_COVER);
+            draw_disc(layer, x, y, px(12), kConnectionAcidGreen, LV_OPA_COVER);
         } else {
             const lv_opa_t ready_opa = static_cast<lv_opa_t>(
                 150 + std::lround((std::sin(phase) + 1.0) * 40.0));
-            draw_disc(layer, route[0].x, route[0].y, px(25), kWhite,
+            draw_disc(layer, route[0].x, route[0].y, px(25), kConnectionAcidGreen,
                       ready_opa);
         }
         return;
     }
 
-    draw_phone_body(layer, area, kWhite, LV_OPA_COVER);
+    draw_phone_body(layer, area, kConnectionAcidGreen, LV_OPA_COVER);
     const bool connecting =
         ui.lifecycle_visual == LifecycleVisual::PhoneConnecting;
     const int speed = connecting ? 2 : 1;
     for(int index = 0; index < 3; ++index) {
         lv_draw_arc_dsc_t scan;
         lv_draw_arc_dsc_init(&scan);
-        scan.color = index == 0 ? kWhite : kQuiet;
+        scan.color = index == 0 ? kConnectionAcidGreen : kQuiet;
         scan.width = px(index == 0 ? 4 : 3);
         scan.opa = static_cast<lv_opa_t>(220 - index * 55);
         scan.rounded = 1;
@@ -1110,7 +1223,7 @@ void draw_connection_symbol(lv_event_t *event) {
         std::lround(center_x + std::sin(phase * speed) * px(66.0)));
     const int orbit_y = static_cast<int>(
         std::lround(center_y - std::cos(phase * speed) * px(66.0)));
-    draw_disc(layer, orbit_x, orbit_y, px(connecting ? 11 : 9), kWhite,
+    draw_disc(layer, orbit_x, orbit_y, px(connecting ? 11 : 9), kConnectionAcidGreen,
               LV_OPA_COVER);
 }
 
@@ -1120,10 +1233,10 @@ void set_layer_opacity(void *object, int32_t opacity) {
 
 void apply_lifecycle_content(LifecycleVisual visual) {
     ui.lifecycle_visual = visual;
-    const char *kicker = "MOTO GPS / PHONE LINK";
+    const char *kicker = "MOTO CHAT GPS / PHONE LINK";
     const char *title = "";
     const char *subtitle = "";
-    lv_color_t title_color = kWhite;
+    lv_color_t title_color = kConnectionAcidGreen;
     switch(visual) {
         case LifecycleVisual::PhoneOffline:
             title = "CONNECT PHONE";
@@ -1136,15 +1249,15 @@ void apply_lifecycle_content(LifecycleVisual visual) {
         case LifecycleVisual::Connected:
             title = "CONNECTED";
             subtitle = "CONNECTED";
-            title_color = kGreen;
+            title_color = kConnectionAcidGreen;
             break;
         case LifecycleVisual::Ready:
-            kicker = "MOTO GPS / READY";
+            kicker = "MOTO CHAT GPS / READY";
             title = "READY TO RIDE";
             subtitle = "SELECT DESTINATION";
             break;
         case LifecycleVisual::Planning:
-            kicker = "MOTO GPS / ROUTE";
+            kicker = "MOTO CHAT GPS / ROUTE";
             title = "BUILDING ROUTE";
             subtitle = "CALCULATING ROUTE";
             break;
@@ -1157,7 +1270,7 @@ void apply_lifecycle_content(LifecycleVisual visual) {
     lv_obj_set_style_text_color(ui.nav_lifecycle_title, title_color, 0);
     lv_obj_set_style_text_color(ui.nav_lifecycle_subtitle,
                                 visual == LifecycleVisual::Connected
-                                    ? kGreen : kSoft,
+                                    ? kConnectionAcidGreen : kSoft,
                                 0);
     lv_obj_invalidate(ui.nav_lifecycle_symbol);
 }
@@ -1518,19 +1631,15 @@ void create_navigation_page() {
     lv_obj_add_flag(ui.nav_map, LV_OBJ_FLAG_GESTURE_BUBBLE);
     lv_obj_set_height(ui.nav_map, px(232));
 
-    // Quiet, real street context sits behind the selected route. Each road is
-    // its own LVGL line so disconnected streets are never joined by a fake
-    // diagonal. The bundled Jinan fixture uses all eight bounded slots; a
-    // future online provider must simplify its response to the same limit.
-    for(std::uint8_t i = 0; i < MOTO_UI_ROAD_LINE_WIDGET_LIMIT; ++i) {
-        ui.nav_roads[i] = create_map_polyline(ui.nav_map, ui.nav_road_lines[i]);
-        lv_obj_set_size(ui.nav_roads[i], MOTO_UI_CANVAS_WIDTH, px(232));
-        lv_obj_set_style_line_width(ui.nav_roads[i], px(3), 0);
-        lv_obj_set_style_line_color(ui.nav_roads[i], kRoadGray, 0);
-        lv_obj_set_style_line_opa(ui.nav_roads[i], LV_OPA_COVER, 0);
-        lv_obj_set_style_line_rounded(ui.nav_roads[i], true, 0);
-        lv_obj_add_flag(ui.nav_roads[i], LV_OBJ_FLAG_HIDDEN);
-    }
+    // All gray streets share one draw object. Per-class styles are applied
+    // inside draw_road_scene; disconnected spans never acquire join segments.
+    ui.nav_roads_layer = lv_obj_create(ui.nav_map);
+    lv_obj_remove_style_all(ui.nav_roads_layer);
+    lv_obj_remove_flag(ui.nav_roads_layer, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(ui.nav_roads_layer, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_size(ui.nav_roads_layer, MOTO_UI_CANVAS_WIDTH, px(232));
+    lv_obj_add_event_cb(ui.nav_roads_layer, draw_road_scene, LV_EVENT_ALL, nullptr);
+    lv_obj_add_flag(ui.nav_roads_layer, LV_OBJ_FLAG_HIDDEN);
 
     ui.nav_route_shadow = create_map_polyline(ui.nav_map, ui.nav_route_shadow_line);
     lv_obj_set_size(ui.nav_route_shadow, MOTO_UI_CANVAS_WIDTH, px(232));
@@ -1646,7 +1755,7 @@ void create_navigation_page() {
 
     ui.nav_lifecycle_kicker = make_label(
         ui.nav_lifecycle, &lv_font_montserrat_16, kQuiet,
-        "MOTO GPS / PHONE LINK");
+        "MOTO CHAT GPS / PHONE LINK");
     lv_obj_set_style_text_letter_space(ui.nav_lifecycle_kicker, px(2), 0);
     lv_obj_align(ui.nav_lifecycle_kicker, LV_ALIGN_TOP_MID, 0, px(39));
 
@@ -1659,7 +1768,7 @@ void create_navigation_page() {
                         LV_EVENT_DRAW_MAIN_END, nullptr);
 
     ui.nav_lifecycle_title = make_label(
-        ui.nav_lifecycle, &lv_font_montserrat_28, kWhite, "CONNECT PHONE");
+        ui.nav_lifecycle, &lv_font_montserrat_28, kConnectionAcidGreen, "CONNECT PHONE");
     lv_obj_set_width(ui.nav_lifecycle_title, px(310));
     lv_obj_set_style_text_align(ui.nav_lifecycle_title,
                                 LV_TEXT_ALIGN_CENTER, 0);
@@ -1878,47 +1987,89 @@ extern "C" void moto_nav_ui_show_boot_screen(void) {
     lv_obj_clean(ui.screen);
     lv_obj_remove_flag(ui.screen, LV_OBJ_FLAG_SCROLLABLE);
     const lv_color_t boot_black = LV_COLOR_MAKE(0x00, 0x00, 0x00);
-    const lv_color_t boot_white = LV_COLOR_MAKE(0xFF, 0xFF, 0xFF);
+    const lv_color_t boot_white = LV_COLOR_MAKE(0xF3, 0xF7, 0xF5);
+    const lv_color_t boot_green = LV_COLOR_MAKE(0x50, 0xD9, 0x95);
+    const lv_color_t boot_muted = LV_COLOR_MAKE(0xA3, 0xB2, 0xAC);
     lv_obj_set_style_bg_color(ui.screen, boot_black, 0);
     lv_obj_set_style_bg_opa(ui.screen, LV_OPA_COVER, 0);
 
-    // Keep the AMOLED background truly black and animate only the white mark.
-    // A single opacity animation with a delayed reverse is cheaper than
-    // per-letter animation and fits inside the existing 1.25 s boot cadence.
+    // Lightweight circular Dark Touring mark: LVGL primitives only, no
+    // decoded bitmap, full-frame image allocation, or animation timers.
+    // Coordinates are 360-design units scaled to the 466px AMOLED.
     lv_obj_t *content = make_layer(ui.screen);
     lv_obj_set_style_opa(content, LV_OPA_TRANSP, 0);
 
-    lv_obj_t *moto = make_label(content, &lv_font_montserrat_48,
+    lv_obj_t *ring = lv_arc_create(content);
+    lv_obj_set_size(ring, px(344), px(344));
+    lv_obj_align(ring, LV_ALIGN_CENTER, 0, 0);
+    lv_arc_set_bg_angles(ring, 0, 360);
+    lv_obj_set_style_arc_color(ring, boot_green, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(ring, px(2), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(ring, LV_OPA_TRANSP, 0);
+    lv_obj_remove_style(ring, nullptr, LV_PART_INDICATOR);
+    lv_obj_remove_style(ring, nullptr, LV_PART_KNOB);
+    lv_obj_remove_flag(ring, LV_OBJ_FLAG_CLICKABLE);
+
+    // Retained static coordinates: LVGL line objects reference these arrays.
+    static lv_point_precise_t peaks_a[3];
+    static lv_point_precise_t peaks_b[3];
+    static lv_point_precise_t road_outer[4];
+    static lv_point_precise_t road_inner[4];
+    static lv_point_precise_t road_dash[2];
+    auto set_point = [](lv_point_precise_t &point, int x, int y) {
+        point.x = static_cast<lv_value_precise_t>(px(x));
+        point.y = static_cast<lv_value_precise_t>(px(y));
+    };
+    set_point(peaks_a[0], 77, 124);
+    set_point(peaks_a[1], 131, 91);
+    set_point(peaks_a[2], 162, 110);
+    set_point(peaks_b[0], 145, 123);
+    set_point(peaks_b[1], 214, 69);
+    set_point(peaks_b[2], 287, 126);
+    set_point(road_outer[0], 75, 257);
+    set_point(road_outer[1], 130, 236);
+    set_point(road_outer[2], 230, 216);
+    set_point(road_outer[3], 245, 196);
+    set_point(road_inner[0], 175, 265);
+    set_point(road_inner[1], 194, 241);
+    set_point(road_inner[2], 260, 220);
+    set_point(road_inner[3], 245, 196);
+    set_point(road_dash[0], 155, 249);
+    set_point(road_dash[1], 178, 243);
+
+    auto add_boot_line = [&](lv_point_precise_t *points, std::uint32_t count,
+                             int width) {
+        lv_obj_t *line = lv_line_create(content);
+        lv_obj_set_size(line, MOTO_UI_CANVAS_WIDTH, MOTO_UI_CANVAS_HEIGHT);
+        lv_obj_set_pos(line, 0, 0);
+        lv_line_set_points_mutable(line, points, count);
+        lv_obj_set_style_line_width(line, px(width), 0);
+        lv_obj_set_style_line_color(line, boot_green, 0);
+        lv_obj_set_style_line_rounded(line, true, 0);
+    };
+    add_boot_line(peaks_a, 3, 3);
+    add_boot_line(peaks_b, 3, 4);
+
+    lv_obj_t *moto = make_label(content, &lv_font_montserrat_28,
                                 boot_white, "MOTO");
-    lv_obj_set_style_text_letter_space(moto, px(4), 0);
-    lv_obj_set_style_text_outline_stroke_color(moto, boot_white, 0);
-    lv_obj_set_style_text_outline_stroke_width(moto, px(2), 0);
-    lv_obj_set_style_text_outline_stroke_opa(moto, LV_OPA_COVER, 0);
-    lv_obj_set_style_transform_scale_x(moto, 340, 0);
-    lv_obj_set_style_transform_scale_y(moto, 340, 0);
-    lv_obj_align(moto, LV_ALIGN_CENTER, 0, px(-37));
-
-    lv_obj_t *gps = make_label(content, &lv_font_montserrat_48,
+    lv_obj_align(moto, LV_ALIGN_CENTER, px(-112), px(-14));
+    lv_obj_t *chat = make_label(content, &lv_font_montserrat_28,
+                                boot_green, "CHAT");
+    lv_obj_align(chat, LV_ALIGN_CENTER, 0, px(-14));
+    lv_obj_t *gps = make_label(content, &lv_font_montserrat_28,
                                boot_white, "GPS");
-    lv_obj_set_style_text_letter_space(gps, px(10), 0);
-    lv_obj_set_style_text_outline_stroke_color(gps, boot_white, 0);
-    lv_obj_set_style_text_outline_stroke_width(gps, px(2), 0);
-    lv_obj_set_style_text_outline_stroke_opa(gps, LV_OPA_COVER, 0);
-    lv_obj_set_style_transform_scale_x(gps, 340, 0);
-    lv_obj_set_style_transform_scale_y(gps, 340, 0);
-    lv_obj_align(gps, LV_ALIGN_CENTER, 0, px(35));
+    lv_obj_align(gps, LV_ALIGN_CENTER, px(105), px(-14));
 
-    // One deliberate signature: a road-like diagonal cut through two solid
-    // white velocity bars. No grey, colour or decorative loading spinner.
-    for(int i = 0; i < 2; ++i) {
-        lv_obj_t *bar = lv_obj_create(content);
-        lv_obj_remove_style_all(bar);
-        lv_obj_set_size(bar, px(i == 0 ? 56 : 38), px(5));
-        lv_obj_set_pos(bar, px(i == 0 ? 73 : 250), px(i == 0 ? 259 : 94));
-        lv_obj_set_style_bg_color(bar, boot_white, 0);
-        lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
-        lv_obj_set_style_transform_rotation(bar, -120, 0);
-    }
+    add_boot_line(road_outer, 4, 5);
+    add_boot_line(road_inner, 4, 4);
+    add_boot_line(road_dash, 2, 2);
+
+    lv_obj_t *powered = make_label(content, &lv_font_montserrat_16,
+                                   boot_muted, "Powered by");
+    lv_obj_align(powered, LV_ALIGN_CENTER, 0, px(111));
+    lv_obj_t *credits = make_label(content, &lv_font_montserrat_16,
+                                   boot_white, "Valhalla, OSM and Photon");
+    lv_obj_align(credits, LV_ALIGN_CENTER, 0, px(132));
 
     lv_anim_t fade;
     lv_anim_init(&fade);

@@ -1,12 +1,154 @@
 # Moto GPS — Project State
 
+## STATO ATTUALE — RIPARTIRE DA QUI
+
+**Aggiornato:** 2026-11-14. **Integrazione:** `valhalla`. **Branch esperimenti mantenuto:** `test/lvgl-single-road-renderer-20261113` (riallineato al commit di integrazione, nessun nuovo branch).
+
+**Stato:** autorizzato dall'utente il merge del lavoro sperimentale dopo la prova su strada del 14 novembre: il marcatore/freccia segue la strada anche in curve e rotonde, senza tagli. Inclusi renderer unitario strade, Douglas-Peucker 1,25px, clipping per polilinea, dirty tiles, smart pacing, Android Dark Touring e mappa chiara/notturna, branding ESP32 e colori connessione/radio attenuati #32996D. Nessuna nuova modifica al motore di rendering in questa integrazione.
+
+**Verifiche:** Action #574 `43571953505` Android SUCCESS (ESP/native skipped); precedenti CI nel ramo test con job ESP32 e native verdi, ma **gli ultimi soli ritocchi cromatici ESP32 non hanno una build dedicata**. Prova reale predittore positiva riferita dall'utente. Log seriale del 14 novembre: minimi di FPS ~3,8 associati soprattutto a fermo; cali intermedi in movimento su scene con molte strade. Non considerare dimostrata una relazione causale prima del profiling.
+
+**Prossima azione:** sullo stesso `test/lvgl-single-road-renderer-20261113` eseguire prima misure del renderer LVGL (segmenti disegnati/scartati, area dirty, flush, tempo rendering), correlando FPS e velocita' GPS; poi eventualmente clipping per singolo segmento con test di regressione. Preservare rotta, snapping, zoom, BLE, strade grigie, geometria e percorsi. La CI post-integrazione e la verifica degli ultimi colori sul dispositivo restano da eseguire. Nessuna modifica a procedure operative.
+
 ## Build Android sperimentale riuscita: precisazione ramo — 2026-11-13
 
 **Correzione alla nota precedente:** la build Android riuscita, confermata dall'utente il 13 novembre, riguarda la **fase 1 della separazione GPS/predizione sul branch sperimentale** `test/lvgl-single-road-renderer-20261113`, e NON una nuova build di funzionalita' su `valhalla`. Questa precisazione corregge l'attribuzione errata della nota precedentemente aggiunta nel branch stabile. La CI post-merge Photon del 12 novembre resta una verifica distinta e gia' documentata.
 
 **Lavoro sperimentale:** Android usa la posizione GNSS accettata, senza anticipazione `NavigationPositionPrediction`, per progresso, manovre, distanze, BLE e replay. `NavigationFixFreshness` segnala fix vecchio oltre 3000 ms attraverso il flag BLE `gnssStale` gia' esistente. Il predittore grafico `MapOriginPredictor` su ESP32 resta attivo e invariato; protocollo BLE, Valhalla e rotatorie v4 invariati. La modifica e' isolata sul ramo test ed e' gia' documentata nel suo `PROJECT_STATE.md`.
 
-**Verifica e prossima azione:** build Android comunicata come riuscita dall'utente; nessun ID o log specifico della nuova run fornito in questa chat, nessun test fisico successivo dichiarato. Prossimo passo: installare APK sperimentale, **senza riflash ESP32**, ripetere replay/diagnostica in movimento confrontando curve e rotonde con la prova precedente; fissare il dispositivo al mezzo per evitare che l'IMU ruoti sul sedile. La futura fase 2 (freschezza temporale BLE e predizione vincolata alla rotta nell'ESP32) NON e' stata ancora implementata. Nessuna variazione di procedure nel manuale. Questa correzione documentale non avvia CI (`[skip ci]`).
+**Verifica e prossima azione:** build Android comunicata come riuscita dall'utente; nessun ID o log specifico della nuova run fornito in questa chat, nessun test fisico successivo dichiarato. Nota storica del 13 novembre: i test successivi sono stati eseguiti e la verifica su strada del 14 novembre conferma la freccia aderente alla geometria della strada in curve e rotatorie. La CI Android #574 e' verde; la nota originale si riferisce allo stato precedente.
+
+
+## Mappa Android chiara/notturna — 2026-11-13
+
+In `NavigationScreen.kt` aggiunto filtro ColorMatrixColorFilter sulle tile MAPNIK osmdroid (non sui marker e sulle rotte) e toggle sole/luna in entrambe le TopAppBar. Default notturno, scelta persistente via SharedPreferences `moto_chat_map_style/night_map`, senza nuove sorgenti tile, download o modifiche a Valhalla/MotoMap. Filtro di inversione/desaturazione approssimato, NON una vera mappa vettoriale tematizzata: da verificare leggibilita' nomi e colori sul telefono. Build Android non ancora eseguita; branch `valhalla` intatto.
+
+## Titolo Android ispirato allo splash — 2026-11-13
+
+Su richiesta utente, nella barra superiore principale di Android la scritta MOTO CHAT GPS usa sans-serif ExtraBold Italic, con MOTO/GPS chiari e CHAT verde #50D995. L'immagine dello splash e' un mockup, non contiene un file font identificabile: scelta resa tipografica affine senza dipendenze o font aggiuntivi. La barra 'Percorso' resta invariata. File: `platforms/android/app/src/main/java/com/motogps/android/ui/NavigationScreen.kt`. Compilazione Android ancora da verificare; nessuna CI intermedia. `valhalla` intatto.
+
+## Pulsanti radio verde Dark Touring — 2026-11-13
+
+Su richiesta utente, `platforms/esp32/main/signal_radio_ui.cpp`: i cinque controlli radio play/pausa, volume +/-, cambio stazione precedente/successiva usano sfondo verde Dark Touring #50D995, identico allo splash ESP32, e icone/testi neri; stato premuto #37A76F. Pulsanti Wi-Fi e ritorno GPS, logica radio e audio invariati. Nessuna build ancora eseguita dopo questa modifica; includere in un'unica verifica finale ESP32. `valhalla` intatto.
+
+## Colore verde acido per schermata di connessione ESP32 — 2026-11-13
+
+Richiesta utente: gli elementi bianchi della schermata di connessione devono diventare verde acido. In `shared/nav_ui/src/moto_nav_ui.cpp` aggiunto `kConnectionAcidGreen = #B7FF39`; usato nei tratti e negli elementi prima bianchi del simbolo di connessione/attesa/pronto e nei titoli del lifecycle. Il testo secondario resta grigio per gerarchia; il verde della rotta e i colori della navigazione restano invariati. Aggiornata anche la dicitura lifecycle MOTO CHAT GPS. Non modificati protocollo BLE o logica di stato.
+
+Verifica: non compilato/testato dopo questa modifica; richiesta una singola CI finale native+ESP32 e controllo sul display.
+
+## Splash circolare Moto Chat GPS approvato — 2026-11-13
+
+**Richiesta:** l'utente approva il mockup rotondo con montagne, strada verde e la dicitura «Powered by Valhalla, OSM and Photon» e chiede di procedere. La grafica prodotta per la discussione e' un riferimento visivo: per evitare bitmap grandi e costi di decodifica su ESP32, il boot e' stato ricostruito con primitivi LVGL (arco circolare, due linee montagne, strada stilizzata, scritta MOTO CHAT GPS, crediti in due righe). E' una resa vettoriale semplificata, non pixel-identica all'immagine generata. Resta il fade preesistente e non cambia la durata di avvio prevista. File: `shared/nav_ui/src/moto_nav_ui.cpp`. Nessuna modifica alla navigazione.
+
+**Verifica:** nessuna compilazione o prova hardware ancora eseguita. Controllare dimensioni e allineamenti sul display fisico 466x466 e, se necessario, nel simulatore. Unica CI finale Android+native+ESP32 da verificare. `valhalla` intatto.
+
+## Rebranding splash ESP32 e schermata informazioni Android — 2026-11-13
+
+**Decisione utente:** mantenere l'icona Android gia' creata; modificare invece la schermata d'avvio dell'ESP32 e aggiungere nell'app una sezione Info con licenze e ringraziamenti per OpenStreetMap, Valhalla e Photon.
+
+**Implementazione:** `shared/nav_ui/src/moto_nav_ui.cpp` modifica soltanto `moto_nav_ui_show_boot_screen`: da MOTO GPS bianco a tre righe MOTO / CHAT / GPS, bianco e verde Dark Touring su nero AMOLED, mantenendo la stessa animazione fade e durata senza asset aggiuntivi. `platforms/android/app/src/main/java/com/motogps/android/ui/MotoChatInfoDialog.kt` aggiunge dialogo scorrevole con riconoscimenti, OSM copyright/ODbL e link alle licenze upstream Valhalla e Photon. `NavigationScreen.kt` espone pulsante Info nelle due top bar e aggiorna il titolo. `res/values/strings.xml` rinomina l'etichetta app in Moto Chat GPS senza modificare `ic_launcher`. Icona esistente invariata.
+
+**Verifica:** nessuna compilazione o test hardware ancora eseguiti in questa sessione. La schermata Info e' un punto d'accesso ai crediti, non sostituisce la conservazione di licenze/NOTICE richiesti. Prossima azione: CI finale e prove visive Android/ESP. Nessuna procedura manuale cambiata.
+
+
+## Palette Android Dark Touring approvata — 2026-11-13
+
+L'utente approva la palette Dark Touring in quanto coerente con i colori identitari del display ESP32. Implementazione nel solo branch `test/lvgl-single-road-renderer-20261113`: nuovo `ui/MotoChatTheme.kt` con schema Material3 scuro e colori semantici; `MainActivity.kt` passa da `lightColorScheme()` a `MotoChatDarkColorScheme`; `res/values/themes.xml` configura barre di sistema scure; `colors.xml` espone valori XML; `NavigationScreen.kt` sostituisce il blu della rotta nella preview osmdroid con il verde #50D995. Il layer di tile MAPNIK esterno resta invariato e puo' essere chiaro: non dichiarare mappa interamente scura. Non sono stati cambiati algoritmi o protocollo.
+
+**Verifica:** nessuna build/test locale disponibile nell'ambiente di modifica; CI da verificare dopo push finale. Nessun test hardware o su strada della nuova palette. Il manuale operativo non cambia.
+
+## Build Android fase 1 separazione predizioni riuscita — 2026-11-13
+
+**Branch sperimentale:** `test/lvgl-single-road-renderer-20261113`; `valhalla` invariato. L'utente conferma la riuscita della **build Android** successiva alla rimozione dell'anticipazione Android della posizione GPS. Non sono stati comunicati in questa chat gli ID della nuova run e dei job: il successo e' registrato come conferma dell'utente, non come riesecuzione indipendente dei test. Il workflow selettivo ha coinvolto Android; native e ESP32 non erano necessari per una modifica ai soli sorgenti Android.
+
+**Modifica effettiva, non cambiare fase:** la posizione GPS accettata e filtrata resta autorevole per progresso, distanze, manovre, BLE e replay; snapshot replay marcati `position_source=accepted_gps`. L'ESP32 mantiene `MapOriginPredictor` come unico predittore grafico, **senza alcuna modifica al firmware in questa fase**. Fix GNSS piu' vecchio di 3 s marcato con `gnssStale`; non sono aggiunti campi BLE di `fix_age_ms` e non c'e' ancora proiezione ESP vincolata alla rotta. Preservare rotatorie v4, topologia e zoom.
+
+**Passo successivo:** installare APK dal branch test, non riflashare ESP32, avviare navigazione reale e raccogliere nuovo replay JSONL e diagnostica Android (log seriale ESP se disponibile). Confrontare soprattutto rotonde, curve, distanze e allineamento della moto rispetto alla geometria verde; in auto/moto montare rigidamente ESP per non confondere la fusione heading con rotazioni del dispositivo sul sedile. La fase 2 ESP32 va progettata solo dopo valutazione del confronto A/B. Manuale operativo invariato; nota di documentazione `[skip ci]`.
+
+## Separazione GPS autorevole / predizione grafica — 2026-11-13
+
+**Branch:** `test/lvgl-single-road-renderer-20261113`, unico commit consolidato a partire da `c93f00a2`. `valhalla` NON modificato. L'utente conferma che il replay 13 novembre con interpolazione tra fix GPS reali segue la rotta molto meglio della versione con predizione Android; nella prova auto l'ESP era libero sul sedile, quindi l'IMU potrebbe aver introdotto rotazioni non rappresentative del veicolo, ma il difetto compare anche nel replay browser senza IMU fisica.
+
+**Modifica circoscritta, fase 1:** `NavigationViewModel.kt` usa soltanto `currentLocation` gia' accettata da `LocationFixFilter` per `updateManeuverAndDistance` e `ReplayTraceRecorder.snapshot`. Rimossa la chiamata Android `NavigationPositionPrediction.estimate` (che anticipava fino a 12 m sui rettilinei e poteva tagliare curve/rotonde), eliminati helper e test legacy non piu' usati. Il replay marca i nuovi snapshot `position_source=accepted_gps`; file replay precedenti restano validi ma possono contenere coordinate snapshot anticipate e non vanno confrontati ignorando questo fatto. `NavigationFixFreshness` imposta `gnssStale` da eta' monotona dell'ultimo fix: se manca oppure ha piu' di 3000 ms, il flag blocca il predittore ESP via protocollo BLE esistente. Il fatto che una nuova finestra route BLE possa riferirsi a un vecchio fix non lo rende fresco. Nuovi test JVM sulla freshness.
+
+**Confine delle responsabilita':** Android conserva GNSS filtrato per distanze, progresso, manovre, ricalcolo, origine BLE e replay; solo `MapOriginPredictor` ESP32 anticipa il movimento grafico, senza aggiornare la navigazione autorevole. Non modificati protocollo BLE, mapping OSM/MotoMap, Valhalla, UI, IMU/fusione heading o algoritmo del predittore ESP; resta il rischio di extrapolazione rettilinea ESP fino a 3.4 s e di correzione backwards euristica. `fix_age_ms` NON ancora trasmesso nel BLE; `gnssStale` e' un limite di sicurezza compatibile, non una compensazione precisa della latenza. Durante sosta o freno la previsione ESP puo' quindi restare imprecisa prima del nuovo fix. Non considerare la fase 2 completata.
+
+**Test e CI:** test JVM di freshness aggiunti ma non eseguiti localmente; CI Android attesa sul commit unico (workflow selettivo). Nessuna validazione su hardware o in strada. Procedura di build/flash/export invariata, percio' manuale operativo non cambiato.
+
+**Prossima azione:** verificare Android CI; poi installare APK sperimentale e registrare nuovo replay, confrontando rotonde e distanze con la prova 13 novembre; flash ESP non necessario per testare la separazione Android in questa fase. Progettare successivamente time-metadata BLE e predizione vincolata a rotta per ESP con test dedicati, mantenendo `valhalla` intatto fino a conferma dell'utente.
+
+
+## Riduzione conservativa polilinee grigie + workflow selettivo — 2026-11-13
+
+**Autorizzazione:** dopo la prova fisica con smart pacing su branch `test/lvgl-single-road-renderer-20261113`, utente conferma comportamento corretto di ricalcoli, svolte, zoom e rotonde. Analisi del seriale/replay ha mostrato `NAV_EXP` mediana ~10 Hz (massimo 14), display fino a ~28 FPS ma rendering ancora costoso in scene dense; obiettivo alleggerire il solo layer strade senza cambiare manovre, geometria verde, BLE o decoder.
+
+**Implementazione in esperimento:** aggiunto `shared/nav_ui/src/road_simplification.hpp`: Ramer-Douglas-Peucker in pixel-display a tolleranza 1.25 px, non allocante, con endpoint e angoli locali >=35 gradi (quando le due gambe sono >=3px) obbligatori. Le polilinee con al massimo 8 punti non vengono toccate: priorita' alla leggibilita' di anelli/uscite, senza modificare topologia o connessioni fra span. `shared/nav_ui/src/moto_nav_ui.cpp` mantiene maschera per punti, ricalcolata solo quando le coordinate proiettate cambiano o viene caricata una scena; renderer unico disegna le stesse polilinee, classi/colori/caps e ignora solo vertici ridondanti. I bounds/dirty grid restano calcolati su geometria piena, conservativi. Non si garantisce una riduzione del 50% del rendering: molte strade sono gia' brevi e restano integre. Test policy in `tests/native/nav_ui_render_tests.cpp` su rettilineo, curva di 90°, rilievo 4px e span breve; i preesistenti test di rendering/partial buffer devono restare verdi.
+
+**CI:** su push, `dorny/paths-filter` confronta solo la coppia `github.event.before..after`; in precedenza commit finali con soli test facevano partire native senza firmware. Per questa modifica source+test+doc+workflow sono pubblicati **in un unico commit** cosi' il filtro rileva sia `shared/nav_ui/**` sia `platforms/esp32/**`. Rimosse dipendenze non necessarie di native ed esp32 da cambi al solo `.github/workflows/project-build.yml`; il test policy pacing attiva native quando cambia `platforms/esp32/main/motion_render_pacing.h`; Android selezionato solo per `platforms/android/**` e gli altri moduli shared pertinenti, non `shared/nav_ui/**`. Trigger manuale disponibile. Verificare dai job reali ESP32+native, Android skipped.
+
+**Validazione:** codice/test/CI e flash ESP del nuovo esperimento ancora non verificati al momento del commit; nessuna compilazione locale eseguita. `valhalla` intatto, nessun cambiamento richiesto al manuale operativo (stessa procedura di flash). Prossima azione: completare unica CI, poi test da fermo e su percorso sicuro, confrontando FPS e render_avg nelle scene dense 20/120–160, verificando rotatorie complesse e strade grigie complete; merge solo dopo approvazione esplicita dell'utente.
+
+
+## CI smart pacing: correzioni post primo run — 2026-11-13
+
+**Run diagnostico:** https://github.com/thriller47/moto-gps-waveshare/actions/runs/43418860441 avviato sul commit `7526e8d`. `detect-changes` ha mostrato erroneamente `android=true` con **unico file modificato** `.github/workflows/project-build.yml`: la negazione `!shared/nav_ui/**` unita al matcher OR di `dorny/paths-filter@v4` corrisponde a file non in quel percorso. Filtro corretto con allowlist positiva di tutti i moduli `shared/` diversi da `nav_ui`, senza perdere trigger `platforms/android/**`, `core/**`, `common/**` (commit `308a97b`, [skip ci]). Verificare che prossima CI salti Android.
+
+**Errore native emerso realmente:** la funzione `test_motion_render_pacing_policy()` in `tests/native/nav_ui_render_tests.cpp` era stata inserita prima del `#define CHECK` e falliva con `error: CHECK was not declared in this scope`. Correzione: spostare la funzione sotto la definizione del macro; nuova CI necessaria. Non confondere l'errore di test C++ con l'implementazione firmware. Stato ESP32 del run originale verificare a parte.
+
+
+## Smart pacing del renderer e filtro CI Android — 2026-11-13
+
+**Motivazione:** log di test in movimento: `NAV_EXP` fino a 38-40 Hz da fermo, mentre LVGL disegna 14-20 FPS nei tratti densi e spesso occupa 80-95% CPU1; 4-5 FPS durante soste non significano necessariamente freeze. L'utente autorizza smart pacing e chiede di evitare build Android inutili.
+
+**Implementazione sul solo ramo sperimentale `test/lvgl-single-road-renderer-20261113`:** nuovo `platforms/esp32/main/motion_render_pacing.h` con policy pura testabile: motion-only (IMU) al massimo una presentazione ogni 50 ms = 20 Hz; con velocita' <0.5 m/s e delta heading modulo 360 <1.5 gradi fra ultimi frame presentati, 250 ms = 4 Hz. In `phone_nav_bridge.cpp` il task `run_renderer` trattiene l'ultimo flag motion e aspetta via `ulTaskNotifyTake` con timeout; le notifiche di `RenderNavigation` (inclusi nuovi snapshot, scene, rotta, waypoint, link), `RenderMedia` bypassano il throttle per non perdere eventi. La proiezione resta fuori dal mutex LVGL. `NAV_EXP` misura tutte le presentazioni navigation+motion: gli snapshot BLE Android a ~5 Hz possono tenere il totale oltre 4 Hz anche con throttle motion in sosta. `lock_max` e' **attesa per acquisire** il lock LVGL, non durata detenzione; aggiunto `apply_max` per misurare separatamente tempo dentro lock fino a unlock.
+
+**Regressione test:** `tests/native/nav_ui_render_tests.cpp` contiene `test_motion_render_pacing_policy` (soglia idle/marcia, wrap heading 359->0, attesa scaduta, primo frame). Il test non copre scheduler FreeRTOS/BLE reale: collaudo ESP resta obbligatorio.
+
+**Workflow:** `.github/workflows/project-build.yml` usava filtro Android `shared/**` e persino il workflow stesso. Ora esclude `shared/nav_ui/**` e non attiva Android solo per edit al workflow; Android continua a partire per `platforms/android/**`, altri `shared/**`, `core/**`, `common/**`. Native e ESP32 continuano a includere il file workflow e modifiche relative. Il workflow `workflow_dispatch` conserva controlli manuali. Verificare i job realmente eseguiti alla nuova CI; non attribuire job skipped a difetto compilazione.
+
+**Validazione:** al momento della presente nota compilazione e test host non eseguiti localmente (SDK ESP32 non disponibile in questo ambiente); CI finale ancora da verificare. Nessuna modifica firmware stabile, app Android, protocollo BLE, Valhalla, MotoMap, QSPI o DMA. Nessuna nuova procedura nel manuale operativo. Prossima azione: una CI conclusiva (native+ESP32, Android skipped), flash solo ESP e log seriale/replay in prova sicura: confrontare motion pacing, `lock_max`, `apply_max`, render avg/max, CPU1 e cambi scena. Non fare merge in `valhalla` senza consenso e test fisico positivo.
+
+
+## Rendering dirty tiles: coalescenza aree e prova in movimento — 2026-11-13
+
+**Nuova evidenza del test (utente):** campioni seriali `serial_20261113_120113.txt` + diagnostico Android `motogps-android-diagnostics(20261113-112031).zip` + replay `motogps-replay(10).jsonl`. L'utente percepisce migliore fluidita' col clipping per span. Il replay colloca i peggiori FPS ~4–5 a velocita' GPS 0: non sono prova da soli di freeze; mediana nei campioni di movimento >=5.4km/h circa 18.6 FPS (analisi di sessione chat). Durante gli aggiornamenti il renderer resta costoso: ~50–53ms/render, 3.2 flush/frame e LVGL 80–95% di un core. BLE e memoria generalmente stabili nel seriale. Nessun merge in `valhalla` finche' non e' provato su strada e confrontato con firmware stabile.
+
+**Nuova modifica su `test/lvgl-single-road-renderer-20261113`:** `shared/nav_ui/src/moto_nav_ui.cpp` riduce l'overhead di invalidazione della griglia 4x4. In `MapMotionDirtyTiles::invalidate` le tile orizzontali contigue diventano run, e run identici tra righe successive vengono uniti in un unico rettangolo; tutte le tile marcate (vecchio + nuovo tratto) restano coperte. Soglia per invalidare tutta la mappa alzata da 8 a 12 tile per preservare redraw parziale in casi medi; per >=12 tile mantiene il fallback affidabile alla mappa completa. Nessuna modifica a zoom, BLE, clock QSPI 30MHz, DMA, profili Valhalla, MotoMap o geometria strade. Il beneficio atteso e' meno chiamate LVGL su movimenti distribuiti in poche aree: non si promettono fps superiori nei ridisegni completi.
+
+**Test aggiunto:** `test_multi_road_motion_dirty_rectangles_leave_no_trails` in `tests/native/nav_ui_render_tests.cpp` confronta l'output finale dopo un movimento di due span grigi + rotta verde con il rendering diretto; rimane `test_small_motion_invalidates_only_swept_tiles` nella suite dirty-tile, e gli altri test di clipping/snap/partial-buffer. CI, test nativi ed ESP32 e prova fisica non ancora confermati al momento della nota. Nessun cambiamento operativo da documentare in `docs/MANUALE_OPERATIVO.md`.
+
+**Prossima azione concreta:** una CI consolidata, poi test A/B a piedi/da fermo e su percorso sicuro con seriale ESP32 + replay Android sincronizzati; confrontare FPS **solo nei periodi con movimento** e rendere espliciti render avg/max, numero flush/frame, lock_max e stabilita' ai cambi scena. Fermarsi/ripristinare `valhalla` se il display si congela e non recupera; nessun merge senza approvazione.
+
+
+## Renderer strade unico: congelamenti e clipping per span — 2026-11-13
+
+**Prova hardware utente:** firmware del ramo `test/lvgl-single-road-renderer-20261113` con QSPI stabile 30 MHz, BLE funzionale ma display scende fino a 4.8–5 FPS durante navigazione; `display perf` fino a ~71 ms render/frame, ~4 flush/frame, con ripresa spontanea e nuovo congelamento al cambio scena. Il collegamento al telefono continua per parte del test; il precedente recupero alla disconnessione non dimostra una deadlock BLE. NON approvare merge/uso in guida finche' non passa hardware.
+
+**Diagnostico Android consegnato** `motogps-android-diagnostics(20261113-090857).zip`, con `current.log` ed `esp32-current.log` (eventi codificati, non seriale LVGL completo). Android emette nuove revisioni `BLE_MAP_SCENE` circa ogni 20 s anche con 20 strade (p.es. 10:07:03 20/107 e 10:07:29 20/115); non ci sono prove di superamento budget di polilinee. Traccia GPS e `NAV_SNAPSHOT` proseguono, ma il diagnostico da solo non correla un freeze con un preciso frame o con una scena: servono log seriali `display perf`, `CORE_PERF`, `NAV_EXP` raccolti sullo stesso intervallo. Nell'archivio esistono anche sessioni precedenti e un GATT status=8 alle 09:42:06, non prova di causa del freeze delle 10:07.
+
+**Correzione sperimentale mirata:** `shared/nav_ui/src/moto_nav_ui.cpp` conserva l'unico oggetto LVGL per tutte le strade e aggiunge bounds locali conservativi per ogni span fino a 24; li ricalcola quando cambiano i pixel/snap della geometria e salta le polilinee completamente fuori dal clip `layer->_clip_area` durante `LV_EVENT_DRAW_MAIN`. Mantiene disegno di tutti i segmenti visibili, stile per classe, alpha/caps, route, dirty tiles 4×4, BLE e 30 MHz invariati. Questo riduce task inutili nei redraw parziali; NON puo' promettere piu' FPS nei redraw completi e non cambia la frequenza di invio scena.
+
+**Regressioni:** aggiunto `test_offscreen_road_culling_preserves_visible_pixels` a `tests/native/nav_ui_render_tests.cpp`, oltre ai test precedenti per classi, interruzioni e partial buffer. Compilazione e CI ancora da confermare; nessun nuovo collaudo hardware dopo la correzione. Manuale operativo invariato (nessun nuovo comando); prossimo passo: una sola build CI finale, flash ESP sperimentale da fermo, confronto seriale e Android sincronizzati, controllo scene 20/100–130, flash/fallback a `valhalla` in caso di nuovo freeze. Merge solo dopo test positivo e approvazione esplicita.
+
+
+## Fix compilazione renderer unico ESP32 — 2026-11-13
+
+**CI fallita realmente:** workflow https://github.com/thriller47/moto-gps-waveshare/actions/runs/43388703184/job/131763259138, nel file `shared/nav_ui/src/moto_nav_ui.cpp:467`: `error: no matching function for call to 'max(long int&, int)'`. `LV_EVENT_REFR_EXT_DRAW_SIZE` riceve `std::int32_t*` nella toolchain Xtensa; `px(4)` restituisce `int`. Risolto sul solo `test/lvgl-single-road-renderer-20261113` usando `static_cast<std::int32_t>(px(4))` in `std::max`. Commit fix `0c070861`. Non modificati renderer, stili, geometrie, buffer, TE o QSPI; `valhalla` invariato.
+
+**Verifica:** log del job letto tramite GitHub; compilazione precedente FAILED, gli altri warning di funzioni UI non usate non sono la causa. Nuova CI e prova hardware non ancora verificate. Prossima azione: controllare una sola CI dopo il fix, poi test su ESP e confronto log seriali FPS/render/flush, soprattutto presso rotonde.
+
+
+## Esperimento renderer unico strade LVGL — 2026-11-13
+
+**Autorizzazione utente:** dopo due prove QSPI 40 MHz fallite (DMA underflow con direct PSRAM, no-mem con DMA staging), l'utente elimina il vecchio branch `test/lvgl-qspi-render-20261113` e autorizza il solo renderer delle strade. Nuovo ramo `test/lvgl-single-road-renderer-20261113` da `valhalla` stabile, senza merge e senza modifiche al clock (30 MHz), al DMA diretto PSRAM, alla TE sync, a buffer, BLE, Android, Valhalla, MotoMap, rotta verde e logica di zoom.
+
+**Implementazione sperimentale:** in `shared/nav_ui/src/moto_nav_ui.cpp` i 40 oggetti LVGL prima predisposti come singole road `lv_obj` sono sostituiti da un unico `nav_roads_layer` con `LV_EVENT_DRAW_MAIN`. Disegna le stesse 24 polilinee massime usando la stessa sorgente di punti interpolati, clip/banding `draw_map_line`, larghezza 4/3/2 per classe major/standard/service e colori grigi esistenti, senza collegare spans distinti. La route shadow/green route rimane sopra, il marker resta top layer, la griglia dirty 4x4 ed il refresh dei punti non sono stati cambiati. La scena vuota nasconde il layer; snap della scena lo invalida; il movimento interpola i punti e invalida la mappa secondo la logica precedente.
+
+**Test di regressione:** `tests/native/nav_ui_render_tests.cpp` esteso con caso su due polilinee disconnesse, classi/cambi senza revisione, clear/recovery; rimangono test preesistenti su geometrie massime 24x192, clipping e buffer 40/320, motion interpolation, reroute e dirty tiles. La compilazione/CI e test visivi non sono ancora conclusi quando questa nota e' stata preparata. Non attribuire un aumento di FPS fino alla prova A/B con il vecchio firmware e stessa scena. Da controllare: crash/artefatti, FPS, render avg/max, TE/DMA wait, flush/frame, over-budget, carico CPU e contesto rotatorie/uscite.
+
+**Manuale operativo:** nessuna procedura di build, flash, diagnostica o import dati e' cambiata; non richiede modifica cosmetica. Prossima azione: un'unica CI consolidata del ramo, poi flash ESP e log seriale in navigazione reale con attenzione alle rotatorie. Merge in `valhalla` solo dopo collaudo esplicito.
+
 
 ## Rebranding Moto Chat GPS: tema Android Dark Touring — 2026-11-12
 

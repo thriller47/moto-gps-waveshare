@@ -182,11 +182,15 @@ object ReplayTraceRecorder {
             .put("roads", roads))
     }
 
-    /** Actual outgoing BLE navigation state, with predicted position used in UI. */
+    /** Outgoing BLE state paired with the last accepted GPS fix (not predicted).
+     * Old replay files may contain extrapolated snapshot positions; newly
+     * recorded snapshots explicitly label their coordinate source.
+     */
     fun snapshot(s: MotoBLENavigationSnapshot, lat: Double, lon: Double) {
         if (!active || !lat.isFinite() || !lon.isFinite()) return
         write(JSONObject().put("type", "snapshot")
             .put("lat", lat).put("lon", lon)
+            .put("position_source", "accepted_gps")
             .put("state", s.stateName).put("network", s.networkName)
             .put("maneuver", s.maneuverName)
             .put("has_turn", s.maneuverName !in listOf("none", "continue", "arrive") &&

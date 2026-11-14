@@ -65,8 +65,9 @@ jobs:
           base: ${{ github.event_name == 'push' && github.ref_name || github.event.pull_request.base.ref }}
           filters: |
             native:
-              - '.github/workflows/project-build.yml'
               - 'CMakeLists.txt'
+              # Host test also consumes the ESP-only pacing policy.
+              - 'platforms/esp32/main/motion_render_pacing.h'
               - 'shared/**'
               - 'core/**'
               - 'common/**'
@@ -79,13 +80,22 @@ jobs:
               - 'scripts/offline_map/**'
               - 'third_party/**'
             android:
-              - '.github/workflows/project-build.yml'
               - 'platforms/android/**'
-              - 'shared/**'
+              # Explicitly list shared modules relevant to Android instead of
+              # negating nav_ui: dorny/paths-filter uses OR (some) matching,
+              # so a lone negative pattern also matches unrelated files.
+              - 'shared/ble_protocol/**'
+              - 'shared/coordinates/**'
+              - 'shared/demo_fixture/**'
+              - 'shared/nav_app/**'
+              - 'shared/nav_core/**'
+              - 'shared/nav_presenter/**'
+              - 'shared/offline_map/**'
+              - 'shared/port_api/**'
+              - 'shared/protocol/**'
               - 'core/**'
               - 'common/**'
             esp32:
-              - '.github/workflows/project-build.yml'
               - 'platforms/esp32/**'
               - 'shared/**'
               - 'core/**'

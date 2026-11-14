@@ -1,4 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="moto_gps_launcher_background">#121319</color>
+    <color name="moto_gps_launcher_background">#080C0B</color>
+    <color name="moto_chat_background">#080C0B</color>
+    <color name="moto_chat_surface">#151D1B</color>
+    <color name="moto_chat_green">#50D995</color>
+    <color name="moto_chat_text">#F3F7F5</color>
+    <color name="moto_chat_text_muted">#A3B2AC</color>
 </resources>

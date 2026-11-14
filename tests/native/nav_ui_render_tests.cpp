@@ -5,6 +5,8 @@
 
 #include "moto_nav_ui.h"
 #include "moto_nav_route_sampling.hpp"
+#include "../../platforms/esp32/main/motion_render_pacing.h"
+#include "../../shared/nav_ui/src/road_simplification.hpp"
 
 #include <lvgl.h>
 
@@ -20,6 +22,7 @@ namespace {
 
 int failures = 0;
 
+
 #define CHECK(condition)                                                   \
   do {                                                                     \
     if (!(condition)) {                                                    \
@@ -28,6 +31,55 @@ int failures = 0;
       ++failures;                                                          \
     }                                                                      \
   } while (false)
+
+void test_gray_road_simplification_preserves_junctions() {
+  // Long straight street becomes one segment in screen coordinates.
+  lv_point_precise_t straight[12]{};
+  for(int i = 0; i < 12; ++i) straight[i] = {i * 12, 100};
+  std::uint8_t keep[12]{};
+  moto_road_simplification::retain(straight, 12, keep);
+  CHECK(keep[0] == 1 && keep[11] == 1);
+  for(int i = 1; i < 11; ++i) CHECK(keep[i] == 0);
+
+  // Short spans (including road-circle exits) must never lose a point.
+  lv_point_precise_t short_span[5]{
+      {10, 10}, {12, 14}, {18, 18}, {27, 23}, {40, 23}};
+  std::uint8_t short_keep[5]{};
+  moto_road_simplification::retain(short_span, 5, short_keep);
+  for(auto value : short_keep) CHECK(value == 1);
+
+  // Preserve a distinct 90 degree junction within a longer span.
+  lv_point_precise_t turn[12]{};
+  for(int i = 0; i < 6; ++i) turn[i] = {i * 10, 10};
+  for(int i = 6; i < 12; ++i) turn[i] = {50, 10 + (i - 5) * 10};
+  std::uint8_t turn_keep[12]{};
+  moto_road_simplification::retain(turn, 12, turn_keep);
+  CHECK(turn_keep[0] == 1 && turn_keep[5] == 1 &&
+        turn_keep[11] == 1);
+
+  // Screen displacement is meaningful: slight bends within 1.25 px
+  // may be dropped; a visible 4 px deviation must survive.
+  lv_point_precise_t bump[12]{};
+  for(int i = 0; i < 12; ++i) bump[i] = {i * 10, 30};
+  bump[6].y += 4;
+  std::uint8_t bump_keep[12]{};
+  moto_road_simplification::retain(bump, 12, bump_keep);
+  CHECK(bump_keep[6] == 1);
+}
+
+void test_motion_render_pacing_policy() {
+  using moto::nav::motion_render_period_ms;
+  using moto::nav::remaining_motion_wait_ms;
+  CHECK(motion_render_period_ms(0.0F, 90.0F, 90.5F) == 250U);
+  CHECK(motion_render_period_ms(0.49F, 359.0F, 0.0F) == 250U);
+  CHECK(motion_render_period_ms(0.0F, 90.0F, 92.0F) == 50U);
+  CHECK(motion_render_period_ms(0.5F, 90.0F, 90.0F) == 50U);
+  CHECK(motion_render_period_ms(20.0F, 90.0F, 90.0F) == 50U);
+  CHECK(remaining_motion_wait_ms(1000, 1100, 250) == 150U);
+  CHECK(remaining_motion_wait_ms(1000, 1250, 250) == 0U);
+  CHECK(remaining_motion_wait_ms(1000, 1050, 50) == 0U);
+  CHECK(remaining_motion_wait_ms(0, 1000, 250) == 0U);
+}
 
 constexpr int kWidth = MOTO_UI_CANVAS_WIDTH;
 constexpr int kHeight = MOTO_UI_CANVAS_HEIGHT;
@@ -641,6 +693,53 @@ void test_small_motion_invalidates_only_swept_tiles() {
   CHECK(std::equal(direct.bytes.begin(), direct.bytes.begin() + map_bytes,
                    settled.begin()));
 }
+// An irregular pair of gray street spans crosses more than one dirty tile.
+// Coalescing adjacent tile regions must preserve every old/new stroke pixel,
+// including outside the route, when the motion animation settles.
+void test_multi_road_motion_dirty_rectangles_leave_no_trails() {
+  moto_nav_ui_set_phone_connection(MOTO_UI_PHONE_ONLINE);
+  moto_nav_ui_set_reduce_motion(1);
+  auto state = base_state();
+  state.route_identity = 9'110;
+  state.route_generation = 1;
+  state.map_scene_revision = 9'110;
+  state.route_point_count = 3;
+  state.route_points[0] = {55, 220};
+  state.route_points[1] = {175, 70};
+  state.route_points[2] = {320, 205};
+  state.road_point_count = 6;
+  state.road_polyline_count = 2;
+  state.road_points[0] = {20, 35};
+  state.road_points[1] = {185, 190};
+  state.road_points[2] = {430, 45};
+  state.road_points[3] = {35, 195};
+  state.road_points[4] = {240, 60};
+  state.road_points[5] = {450, 190};
+  state.road_polylines[0] = {0, 3, 1};
+  state.road_polylines[1] = {3, 3, 4};
+  moto_nav_ui_set_state(&state);
+  pump(260);
+  (void)capture();
+
+  moto_nav_ui_set_reduce_motion(0);
+  for(int i = 0; i < 6; ++i) {
+    state.road_points[i].x += 14;
+    state.road_points[i].y += 9;
+  }
+  for(int i = 1; i < 3; ++i)
+    state.route_points[i].x -= 11;
+  moto_nav_ui_set_motion_state(&state);
+  pump(260);
+  const Frame settled = capture();
+
+  moto_nav_ui_set_reduce_motion(1);
+  moto_nav_ui_set_state(&state);
+  const Frame direct = capture();
+  constexpr int map_height = (232 * kWidth + 180) / 360;
+  constexpr std::size_t map_bytes = kWidth * map_height * (LV_COLOR_DEPTH / 8);
+  CHECK(std::equal(direct.bytes.begin(), direct.bytes.begin() + map_bytes,
+                   settled.bytes.begin()));
+}
 #endif
 
 void test_reroute_without_geometry_preserves_road_map() {
@@ -792,6 +891,88 @@ void test_diagonal_map_pixels_are_independent_of_partial_buffer_height() {
   CHECK(draw_with_buffer(short_buffer) == tall_frame);
 }
 
+// The single renderer must preserve disconnected streets, class colors and
+// the absence of stale gray pixels when a scene is cleared and restored.
+void test_single_road_renderer_scene_boundaries_and_class_changes() {
+  moto_nav_ui_set_reduce_motion(1);
+  moto_nav_ui_set_phone_connection(MOTO_UI_PHONE_ONLINE);
+  auto state = base_state();
+  fill_route(state, 12);
+  state.road_point_count = 4;
+  state.road_polyline_count = 2;
+  state.road_points[0] = {30, 120};
+  state.road_points[1] = {145, 120};
+  state.road_points[2] = {310, 120};
+  state.road_points[3] = {440, 120};
+  state.road_polylines[0] = {0, 2, 1};
+  state.road_polylines[1] = {2, 2, 4};
+  state.map_scene_revision = 405;
+  moto_nav_ui_set_state(&state);
+  const Frame separated = capture();
+
+  // The visual break between the two polylines must not accidentally turn
+  // into a connecting road when they are drawn by the same LVGL object.
+  state.road_polyline_count = 1;
+  state.road_polylines[0] = {0, 4, 1};
+  ++state.map_scene_revision;
+  moto_nav_ui_set_state(&state);
+  const Frame connected = capture();
+  CHECK(connected.hash != separated.hash);
+
+  state.road_polyline_count = 2;
+  state.road_polylines[0] = {0, 2, 1};
+  state.road_polylines[1] = {2, 2, 4};
+  ++state.map_scene_revision;
+  moto_nav_ui_set_state(&state);
+  CHECK(capture().hash == separated.hash);
+
+  state.road_polylines[1].road_class = 1;
+  // Class changes must render even without an incremented scene revision.
+  moto_nav_ui_set_state(&state);
+  CHECK(capture().hash != separated.hash);
+
+  state.road_point_count = 0;
+  state.road_polyline_count = 0;
+  moto_nav_ui_set_state(&state);
+  CHECK(capture().hash != separated.hash);
+  state.road_point_count = 4;
+  state.road_polyline_count = 2;
+  state.road_polylines[1].road_class = 4;
+  ++state.map_scene_revision;
+  moto_nav_ui_set_state(&state);
+  CHECK(capture().hash == separated.hash);
+}
+
+// Excluding a street wholly outside the viewport must not change visible
+// pixels. This also exercises the per-span bounds fast path and scene updates.
+void test_offscreen_road_culling_preserves_visible_pixels() {
+  moto_nav_ui_set_reduce_motion(1);
+  moto_nav_ui_set_phone_connection(MOTO_UI_PHONE_ONLINE);
+  auto state = base_state();
+  fill_route(state, 12);
+  state.road_point_count = 4;
+  state.road_polyline_count = 2;
+  state.road_points[0] = {35, 90};
+  state.road_points[1] = {180, 135};
+  state.road_points[2] = {-500, -420};
+  state.road_points[3] = {-450, -360};
+  state.road_polylines[0] = {0, 2, 1};
+  state.road_polylines[1] = {2, 2, 4};
+  state.map_scene_revision = 630;
+  moto_nav_ui_set_state(&state);
+  const Frame with_offscreen = capture();
+
+  state.road_polyline_count = 1;
+  ++state.map_scene_revision;
+  moto_nav_ui_set_state(&state);
+  CHECK(capture().hash == with_offscreen.hash);
+
+  state.road_polyline_count = 2;
+  ++state.map_scene_revision;
+  moto_nav_ui_set_state(&state);
+  CHECK(capture().hash == with_offscreen.hash);
+}
+
 }  // namespace
 
 int main(int argc, char **argv) {
@@ -811,6 +992,8 @@ int main(int argc, char **argv) {
       [](std::uint8_t byte) { return byte == 0x00; });
   CHECK(all_black);
 
+  test_gray_road_simplification_preserves_junctions();
+  test_motion_render_pacing_policy();
   test_frames_are_deterministic();
   test_clearing_geometry_leaves_no_residue();
   test_turn_arrows_and_turn_distance_do_not_move_arrival_distance();
@@ -829,8 +1012,11 @@ int main(int argc, char **argv) {
   test_nonuniform_route_vertices_align_by_real_arc_fraction();
 #ifdef MOTO_UI_DIRTY_TILE_TEST
   test_small_motion_invalidates_only_swept_tiles();
+  test_multi_road_motion_dirty_rectangles_leave_no_trails();
 #endif
   test_diagonal_map_pixels_are_independent_of_partial_buffer_height();
+  test_single_road_renderer_scene_boundaries_and_class_changes();
+  test_offscreen_road_culling_preserves_visible_pixels();
 
   // Terminal screens run last: they tear the full UI down.
   moto_nav_ui_show_boot_screen();
