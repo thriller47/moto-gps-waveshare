@@ -2,13 +2,31 @@
 
 ## STATO ATTUALE — RIPARTIRE DA QUI
 
-**Aggiornato:** 2026-11-14. **Integrazione stabile:** `valhalla`, merge `51ae208c`. **Esperimento attivo:** `test/lvgl-single-road-renderer-20261113`; non creare nuovi branch.
+**Aggiornato:** 2026-11-14. **Branch stabile:** `valhalla` invariato (merge `51ae208c`). **Branch sperimentale attivo:** `test/lvgl-single-road-renderer-20261113`, contiene clipping LVGL sperimentale e nuovo Photon v2.
 
-**Prova reale:** il 14 novembre il predittore segue la strada in curve e rotatorie (conferma utente). Il log LVGL ha mostrato cali FPS da fermo e in marcia in scene dense; 21 ricalcoli Android riusciti non mostrano un calo grafico sistematico alla sostituzione della rotta. Tenere fisso predittore, rotatoria, rotta verde e BLE.
+**Photon v2 implementato:** convertitore `scripts/offline_map/photon_to_sqlite.py` genera schema SQLite 2 con FTS4 contentless (non conserva copia del testo originale) e dizionari `cities` e `regions` per evitare ripetizioni. Il dump JSONL/.zst continua a essere importato in streaming senza filtri nuovi; `address_refs` e' temporanea, finale con FTS optimize/VACUUM e controlli mirati (la PRAGMA quick_check globale non e' utilizzabile su FTS4 contentless). Android ricerca con JOIN sui dizionari, valida solo v2 e ricorre a Photon online se v2 manca o non e' leggibile; una ricerca offline valida con zero risultati NON causa fallback. V1 non e' supportato dalla nuova app, come concordato.
 
-**Modifica corrente:** early reject conservativo dei singoli segmenti delle sole strade grigie rispetto al clip LVGL, *dopo* Douglas–Peucker e lo scarto per intera polilinea. La funzione `draw_map_line` faceva gia' un check per segmento; questa ottimizzazione evita la preparazione e la sua chiamata per gli edge certamente invisibili, senza cambiare il clipping di sicurezza/banding. Contatore `seg_skip` affiancato a `seg` in `LVGL_ROADS`. Nessun beneficio FPS promesso prima della prova A/B.
+**Verifica:** test Python del convertitore inseriti nella job native e da eseguire insieme alla build Android con una sola CI finale. Nessuna misura sul dump Italia reale ancora fatta: non indicare riduzioni percentuali come risultato. Database v1 installato sul telefono e file sorgenti sul PC non modificati. Necessario confermare ricerca per luoghi, indirizzi e civici su Android dopo import v2. ESP32 e predittore restano invariati in questa fase; clipping LVGL precedentemente introdotto non ancora collaudato sul dispositivo.
 
-**Verifica:** CI consolidata ESP32/native da eseguire sulla revisione finale, poi test seriale+replay GPS e confronto per velocita' (<3, 3–15, >15 km/h), densita' strade, eventi ricalcolo, seg_skip/seg, area dirty e flush/frame. Non considerare i minimi in sosta equivalenti a freeze in marcia. `valhalla` non modificato.
+**Prossima azione:** verificare CI, poi rigenerare `photon-italy-v2.sqlite` su PC dal dump in `C:\MotoGPS\PBF\photon-dump-italy-1.0-latest.jsonl.zst`; misurare byte, righe e tempi di ricerca e confrontare con v1 2.016,8 MiB; installare nell'app e verificare Courmayeur, Passo Stelvio, Via Roma Torino e civici. Tenere su disco spazio aggiuntivo per VACUUM.
+
+
+## Photon offline SQLite v2 compatto — 2026-11-14
+
+Richiesta esplicita: rigenerazione del database consentita, non serve compatibilita' con indice v1, uso temporaneo di Photon online accettato. Implementato sul branch sperimentale:
+- `scripts/offline_map/photon_to_sqlite.py`: `PRAGMA user_version=2`, tabella `places` con `city_id` e `region_id`, dizionari `cities`/`regions` con id 0 per stringa vuota, FTS4 `content=''` e tokenizzazione unicode61 senza diacritici (stessa query prefisso). L'importazione preserva l'insieme di record del dump e i campi ranking; deduplica SOLO testo ripetuto per citta'/regione; non modifica nomi di localita' o indirizzi. `DROP TABLE address_refs`, `optimize` FTS, `VACUUM`; su contentless `PRAGMA quick_check` globale restituisce errore spurio, sostituito da controlli per tabella relazionale e una query FTS MATCH.
+- `OfflinePhotonPlaceSearch.kt`: v2 obbligatorio e lettura `places_fts` con join su `places`, `cities` e `regions`; l'import verifica tre tabelle v2, metadati e conteggio luoghi senza scansione FTS non-MATCH non supportata da contentless.
+- `NavigationViewModel.kt`: ricerca Photon online se DB v2 assente, v1 incompatibile o lettura DB fallita; zero risultati su indice sano non provoca uso di rete.
+- Test: `test_photon_to_sqlite.py` esteso a import unicode/indirizzi, city/region deduplicati, ricerca MATCH con civici, v2 e controllo assenza `places_fts_content`; workflow native esegue ora tali test.
+
+**Comando da PC Windows** (PowerShell dalla root del repository, con `zstd` in PATH):
+
+```powershell
+cd C:\MotoGPS\moto-gps-waveshare
+python scripts/offline_map/photon_to_sqlite.py --input "C:\MotoGPS\PBF\photon-dump-italy-1.0-latest.jsonl.zst" --output "C:\MotoGPS\PBF\photon-italy-v2.sqlite"
+```
+
+L'output deve essere un nome **nuovo**: il convertitore non sovrascrive un file esistente. Richiede spazio aggiuntivo su disco durante VACUUM, e il dato finale non e' ancora noto. Il confronto corretto e' con `C:\MotoGPS\PBF\photon-italy.sqlite` (~2.016,8 MiB misurati in precedenza). Sul telefono il nuovo SQLite importato sostituira' il v1 tramite backup temporaneo applicativo; non cambiare il database stabile prima dei test. La guida operativa puo' essere aggiornata dopo la validazione completa.
 
 ## Clipping conservativo dei singoli segmenti grigi — 2026-11-14
 
