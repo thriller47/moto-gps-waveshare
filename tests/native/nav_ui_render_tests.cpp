@@ -77,6 +77,10 @@ void test_segment_clip_conserves_endpoints_and_caps() {
   CHECK(intersects({125, -20}, {125, 220}, 0, 0, 4, dirty));
   CHECK(intersects({95, 125}, {96, 125}, 0, 0, 4, dirty));
   CHECK(!intersects({-50, -50}, {-20, -20}, 0, 0, 4, dirty));
+  // Conservative stroke padding includes the boundary but rejects edges
+  // that are safely separated from the dirty rectangle.
+  CHECK(intersects({94, 125}, {94, 125}, 0, 0, 4, dirty));
+  CHECK(!intersects({80, 125}, {90, 125}, 0, 0, 4, dirty));
   CHECK(!intersects({200, 200}, {230, 230}, 0, 0, 4, dirty));
   // Same points expressed in local coordinates require object translation.
   CHECK(intersects({-20, 25}, {220, 25}, 0, 100, 4, dirty));
