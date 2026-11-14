@@ -120,7 +120,7 @@ internal object OfflinePhotonPlaceSearch {
               JOIN regions r ON r.id=p.region_id
              WHERE places_fts MATCH ?
              ORDER BY CASE WHEN lower(p.name)=lower(?) THEN 0
-                           WHEN lower(?)=lower(p.name||' '||p.city) THEN 1
+                           WHEN lower(?)=lower(p.name||' '||c.name) THEN 1
                            WHEN lower(?) LIKE lower(p.name||' %') THEN 2
                            ELSE 3 END,
                       p.importance DESC
