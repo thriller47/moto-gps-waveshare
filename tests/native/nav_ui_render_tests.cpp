@@ -81,8 +81,9 @@ void test_segment_clip_conserves_endpoints_and_caps() {
   // Same points expressed in local coordinates require object translation.
   CHECK(intersects({-20, 25}, {220, 25}, 0, 100, 4, dirty));
   CHECK(!intersects({-20, 25}, {220, 25}, 0, 300, 4, dirty));
-  CHECK(intersects({95.5F, 130.25F}, {97.5F, 132.0F},
-                   0, 0, 4, dirty));
+  // Host LVGL uses integer precise coordinates; subpixel variants are
+  // exercised by the ESP32 build without narrowing list initialization.
+  CHECK(intersects({95, 130}, {97, 132}, 0, 0, 4, dirty));
   // Disconnected spans are never joined by the clip test.
 }
 
