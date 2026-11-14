@@ -6,7 +6,7 @@
 
 **Riscontro reale:** test su strada 14 novembre: freccia segue il percorso in curve e rotatorie senza tagli, confermato dall'utente. Calo FPS minimo 3,8 in sosta; cali intermedi in marcia in scene stradali dense, relazione causale non ancora accertata.
 
-**Esperimento:** aggiunta telemetria passiva aggregata `LVGL_ROADS` sullo stesso task/finestra quinquennale [5 secondi] di `display perf`: chiamate renderer, spans esaminati/scartati, segmenti sottoposti al disegno, eventi/tiles/rects/full e area sporca inviata, scene rebind. Nessun cambiamento a geometria, predizione, zoom, BLE, dirty tiles o clipping; web/native non contano.
+**Esperimento:** aggiunta telemetria passiva aggregata `LVGL_ROADS` sullo stesso task/finestra di circa 5 secondi di `display perf`: chiamate renderer, spans esaminati/scartati, segmenti sottoposti al disegno, eventi/tiles/rects/full e area sporca inviata, scene rebind. Nessun cambiamento a geometria, predizione, zoom, BLE, dirty tiles o clipping; web/native non contano.
 
 **Verifica:** CI #574 Android verde pre-merge; nuova CI esp32/native da eseguire per il profiling. I colori connessione/radio devono ancora essere verificati sul dispositivo. **Prossima azione:** flashare ESP32 e raccogliere seriale+replay GPS allineati; confrontare FPS solo quando la moto si muove, distinguere velocita' <3, 3–15, >15 km/h, poi valutare eventuale clipping per segmento.
 
