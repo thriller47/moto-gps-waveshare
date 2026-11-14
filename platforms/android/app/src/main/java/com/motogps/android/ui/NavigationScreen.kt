@@ -27,6 +27,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.viewinterop.AndroidView
 import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
@@ -747,9 +750,13 @@ fun NavigationScreen(
                             nightMapEnabled = !nightMapEnabled
                             mapPreferences.edit().putBoolean("night_map", nightMapEnabled).apply()
                         }) {
-                            Icon(
-                                if (nightMapEnabled) Icons.Default.LightMode else Icons.Default.DarkMode,
-                                contentDescription = if (nightMapEnabled) "Mostra mappa chiara" else "Mostra mappa notturna"
+                            Text(
+                                text = if (nightMapEnabled) "☀" else "☾",
+                                fontSize = 24.sp,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.semantics {
+                                    contentDescription = if (nightMapEnabled) "Mostra mappa chiara" else "Mostra mappa notturna"
+                                }
                             )
                         }
                         IconButton(onClick = { showInfoDialog = true }) {
@@ -774,9 +781,13 @@ fun NavigationScreen(
                             nightMapEnabled = !nightMapEnabled
                             mapPreferences.edit().putBoolean("night_map", nightMapEnabled).apply()
                         }) {
-                            Icon(
-                                if (nightMapEnabled) Icons.Default.LightMode else Icons.Default.DarkMode,
-                                contentDescription = if (nightMapEnabled) "Mostra mappa chiara" else "Mostra mappa notturna"
+                            Text(
+                                text = if (nightMapEnabled) "☀" else "☾",
+                                fontSize = 24.sp,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.semantics {
+                                    contentDescription = if (nightMapEnabled) "Mostra mappa chiara" else "Mostra mappa notturna"
+                                }
                             )
                         }
 
