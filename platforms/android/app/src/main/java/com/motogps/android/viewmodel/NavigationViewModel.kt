@@ -313,13 +313,19 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         }
     }
 
-    /** Installed Photon index takes precedence, with no network fallback on a miss. */
+    /** Prefer Photon v2 when valid; fallback online if the index is unusable.
+     * A valid offline search with zero results is NOT an online fallback. */
     private fun searchPhotonPlaces(query: String): List<PlaceSearchResult> {
         val gps = if (hasFirstFix) currentLocation.value else null
         val context = appContext
-        return if (context != null && OfflinePhotonPlaceSearch.installed(context))
-            OfflinePhotonPlaceSearch.search(context, query, gps)
-        else PhotonPlaceSearch.search(query, gps)
+        if (context != null && OfflinePhotonPlaceSearch.installed(context)) {
+            try {
+                return OfflinePhotonPlaceSearch.search(context, query, gps)
+            } catch (_: Exception) {
+                // Unreadable local index must not prevent searching via Photon.
+            }
+        }
+        return PhotonPlaceSearch.search(query, gps)
     }
 
     fun searchDestination(query: String) {
