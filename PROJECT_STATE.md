@@ -2,6 +2,11 @@
 
 ## STATO ATTUALE — RIPARTIRE DA QUI
 
+### Colori ESP32 connessione/radio meno accesi — 2026-11-14
+
+Su richiesta utente, uniformati i componenti verdi della schermata di connessione (`shared/nav_ui/src/moto_nav_ui.cpp`) e i cinque pulsanti radio Play/pausa, volume ±, stazione ± (`platforms/esp32/main/signal_radio_ui.cpp`) al verde scuro `#32996D`, variante attenuata del verde splash `#50D995`; pressione radio `#246F51`, icone nere invariate. Lo splash non cambia. Nessuna compilazione ESP32 eseguita per questa modifica; branch `valhalla` intatto.
+
+
 ### Fix Android build pulsante giorno/notte — 2026-11-14
 
 Action #573 (run 43571379437): ESP32 OK, Android KO `NavigationScreen.kt:751,778 Unresolved reference LightMode/DarkMode`, native skipped. Corretto sul branch `test/lvgl-single-road-renderer-20261113` sostituendo le icone Material non disponibili con glifi Unicode sole/luna in Text, accessibili via semantics e senza dipendenze aggiuntive. Commit `bb3f1b26ddfe3ac6b0373d5baf725f659925c1d7`. La nuova compilazione Android resta da controllare; `valhalla` intatto.
