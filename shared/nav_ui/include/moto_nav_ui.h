@@ -148,6 +148,15 @@ typedef struct {
     const char *next_road_name;
 } moto_ui_state_t;
 
+/** Workload accumulated on LVGL worker; segment counts are submissions,
+ * not unique OSM geometries. Reset every display perf logging window. */
+typedef struct {
+    uint32_t draw_calls, spans_examined, spans_culled, segments_submitted;
+    uint32_t dirty_updates, dirty_tiles, dirty_rects, dirty_full;
+    uint32_t dirty_area_px, scene_invalidations;
+} moto_nav_ui_perf_stats_t;
+void moto_nav_ui_take_perf_stats(moto_nav_ui_perf_stats_t *out);
+
 void moto_nav_ui_create(void);
 /** Draw the monochrome power-on wordmark before the full UI is created. */
 void moto_nav_ui_show_boot_screen(void);

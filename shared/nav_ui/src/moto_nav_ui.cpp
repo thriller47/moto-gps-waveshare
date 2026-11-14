@@ -53,6 +53,12 @@ constexpr std::uint32_t kPageDotsVisibleMs = 5'000;
 // draw object handles all 24 polylines without joining disconnected streets.
 constexpr std::uint16_t MOTO_UI_ROAD_LINE_WIDGET_LIMIT = MOTO_UI_ROAD_POLYLINE_CAPACITY;
 constexpr std::uint32_t kRouteMotionFrameMs = 25;
+#if defined(ESP_PLATFORM) && !defined(__EMSCRIPTEN__)
+moto_nav_ui_perf_stats_t ui_perf{};  // Single LVGL worker; no synchronization.
+#define UI_PERF(x) do { x; } while (0)
+#else
+#define UI_PERF(x) do {} while (0)
+#endif
 #ifdef __EMSCRIPTEN__
 // Simulator-only counters: requested route geometry versus pixel movement.
 std::uint32_t web_route_target_changes = 0;
@@ -484,11 +490,13 @@ void draw_road_scene(lv_event_t *event) {
     lv_draw_line_dsc_init(&line);
     line.base.layer = layer;
     lv_obj_init_draw_line_dsc(object, LV_PART_MAIN, &line);
+    UI_PERF(++ui_perf.draw_calls);
     for(std::uint8_t index = 0; index < ui.nav_road_polyline_count; ++index) {
         const moto_ui_polyline_span_t span = ui.nav_road_spans[index];
         if(span.point_count < 2 ||
            static_cast<unsigned>(span.first_point_index) + span.point_count >
                ui.nav_road_point_count) continue;
+        UI_PERF(++ui_perf.spans_examined);
         // The road scene is a single object. Reject a complete street before
         // generating individual LVGL line draw tasks for a partial tile.
         const lv_area_t &bounds = ui.nav_road_bounds[index];
@@ -496,7 +504,10 @@ void draw_road_scene(lv_event_t *event) {
         if(bounds.x2 + object_area.x1 < clip.x1 ||
            bounds.x1 + object_area.x1 > clip.x2 ||
            bounds.y2 + object_area.y1 < clip.y1 ||
-           bounds.y1 + object_area.y1 > clip.y2) continue;
+           bounds.y1 + object_area.y1 > clip.y2) {
+            UI_PERF(++ui_perf.spans_culled);
+            continue;
+        }
         const bool major = span.road_class <= 2U;
         const bool service = span.road_class >= 4U;
         line.width = px(major ? 4 : (service ? 2 : 3));
@@ -517,6 +528,7 @@ void draw_road_scene(lv_event_t *event) {
             line.p1.y += object_area.y1;
             line.p2.y += object_area.y1;
             draw_map_line(layer, line);
+            UI_PERF(++ui_perf.segments_submitted);
             line.round_start = 0;
         }
     }
@@ -620,7 +632,10 @@ bool apply_road_geometry_frame(bool rebind_lines = true) {
             };
         }
     }
-    if(rebind_lines) lv_obj_invalidate(ui.nav_roads_layer);
+    if(rebind_lines) {
+        UI_PERF(++ui_perf.scene_invalidations);
+        lv_obj_invalidate(ui.nav_roads_layer);
+    }
     return pixels_changed || rebind_lines;
 }
 
@@ -688,10 +703,15 @@ struct MapMotionDirtyTiles {
 
     void invalidate(lv_obj_t *map) const {
         if(bits == 0) return;  // Motion wholly outside the clipped viewport.
+        UI_PERF(++ui_perf.dirty_updates);
         int tiles = 0;
         for(int bit = 0; bit < kColumns * kRows; ++bit)
             if(bits & (1U << bit)) ++tiles;
+        UI_PERF(ui_perf.dirty_tiles += static_cast<std::uint32_t>(tiles));
         if(tiles >= kFullMapThreshold) {
+            UI_PERF(++ui_perf.dirty_full);
+            UI_PERF(ui_perf.dirty_area_px += static_cast<std::uint32_t>(
+                lv_obj_get_width(map) * lv_obj_get_height(map)));
             lv_obj_invalidate(map);
             return;
         }
@@ -741,6 +761,9 @@ struct MapMotionDirtyTiles {
             };
             // LVGL uses absolute coordinates. Invalidating the swept old and
             // new region clears road/route residues during smooth rotation.
+            UI_PERF(++ui_perf.dirty_rects);
+            UI_PERF(ui_perf.dirty_area_px += static_cast<std::uint32_t>(
+                (area.x2 - area.x1 + 1) * (area.y2 - area.y1 + 1)));
             lv_obj_invalidate_area(map, &area);
         }
     }
@@ -2316,6 +2339,16 @@ extern "C" void moto_nav_ui_set_demo_change_callback(
     ui.demo_callback_context = context;
 }
 
+
+extern "C" void moto_nav_ui_take_perf_stats(moto_nav_ui_perf_stats_t *out) {
+    if(out == nullptr) return;
+#if defined(ESP_PLATFORM) && !defined(__EMSCRIPTEN__)
+    *out = ui_perf;
+    ui_perf = {};
+#else
+    *out = {};
+#endif
+}
 
 #ifdef __EMSCRIPTEN__
 // Query-only diagnostics. No memory/payload impact on the physical ESP32.

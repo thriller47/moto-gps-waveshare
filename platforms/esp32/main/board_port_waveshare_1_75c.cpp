@@ -1,4 +1,5 @@
 #include "board_port.h"
+#include "moto_nav_ui.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -166,7 +167,22 @@ void display_timing_event(lv_event_t* event) {
                static_cast<double>(timing.flush_callback_max_us) / 1'000.0,
                static_cast<double>(timing.flush_callback_total_us) /
                    timing.frames / 1'000.0);
-      ESP_LOGI(kTag, "internal heap: free %lu KiB, minimum %lu KiB",
+      // Same LVGL-worker window as FPS, render and flush statistics.
+       moto_nav_ui_perf_stats_t roads{};
+       moto_nav_ui_take_perf_stats(&roads);
+       ESP_LOGI(kTag, "LVGL_ROADS draw=%lu spans=%lu culled=%lu seg=%lu "
+                      "dirty=%lu tiles=%lu rects=%lu full=%lu area_px=%lu scenes=%lu",
+                static_cast<unsigned long>(roads.draw_calls),
+                static_cast<unsigned long>(roads.spans_examined),
+                static_cast<unsigned long>(roads.spans_culled),
+                static_cast<unsigned long>(roads.segments_submitted),
+                static_cast<unsigned long>(roads.dirty_updates),
+                static_cast<unsigned long>(roads.dirty_tiles),
+                static_cast<unsigned long>(roads.dirty_rects),
+                static_cast<unsigned long>(roads.dirty_full),
+                static_cast<unsigned long>(roads.dirty_area_px),
+                static_cast<unsigned long>(roads.scene_invalidations));
+       ESP_LOGI(kTag, "internal heap: free %lu KiB, minimum %lu KiB",
                static_cast<unsigned long>(heap_caps_get_free_size(
                    MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) / 1024U),
                static_cast<unsigned long>(heap_caps_get_minimum_free_size(

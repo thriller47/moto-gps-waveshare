@@ -2,13 +2,17 @@
 
 ## STATO ATTUALE — RIPARTIRE DA QUI
 
-**Aggiornato:** 2026-11-14. **Integrazione:** `valhalla`. **Branch esperimenti mantenuto:** `test/lvgl-single-road-renderer-20261113` (riallineato al commit di integrazione, nessun nuovo branch).
+**Aggiornato:** 2026-11-14. **Integrato:** `valhalla` (merge `51ae208c`). **Branch sperimentale attivo:** `test/lvgl-single-road-renderer-20261113`, mantenuto dopo il merge e ora dedicato al profiling.
 
-**Stato:** autorizzato dall'utente il merge del lavoro sperimentale dopo la prova su strada del 14 novembre: il marcatore/freccia segue la strada anche in curve e rotonde, senza tagli. Inclusi renderer unitario strade, Douglas-Peucker 1,25px, clipping per polilinea, dirty tiles, smart pacing, Android Dark Touring e mappa chiara/notturna, branding ESP32 e colori connessione/radio attenuati #32996D. Nessuna nuova modifica al motore di rendering in questa integrazione.
+**Riscontro reale:** test su strada 14 novembre: freccia segue il percorso in curve e rotatorie senza tagli, confermato dall'utente. Calo FPS minimo 3,8 in sosta; cali intermedi in marcia in scene stradali dense, relazione causale non ancora accertata.
 
-**Verifiche:** Action #574 `43571953505` Android SUCCESS (ESP/native skipped); precedenti CI nel ramo test con job ESP32 e native verdi, ma **gli ultimi soli ritocchi cromatici ESP32 non hanno una build dedicata**. Prova reale predittore positiva riferita dall'utente. Log seriale del 14 novembre: minimi di FPS ~3,8 associati soprattutto a fermo; cali intermedi in movimento su scene con molte strade. Non considerare dimostrata una relazione causale prima del profiling.
+**Esperimento:** aggiunta telemetria passiva aggregata `LVGL_ROADS` sullo stesso task/finestra quinquennale [5 secondi] di `display perf`: chiamate renderer, spans esaminati/scartati, segmenti sottoposti al disegno, eventi/tiles/rects/full e area sporca inviata, scene rebind. Nessun cambiamento a geometria, predizione, zoom, BLE, dirty tiles o clipping; web/native non contano.
 
-**Prossima azione:** sullo stesso `test/lvgl-single-road-renderer-20261113` eseguire prima misure del renderer LVGL (segmenti disegnati/scartati, area dirty, flush, tempo rendering), correlando FPS e velocita' GPS; poi eventualmente clipping per singolo segmento con test di regressione. Preservare rotta, snapping, zoom, BLE, strade grigie, geometria e percorsi. La CI post-integrazione e la verifica degli ultimi colori sul dispositivo restano da eseguire. Nessuna modifica a procedure operative.
+**Verifica:** CI #574 Android verde pre-merge; nuova CI esp32/native da eseguire per il profiling. I colori connessione/radio devono ancora essere verificati sul dispositivo. **Prossima azione:** flashare ESP32 e raccogliere seriale+replay GPS allineati; confrontare FPS solo quando la moto si muove, distinguere velocita' <3, 3–15, >15 km/h, poi valutare eventuale clipping per segmento.
+
+## Diagnostica LVGL del renderer strade — 2026-11-14
+
+Sul solo ramo esperimenti, `moto_nav_ui_take_perf_stats()` raccoglie contatori non bloccanti nel renderer strade e nella griglia dirty 4×4, stampati in `board_port_waveshare_1_75c.cpp` ogni circa 5 secondi nella stessa finestra di `display perf`. Chiavi `LVGL_ROADS`: `draw` (draw callbacks), `spans` (polilinee considerate), `culled` (polilinee fuori clip), `seg` (segmenti inviati a draw_map_line dopo Douglas–Peucker), `dirty` (movimenti con tiles sporche), `tiles` (somma tiles marcate), `rects` (invalidazioni parziali), `full` (invalidazioni complete per soglia 12/16), `area_px` (somma pixel delle aree invalidate, **non pixel unici e non DMA**), `scenes` (rebind layer strade). Non si contano altre invalidazioni LVGL o singoli segmenti della rotta. Nessun log per frame; raccolta attiva solo ESP32, no modifiche comportamentali. Da validare con CI e test hardware; correlare timestamp di `display perf` e GPS nel replay. `valhalla` resta invariato.
 
 ## Build Android sperimentale riuscita: precisazione ramo — 2026-11-13
 
