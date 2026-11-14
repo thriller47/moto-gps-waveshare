@@ -99,7 +99,7 @@ class TestPhotonSQLite(unittest.TestCase):
                           "/viewmodel/OfflinePhotonPlaceSearch.kt").read_text(
                               encoding="utf-8")
                 import re
-                match = re.search(r'val sql = """(.*?)"""\\.trimIndent\\(\\)',
+                match = re.search(r'val sql = """(.*?)""".trimIndent',
                                   kotlin, flags=re.DOTALL)
                 self.assertIsNotNone(match, "Android Photon search query missing")
                 sql = match.group(1)
