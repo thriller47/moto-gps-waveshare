@@ -321,8 +321,9 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         if (context != null && OfflinePhotonPlaceSearch.installed(context)) {
             try {
                 return OfflinePhotonPlaceSearch.search(context, query, gps)
-            } catch (_: Exception) {
-                // Unreadable local index must not prevent searching via Photon.
+            } catch (e: Exception) {
+                // Preserve online fallback, but expose the original SQLite cause.
+                Log.w("MotoGPS_Photon", "Offline Photon v2 search failed; using online", e)
             }
         }
         return PhotonPlaceSearch.search(query, gps)
