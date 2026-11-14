@@ -14,9 +14,18 @@ import kotlin.math.cos
 internal object OfflinePhotonPlaceSearch {
     private const val DATABASE = "photon-italy.sqlite"
     private const val MAX_BYTES = 6L * 1024L * 1024L * 1024L
-    private const val VERSION = 1
+    private const val VERSION = 2
     fun file(context: Context): File = File(context.filesDir, "photon/" + DATABASE)
-    fun installed(context: Context): Boolean = file(context).let { it.isFile && it.length() > 0 }
+    fun installed(context: Context): Boolean {
+        val target = file(context)
+        if (!target.isFile || target.length() == 0L) return false
+        return try {
+            SQLiteDatabase.openDatabase(target.absolutePath, null,
+                SQLiteDatabase.OPEN_READONLY).use { it.version == VERSION }
+        } catch (_: Exception) {
+            false
+        }
+    }
 
     fun tokenize(query: String): String = PhotonOfflineRanking.words(query)
         .take(8).joinToString(" ") { it.take(32) + "*" }
@@ -69,8 +78,14 @@ internal object OfflinePhotonPlaceSearch {
                     if (!rows.moveToFirst() || (rows.getString(0).toLongOrNull() ?: 0L) <= 0L)
                         throw IOException("Indice Photon senza luoghi")
                 }
-                db.rawQuery("SELECT docid FROM places_fts LIMIT 1", null).use { rows ->
-                    if (!rows.moveToFirst()) throw IOException("Indice FTS4 Photon vuoto")
+                db.rawQuery(
+                    "SELECT name FROM sqlite_master WHERE type='table' " +
+                        "AND name IN ('places_fts','cities','regions')", null).use { rows ->
+                    if (rows.count != 3) throw IOException("Struttura Photon v2 incompleta")
+                }
+                db.rawQuery("SELECT COUNT(*) FROM places", null).use { rows ->
+                    if (!rows.moveToFirst() || rows.getLong(0) <= 0L)
+                        throw IOException("Nessun luogo indicizzato")
                 }
             }
             if (backup.exists() && !backup.delete()) throw IOException("Backup Photon occupato")
@@ -98,9 +113,11 @@ internal object OfflinePhotonPlaceSearch {
         val normalized = PhotonOfflineRanking.normalize(query)
         val candidates = ArrayList<PhotonOfflineRanking.Candidate>()
         val sql = """
-            SELECT p.name,p.street,p.house,p.city,p.region,p.postcode,
+            SELECT p.name,p.street,p.house,c.name,r.name,p.postcode,
                    p.kind,p.importance,p.lat,p.lon
               FROM places_fts JOIN places p ON p.id = places_fts.docid
+              JOIN cities c ON c.id=p.city_id
+              JOIN regions r ON r.id=p.region_id
              WHERE places_fts MATCH ?
              ORDER BY CASE WHEN lower(p.name)=lower(?) THEN 0
                            WHEN lower(?)=lower(p.name||' '||p.city) THEN 1
