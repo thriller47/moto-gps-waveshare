@@ -118,6 +118,7 @@ def build(source, output, max_places=0):
             return db.execute(
                 "SELECT kind,name FROM address_refs WHERE place_id=?",
                 (identifier,)).fetchone()
+        first_indexed_token = None
         header = False
         with open_lines(source) as stream:
             for line in stream:
@@ -204,6 +205,11 @@ def build(source, output, max_places=0):
                     terms = " ".join((name, street, house, city, region, postcode))
                     db.execute("INSERT INTO places_fts(docid,search_text) VALUES(?,?)",
                                (cursor.lastrowid, terms))
+                    if first_indexed_token is None:
+                        import re
+                        first_indexed_token = next(
+                            (t for t in re.findall(r"[^\W_]+", terms, re.UNICODE) if t),
+                            None)
                     kept += 1
                     if kept % 5000 == 0: db.commit()
                     if kept % 100000 == 0:
@@ -222,8 +228,20 @@ def build(source, output, max_places=0):
         db.execute("INSERT INTO places_fts(places_fts) VALUES('optimize')")
         db.commit()
         db.execute("VACUUM")
-        if db.execute("PRAGMA quick_check").fetchone()[0] != "ok":
-            raise ValueError("SQLite integrity check failed")
+        # SQLite cannot verify an FTS4 contentless inverted index via
+        # PRAGMA quick_check/integrity_check (reports a false SQL logic error).
+        # Check relational tables individually and probe FTS with MATCH.
+        for table in ("places", "cities", "regions", "metadata"):
+            if db.execute("PRAGMA quick_check('" + table + "')").fetchone()[0] != "ok":
+                raise ValueError("SQLite table check failed: " + table)
+        if db.execute("SELECT COUNT(*) FROM places").fetchone()[0] != kept:
+            raise ValueError("SQLite place count mismatch")
+        # The FTS table itself is only readable through MATCH in contentless mode.
+        if first_indexed_token and not db.execute(
+            "SELECT docid FROM places_fts WHERE places_fts MATCH ? LIMIT 1",
+            (first_indexed_token + "*",)
+        ).fetchone():
+            raise ValueError("Photon contentless FTS4 search check failed")
         print("Imported {:,} places; {:,} skipped; sqlite={:.1f} MiB".format(
             kept, skipped, target.stat().st_size / 1048576))
     except BaseException:
