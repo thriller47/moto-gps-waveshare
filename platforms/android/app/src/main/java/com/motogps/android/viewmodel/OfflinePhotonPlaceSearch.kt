@@ -112,6 +112,8 @@ internal object OfflinePhotonPlaceSearch {
         if (match.isBlank()) return emptyList()
         val normalized = PhotonOfflineRanking.normalize(query)
         val candidates = ArrayList<PhotonOfflineRanking.Candidate>()
+        // Query contract is executed against generated v2 SQLite by the Python
+        // regression test; only joined aliases c/r expose normalized names.
         val sql = """
             SELECT p.name,p.street,p.house,c.name,r.name,p.postcode,
                    p.kind,p.importance,p.lat,p.lon

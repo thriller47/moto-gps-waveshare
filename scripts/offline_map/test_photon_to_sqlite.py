@@ -109,6 +109,7 @@ class TestPhotonSQLite(unittest.TestCase):
                 self.assertEqual(len(result), 2)
                 self.assertEqual(result[0][3], "Torino")
                 self.assertEqual(result[0][4], "Piemonte")
+                self.assertEqual(result[0][0], "Via Roma")
                 self.assertEqual(db.execute(
                     "SELECT COUNT(*) FROM places_fts WHERE places_fts MATCH ?",
                     ("passo* stelvio* bormio*",)).fetchone()[0], 1)
