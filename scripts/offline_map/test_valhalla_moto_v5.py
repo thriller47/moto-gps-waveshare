@@ -42,6 +42,7 @@ class TestValhallaMotoV5(unittest.TestCase):
             second = subprocess.run(command, env=env, capture_output=True, text=True)
             self.assertNotEqual(second.returncode, 0)
             self.assertIn("already exists", second.stderr)
+            self.assertTrue((out / "valhalla.json").is_file())
 
     def test_unknown_flags_fail_closed(self):
         with tempfile.TemporaryDirectory() as root:

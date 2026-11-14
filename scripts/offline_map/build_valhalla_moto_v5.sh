@@ -80,6 +80,8 @@ print("V5 filter: include_bicycle=false, include_pedestrian=false, include_drivi
 PY
 
 if $CONFIG_ONLY; then
+  # A preview workspace is deliberately not reusable for an actual build.
+  # Keeping it immutable avoids silently mixing generated files with V5.
   echo "Configuration preview ONLY. No graph was built: $CONFIG"
   exit 0
 fi

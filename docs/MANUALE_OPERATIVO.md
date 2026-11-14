@@ -466,7 +466,7 @@ La build riuscita aveva **1.591 tile**, **11.457.028 nodi**, **26.093.538 archi 
 
 ### B2. Esperimento Valhalla Italia V5: escludere solo percorsi pedonali/ciclabili esclusivi (non ancora collaudato)
 
-**Per V5 utilizzare il branch** \`test/lvgl-single-road-renderer-20261113\`, lo stesso della sperimentazione Photon/LVGL. **V4 non va sovrascritto**. I flag Mjolnir \`include_bicycle=false\` e \`include_pedestrian=false\` eliminano le vie che Valhalla classifica esclusivamente ciclabili/pedonali; \`include_driving=true\` conserva la rete per i veicoli. Non si applicano esclusioni indiscriminate su tag OSM \`highway=track\` o \`highway=path\`. È una variante del grafo, non di MotoMap o Photon.
+**Per V5 utilizzare il branch** `test/lvgl-single-road-renderer-20261113`, lo stesso della sperimentazione Photon/LVGL. **V4 non va sovrascritto**. I flag Mjolnir `include_bicycle=false` e `include_pedestrian=false` eliminano le vie che Valhalla classifica esclusivamente ciclabili/pedonali; `include_driving=true` conserva la rete per i veicoli. Non si applicano esclusioni indiscriminate su tag OSM `highway=track` o `highway=path`. È una variante del grafo, non di MotoMap o Photon.
 
 Nel **terminale Ubuntu WSL**, dopo aver aggiornato il repository su Windows al branch sperimentale ed essersi assicurati di avere il PBF nel filesystem WSL:
 
@@ -487,7 +487,7 @@ bash scripts/offline_map/build_valhalla_moto_v5.sh \
   ~/motogps-build/ValhallaItaliaV5 --zstd --threads 2
 ~~~
 
-Sostituire \`italy-261101.osm.pbf\` con il nome effettivo, **idealmente lo stesso PBF usato per V4**, altrimenti le differenze includono cambiamenti OSM e il confronto non misura il solo filtro. Il comando rifiuta qualsiasi directory output preesistente e verifica che i tre flag siano booleani nel JSON generato da \`valhalla_build_config\`. La preview richiede un nome directory distinto da V5 perché non è riutilizzabile.
+Sostituire `italy-261101.osm.pbf` con il nome effettivo, **idealmente lo stesso PBF usato per V4**, altrimenti le differenze includono cambiamenti OSM e il confronto non misura il solo filtro. Il comando rifiuta qualsiasi directory output preesistente e verifica che i tre flag siano booleani nel JSON generato da `valhalla_build_config`. La preview richiede un nome directory distinto da V5 perché non è riutilizzabile.
 
 Confrontare i grafi:
 
