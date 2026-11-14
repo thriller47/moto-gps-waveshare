@@ -2,7 +2,7 @@
 """Convert a Photon/Nominatim 0.1.x JSONL dump to offline Android SQLite FTS4.
 
 The uncompressed JSONL or Zstandard-compressed JSONL is streamed. The output
-schema is compatible with the Moto Chat GPS Photon index. Python 3 stdlib only,
+schema is the compact Moto Chat GPS Photon v2 index. Python 3 stdlib only,
 except for a system zstd executable when the input ends in .zst.
 """
 import argparse
@@ -16,16 +16,18 @@ import subprocess
 import sys
 
 SCHEMA = """
-PRAGMA user_version=1;
+PRAGMA user_version=2;
 PRAGMA application_id=1296519248;
 CREATE TABLE metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE places(
  id INTEGER PRIMARY KEY, name TEXT NOT NULL, street TEXT NOT NULL,
- house TEXT NOT NULL, city TEXT NOT NULL, region TEXT NOT NULL,
+ house TEXT NOT NULL, city_id INTEGER NOT NULL, region_id INTEGER NOT NULL,
  postcode TEXT NOT NULL, kind TEXT NOT NULL, lat REAL NOT NULL,
  lon REAL NOT NULL, importance REAL NOT NULL);
+CREATE TABLE cities(id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE);
+CREATE TABLE regions(id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE);
 CREATE VIRTUAL TABLE places_fts USING fts4(
- search_text, tokenize=unicode61 "remove_diacritics=1");
+ search_text, content='', tokenize=unicode61 "remove_diacritics=1");
 CREATE TABLE address_refs(place_id TEXT PRIMARY KEY, kind TEXT, name TEXT);
 """
 
@@ -101,6 +103,16 @@ def build(source, output, max_places=0):
         db.executescript(SCHEMA)
         db.execute("INSERT INTO metadata VALUES('source','photon-json-dump-0.1.0')")
         db.execute("INSERT INTO metadata VALUES('data_region','IT')")
+        db.execute("INSERT INTO metadata VALUES('format','compact-fts4-contentless-v2')")
+        # Dimension tables replace repeated city/region strings in millions of places.
+        for table in ("cities", "regions"):
+            db.execute("INSERT INTO " + table + "(id,name) VALUES(0,'')")
+        @functools.lru_cache(maxsize=30000)
+        def dimension_id(table, name):
+            if not name:
+                return 0
+            db.execute("INSERT OR IGNORE INTO " + table + "(name) VALUES(?)", (name,))
+            return db.execute("SELECT id FROM " + table + " WHERE name=?", (name,)).fetchone()[0]
         @functools.lru_cache(maxsize=150000)
         def lookup(identifier):
             return db.execute(
@@ -184,9 +196,10 @@ def build(source, output, max_places=0):
                     except (ValueError, TypeError):
                         importance = 0
                     cursor = db.execute(
-                        "INSERT INTO places(name,street,house,city,region,postcode,kind,lat,lon,importance) "
+                        "INSERT INTO places(name,street,house,city_id,region_id,postcode,kind,lat,lon,importance) "
                         "VALUES(?,?,?,?,?,?,?,?,?,?)",
-                        (name, street, house, city, region, postcode, kind,
+                        (name, street, house, dimension_id("cities", city),
+                         dimension_id("regions", region), postcode, kind,
                          lat, lon, importance))
                     terms = " ".join((name, street, house, city, region, postcode))
                     db.execute("INSERT INTO places_fts(docid,search_text) VALUES(?,?)",
@@ -204,6 +217,11 @@ def build(source, output, max_places=0):
             db.execute("INSERT INTO metadata VALUES('partial','1')")
         db.execute("DROP TABLE address_refs")
         db.commit()
+        # FTS4 optimize merges index segments; VACUUM removes pages freed by
+        # the temporary address index. Build on a separate output file.
+        db.execute("INSERT INTO places_fts(places_fts) VALUES('optimize')")
+        db.commit()
+        db.execute("VACUUM")
         if db.execute("PRAGMA quick_check").fetchone()[0] != "ok":
             raise ValueError("SQLite integrity check failed")
         print("Imported {:,} places; {:,} skipped; sqlite={:.1f} MiB".format(
