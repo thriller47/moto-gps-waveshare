@@ -464,6 +464,46 @@ cp ~/motogps-build/ValhallaItaliaV4/valhalla_tiles.tar.zst \
 
 La build riuscita aveva **1.591 tile**, **11.457.028 nodi**, **26.093.538 archi orientati**, `Unverified: 0` (header compatibili). I conteggi non attestano da soli la qualità o la compatibilità di routing JNI Android: importare lo ZST in **Gestione mappe → Importa grafo TAR / ZST** e verificare itinerari senza connessione dati.
 
+### B2. Esperimento Valhalla Italia V5: escludere solo percorsi pedonali/ciclabili esclusivi (non ancora collaudato)
+
+**Per V5 utilizzare il branch** \`test/lvgl-single-road-renderer-20261113\`, lo stesso della sperimentazione Photon/LVGL. **V4 non va sovrascritto**. I flag Mjolnir \`include_bicycle=false\` e \`include_pedestrian=false\` eliminano le vie che Valhalla classifica esclusivamente ciclabili/pedonali; \`include_driving=true\` conserva la rete per i veicoli. Non si applicano esclusioni indiscriminate su tag OSM \`highway=track\` o \`highway=path\`. È una variante del grafo, non di MotoMap o Photon.
+
+Nel **terminale Ubuntu WSL**, dopo aver aggiornato il repository su Windows al branch sperimentale ed essersi assicurati di avere il PBF nel filesystem WSL:
+
+~~~bash
+source ~/valhalla-env/bin/activate
+cd /mnt/c/MotoGPS/moto-gps-waveshare
+git switch test/lvgl-single-road-renderer-20261113
+git pull --ff-only origin test/lvgl-single-road-renderer-20261113
+
+# Controllo preliminare: NON genera il grafo; usa una cartella dedicata.
+bash scripts/offline_map/build_valhalla_moto_v5.sh \
+  ~/motogps-build/italy-261101.osm.pbf \
+  ~/motogps-build/ValhallaItaliaV5-preview --config-only --threads 2
+
+# Build V5 effettiva in una NUOVA cartella (lascia V4 intatta).
+bash scripts/offline_map/build_valhalla_moto_v5.sh \
+  ~/motogps-build/italy-261101.osm.pbf \
+  ~/motogps-build/ValhallaItaliaV5 --zstd --threads 2
+~~~
+
+Sostituire \`italy-261101.osm.pbf\` con il nome effettivo, **idealmente lo stesso PBF usato per V4**, altrimenti le differenze includono cambiamenti OSM e il confronto non misura il solo filtro. Il comando rifiuta qualsiasi directory output preesistente e verifica che i tre flag siano booleani nel JSON generato da \`valhalla_build_config\`. La preview richiede un nome directory distinto da V5 perché non è riutilizzabile.
+
+Confrontare i grafi:
+
+~~~bash
+python3 scripts/offline_map/analyze_valhalla_graph.py \
+  ~/motogps-build/ValhallaItaliaV4/valhalla_tiles.tar.zst \
+  ~/motogps-build/ValhallaItaliaV5/valhalla_tiles.tar.zst \
+  --json ~/motogps-build/ValhallaItaliaV5-confronto.json
+
+du -h ~/motogps-build/ValhallaItaliaV4/valhalla_tiles.tar.zst \
+      ~/motogps-build/ValhallaItaliaV5/valhalla_tiles.tar.zst
+~~~
+
+Il confronto delle quantità di nodi/archi e delle dimensioni non prova la navigabilità in moto: dopo una build riuscita, verificare sul telefono **senza rete** rotatorie, tornanti, passi, strade residenziali, accessi a destinazione e ricalcoli. **Non eliminare V4 finché V5 non ha superato queste verifiche**. Se la versione locale di Valhalla non supporta i flag, lo script si interrompe senza produrre un grafo V5.
+
+
 ### C. Confrontare il grafo locale con Routing.earth
 
 L'analizzatore accetta archivi `.tar` e `.tar.zst` e versioni Valhalla v3 con suffissi di build, senza estrarre tutto l'archivio su disco:

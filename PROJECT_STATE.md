@@ -2,11 +2,17 @@
 
 ## STATO ATTUALE — RIPARTIRE DA QUI
 
-**Aggiornato:** 2026-11-14. **Branch stabile:** `valhalla` invariato. **Branch sperimentale:** `test/lvgl-single-road-renderer-20261113`.
+**Aggiornato:** 2026-11-14. **Stabile:** \`valhalla\` invariato; **branch esperimenti:** \`test/lvgl-single-road-renderer-20261113\`.
 
-**Bug Photon v2 riscontrato sul telefono:** dopo import del database compatto da 8.362.869 luoghi, 1.074,0 MiB (v1 ~2.016,8 MiB), la ricerca Android provava Photon online e mostrava host non risolvibile. Radice nel codice: `OfflinePhotonPlaceSearch.search` faceva la JOIN `cities c` ma nell'ORDER BY manteneva `p.city`, colonna rimossa dallo schema 2; SQL solleva eccezione, fallback remoto silenzioso. Corretto `p.city` → `c.name` e aggiunto `Log.w("MotoGPS_Photon", ...)` nel fallback. Nuovo test native che legge il SQL reale dal sorgente Kotlin e lo esegue su un database Photon v2 appena generato, per evitare regressioni. **Nessuna rigenerazione del database richiesta.** Compatibilita' v1 non richiesta dall'utente.
+**Nuovo lavoro V5:** script \`scripts/offline_map/build_valhalla_moto_v5.sh\` (WSL) per rigenerare Valhalla Italia in directory nuova, con \`mjolnir.include_bicycle=false\`, \`include_pedestrian=false\`, \`include_driving=true\`. Modifica config JSON generata dalla versione Valhalla installata, senza assumere sintassi CLI dei booleani; verifica i campi, non riutilizza output esistenti. \`--config-only\` consente una preview senza compilazione del grafo. Test Python con \`valhalla_build_config\` finto per verificare flags, conservazione config non correlata, rifiuto overwrite/schema non riconosciuto. Il manuale operativo include i comandi WSL per V5 e confronto archivio V4/V5. Nessun PBF, grafo o percorso esistente modificato; **la riduzione dimensioni non e' ancora misurata**. Job native da validare in CI.
 
-**Verifiche pregresse:** Android SUCCESS Action 43610736718; native con test Photon/LVGL SUCCESS Action 43611213657, ma questi controlli precedono il fix SQL. **Da eseguire CI sul fix** e poi installazione APK aggiornato, mantenendo il file v2 già importato. ESP32, rendering, Valhalla, MotoMap e predittore non modificati. Ultimo clipping LVGL resta sperimentale, in attesa di test stradale.
+**Photon offline v2:** 8.362.869 luoghi importati, 1.074,0 MiB rispetto a 2.016,8 MiB v1 (−46,7%). L'utente conferma ricerche offline reali riuscite (Courmayeur, Via Roma Torino, via con civico e accento). La correzione dell'SQL Android per \`c.name\` e' gia' in branch sperimentale. Non rigenerare Photon.
+
+**ESP32:** ultimo clipping conservativo per singolo segmento ancora sul branch test, in attesa del prossimo collaudo stradale. **Prossima azione:** verificare CI native V5, poi fare build V5 in WSL dallo stesso PBF V4, confrontare TAR/ZST e nodi/archi, testare itinerari offline prima di adottarlo; nessun merge senza approvazione.
+
+## Grafo Valhalla Italia V5 — filtro esclusivi bici/pedoni — 2026-11-14
+
+Nuovo script separato `scripts/offline_map/build_valhalla_moto_v5.sh` sul branch sperimentale attivo. Si basa sulla procedura WSL Valhalla V4 con due thread e output `valhalla_tiles.tar[.zst]`; genera JSON con `valhalla_build_config`, verifica la presenza di flag booleani per la versione installata, forza soltanto `include_bicycle=false`, `include_pedestrian=false`, `include_driving=true`. Questi filtri sono di Valhalla Mjolnir (solo modi esclusivi), non un filtro manuale ai tag OSM, e non si devono eliminare indiscriminatamente track/path. Directory output V5 deve non esistere, V4 rimane intatto. Supporta `--config-only`, `--threads N`, `--zstd`. Test finti `valhalla_build_config` coprono contenuto JSON, mantenimento chiavi non correlate, errore config non compatibile e protezione output. Manuale operativo aggiornato con comandi WSL, confronto V4/V5 via `analyze_valhalla_graph.py` e prove su telefono. Nessuna compilazione Italia V5 ancora avviata: misurare risparmio reale e collaudare routing prima di installare V5 sul telefono.
 
 ## Correzione query Android Photon v2 — 2026-11-14
 
