@@ -43,7 +43,7 @@ constexpr lv_color_t kAmber = LV_COLOR_MAKE(0xE6, 0xC8, 0x4F);
 constexpr lv_color_t kRed = LV_COLOR_MAKE(0xFF, 0x4B, 0x43);
 constexpr lv_color_t kGreen = LV_COLOR_MAKE(0x69, 0xD4, 0x94);
 // Acid green for connection/ready lifecycle only; navigation colors unchanged.
-constexpr lv_color_t kConnectionAcidGreen = LV_COLOR_MAKE(0xB7, 0xFF, 0x39);
+constexpr lv_color_t kConnectionAcidGreen = LV_COLOR_MAKE(0x32, 0x99, 0x6D); // Muted splash green for connection UI.
 constexpr double kPi = 3.14159265358979323846;
 constexpr int kCompassTickCount = 24;
 constexpr int kSpeedTickCount = 18;
