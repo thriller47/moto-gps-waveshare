@@ -1,5 +1,6 @@
 #include "moto_nav_ui.h"
 #include "road_simplification.hpp"
+#include "road_segment_clip.hpp"
 #include "moto_nav_route_sampling.hpp"
 
 #include <algorithm>
@@ -520,9 +521,20 @@ void draw_road_scene(lv_event_t *event) {
         unsigned previous = span.first_point_index;
         for(unsigned i = previous + 1; i < end; ++i) {
             if(!ui.nav_road_keep[i]) continue;
-            line.p1 = ui.nav_road_points[previous];
-            line.p2 = ui.nav_road_points[i];
-            previous = i;
+            const auto &start = ui.nav_road_points[previous];
+            const auto &finish = ui.nav_road_points[i];
+            previous = i;  // Keep original RDP chain, even across a skipped edge.
+            // Only reject edges certainly outside the current LVGL dirty
+            // rectangle, including caps and antialias fringe. draw_map_line
+            // still owns exact clipping and banding of intersecting edges.
+            if(!moto_road_segment_clip::intersects(
+                   start, finish, object_area.x1, object_area.y1,
+                   line.width, clip)) {
+                UI_PERF(++ui_perf.segments_culled);
+                continue;
+            }
+            line.p1 = start;
+            line.p2 = finish;
             line.p1.x += object_area.x1;
             line.p2.x += object_area.x1;
             line.p1.y += object_area.y1;

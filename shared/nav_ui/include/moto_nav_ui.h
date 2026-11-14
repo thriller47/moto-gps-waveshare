@@ -152,6 +152,7 @@ typedef struct {
  * not unique OSM geometries. Reset every display perf logging window. */
 typedef struct {
     uint32_t draw_calls, spans_examined, spans_culled, segments_submitted;
+    uint32_t segments_culled;
     uint32_t dirty_updates, dirty_tiles, dirty_rects, dirty_full;
     uint32_t dirty_area_px, scene_invalidations;
 } moto_nav_ui_perf_stats_t;

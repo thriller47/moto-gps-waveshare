@@ -170,12 +170,13 @@ void display_timing_event(lv_event_t* event) {
       // Aggregated at the same LVGL-worker 5-second FPS/flush boundary.
        moto_nav_ui_perf_stats_t roads{};
        moto_nav_ui_take_perf_stats(&roads);
-       ESP_LOGI(kTag, "LVGL_ROADS draw=%lu spans=%lu culled=%lu seg=%lu "
+       ESP_LOGI(kTag, "LVGL_ROADS draw=%lu spans=%lu culled=%lu seg=%lu seg_skip=%lu "
                       "dirty=%lu tiles=%lu rects=%lu full=%lu area_px=%lu scenes=%lu",
                 static_cast<unsigned long>(roads.draw_calls),
                 static_cast<unsigned long>(roads.spans_examined),
                 static_cast<unsigned long>(roads.spans_culled),
                 static_cast<unsigned long>(roads.segments_submitted),
+                static_cast<unsigned long>(roads.segments_culled),
                 static_cast<unsigned long>(roads.dirty_updates),
                 static_cast<unsigned long>(roads.dirty_tiles),
                 static_cast<unsigned long>(roads.dirty_rects),

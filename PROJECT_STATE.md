@@ -2,13 +2,17 @@
 
 ## STATO ATTUALE — RIPARTIRE DA QUI
 
-**Aggiornato:** 2026-11-14. **Integrato:** `valhalla` (merge `51ae208c`). **Branch sperimentale attivo:** `test/lvgl-single-road-renderer-20261113`, mantenuto dopo il merge e ora dedicato al profiling.
+**Aggiornato:** 2026-11-14. **Integrazione stabile:** `valhalla`, merge `51ae208c`. **Esperimento attivo:** `test/lvgl-single-road-renderer-20261113`; non creare nuovi branch.
 
-**Riscontro reale:** test su strada 14 novembre: freccia segue il percorso in curve e rotatorie senza tagli, confermato dall'utente. Calo FPS minimo 3,8 in sosta; cali intermedi in marcia in scene stradali dense, relazione causale non ancora accertata.
+**Prova reale:** il 14 novembre il predittore segue la strada in curve e rotatorie (conferma utente). Il log LVGL ha mostrato cali FPS da fermo e in marcia in scene dense; 21 ricalcoli Android riusciti non mostrano un calo grafico sistematico alla sostituzione della rotta. Tenere fisso predittore, rotatoria, rotta verde e BLE.
 
-**Esperimento:** aggiunta telemetria passiva aggregata `LVGL_ROADS` sullo stesso task/finestra di circa 5 secondi di `display perf`: chiamate renderer, spans esaminati/scartati, segmenti sottoposti al disegno, eventi/tiles/rects/full e area sporca inviata, scene rebind. Nessun cambiamento a geometria, predizione, zoom, BLE, dirty tiles o clipping; web/native non contano.
+**Modifica corrente:** early reject conservativo dei singoli segmenti delle sole strade grigie rispetto al clip LVGL, *dopo* Douglas–Peucker e lo scarto per intera polilinea. La funzione `draw_map_line` faceva gia' un check per segmento; questa ottimizzazione evita la preparazione e la sua chiamata per gli edge certamente invisibili, senza cambiare il clipping di sicurezza/banding. Contatore `seg_skip` affiancato a `seg` in `LVGL_ROADS`. Nessun beneficio FPS promesso prima della prova A/B.
 
-**Verifica:** CI #574 Android verde pre-merge; nuova CI esp32/native da eseguire per il profiling. I colori connessione/radio devono ancora essere verificati sul dispositivo. **Prossima azione:** flashare ESP32 e raccogliere seriale+replay GPS allineati; confrontare FPS solo quando la moto si muove, distinguere velocita' <3, 3–15, >15 km/h, poi valutare eventuale clipping per segmento.
+**Verifica:** CI consolidata ESP32/native da eseguire sulla revisione finale, poi test seriale+replay GPS e confronto per velocita' (<3, 3–15, >15 km/h), densita' strade, eventi ricalcolo, seg_skip/seg, area dirty e flush/frame. Non considerare i minimi in sosta equivalenti a freeze in marcia. `valhalla` non modificato.
+
+## Clipping conservativo dei singoli segmenti grigi — 2026-11-14
+
+Su `test/lvgl-single-road-renderer-20261113`, aggiunto `shared/nav_ui/src/road_segment_clip.hpp` per testare in pixel display i bounds di ciascuna coppia di vertici **con margine conservativo** `line.width + 2` per antialias/caps. In `draw_road_scene` il segmento RDP viene scartato prima della preparazione `lv_draw_line_dsc_t` se sicuramente fuori dall'attuale `layer->_clip_area`; `previous` continua ad avanzare anche se un edge e' invisibile, mantenendo ordine ed estremi della polilinea. `draw_map_line` aveva gia' un primo controllo per singolo segmento: lo scopo e' evitare il suo overhead sui segmenti fuori clip, **non** inventare un nuovo culling o ridurre i pixel nei redraw completi. Aggiunto contatore seriale `seg_skip` e test native con attraversamenti i cui estremi sono entrambi fuori viewport, margini stroke, subpixel, traslazioni e fuori schermo. Il disegno LVGL, il banding, Douglas-Peucker, lo zoom, i dirty tiles e la linea verde restano invariati. CI e hardware da verificare.
 
 ## Diagnostica LVGL del renderer strade — 2026-11-14
 

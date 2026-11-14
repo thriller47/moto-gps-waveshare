@@ -7,6 +7,7 @@
 #include "moto_nav_route_sampling.hpp"
 #include "../../platforms/esp32/main/motion_render_pacing.h"
 #include "../../shared/nav_ui/src/road_simplification.hpp"
+#include "../../shared/nav_ui/src/road_segment_clip.hpp"
 
 #include <lvgl.h>
 
@@ -65,6 +66,24 @@ void test_gray_road_simplification_preserves_junctions() {
   std::uint8_t bump_keep[12]{};
   moto_road_simplification::retain(bump, 12, bump_keep);
   CHECK(bump_keep[6] == 1);
+}
+
+void test_segment_clip_conserves_endpoints_and_caps() {
+  using moto_road_segment_clip::intersects;
+  const lv_area_t dirty{100, 100, 150, 150};
+  // A polyline may intersect the dirty tile even when BOTH endpoints
+  // are outside; testing endpoints alone would create gaps in roundabouts.
+  CHECK(intersects({-20, 125}, {220, 125}, 0, 0, 4, dirty));
+  CHECK(intersects({125, -20}, {125, 220}, 0, 0, 4, dirty));
+  CHECK(intersects({95, 125}, {96, 125}, 0, 0, 4, dirty));
+  CHECK(!intersects({-50, -50}, {-20, -20}, 0, 0, 4, dirty));
+  CHECK(!intersects({200, 200}, {230, 230}, 0, 0, 4, dirty));
+  // Same points expressed in local coordinates require object translation.
+  CHECK(intersects({-20, 25}, {220, 25}, 0, 100, 4, dirty));
+  CHECK(!intersects({-20, 25}, {220, 25}, 0, 300, 4, dirty));
+  CHECK(intersects({95.5F, 130.25F}, {97.5F, 132.0F},
+                   0, 0, 4, dirty));
+  // Disconnected spans are never joined by the clip test.
 }
 
 void test_motion_render_pacing_policy() {
@@ -993,6 +1012,7 @@ int main(int argc, char **argv) {
   CHECK(all_black);
 
   test_gray_road_simplification_preserves_junctions();
+  test_segment_clip_conserves_endpoints_and_caps();
   test_motion_render_pacing_policy();
   test_frames_are_deterministic();
   test_clearing_geometry_leaves_no_residue();
