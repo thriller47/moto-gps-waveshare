@@ -1285,8 +1285,9 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     }
 
     fun refreshSavedMaps(context: Context) {
-        _photonInstalledBytes.value = OfflinePhotonPlaceSearch.file(context)
-            .let { if (it.isFile) it.length() else 0L }
+        // A legacy v1 file is not a usable offline index in the v2 reader.
+        _photonInstalledBytes.value = if (OfflinePhotonPlaceSearch.installed(context))
+            OfflinePhotonPlaceSearch.file(context).length() else 0L
         _valhallaInstalledBytes.value = OfflineValhallaRouter.tileFile(context)
             .let { if (it.isFile) it.length() else 0L }
         val list = getOrCreateRepo(context).listSavedMaps()

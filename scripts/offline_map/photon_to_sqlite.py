@@ -2,7 +2,8 @@
 """Convert a Photon/Nominatim 0.1.x JSONL dump to offline Android SQLite FTS4.
 
 The uncompressed JSONL or Zstandard-compressed JSONL is streamed. The output
-schema is the compact Moto Chat GPS Photon v2 index. Python 3 stdlib only,
+schema is compact Photon v2 (FTS4 contentless, normalized city and region).
+Python 3 stdlib only,
 except for a system zstd executable when the input ends in .zst.
 """
 import argparse

@@ -16,7 +16,7 @@
 Richiesta esplicita: rigenerazione del database consentita, non serve compatibilita' con indice v1, uso temporaneo di Photon online accettato. Implementato sul branch sperimentale:
 - `scripts/offline_map/photon_to_sqlite.py`: `PRAGMA user_version=2`, tabella `places` con `city_id` e `region_id`, dizionari `cities`/`regions` con id 0 per stringa vuota, FTS4 `content=''` e tokenizzazione unicode61 senza diacritici (stessa query prefisso). L'importazione preserva l'insieme di record del dump e i campi ranking; deduplica SOLO testo ripetuto per citta'/regione; non modifica nomi di localita' o indirizzi. `DROP TABLE address_refs`, `optimize` FTS, `VACUUM`; su contentless `PRAGMA quick_check` globale restituisce errore spurio, sostituito da controlli per tabella relazionale e una query FTS MATCH.
 - `OfflinePhotonPlaceSearch.kt`: v2 obbligatorio e lettura `places_fts` con join su `places`, `cities` e `regions`; l'import verifica tre tabelle v2, metadati e conteggio luoghi senza scansione FTS non-MATCH non supportata da contentless.
-- `NavigationViewModel.kt`: ricerca Photon online se DB v2 assente, v1 incompatibile o lettura DB fallita; zero risultati su indice sano non provoca uso di rete.
+- `NavigationViewModel.kt`: ricerca Photon online se DB v2 assente, v1 incompatibile o lettura DB fallita; zero risultati su indice sano non provoca uso di rete. Nella pagina mappe, file v1 non compatibili non vengono conteggiati come Photon offline installato.
 - Test: `test_photon_to_sqlite.py` esteso a import unicode/indirizzi, city/region deduplicati, ricerca MATCH con civici, v2 e controllo assenza `places_fts_content`; workflow native esegue ora tali test.
 
 **Comando da PC Windows** (PowerShell dalla root del repository, con `zstd` in PATH):
