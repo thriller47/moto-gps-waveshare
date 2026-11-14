@@ -167,7 +167,7 @@ void display_timing_event(lv_event_t* event) {
                static_cast<double>(timing.flush_callback_max_us) / 1'000.0,
                static_cast<double>(timing.flush_callback_total_us) /
                    timing.frames / 1'000.0);
-      // Same LVGL-worker window as FPS, render and flush statistics.
+      // Aggregated at the same LVGL-worker 5-second FPS/flush boundary.
        moto_nav_ui_perf_stats_t roads{};
        moto_nav_ui_take_perf_stats(&roads);
        ESP_LOGI(kTag, "LVGL_ROADS draw=%lu spans=%lu culled=%lu seg=%lu "
