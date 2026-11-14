@@ -92,6 +92,23 @@ class TestPhotonSQLite(unittest.TestCase):
                 self.assertEqual(hits, [
                     ("Via Roma", "Torino", "Piemonte"),
                     ("Via Roma 12", "Torino", "Piemonte")])
+                # Execute the actual Android SELECT against a generated v2 DB,
+                # catching stale column names which Kotlin compilation misses.
+                kotlin = (Path(__file__).resolve().parents[2] /
+                          "platforms/android/app/src/main/java/com/motogps/android"
+                          "/viewmodel/OfflinePhotonPlaceSearch.kt").read_text(
+                              encoding="utf-8")
+                import re
+                match = re.search(r'val sql = """(.*?)"""\\.trimIndent\\(\\)',
+                                  kotlin, flags=re.DOTALL)
+                self.assertIsNotNone(match, "Android Photon search query missing")
+                sql = match.group(1)
+                result = db.execute(
+                    sql, ("via* roma* torino*", "Via Roma Torino",
+                          "Via Roma Torino", "Via Roma Torino")).fetchall()
+                self.assertEqual(len(result), 2)
+                self.assertEqual(result[0][3], "Torino")
+                self.assertEqual(result[0][4], "Piemonte")
                 self.assertEqual(db.execute(
                     "SELECT COUNT(*) FROM places_fts WHERE places_fts MATCH ?",
                     ("passo* stelvio* bormio*",)).fetchone()[0], 1)
