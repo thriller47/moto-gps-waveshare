@@ -26,6 +26,9 @@ data class TourSession(
 internal object TourSessionStore {
     private const val KEY = "session"
     private const val PREFS = "moto_tour_session"
+    // Additional user edits on later legs can grow the lifetime visit history,
+    // although each new Valhalla request still sends no more than 8 pending via points.
+    private const val MAX_HISTORY_STOPS = 32
 
     private fun placeToJson(p: PlaceSearchResult) = JSONObject()
         .put("name", p.name).put("address", p.address).put("area", p.displayArea)
@@ -42,7 +45,7 @@ internal object TourSessionStore {
 
     internal fun encode(session: TourSession): String {
         require(session.completedStops in 0..session.stops.size)
-        require(session.stops.size <= 8)
+        require(session.stops.size <= MAX_HISTORY_STOPS)
         val prefs = session.preferences
         return JSONObject().put("version", 1)
             .put("destination", placeToJson(session.destination))
@@ -66,7 +69,7 @@ internal object TourSessionStore {
         val obj = JSONObject(raw)
         require(obj.getInt("version") == 1)
         val items = obj.getJSONArray("stops")
-        require(items.length() <= 8)
+        require(items.length() <= MAX_HISTORY_STOPS)
         val stops = (0 until items.length()).map {
             placeFromJson(items.getJSONObject(it))
         }
