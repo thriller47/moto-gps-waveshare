@@ -1268,9 +1268,12 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
             _downloadStatus.value = "Verifica pacchetto offline..."
             try {
                 withContext(Dispatchers.IO) {
-                    UnifiedOfflineMapImporter.install(context.applicationContext, uri) { message ->
-                        _downloadStatus.value = message
-                    }
+                    val installerJob = coroutineContext[Job]
+                    UnifiedOfflineMapImporter.install(
+                        context.applicationContext, uri,
+                        { message -> _downloadStatus.value = message },
+                        { installerJob?.isActive == false }
+                    )
                 }
                 refreshSavedMaps(context)
                 _downloadProgress.value = 1f
