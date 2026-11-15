@@ -30,6 +30,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.motogps.android.ble.MotoBLEManager
 import com.motogps.android.location.LocationForegroundService
 import com.motogps.android.ui.MotoChatDarkColorScheme
@@ -60,48 +64,46 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     private val diagnosticTimeout = Runnable { diagnosticMode = 0 }
 
     private fun exportDiagnostics() {
-        Thread {
+        lifecycleScope.launch {
             try {
-                val file = DiagnosticLog.exportZip()
-                val uri = FileProvider.getUriForFile(this, "$packageName.diagnostics", file)
-                runOnUiThread {
-                    val send = Intent(Intent.ACTION_SEND).apply {
-                        type = "application/zip"
-                        putExtra(Intent.EXTRA_STREAM, uri)
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    }
-                    startActivity(Intent.createChooser(send, "Esporta diagnostica Moto GPS"))
+                val file = withContext(Dispatchers.IO) { DiagnosticLog.exportZip() }
+                val uri = FileProvider.getUriForFile(
+                    this@MainActivity, "$packageName.diagnostics", file
+                )
+                val send = Intent(Intent.ACTION_SEND).apply {
+                    type = "application/zip"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 }
+                startActivity(Intent.createChooser(send, "Esporta diagnostica Moto GPS"))
             } catch (e: Exception) {
-                runOnUiThread {
-                    Toast.makeText(this, "Esportazione non riuscita: ${e.message}",
-                        Toast.LENGTH_LONG).show()
-                }
+                Toast.makeText(this@MainActivity,
+                    "Esportazione non riuscita: ${e.message}", Toast.LENGTH_LONG).show()
             }
-        }.start()
+        }
     }
 
     private fun exportReplay() {
-        Thread {
+        lifecycleScope.launch {
             try {
-                val file = ReplayTraceRecorder.export(this)
-                val uri = FileProvider.getUriForFile(this, "$packageName.diagnostics", file)
-                runOnUiThread {
-                    val send = Intent(Intent.ACTION_SEND).apply {
-                        type = if (file.extension.equals("zip", ignoreCase = true))
-                            "application/zip" else "application/x-ndjson"
-                        putExtra(Intent.EXTRA_STREAM, uri)
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    }
-                    startActivity(Intent.createChooser(send, "Esporta tracciato GPS privato"))
+                val file = withContext(Dispatchers.IO) {
+                    ReplayTraceRecorder.export(this@MainActivity)
                 }
+                val uri = FileProvider.getUriForFile(
+                    this@MainActivity, "$packageName.diagnostics", file
+                )
+                val send = Intent(Intent.ACTION_SEND).apply {
+                    type = if (file.extension.equals("zip", ignoreCase = true))
+                        "application/zip" else "application/x-ndjson"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                startActivity(Intent.createChooser(send, "Esporta tracciato GPS privato"))
             } catch (e: Exception) {
-                runOnUiThread {
-                    Toast.makeText(this, "Esportazione GPS non riuscita: ${e.message}",
-                        Toast.LENGTH_LONG).show()
-                }
+                Toast.makeText(this@MainActivity,
+                    "Esportazione GPS non riuscita: ${e.message}", Toast.LENGTH_LONG).show()
             }
-        }.start()
+        }
     }
 
     private val viewModel: NavigationViewModel by viewModels {
