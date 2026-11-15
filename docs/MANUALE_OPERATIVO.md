@@ -327,6 +327,30 @@ ls -lh ~/motogps-build/ValhallaItaliaV4/valhalla_tiles.tar* \
 
 
 
+### Pacchetto offline unificato sperimentale (.motopack) — branch test
+
+**Non ancora collaudato sul telefono.** Nel branch `test/unified-offline-map-20261115` l'app aggiunge **Gestione mappe → Importa pacchetto unico Moto Chat GPS**. Questa procedura non è disponibile nell'APK stabile `valhalla` finché non viene autorizzato il merge. Non disinstallare l'app attuale solo per testarlo.
+
+Il contenitore ZIP64 `.motopack` comprende tre componenti e un `manifest.json` con le versioni, le dimensioni e gli SHA-256 dei file. Contiene **MotoMap v4 ZIP**, **Valhalla Italia V5 TAR.ZST** e **Photon SQLite v2** senza convertirne ulteriormente i dati. È possibile usare gli artefatti già generati e collaudati, senza rifare l'importazione PBF.
+
+**Da Windows PowerShell**, adattare i tre percorsi ai file effettivamente presenti:
+
+```powershell
+Set-Location "C:\MotoGPS\moto-gps-waveshare"
+py scripts/offline_map/motopack.py build `
+  --motomap "C:\MotoGPS\italy-v4.motomap.zip" `
+  --valhalla "C:\MotoGPS\valhalla_italia_v5.tar.zst" `
+  --photon "C:\MotoGPS\photon-italy-v2.sqlite" `
+  -o "C:\MotoGPS\MotoChatGPS-Italia.motopack"
+py scripts/offline_map/motopack.py verify "C:\MotoGPS\MotoChatGPS-Italia.motopack"
+```
+
+**Nota:** i nomi di input sono esempi. Il generatore non sovrascrive un pacchetto esistente. Copiare il file `.motopack` in Download sul telefono, aprire l'APK sperimentale del branch di test, interrompere la navigazione e scegliere **Gestione mappe → Importa pacchetto unico Moto Chat GPS**. Lasciare il telefono alimentato e con molto spazio libero: durante l'importazione coesistono copie temporanee dei tre componenti e il TAR Valhalla decompresso. Il formato non migliora direttamente lo spazio occupato dal grafo installato.
+
+**Garanzie e limiti:** Android verifica il manifest e SHA-256 di tutti e tre i componenti **prima di modificare** le mappe installate. Dopodiché riusa gli importatori attuali, ciascuno con il proprio meccanismo di sostituzione e backup. L'aggiornamento dei tre componenti **non è ancora una transazione atomica globale**: se una delle tre installazioni fallisce, alcuni componenti potrebbero risultare aggiornati e altri no. Verificare manualmente lo stato di MotoMap, Photon e Valhalla dopo il test; mantenere una copia degli originali sul PC. Non interrompere il processo deliberatamente durante il collaudo iniziale.
+
+**Test automatici del contenitore:** `python3 -m unittest discover -s scripts/offline_map -p 'test_motopack.py'`. Il test con un archivio fittizio non sostituisce la prova sul dispositivo con gli archivi reali.
+
 ## 7. Diagnostica Android, seriale ESP32 e prossimo test clipping
 
 **Android:** collegare ESP32 via BLE e aprire **LOG**; scegliere `BASE` per eventi essenziali o `DEBUG` per dettagli (default `OFF`). Sessione DEBUG fino a circa 60 minuti, interrotta da disconnessione/riavvio o da `LOG → OFF`. **Prima di staccare il BLE**, usare **Condividi / Esporta diagnostica**: si genera `motogps-android-diagnostics.zip` con log Android e, quando presenti, eventi ESP32 ricevuti via BLE. La diagnostica Android usa file a rotazione; il pacchetto ZIP **non** equivale al replay GPS separato.
