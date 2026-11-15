@@ -327,9 +327,9 @@ ls -lh ~/motogps-build/ValhallaItaliaV4/valhalla_tiles.tar* \
 
 
 
-### Produzione completa in WSL da PBF + POLY + Photon (branch di test)
+### Produzione completa in WSL da PBF + POLY + Photon (procedura integrata)
 
-**Procedura sperimentale, non ancora eseguita sull'Italia completa.** Il generatore `scripts/offline_map/build_motopack_wsl.sh` svolge tutte le fasi in WSL Ubuntu: PBF+POLY → MotoMap v4; dump Photon JSONL (anche Zstandard) → Photon SQLite v2; PBF → grafo Valhalla moto V5; quindi assemblaggio e verifica SHA-256 del `.motopack`. Non è richiesto PowerShell per nessuna conversione.
+**Procedura eseguita con successo dall'utente sull'Italia completa il 15 novembre 2026.** Il generatore `scripts/offline_map/build_motopack_wsl.sh` svolge tutte le fasi in WSL Ubuntu: PBF+POLY → MotoMap v4; dump Photon JSONL (anche Zstandard) → Photon SQLite v2; PBF → grafo Valhalla moto V5; quindi assemblaggio e verifica SHA-256 del `.motopack`. Non è richiesto PowerShell per nessuna conversione.
 
 **Prerequisiti WSL**: ambiente Valhalla 3.9.1 attivato con `valhalla_build_config`, `valhalla_build_tiles` e `valhalla_build_extract` nel PATH; `zstd` installato; Python 3 con `osmium` e `shapely` (`python3 -m pip install osmium shapely` nell'ambiente virtuale appropriato). Il dump Photon deve essere **JSONL/Nominatim 0.1.x** (`.jsonl` o `.jsonl.zst`), non un ZIP indice Photon/Lucene o il vecchio SQLite. Il file `.poly` deve corrispondere allo stesso estratto geografico del PBF. Usare preferibilmente una cartella di output nel filesystem Linux WSL, non in `/mnt/c`, per le conversioni pesanti.
 
@@ -356,9 +356,12 @@ cp ~/motogps-build/ItaliaUnificata/MotoChatGPS-Italia.motopack /mnt/c/MotoGPS/PB
 
 **Attenzione:** l'Italia completa richiede molto spazio libero **su disco WSL**, oltre a quello del telefono. Anche i file ZIP intermedi e il TAR Valhalla non compresso occupano spazio; la stima del requisito non è ancora misurata in questa pipeline. Prima di avviare, controllare `df -h ~`. Evitare di ricostruire i dataset finché il pacchetto attuale funziona, salvo voler riprodurre tutta la filiera da nuove sorgenti OSM.
 
-### Pacchetto offline unificato sperimentale (.motopack) — branch test
 
-**Non ancora collaudato sul telefono.** Nel branch `test/unified-offline-map-20261115` l'app aggiunge **Gestione mappe → Importa pacchetto unico Moto Chat GPS**. Questa procedura non è disponibile nell'APK stabile `valhalla` finché non viene autorizzato il merge. Non disinstallare l'app attuale solo per testarlo.
+**Confronto della generazione completa (collaudo utente, 15 novembre 2026):** `italy-v4.motomap.zip` 739 MiB, `photon-italy-v2.sqlite` ~1,1 GiB, `valhalla_tiles.tar.zst` 661 MiB, `MotoChatGPS-Italia.motopack` ~2,5 GiB. Verifica `motopack.py verify` positiva, import Android e prova di ricerca/Valhalla/MotoMap offline positivi. Valhalla occupa circa 1.766 MB una volta espanso su Android. Si tratta di una conferma funzionale dell'utente, non di un benchmark automatizzato di integrità geografica o di test di interruzione durante l'installazione.
+
+### Pacchetto offline unificato (.motopack)
+
+**Collaudato sul telefono dall'utente il 15 novembre 2026.** L'app aggiunge **Gestione mappe → Importa pacchetto unico Moto Chat GPS**. Il generatore WSL completo è stato eseguito con successo: MotoMap ZIP 739 MiB, Photon SQLite circa 1,1 GiB, Valhalla V5 TAR.ZST 661 MiB, MotoPack circa 2,5 GiB. La verifica SHA-256 ha restituito `OK: MotoMap v4 + Valhalla V5 + Photon v2`. Il pacchetto rigenerato è stato importato e la navigazione offline confermata dall'utente. Conservare i file sorgente e il pacchetto precedente come backup.
 
 Il contenitore ZIP64 `.motopack` comprende tre componenti e un `manifest.json` con le versioni, le dimensioni e gli SHA-256 dei file. Contiene **MotoMap v4 ZIP**, **Valhalla Italia V5 TAR.ZST** e **Photon SQLite v2** senza convertirne ulteriormente i dati. È possibile usare gli artefatti già generati e collaudati, senza rifare l'importazione PBF.
 
@@ -374,9 +377,9 @@ py scripts/offline_map/motopack.py build `
 py scripts/offline_map/motopack.py verify "C:\MotoGPS\MotoChatGPS-Italia.motopack"
 ```
 
-**Nota:** i nomi di input sono esempi. Il generatore non sovrascrive un pacchetto esistente. Copiare il file `.motopack` in Download sul telefono, aprire l'APK sperimentale del branch di test, interrompere la navigazione e scegliere **Gestione mappe → Importa pacchetto unico Moto Chat GPS**. Lasciare il telefono alimentato e con molto spazio libero: durante l'importazione coesistono copie temporanee dei tre componenti e il TAR Valhalla decompresso. Il formato non migliora direttamente lo spazio occupato dal grafo installato.
+**Nota:** il metodo PowerShell assembla componenti già convertiti; per ricostruire tutti e tre da sorgente usare la procedura WSL precedente. I nomi di input sono esempi. Il generatore non sovrascrive un pacchetto esistente. Copiare il file `.motopack` in Download sul telefono, aprire l'APK sperimentale del branch di test, interrompere la navigazione e scegliere **Gestione mappe → Importa pacchetto unico Moto Chat GPS**. Lasciare il telefono alimentato e con molto spazio libero: durante l'importazione coesistono copie temporanee dei tre componenti e il TAR Valhalla decompresso. Il formato non migliora direttamente lo spazio occupato dal grafo installato.
 
-**Correzione sperimentale dopo il primo collaudo Android (15/11):** il primo APK salvava il componente Valhalla con nome temporaneo `valhalla.pending`; l'importatore non riconosceva `.tar.zst` e non installava il grafo. Il branch test ora conserva i nomi originali, mostra l'avanzamento della decompressione Valhalla e verifica la presenza del TAR installato. L'utente ha confermato che, prima della prima prova, aveva eliminato le vecchie mappe: MotoMap e Photon risultavano installati, Valhalla no. **Nuova build Android da verificare e riprovare**; non è necessario rigenerare il pacchetto già verificato. In alternativa, con l'APK precedente, importare il file Valhalla V5 `.tar.zst` originale tramite il pulsante Valhalla dedicato (nessuna cancellazione di MotoMap/Photon).
+**Correzione verificata dopo il primo collaudo Android (15/11):** il primo APK salvava il componente Valhalla con nome temporaneo `valhalla.pending`; l'importatore non riconosceva `.tar.zst` e non installava il grafo. Il branch test ora conserva i nomi originali, mostra l'avanzamento della decompressione Valhalla e verifica la presenza del TAR installato. L'utente ha confermato che, prima della prima prova, aveva eliminato le vecchie mappe: MotoMap e Photon risultavano installati, Valhalla no. **Correzione verificata sul dispositivo dall'utente:** MotoMap 763,73 MB, Photon 1.074 MiB e Valhalla 1.766 MB installati, ricerca/rotta/mappa offline funzionanti. In alternativa, con l'APK precedente, importare il file Valhalla V5 `.tar.zst` originale tramite il pulsante Valhalla dedicato (nessuna cancellazione di MotoMap/Photon).
 
 **Garanzie e limiti:** Android verifica il manifest e SHA-256 di tutti e tre i componenti **prima di modificare** le mappe installate. Dopodiché riusa gli importatori attuali, ciascuno con il proprio meccanismo di sostituzione e backup. L'aggiornamento dei tre componenti **non è ancora una transazione atomica globale**: se una delle tre installazioni fallisce, alcuni componenti potrebbero risultare aggiornati e altri no. Verificare manualmente lo stato di MotoMap, Photon e Valhalla dopo il test; mantenere una copia degli originali sul PC. Non interrompere il processo deliberatamente durante il collaudo iniziale.
 
