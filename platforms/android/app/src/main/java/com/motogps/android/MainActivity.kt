@@ -218,6 +218,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             val routePreview = viewModel.routePreview.collectAsState().value
             val routeOptions = viewModel.routeOptions.collectAsState().value
             val routeWaypoints = viewModel.routeWaypoints.collectAsState().value
+            val circularMandatoryStops = viewModel.circularMandatoryStops.collectAsState().value
             val waypointSearchResults = viewModel.waypointSearchResults.collectAsState().value
             val waypointSearching = viewModel.waypointSearching.collectAsState().value
             val waypointSearchError = viewModel.waypointSearchError.collectAsState().value
@@ -300,6 +301,12 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     routePreview = routePreview,
                     routeOptions = routeOptions,
                     routeWaypoints = routeWaypoints,
+                    circularMandatoryStops = circularMandatoryStops,
+                    onAddCircularMandatoryStop = { viewModel.addCircularMandatoryStop(it) },
+                    onRemoveCircularMandatoryStop = { viewModel.removeCircularMandatoryStop(it) },
+                    onMoveCircularMandatoryStop = { index, offset ->
+                        viewModel.moveCircularMandatoryStop(index, offset)
+                    },
                     waypointSearchResults = waypointSearchResults,
                     waypointSearching = waypointSearching,
                     waypointSearchError = waypointSearchError,
