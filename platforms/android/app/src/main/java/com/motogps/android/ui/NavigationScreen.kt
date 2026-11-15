@@ -43,6 +43,7 @@ import androidx.core.content.ContextCompat
 import com.motogps.android.map.SavedMapInfo
 import com.motogps.android.routing.RoutePreferences
 import com.motogps.android.viewmodel.PlaceSearchResult
+import com.motogps.android.viewmodel.SavedCircularTour
 import com.motogps.android.viewmodel.RouteOption
 import org.json.JSONArray
 import org.osmdroid.config.Configuration
@@ -572,6 +573,10 @@ fun NavigationScreen(
     routeOptions: List<RouteOption>,
     routeWaypoints: List<PlaceSearchResult> = emptyList(),
     circularMandatoryStops: List<PlaceSearchResult> = emptyList(),
+    savedCircularTours: List<SavedCircularTour> = emptyList(),
+    onSaveCircularTour: (String) -> Unit = {},
+    onOpenSavedCircularTour: (SavedCircularTour, Boolean) -> Unit = { _, _ -> },
+    onDeleteSavedCircularTour: (String) -> Unit = {},
     onAddCircularMandatoryStop: (PlaceSearchResult) -> Unit = {},
     onRemoveCircularMandatoryStop: (Int) -> Unit = {},
     onMoveCircularMandatoryStop: (Int, Int) -> Unit = { _, _ -> },
@@ -627,6 +632,86 @@ fun NavigationScreen(
     var showCircularTourDialog by remember { mutableStateOf(false) }
     var circularDistanceKm by remember { mutableFloatStateOf(100f) }
     var circularOrientation by remember { mutableIntStateOf(0) }
+    var showSaveCircularDialog by remember { mutableStateOf(false) }
+    var savedTourName by remember { mutableStateOf("") }
+    var showSavedToursDialog by remember { mutableStateOf(false) }
+    if (showSaveCircularDialog) {
+        AlertDialog(
+            onDismissRequest = { showSaveCircularDialog = false },
+            title = { Text("Salva tour per un altro giorno") },
+            text = {
+                OutlinedTextField(
+                    value = savedTourName,
+                    onValueChange = { savedTourName = it.take(80) },
+                    singleLine = true,
+                    label = { Text("Nome del tour") }
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    onSaveCircularTour(savedTourName.trim())
+                    showSaveCircularDialog = false
+                }, enabled = savedTourName.isNotBlank()) { Text("Salva") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSaveCircularDialog = false }) {
+                    Text("Annulla")
+                }
+            }
+        )
+    }
+    if (showSavedToursDialog) {
+        AlertDialog(
+            onDismissRequest = { showSavedToursDialog = false },
+            title = { Text("I miei tour salvati") },
+            text = {
+                Column(
+                    modifier = Modifier.heightIn(max = 480.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (savedCircularTours.isEmpty()) {
+                        Text("Nessun tour salvato.")
+                    }
+                    savedCircularTours.forEach { tour ->
+                        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text(tour.title, style = MaterialTheme.typography.titleSmall)
+                            Text("${tour.desiredKm} km richiesti · " +
+                                "${tour.mandatory.size} luoghi obbligatori · " +
+                                "${tour.via.size} tappe",
+                                style = MaterialTheme.typography.bodySmall)
+                            Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                                TextButton(onClick = {
+                                    showSavedToursDialog = false
+                                    onOpenSavedCircularTour(tour, false)
+                                }) { Text("Partenza salvata") }
+                                TextButton(onClick = {
+                                    showSavedToursDialog = false
+                                    onOpenSavedCircularTour(tour, true)
+                                }, enabled = currentLocation != null) {
+                                    Text("Da qui")
+                                }
+                                IconButton(onClick = { onDeleteSavedCircularTour(tour.id) }) {
+                                    Icon(Icons.Default.Delete,
+                                        contentDescription = "Elimina ${tour.title}")
+                                }
+                            }
+                            HorizontalDivider()
+                        }
+                    }
+                    Text("La rotta viene ricalcolata da Valhalla all'apertura. " +
+                        "Partenza salvata mostra il progetto originale; " +
+                        "Da qui chiude il giro alla posizione GPS attuale.",
+                        style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showSavedToursDialog = false }) {
+                    Text("Chiudi")
+                }
+            }
+        )
+    }
     var circularPoiQuery by remember { mutableStateOf("") }
     if (showCircularTourDialog) {
         AlertDialog(
@@ -1039,6 +1124,21 @@ fun NavigationScreen(
                         )
                     }
 
+                    if (routePreview.displayArea == "Tour circolare" && !isNavigating) {
+                        OutlinedButton(
+                            onClick = {
+                                savedTourName = ""
+                                showSaveCircularDialog = true
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 4.dp)
+                        ) {
+                            Icon(Icons.Default.Save, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Salva questo tour")
+                        }
+                    }
+
                     OutlinedButton(
                         onClick = { showWaypointsSheet = true },
                         enabled = !isNavigating,
@@ -1193,6 +1293,16 @@ fun NavigationScreen(
                         }
                     })
                 )
+
+                OutlinedButton(
+                    onClick = { showSavedToursDialog = true },
+                    modifier = Modifier.fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                ) {
+                    Icon(Icons.Default.Folder, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("I miei tour salvati (${savedCircularTours.size})")
+                }
 
                 OutlinedButton(
                     onClick = { showCircularTourDialog = true },
