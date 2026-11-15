@@ -163,7 +163,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     }
 
     private fun saveTourCheckpoint(paused: Boolean) {
-        val context = appContext ?: navigationMapsContext ?: return
+        val context = appContext ?: navigationMapsContext
+            ?: throw IllegalStateException("Contesto Android non disponibile")
         val destination = activeDestination ?: return
         if (destination.displayArea != "Tour circolare") return
         val (lat, lon) = _currentLocation.value
@@ -852,6 +853,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                // Keep the previous checkpoint when route calculation fails;
+                // an interrupted multi-day tour must remain recoverable.
                 DiagnosticLog.event("ROUTE_START_ERROR",
                     "stops=${activeWaypoints.size} exception=${e.javaClass.simpleName}")
                 _isNavigating.value = false
@@ -1131,6 +1134,12 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                 if (arrived != null) {
                     currentSnapshot = arrived
                     bleManager.sendNavigationSnapshot(arrived)
+                }
+                if (destination.displayArea == "Tour circolare") {
+                    try { discardTourCheckpoint() } catch (e: Exception) {
+                        DiagnosticLog.event("TOUR_CHECKPOINT_ERROR",
+                            "arrival " + e.javaClass.simpleName)
+                    }
                 }
                 Log.i("NavigationVM", "Final destination reached")
             } else {
