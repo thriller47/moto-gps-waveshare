@@ -152,6 +152,76 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
             "Tour circolare", destination.first, destination.second))
     }
 
+    private val _pausedTour = MutableStateFlow<TourSession?>(null)
+    val pausedTour: StateFlow<TourSession?> = _pausedTour
+    private var lastTourCheckpointMillis = 0L
+
+    fun loadTourSession(context: Context) {
+        // An active session from a previous process is resumable, but NEVER
+        // auto-resume its BLE navigation or overwrite its completed stops.
+        _pausedTour.value = TourSessionStore.read(context.applicationContext)
+    }
+
+    private fun saveTourCheckpoint(paused: Boolean) {
+        val context = appContext ?: navigationMapsContext ?: return
+        val destination = activeDestination ?: return
+        if (destination.displayArea != "Tour circolare") return
+        val (lat, lon) = _currentLocation.value
+        val checkpoint = TourSession(destination, activeWaypoints.toList(),
+            nextWaypointIndex.coerceIn(0, activeWaypoints.size),
+            _routePreferences.value, lat, lon,
+            System.currentTimeMillis(), paused)
+        TourSessionStore.write(context.applicationContext, checkpoint)
+        _pausedTour.value = checkpoint
+        lastTourCheckpointMillis = SystemClock.elapsedRealtime()
+    }
+
+    private fun discardTourCheckpoint() {
+        val context = appContext ?: navigationMapsContext
+        if (context != null) {
+            TourSessionStore.clear(context.applicationContext)
+        }
+        _pausedTour.value = null
+    }
+
+    fun pauseTour() {
+        if (!_isNavigating.value || activeDestination?.displayArea != "Tour circolare") return
+        try {
+            saveTourCheckpoint(paused = true)
+        } catch (e: Exception) {
+            _errorMessage.value = "Pausa non salvata: ${e.message}"
+            return // Never terminate navigation if persistence failed.
+        }
+        DiagnosticLog.event("TOUR_PAUSED",
+            "completed=$nextWaypointIndex total=${activeWaypoints.size}")
+        stopNavigationInternal(preserveTourCheckpoint = true)
+    }
+
+    fun previewResumeTour() {
+        if (_isNavigating.value || _isLoading.value) return
+        val checkpoint = _pausedTour.value ?: return
+        if (!hasFirstFix) {
+            _errorMessage.value = "Attendi un fix GPS valido per riprendere il tour"
+            return
+        }
+        _routePreferences.value = checkpoint.preferences
+        _routeWaypoints.value = checkpoint.pendingStops
+        previewOriginOverride = null
+        DiagnosticLog.event("TOUR_RESUME_PREVIEW",
+            "completed=${checkpoint.completedStops} pending=${checkpoint.pendingStops.size}")
+        previewRoute(checkpoint.destination)
+        // Do not start navigation without user confirmation.
+    }
+
+    fun discardPausedTour() {
+        if (_isNavigating.value) return
+        try {
+            discardTourCheckpoint()
+        } catch (e: Exception) {
+            _errorMessage.value = "Impossibile eliminare il tour sospeso: ${e.message}"
+        }
+    }
+
     private val _routeWaypoints = MutableStateFlow<List<PlaceSearchResult>>(emptyList())
     val routeWaypoints: StateFlow<List<PlaceSearchResult>> = _routeWaypoints
     private val _circularMandatoryStops = MutableStateFlow<List<PlaceSearchResult>>(emptyList())
@@ -637,6 +707,14 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                 activeDestination = place
                 activeWaypoints = _routeWaypoints.value.toList()
                 nextWaypointIndex = 0
+                if (place.displayArea == "Tour circolare") {
+                    // Persist before the first BLE frame, so a sudden app
+                    // termination still leaves a complete resumable itinerary.
+                    saveTourCheckpoint(paused = false)
+                } else if (_pausedTour.value != null) {
+                    // Ordinary navigation must not silently erase a paused tour.
+                    DiagnosticLog.event("TOUR_CHECKPOINT", "preserved_during_other_route")
+                }
                 waypointNoticeIndex = 0
                 waypointNoticeTotal = 0
                 waypointNoticeStartedMs = 0L
@@ -715,6 +793,12 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                         gnssStale = gnssStale
                     )
                     currentSnapshot = activeSnap
+                    if (activeDestination?.displayArea == "Tour circolare" &&
+                        SystemClock.elapsedRealtime() - lastTourCheckpointMillis >= 30_000L) {
+                        try { saveTourCheckpoint(paused = false) } catch (e: Exception) {
+                            DiagnosticLog.event("TOUR_CHECKPOINT_ERROR", e.javaClass.simpleName)
+                        }
+                    }
                     if (loopCount == 1 || loopCount % 4 == 0) {
                         DiagnosticLog.event("NAV_SNAPSHOT",
                             "maneuver=${activeSnap.maneuverName} id=${activeSnap.maneuverID} " +
@@ -782,7 +866,14 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         }
     }
 
-    fun stopNavigation() {
+    fun stopNavigation() = stopNavigationInternal(preserveTourCheckpoint = false)
+
+    private fun stopNavigationInternal(preserveTourCheckpoint: Boolean) {
+        if (!preserveTourCheckpoint && activeDestination?.displayArea == "Tour circolare") {
+            try { discardTourCheckpoint() } catch (e: Exception) {
+                _errorMessage.value = "Impossibile cancellare lo stato del tour: ${e.message}"
+            }
+        }
         _hasArrived.value = false
         arrivalDetector.reset()
         _isNavigating.value = false
@@ -1008,6 +1099,9 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                 DiagnosticLog.event("WAYPOINT_REACHED",
                     "index=$nextWaypointIndex total=${activeWaypoints.size}")
                 ReplayTraceRecorder.waypointReached(nextWaypointIndex, activeWaypoints.size)
+                try { saveTourCheckpoint(paused = false) } catch (e: Exception) {
+                    DiagnosticLog.event("TOUR_CHECKPOINT_ERROR", e.javaClass.simpleName)
+                }
             }
             val destination = requireNotNull(activeDestination)
             val distanceToEnd = calculateDistanceMeters(
