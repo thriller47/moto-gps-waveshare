@@ -125,12 +125,6 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         }
     }
 
-    private val importUnifiedPackLauncher = registerForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        if (uri != null) viewModel.importUnifiedOfflinePack(this, uri)
-    }
-
     private val importOsmPackLauncher = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -329,9 +323,6 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     },
                     onBackToSearch = {
                         viewModel.clearRoutePreview()
-                    },
-                    onImportUnifiedPack = {
-                        importUnifiedPackLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
                     },
                     onImportOsmPack = {
                         importOsmPackLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
