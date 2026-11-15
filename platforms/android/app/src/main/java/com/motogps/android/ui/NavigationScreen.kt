@@ -571,6 +571,10 @@ fun NavigationScreen(
     routePreview: PlaceSearchResult?,
     routeOptions: List<RouteOption>,
     routeWaypoints: List<PlaceSearchResult> = emptyList(),
+    circularMandatoryStops: List<PlaceSearchResult> = emptyList(),
+    onAddCircularMandatoryStop: (PlaceSearchResult) -> Unit = {},
+    onRemoveCircularMandatoryStop: (Int) -> Unit = {},
+    onMoveCircularMandatoryStop: (Int, Int) -> Unit = { _, _ -> },
     waypointSearchResults: List<PlaceSearchResult> = emptyList(),
     waypointSearching: Boolean = false,
     waypointSearchError: String? = null,
@@ -623,20 +627,24 @@ fun NavigationScreen(
     var showCircularTourDialog by remember { mutableStateOf(false) }
     var circularDistanceKm by remember { mutableFloatStateOf(100f) }
     var circularOrientation by remember { mutableIntStateOf(0) }
+    var circularPoiQuery by remember { mutableStateOf("") }
     if (showCircularTourDialog) {
         AlertDialog(
             onDismissRequest = { showCircularTourDialog = false },
-            title = { Text("Tour circolare") },
+            title = { Text("Tour circolare con tappe") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Partenza e arrivo dalla posizione GPS attuale. " +
-                        "Valhalla calcola tutte le strade: la distanza è indicativa.")
-                    Text("Distanza desiderata: ${circularDistanceKm.toInt()} km")
+                Column(
+                    modifier = Modifier.heightIn(max = 440.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("Partenza e arrivo dalla posizione GPS. " +
+                        "Le tappe scelte da te hanno sempre priorità.")
+                    Text("Distanza indicativa: ${circularDistanceKm.toInt()} km")
                     Slider(
                         value = circularDistanceKm,
                         onValueChange = { circularDistanceKm = it },
-                        valueRange = 30f..300f,
-                        steps = 26
+                        valueRange = 30f..300f, steps = 26
                     )
                     Text("Direzione prevalente")
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -649,9 +657,85 @@ fun NavigationScreen(
                                 )
                             }
                     }
-                    Text("Tre tappe intermedie formano l'anello. Puoi modificarle " +
-                        "nella schermata successiva. Il tracciato non è inventato.",
-                        style = MaterialTheme.typography.bodySmall)
+                    Text("Luoghi da visitare (${circularMandatoryStops.size}/8)",
+                        style = MaterialTheme.typography.titleSmall)
+                    circularMandatoryStops.forEachIndexed { index, stop ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("${index + 1}. ${stop.name}",
+                                modifier = Modifier.weight(1f), maxLines = 2)
+                            IconButton(
+                                onClick = { onMoveCircularMandatoryStop(index, -1) },
+                                enabled = index > 0
+                            ) {
+                                Icon(Icons.Default.KeyboardArrowUp,
+                                    contentDescription = "Sposta tappa su")
+                            }
+                            IconButton(
+                                onClick = { onMoveCircularMandatoryStop(index, 1) },
+                                enabled = index < circularMandatoryStops.lastIndex
+                            ) {
+                                Icon(Icons.Default.KeyboardArrowDown,
+                                    contentDescription = "Sposta tappa giù")
+                            }
+                            IconButton(onClick = { onRemoveCircularMandatoryStop(index) }) {
+                                Icon(Icons.Default.Delete,
+                                    contentDescription = "Rimuovi tappa obbligatoria")
+                            }
+                        }
+                    }
+                    if (circularMandatoryStops.size < 8) {
+                        OutlinedTextField(
+                            value = circularPoiQuery,
+                            onValueChange = { circularPoiQuery = it },
+                            label = { Text("Cerca passo, lago, paese o coordinate") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            trailingIcon = {
+                                IconButton(
+                                    onClick = { onSearchWaypoint(circularPoiQuery) },
+                                    enabled = circularPoiQuery.isNotBlank()
+                                ) {
+                                    Icon(Icons.Default.Search, contentDescription = "Cerca luogo")
+                                }
+                            },
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                            keyboardActions = KeyboardActions(
+                                onSearch = { onSearchWaypoint(circularPoiQuery) })
+                        )
+                        if (waypointSearching) LinearProgressIndicator(
+                            modifier = Modifier.fillMaxWidth())
+                        if (waypointSearchError != null) Text(
+                            waypointSearchError,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                        waypointSearchResults.take(5).forEach { place ->
+                            ListItem(
+                                headlineContent = { Text(place.name) },
+                                supportingContent = {
+                                    Text(place.displayArea.ifBlank { place.address },
+                                        maxLines = 1)
+                                },
+                                leadingContent = {
+                                    Icon(Icons.Default.Add, contentDescription = null)
+                                },
+                                modifier = Modifier.clickable {
+                                    onAddCircularMandatoryStop(place)
+                                    circularPoiQuery = ""
+                                }
+                            )
+                        }
+                    }
+                    Text(
+                        "Seleziona i luoghi nell'ordine di visita. " +
+                            "Con una sola tappa si aggiunge un punto automatico; " +
+                            "con più tappe non vengono aggiunte deviazioni artificiali. " +
+                            "La lunghezza reale dipenderà da Valhalla.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
                 }
             },
             confirmButton = {
