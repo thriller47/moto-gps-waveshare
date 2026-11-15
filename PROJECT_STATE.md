@@ -18,6 +18,14 @@
 
 **Prossima azione stabile su `valhalla`:** registrare il giro di prova del clipping ESP32 con **log seriale** e (facoltativamente) diagnostica Android: valutare `LVGL_ROADS` (`seg`, `seg_skip`, `dirty`, `tiles`), `display perf`, FPS, sfarfallio, integrità della rotta verde e ricalcoli. Solo dopo decidere se tenere definitivamente il clipping o correggerlo. Le istruzioni operative attuali sono in [docs/MANUALE_OPERATIVO.md](docs/MANUALE_OPERATIVO.md).
 
+## Generatore end-to-end in WSL — 15 novembre 2026 (branch test)
+
+**Scope:** nuova pipeline `scripts/offline_map/build_motopack_wsl.sh` sul solo branch `test/unified-offline-map-20261115`: PBF OpenStreetMap + POLY dell'estratto + dump Photon JSONL/JSONL.ZST producono MotoMap v4, Photon SQLite v2 e grafo Valhalla Italia V5 mediante i convertitori già presenti; infine `motopack.py` assembla e verifica SHA-256 del contenitore finale. Nessun cambiamento a BLE, ESP32, Valhalla runtime, ricerca Android o wire format. Usa workspace nuovo in WSL, rifiuta sovrascritture, ammette `--resume` per riutilizzare intermedi completi senza cancellare una build di grafo incompleta; mantiene input e intermedi. Manuale operativo aggiornato con procedura, ambiente e caveat spazio disco.
+
+**Test eseguiti nella sessione:** `bash -n` e 4 smoke test Python per help, input mancanti, dump Photon errato e validità sintattica; **4/4 PASS**. CI native del branch estesa con `test_build_motopack_wsl.py`. La pipeline completa su PBF Italia, lo spazio disco e il tempo reale di conversione **non** sono stati testati. La verifica precedente del motopack assemblato da tre file già convertiti è stata riferita dall'utente come positiva (`OK: MotoMap v4 + Valhalla V5 + Photon v2`); build Android/native precedente riferita verde dall'utente. Non confondere questi riscontri con la CI del nuovo script.
+
+**Prossima azione per l'esperimento:** controllare l'esito della CI native sul commit conclusivo, poi eseguire una conversione completa in WSL con PBF, .poly e dump Photon reali (nomi da controllare in `C:\MotoGPS\PBF`). Nessun merge su `valhalla` senza consenso esplicito. Il collaudo stradale clipping LVGL resta sospeso/indipendente.
+
 ## Esperimento pacchetto offline unificato — 15 novembre 2026 (branch test)
 
 **Branch attivo:** `test/unified-offline-map-20261115` creato da `valhalla`. **Non mergiato.** Nessuna modifica a ESP32, BLE, routing, clipping o agli artefatti installati. La prova stradale del clipping LVGL rimane ancora aperta sul branch di integrazione.
