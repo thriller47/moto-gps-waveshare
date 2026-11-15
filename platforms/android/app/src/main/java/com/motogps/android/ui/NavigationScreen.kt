@@ -44,6 +44,7 @@ import com.motogps.android.map.SavedMapInfo
 import com.motogps.android.routing.RoutePreferences
 import com.motogps.android.viewmodel.PlaceSearchResult
 import com.motogps.android.viewmodel.SavedCircularTour
+import com.motogps.android.viewmodel.TourSession
 import com.motogps.android.viewmodel.RouteOption
 import org.json.JSONArray
 import org.osmdroid.config.Configuration
@@ -587,6 +588,10 @@ fun NavigationScreen(
     routePreview: PlaceSearchResult?,
     routeOptions: List<RouteOption>,
     routeWaypoints: List<PlaceSearchResult> = emptyList(),
+    pausedTour: TourSession? = null,
+    onPauseTour: () -> Unit = {},
+    onPreviewResumeTour: () -> Unit = {},
+    onDiscardPausedTour: () -> Unit = {},
     circularMandatoryStops: List<PlaceSearchResult> = emptyList(),
     savedCircularTours: List<SavedCircularTour> = emptyList(),
     onSaveCircularTour: (String) -> Unit = {},
@@ -1242,6 +1247,19 @@ fun NavigationScreen(
                     }
 
                     if (isNavigating) {
+                        if (routePreview.displayArea == "Tour circolare" && !hasArrived) {
+                            OutlinedButton(
+                                onClick = onPauseTour,
+                                enabled = !isLoading,
+                                modifier = Modifier.fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 4.dp)
+                                    .heightIn(min = 48.dp)
+                            ) {
+                                Icon(Icons.Default.Check, contentDescription = null)
+                                Spacer(Modifier.width(8.dp))
+                                Text("Pausa tour (riprendi più tardi)")
+                            }
+                        }
                         Button(
                             onClick = onStopNavigation,
                             colors = ButtonDefaults.buttonColors(
@@ -1310,6 +1328,40 @@ fun NavigationScreen(
                         }
                     })
                 )
+
+                if (pausedTour != null) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                if (pausedTour.paused) "Tour in pausa"
+                                else "Tour interrotto: ripristino disponibile",
+                                style = MaterialTheme.typography.titleSmall
+                            )
+                            Text(
+                                "${pausedTour.completedStops}/${pausedTour.stops.size} tappe completate. " +
+                                    "La rotta restante verrà ricalcolata con Valhalla.",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                TextButton(
+                                    onClick = onPreviewResumeTour,
+                                    enabled = currentLocation != null && !isLoading
+                                ) {
+                                    Text("Riprendi da qui")
+                                }
+                                TextButton(onClick = onDiscardPausedTour) {
+                                    Text("Abbandona tour")
+                                }
+                            }
+                        }
+                    }
+                }
 
                 OutlinedButton(
                     onClick = { showSavedToursDialog = true },
