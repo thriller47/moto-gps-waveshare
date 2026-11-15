@@ -39,10 +39,14 @@ internal object OfflinePhotonPlaceSearch {
         val backup = File(folder, DATABASE + ".backup")
         if (part.exists() && !part.delete()) throw IOException("Copia Photon precedente occupata")
         try {
-            val size = context.contentResolver.query(uri, arrayOf(OpenableColumns.SIZE),
-                null, null, null)?.use { cursor ->
-                if (cursor.moveToFirst() && !cursor.isNull(0)) cursor.getLong(0) else -1L
-            } ?: -1L
+            val size = if (uri.scheme == "file") {
+                uri.path?.let { File(it).length() } ?: -1L
+            } else {
+                context.contentResolver.query(uri, arrayOf(OpenableColumns.SIZE),
+                    null, null, null)?.use { cursor ->
+                    if (cursor.moveToFirst() && !cursor.isNull(0)) cursor.getLong(0) else -1L
+                } ?: -1L
+            }
             if (size > MAX_BYTES) throw IOException("Indice Photon troppo grande")
             if (size > 0 && folder.usableSpace < size + 64L * 1024 * 1024)
                 throw IOException("Spazio libero insufficiente per importare Photon")
