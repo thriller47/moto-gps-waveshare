@@ -30,8 +30,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.motogps.android.ble.MotoBLEManager
 import com.motogps.android.location.LocationForegroundService
+import com.motogps.android.location.LocationRepository
 import com.motogps.android.ui.MotoChatDarkColorScheme
 import com.motogps.android.ui.NavigationScreen
 import com.motogps.android.viewmodel.NavigationViewModel
@@ -60,11 +65,11 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     private val diagnosticTimeout = Runnable { diagnosticMode = 0 }
 
     private fun exportDiagnostics() {
-        Thread {
+        lifecycleScope.launch(Dispatchers.IO) {
             try {
                 val file = DiagnosticLog.exportZip()
-                val uri = FileProvider.getUriForFile(this, "$packageName.diagnostics", file)
-                runOnUiThread {
+                val uri = FileProvider.getUriForFile(this@MainActivity, "$packageName.diagnostics", file)
+                withContext(Dispatchers.Main) {
                     val send = Intent(Intent.ACTION_SEND).apply {
                         type = "application/zip"
                         putExtra(Intent.EXTRA_STREAM, uri)
@@ -73,20 +78,20 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     startActivity(Intent.createChooser(send, "Esporta diagnostica Moto GPS"))
                 }
             } catch (e: Exception) {
-                runOnUiThread {
-                    Toast.makeText(this, "Esportazione non riuscita: ${e.message}",
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@MainActivity, "Esportazione non riuscita: ${e.message}",
                         Toast.LENGTH_LONG).show()
                 }
             }
-        }.start()
+        }
     }
 
     private fun exportReplay() {
-        Thread {
+        lifecycleScope.launch(Dispatchers.IO) {
             try {
-                val file = ReplayTraceRecorder.export(this)
-                val uri = FileProvider.getUriForFile(this, "$packageName.diagnostics", file)
-                runOnUiThread {
+                val file = ReplayTraceRecorder.export(this@MainActivity)
+                val uri = FileProvider.getUriForFile(this@MainActivity, "$packageName.diagnostics", file)
+                withContext(Dispatchers.Main) {
                     val send = Intent(Intent.ACTION_SEND).apply {
                         type = if (file.extension.equals("zip", ignoreCase = true))
                             "application/zip" else "application/x-ndjson"
@@ -96,12 +101,12 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     startActivity(Intent.createChooser(send, "Esporta tracciato GPS privato"))
                 }
             } catch (e: Exception) {
-                runOnUiThread {
-                    Toast.makeText(this, "Esportazione GPS non riuscita: ${e.message}",
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@MainActivity, "Esportazione GPS non riuscita: ${e.message}",
                         Toast.LENGTH_LONG).show()
                 }
             }
-        }.start()
+        }
     }
 
     private val viewModel: NavigationViewModel by viewModels {
@@ -118,6 +123,12 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         } else {
             Toast.makeText(this, "Permessi necessari per la connessione BLE e GPS", Toast.LENGTH_LONG).show()
         }
+    }
+
+    private val importUnifiedPackLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) viewModel.importUnifiedOfflinePack(this, uri)
     }
 
     private val importOsmPackLauncher = registerForActivityResult(
@@ -171,17 +182,12 @@ class MainActivity : ComponentActivity(), SensorEventListener {
 
         viewModel.loadRoutePreferences(this)
 
-        // BLE must exist before the foreground GPS service can initialize the
-        // ViewModel through its first location callback on an already-running app.
-        val callback: (Location) -> Unit = { location ->
-            runOnUiThread {
-                if (!isFinishing && !isDestroyed) {
-                    viewModel.updateDeviceLocation(location, context = this)
-                }
+        // Observe locations via safe SharedFlow from LocationRepository to avoid memory leaks
+        lifecycleScope.launch {
+            LocationRepository.locationFlow.collect { location ->
+                viewModel.updateDeviceLocation(location, context = applicationContext)
             }
         }
-        foregroundLocationCallback = callback
-        LocationForegroundService.onLocationUpdate = callback
 
 
         // Double-tap Back button to exit
@@ -324,6 +330,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     onBackToSearch = {
                         viewModel.clearRoutePreview()
                     },
+                    onImportUnifiedPack = {
+                        importUnifiedPackLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
+                    },
                     onImportOsmPack = {
                         importOsmPackLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
                     },
@@ -377,6 +386,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         } else {
             permissions.add(Manifest.permission.BLUETOOTH)
             permissions.add(Manifest.permission.BLUETOOTH_ADMIN)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
         }
 
         val missingPermissions = permissions.filter {
@@ -489,6 +501,4 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     }
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
-
-
 }
