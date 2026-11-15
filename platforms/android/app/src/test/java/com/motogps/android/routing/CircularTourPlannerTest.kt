@@ -59,4 +59,43 @@ class CircularTourPlannerTest {
         assertEquals(locations.getJSONObject(0).getDouble("lon"),
             locations.getJSONObject(4).getDouble("lon"), 1e-8)
     }
+    @Test fun mandatoryStopsRemainInTheGivenOrder() {
+        val mandatory = listOf(45.12 to 9.14, 45.35 to 9.30, 45.20 to 9.05)
+        val result = CircularTourPlanner.planStops(
+            45.0, 9.0, 180, 90, mandatory)
+        assertEquals(mandatory, result)
+    }
+
+    @Test fun singleMandatoryStopGetsOptionalDetourButNeverReplaced() {
+        val chosen = 45.24 to 9.18
+        val result = CircularTourPlanner.planStops(
+            45.0, 9.0, 120, 0, listOf(chosen))
+        assertEquals(2, result.size)
+        assertEquals(chosen, result.first())
+        assertTrue(meters(result[0], result[1]) > 5_000.0)
+    }
+
+    @Test fun noMandatoryStopsPreservesOriginalThreeStopLoop() {
+        val result = CircularTourPlanner.planStops(45.0, 9.0, 100, 270, emptyList())
+        assertEquals(CircularTourPlanner.generate(45.0, 9.0, 100, 270), result)
+    }
+
+    @Test fun minimumDistanceRejectsImpossibleRequestedBudget() {
+        val start = 45.0 to 9.0
+        val farAway = listOf(46.0 to 9.0)
+        val minKm = CircularTourPlanner.straightLineMinimumKm(
+            start.first, start.second, farAway)
+        assertTrue(minKm > 200.0)
+        assertEquals(0.0,
+            CircularTourPlanner.straightLineMinimumKm(45.0, 9.0, emptyList()),
+            0.0001)
+    }
+
+    @Test fun mandatoryCoordinatesAreValidated() {
+        try {
+            CircularTourPlanner.planStops(45.0, 9.0, 100, 0, listOf(95.0 to 9.0))
+            throw AssertionError("Coordinate tappa invalide accettate")
+        } catch (_: IllegalArgumentException) {}
+    }
+
 }
