@@ -327,6 +327,35 @@ ls -lh ~/motogps-build/ValhallaItaliaV4/valhalla_tiles.tar* \
 
 
 
+### Produzione completa in WSL da PBF + POLY + Photon (branch di test)
+
+**Procedura sperimentale, non ancora eseguita sull'Italia completa.** Il generatore `scripts/offline_map/build_motopack_wsl.sh` svolge tutte le fasi in WSL Ubuntu: PBF+POLY → MotoMap v4; dump Photon JSONL (anche Zstandard) → Photon SQLite v2; PBF → grafo Valhalla moto V5; quindi assemblaggio e verifica SHA-256 del `.motopack`. Non è richiesto PowerShell per nessuna conversione.
+
+**Prerequisiti WSL**: ambiente Valhalla 3.9.1 attivato con `valhalla_build_config`, `valhalla_build_tiles` e `valhalla_build_extract` nel PATH; `zstd` installato; Python 3 con `osmium` e `shapely` (`python3 -m pip install osmium shapely` nell'ambiente virtuale appropriato). Il dump Photon deve essere **JSONL/Nominatim 0.1.x** (`.jsonl` o `.jsonl.zst`), non un ZIP indice Photon/Lucene o il vecchio SQLite. Il file `.poly` deve corrispondere allo stesso estratto geografico del PBF. Usare preferibilmente una cartella di output nel filesystem Linux WSL, non in `/mnt/c`, per le conversioni pesanti.
+
+**Da terminale WSL Ubuntu** (sostituire i nomi sorgente con quelli effettivamente presenti in `C:\MotoGPS\PBF`):
+
+```bash
+cd ~/MotoGPS/moto-gps-waveshare
+source ~/valhalla-env/bin/activate
+bash scripts/offline_map/build_motopack_wsl.sh \
+  --pbf /mnt/c/MotoGPS/PBF/italy-latest.osm.pbf \
+  --poly /mnt/c/MotoGPS/PBF/italy.poly \
+  --photon /mnt/c/MotoGPS/PBF/photon-italy.jsonl.zst \
+  --out ~/motogps-build/ItaliaUnificata \
+  --threads 2
+```
+
+Il risultato atteso è `~/motogps-build/ItaliaUnificata/MotoChatGPS-Italia.motopack`. Gli intermedi restano nella stessa directory. I comandi rifiutano di sovrascrivere una directory o un pacchetto già esistente. In caso di conversione interrotta, verificare i file presenti; **`--resume`** riutilizza i componenti già completi, ma non sovrascrive un grafo incompleto. Non eliminare cartelle o vecchi grafi automaticamente.
+
+Per trasferire **solo il pacchetto verificato** in Windows, da WSL:
+
+```bash
+cp ~/motogps-build/ItaliaUnificata/MotoChatGPS-Italia.motopack /mnt/c/MotoGPS/PBF/
+```
+
+**Attenzione:** l'Italia completa richiede molto spazio libero **su disco WSL**, oltre a quello del telefono. Anche i file ZIP intermedi e il TAR Valhalla non compresso occupano spazio; la stima del requisito non è ancora misurata in questa pipeline. Prima di avviare, controllare `df -h ~`. Evitare di ricostruire i dataset finché il pacchetto attuale funziona, salvo voler riprodurre tutta la filiera da nuove sorgenti OSM.
+
 ### Pacchetto offline unificato sperimentale (.motopack) — branch test
 
 **Non ancora collaudato sul telefono.** Nel branch `test/unified-offline-map-20261115` l'app aggiunge **Gestione mappe → Importa pacchetto unico Moto Chat GPS**. Questa procedura non è disponibile nell'APK stabile `valhalla` finché non viene autorizzato il merge. Non disinstallare l'app attuale solo per testarlo.
