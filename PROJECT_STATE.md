@@ -2,7 +2,7 @@
 
 ## STATO ATTUALE — RIPARTIRE DA QUI
 
-**Aggiornato:** 15 novembre 2026. **Repository:** [thriller47/moto-gps-waveshare](https://github.com/thriller47/moto-gps-waveshare). **Branch di integrazione e predefinito:** `valhalla` (non `main`, eliminato). **Ultima integrazione:** fast-forward del ramo `test/lvgl-single-road-renderer-20261113` su `valhalla` il 14/11, 26 commit, fino a `902de169`; successive rettifiche documentali su `valhalla`. Il vecchio branch di test è ancora presente, **non eliminarlo prima della verifica del clipping**.
+**Aggiornato:** 15 novembre 2026. **Repository:** [thriller47/moto-gps-waveshare](https://github.com/thriller47/moto-gps-waveshare). **Branch di integrazione e predefinito:** `valhalla` (non `main`, eliminato). **Esperimento attivo:** `test/unified-offline-map-20261115`, non mergiato. **Ultima integrazione:** fast-forward del ramo `test/lvgl-single-road-renderer-20261113` su `valhalla` il 14/11, 26 commit, fino a `902de169`; successive rettifiche documentali su `valhalla`. Il vecchio branch di test è ancora presente, **non eliminarlo prima della verifica del clipping**.
 
 **Funziona e risulta collaudato dall'utente:** navigazione con MotoMap v4 e Valhalla offline, rendering precedente LVGL/predittore su strada, ricerca Photon **offline v2** (Courmayeur, Via Roma Torino, indirizzo con civico e accento) e nuovo grafo **Valhalla Italia V5** installato e testato su Android. Non trattare queste conferme come una nuova misura automatica.
 
@@ -16,7 +16,17 @@
 
 **Ultime CI automatiche verificabili:** [43615504345](https://github.com/thriller47/moto-gps-waveshare/actions/runs/43615504345) Android/native SUCCESS, [43616826002](https://github.com/thriller47/moto-gps-waveshare/actions/runs/43616826002) native SUCCESS con test dello script V5; precedenti build ESP32 erano riuscite nel ciclo LVGL. Queste sono verifiche di commit sperimentali **precedenti al fast-forward**, non una nuova CI completa post-merge su `valhalla`. Nessuna prova hardware del nuovo clipping ancora effettuata.
 
-**Prossima azione unica:** registrare il giro di prova del clipping ESP32 con **log seriale** e (facoltativamente) diagnostica Android: valutare `LVGL_ROADS` (`seg`, `seg_skip`, `dirty`, `tiles`), `display perf`, FPS, sfarfallio, integrità della rotta verde e ricalcoli. Solo dopo decidere se tenere definitivamente il clipping o correggerlo. Le istruzioni operative attuali sono in [docs/MANUALE_OPERATIVO.md](docs/MANUALE_OPERATIVO.md).
+**Prossima azione stabile su `valhalla`:** registrare il giro di prova del clipping ESP32 con **log seriale** e (facoltativamente) diagnostica Android: valutare `LVGL_ROADS` (`seg`, `seg_skip`, `dirty`, `tiles`), `display perf`, FPS, sfarfallio, integrità della rotta verde e ricalcoli. Solo dopo decidere se tenere definitivamente il clipping o correggerlo. Le istruzioni operative attuali sono in [docs/MANUALE_OPERATIVO.md](docs/MANUALE_OPERATIVO.md).
+
+## Esperimento pacchetto offline unificato — 15 novembre 2026 (branch test)
+
+**Branch attivo:** `test/unified-offline-map-20261115` creato da `valhalla`. **Non mergiato.** Nessuna modifica a ESP32, BLE, routing, clipping o agli artefatti installati. La prova stradale del clipping LVGL rimane ancora aperta sul branch di integrazione.
+
+**Implementato nel test:** `scripts/offline_map/motopack.py` crea/verifica un contenitore ZIP64 `.motopack` con tre payload distinti (MotoMap v4 ZIP, Valhalla V5 TAR.ZST, Photon v2 SQLite), `manifest.json` e SHA-256. Gli artefatti attuali rimangono utilizzabili; non è stata eseguita alcuna conversione reale dei grandi dataset Italia. In Android `UnifiedOfflineMapImporter.kt` verifica tutti i payload e il manifest prima di richiamare in sequenza i tre importatori esistenti; pulsante unico in Gestione mappe; ViewModel presenta stato di avanzamento. I tre importatori sono **atomicamente protetti ciascuno per sé**, ma **non** costituiscono un'unica transazione: in caso di errore durante l'installazione può restare uno stato misto. Lo spazio richiesto per i file temporanei è elevato.
+
+**Verifiche:** 5 test locali Python su fixture fittizie superati nella sessione di sviluppo, inclusi SHA alterato, manifest duplicato, formato MotoMap errato e sovrascrittura; nuovi test `scripts/offline_map/test_motopack.py` integrati nella job native. **Ancora da verificare:** compilazione e test Android GitHub Actions del branch, creazione di pacchetto con i veri asset Italia, import su telefono, spazio disponibile, interruzioni e compatibilità del file URI Android. Nessuna verifica hardware effettuata. Non dichiarare collaudato il contenitore fino a test APK sul dispositivo.
+
+**Manuale:** aggiunta procedura sperimentale PowerShell per build, verify e installazione; non confonderla con procedura stabile. **Prossima azione unica:** verificare CI Android/native sul branch, correggere eventuali problemi e poi provare la prima installazione con file reali prima di proporre il merge.
 
 ## Pulizia repository e documentazione — 15 novembre 2026
 
