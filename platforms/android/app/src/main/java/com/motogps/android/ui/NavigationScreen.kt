@@ -56,6 +56,7 @@ import org.osmdroid.views.overlay.MapEventsOverlay
 import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polyline
 
+// Keep action icons within the configured material-icons-core set (Check/Place).
 // Numbered stop markers are drawn separately from the route geometry.
 // They do not affect Valhalla waypoints or the ESP32 BLE payload.
 private fun waypointMarkerIcon(map: MapView, number: Int): BitmapDrawable {
