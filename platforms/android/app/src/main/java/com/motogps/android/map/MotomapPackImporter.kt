@@ -56,8 +56,12 @@ internal object MotomapPackImporter {
 
     private fun sourceName(context: Context, uri: Uri): String {
         var name: String? = null
-        context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
-            if (cursor.moveToFirst()) name = cursor.getString(0)
+        if (uri.scheme == "file") {
+            name = uri.lastPathSegment
+        } else {
+            context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) name = cursor.getString(0)
+            }
         }
         val clean = (name ?: "osm_roads.motomap.zip").substringAfterLast('/')
             .substringAfterLast('\\').replace(packName, "_").take(120)
