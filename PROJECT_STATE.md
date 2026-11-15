@@ -8,11 +8,21 @@
 
 **Nuove modifiche sul solo branch test:** decoder Kotlin `MotoBLEProtocolCodec` con reset su CRC errato, verifiche di offset/sequence/type/length, limite 1500 ms fra frammenti, reset su end prematuro; test JUnit specifici per sequenza, CRC, timeout e recupero; esportazioni diagnostiche/replay con `lifecycleScope` e `Dispatchers.IO`; controllo I²C prima di inizializzare QMI8658. Sono stati mantenuti delay GATT 18 ms, pipeline GPS/callback già collaudata e gestione energia GPIO3; non è stato incluso il WakeLock proposto da Gemini. Nessuna modifica al formato BLE, alle mappe o al renderer.
 
-**Verifica:** revisione statica delle modifiche e del diff; test JUnit aggiunti ma **CI del nuovo commit ancora da verificare**, nessun flash/test su strada effettuato per il codice sperimentale. Ultime build e prove esistenti non dimostrano che le modifiche BLE/IMU siano corrette sul dispositivo.
+**Verifica:** prova su strada del 15/11 **riportata positiva dall'utente** (grafica, fluidità, rotonde, tornanti, zoom) con log ESP32/Android/replay analizzati; 6 ricalcoli Valhalla offline riusciti, nessun BLE_WRITE_FAILURE/BLE_ERROR, 4 TE timeout isolati, cali grafici intermittenti fino a 3,9 FPS. **CI del commit sperimentale ancora da verificare**; non attribuire l'esito integrato alla validazione separata di ogni singola modifica.
 
 **Rischi aperti:** la soglia dei frammenti 1500 ms può richiedere regolazione in presenza di congestione GATT; inizializzazione I²C duplicata da evitare (controllo esplicito prima di init). Prova clipping LVGL per singoli segmenti grigi ancora separata e non confermata; non modificare il renderer.
 
-**Prossima azione unica:** confermare CI Android+ESP32 della revisione finale sul branch test e fare prova con BLE iniziale, disconnessione/riconnessione, ricalcolo, log IMU ed export diagnostica. Solo dopo discutere l'integrazione selettiva in `valhalla`.
+**Prossima azione unica:** controllare la CI del branch test e poi valutare con l'utente il merge selettivo su `valhalla`. Il collaudo visivo del clipping è riuscito; conservare un monitoraggio dei picchi LVGL, senza interventi preventivi.
+
+## Collaudo su strada e diagnostiche — 15 novembre 2026
+
+**Riscontro utente:** grafica corretta, fluidità buona, zoom di rotonde e tornanti corretto, navigazione funzionante. Log condivisi: `serial_20261115_164752.txt`, `motogps-android-diagnostics(20261115-164519).zip` e `motogps-replay(20261115-164520).jsonl`. Questi dati si riferiscono alla prova utente, non a un test automatico in CI.
+
+**Analisi log:** Android 6 ricalcoli Valhalla offline riusciti (16:56:11, 16:56:24, 16:57:26, 16:58:55, 17:02:03, 17:05:01), senza `BLE_ERROR` o `BLE_WRITE_FAILURE` registrati. GPS: 712 valori age_ms, mediana 373 ms, massimo 1660 ms, un solo valore > 1000 ms; 3 snapshot `gnss_stale=true` consecutivi in una breve sosta. Replay: 4158 snapshot, 1039 fix, 548 geometrie di rotta, 194 scene. ESP32: handshake BLE completato alle 16:47:59, zoom_x100 raggiunge 400; 4 warning isolati `TE wait timeout 1/3` con fail-open; nessun errore seriale grave visto. L'ultima disconnessione alle 17:06:11 segue il termine dei GPS log Android alle 17:05:48 ed è compatibile con chiusura/interruzione della sessione, ma non dimostrata come intenzionale.
+
+**Clipping e rendering:** 214 contatori `LVGL_ROADS` e 215 misure FPS parseabili; FPS medio per finestra ~20,9 (min 3,9, max 28,1). In scene pesanti 3–4 flush/frame; minimo 3,9 FPS alle 17:04:08 e 4,4 FPS alle 17:04:14, con render 67–69 ms medi. Totali diagnostici `seg=906671`, `seg_skip=535496`, quindi ~37% delle valutazioni di segmento marcate skip. Quattro TE timeout isolati. Heap interno libero stabile 79–80 KiB nel log, ma minimum storico 8 KiB. **Conclusione:** prova visiva clipping riuscita e nessuna regressione riferita dall'utente; picchi di carico grafico ancora presenti e da monitorare, senza modifica preventiva del renderer.
+
+**Prossima azione:** verificare lo stato CI finale e decidere con l'utente se effettuare il merge selettivo BLE/IMU in `valhalla`. Non inferire che singole modifiche BLE/IMU siano isolate e provate separatamente; il giro conferma il comportamento integrato del branch test. Nessun merge o nuovo intervento codice in questa analisi.
 
 ## Recupero selettivo da gemini_review — 15 novembre 2026 (branch test)
 
