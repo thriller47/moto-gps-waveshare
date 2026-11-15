@@ -24,7 +24,7 @@ MotoMap, Valhalla e Photon sono **archivi distinti**: un grafo Valhalla non sost
 - **[Simulatore browser](platforms/web/simulator/README.md)** — riproduzione dei tracciati GPS.
 - **[Firma APK Android](docs/android-apk-signing.md)** — aggiornare l'app senza perdere dati privati.
 - **[Diagnostica ESP32 in RAM](docs/ESP32_DIAGNOSTICA_RAM.md)** — log BLE e limiti operativi.
-- **[Progetti hardware storici](hardware/README.md)** — file KiCad/CAD e riferimenti per revisione, **non** istruzioni per ordinare una scheda.
+- **[Supporto MotoNav Fusion 360 v0.15](hardware/MotoNavFusion_v015.zip)** — unico archivio conservato in `hardware/`, contenente script, manifest e istruzioni; prototipo da verificare fisicamente prima dell'uso in moto.
 - **[Contribuire](CONTRIBUTING.md)** — test, sicurezza e regole per le modifiche.
 
 Da PowerShell sul PC Windows:

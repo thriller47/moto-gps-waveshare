@@ -1,3 +1,5 @@
+> **Nota del 15/11/2026:** l'utente ha rimosso gli storici progetti PCB/CAD dalla cartella `hardware/`, lasciando soltanto `hardware/MotoNavFusion_v015.zip`. Questo documento descrive strumenti hardware **storici** che possono richiedere file non più presenti nel checkout corrente. Prima di eseguirli recuperare le dipendenze dalla cronologia Git; non considerare le procedure di questa sezione parte della build di navigazione Android/ESP32.
+
 # Hardware fabrication release gate
 
 `fab_release.py` prevents a mechanically valid but electrically empty KiCad file

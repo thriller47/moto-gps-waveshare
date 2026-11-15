@@ -18,6 +18,6 @@ I dati OSM derivati non diventano PolyForm: continuano a sottostare a ODbL. Attr
 
 **Altri componenti storici:** se riutilizzati da codice o cartelle originarie, controllare le dipendenze realmente collegate e le loro licenze (incluse quelle di eventuali componenti frontend, build e servizi). La pulizia di vecchie guide non autorizza a eliminare avvisi da librerie, risorse o sorgenti di terzi.
 
-**Hardware storico:** schemi Waveshare e dei fornitori, datasheet, reference drawings, simboli, footprint e file di fabbricazione in `hardware/` conservano copyright e condizioni dell'editore originale. La presenza nel repository non concede il diritto di ridistribuirli o modificarli oltre la licenza pertinente. I pacchetti contrassegnati `DO_NOT_ORDER` non sono pronti per la produzione.
+**Hardware:** `hardware/` conserva soltanto l'archivio utente `MotoNavFusion_v015.zip`, con lo script per il supporto meccanico Fusion 360. I vecchi schemi/datasheet/PCB/CAD pubblicati nelle revisioni precedenti sono recuperabili dalla cronologia Git, ma non fanno più parte dell'albero corrente. I diritti sui materiali dei fornitori e sulle revisioni storiche rimangono in capo ai rispettivi titolari: la cancellazione dai file correnti non ne modifica le licenze. Lo script Fusion allegato va trattato come prototipo e non come parte collaudata per la sicurezza in marcia.
 
 Moto Chat GPS è un progetto indipendente e non è un prodotto ufficiale né approvato da OpenStreetMap Foundation, Valhalla, Photon, Waveshare o dai fornitori citati.
