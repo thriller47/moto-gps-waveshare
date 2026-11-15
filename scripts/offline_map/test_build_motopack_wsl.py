@@ -40,6 +40,11 @@ class WslBuildTests(unittest.TestCase):
             self.assertNotEqual(p.returncode, 0)
             self.assertFalse((directory / "output").exists())
 
+    def test_missing_option_argument_fails(self):
+        result = self.run_script("--pbf")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Missing value", result.stderr)
+
     def test_bash_syntax(self):
         p = subprocess.run(["bash", "-n", str(SCRIPT)], capture_output=True, text=True)
         self.assertEqual(p.returncode, 0, p.stderr)
