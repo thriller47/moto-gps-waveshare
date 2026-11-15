@@ -31,6 +31,11 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.viewinterop.AndroidView
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.drawable.BitmapDrawable
 import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
 import com.motogps.android.R
@@ -49,6 +54,30 @@ import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.MapEventsOverlay
 import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polyline
+
+// Numbered stop markers are drawn separately from the route geometry.
+// They do not affect Valhalla waypoints or the ESP32 BLE payload.
+private fun waypointMarkerIcon(map: MapView, number: Int): BitmapDrawable {
+    val diameter = 58
+    val bitmap = Bitmap.createBitmap(diameter, diameter, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.rgb(24, 102, 73)
+        style = Paint.Style.FILL
+    }
+    canvas.drawCircle(29f, 29f, 24f, paint)
+    paint.color = Color.WHITE
+    paint.style = Paint.Style.STROKE
+    paint.strokeWidth = 3f
+    canvas.drawCircle(29f, 29f, 24f, paint)
+    paint.style = Paint.Style.FILL
+    paint.textAlign = Paint.Align.CENTER
+    paint.typeface = android.graphics.Typeface.create(
+        android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+    paint.textSize = 26f
+    canvas.drawText(number.toString(), 29f, 38f, paint)
+    return BitmapDrawable(map.resources, bitmap)
+}
 
 // Recolor only the osmdroid base tiles (day/night toggle): overlays, route lines and markers stay
 // untouched. The same cached MAPNIK tiles are reused in both modes.
@@ -141,7 +170,8 @@ fun RouteMapView(
                 mapView.overlays.add(Marker(mapView).apply {
                     position = via
                     title = "Tappa ${index + 1}: ${stop.name}"
-                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                    icon = waypointMarkerIcon(mapView, index + 1)
+                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
                 })
                 if (geoPoints.size < 2) viewPoints.add(via)
             }
