@@ -99,12 +99,20 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
             return
         }
         try {
+            val via = _routeWaypoints.value.toList()
+            // The preview editor can remove or reorder stops. Save the actual
+            // route plan; only surviving user points remain compulsory.
+            val mandatory = via.filter { waypoint ->
+                _circularMandatoryStops.value.any { chosen ->
+                    calculateDistanceMeters(waypoint.latitude, waypoint.longitude,
+                        chosen.latitude, chosen.longitude) < 60.0
+                }
+            }
             val tour = SavedCircularTour(
                 java.util.UUID.randomUUID().toString(), title.trim().take(80),
                 previewOriginOverride ?: (preview.latitude to preview.longitude),
                 circularRequestedKm, circularOrientationDegrees,
-                _circularMandatoryStops.value.toList(), _routeWaypoints.value.toList(),
-                _routePreferences.value
+                mandatory, via, _routePreferences.value
             )
             _savedCircularTours.value =
                 SavedCircularTourStore.save(context.applicationContext, tour)
