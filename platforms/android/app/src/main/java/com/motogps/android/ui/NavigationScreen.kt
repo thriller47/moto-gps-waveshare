@@ -386,6 +386,7 @@ fun OfflineMapsDialog(
     onDeleteValhalla: () -> Unit,
     onDeleteMap: (String) -> Unit,
     onImportOsmPack: () -> Unit,
+    onImportUnifiedPack: () -> Unit,
     downloadStatus: String? = null,
     downloadProgress: Float = 0f,
     isDownloadingMap: Boolean = false,
@@ -417,6 +418,13 @@ fun OfflineMapsDialog(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        FilledTonalButton(
+                            onClick = onImportUnifiedPack,
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                            enabled = !isDownloadingMap && !photonImporting && !valhallaImporting && !isNavigating
+                        ) {
+                            Text("Importa pacchetto unico Moto Chat GPS")
+                        }
                         FilledTonalButton(
                             onClick = onImportOsmPack,
                             modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
@@ -565,6 +573,7 @@ fun NavigationScreen(
     onStopNavigation: () -> Unit = {},
     onBackToSearch: () -> Unit,
     onImportOsmPack: () -> Unit = {},
+    onImportUnifiedPack: () -> Unit = {},
     onCorridorTileCount: () -> Int = { 0 },
     onDownloadCorridor: () -> Unit = {},
     onDeleteMap: (String) -> Unit = {},
@@ -727,6 +736,7 @@ fun NavigationScreen(
             onDeleteValhalla = onDeleteValhalla,
             onDeleteMap = onDeleteMap,
             onImportOsmPack = onImportOsmPack,
+            onImportUnifiedPack = onImportUnifiedPack,
             downloadStatus = downloadStatus,
             downloadProgress = downloadProgress,
             isDownloadingMap = isDownloadingMap,
