@@ -31,7 +31,7 @@ internal object UnifiedOfflineMapImporter {
      * Reuses existing importers; caller must prevent navigation and concurrent
      * imports while this operation is running.
      */
-    fun install(context: Context, uri: Uri, progress: (String) -> Unit = {}) {
+    fun install(context: Context, uri: Uri, progress: (String) -> Unit = {}, cancelled: () -> Boolean = { false }) {
         val dir = File(context.cacheDir, "motopack-staging")
         if (!dir.exists() && !dir.mkdirs()) throw IOException("Directory temporanea non disponibile")
         val staged = names.mapValues { (key, _) -> File(dir, "$key.pending") }
@@ -46,6 +46,7 @@ internal object UnifiedOfflineMapImporter {
             source.use { input ->
                 ZipInputStream(input.buffered()).use { zip ->
                     while (true) {
+                        if (cancelled()) throw java.util.concurrent.CancellationException("Importazione annullata")
                         val entry = zip.nextEntry ?: break
                         if (!seen.add(entry.name) || entry.isDirectory ||
                             (entry.name != MANIFEST && entry.name !in names.values)) {
@@ -56,6 +57,7 @@ internal object UnifiedOfflineMapImporter {
                             while (true) {
                                 val n = zip.read(buffer)
                                 if (n < 0) break
+                                if (cancelled()) throw java.util.concurrent.CancellationException("Importazione annullata")
                                 if (output.size().toLong() + n > MAX_MANIFEST)
                                     throw IOException("Manifest troppo grande")
                                 output.write(buffer, 0, n)
@@ -71,6 +73,7 @@ internal object UnifiedOfflineMapImporter {
                                 while (true) {
                                     val n = zip.read(buffer)
                                     if (n < 0) break
+                                    if (cancelled()) throw java.util.concurrent.CancellationException("Importazione annullata")
                                     total += n
                                     if (total > MAX_COMPONENT_BYTES)
                                         throw IOException("Componente troppo grande: $key")
@@ -103,10 +106,13 @@ internal object UnifiedOfflineMapImporter {
                 }
             }
             // No installer runs until the full archive has passed integrity checks.
+            if (cancelled()) throw java.util.concurrent.CancellationException("Importazione annullata")
             progress("Installazione MotoMap...")
             MotomapPackImporter.install(context, Uri.fromFile(staged.getValue("motomap")))
+            if (cancelled()) throw java.util.concurrent.CancellationException("Importazione annullata")
             progress("Installazione Photon...")
             OfflinePhotonPlaceSearch.install(context, Uri.fromFile(staged.getValue("photon")))
+            if (cancelled()) throw java.util.concurrent.CancellationException("Importazione annullata")
             progress("Installazione Valhalla...")
             ValhallaGraphImporter.install(context, Uri.fromFile(staged.getValue("valhalla")))
             progress("Pacchetto offline installato")
