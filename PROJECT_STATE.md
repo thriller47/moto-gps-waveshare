@@ -6,11 +6,23 @@
 
 **Funzionalità sul test:** profilo `PANORAMIC` per Valhalla `auto`, tappe numerate sulla mappa Android e circuito con tre punti automatici, circa 30–300 km, direzione N/E/S/O. Ora il tour circolare può comprendere **luoghi obbligatori selezionati dall'utente** tramite ricerca Photon/coordinate: fino a 8, ordinabili, mai sovrascritti dall'anello automatico. Senza POI restano le tre tappe automatiche; con un POI si aggiunge una deviazione automatica, con due o più POI nessun punto automatico. Controllo minimo di chilometraggio in linea d'aria per rifiutare il target impossibile prima della richiesta Valhalla. **Salvataggio persistente su telefono:** `SavedCircularTourStore` in SharedPreferences con fino a 30 tour nominati, partenza, POI obbligatori, tappe effettive (aggiornate dopo modifiche), distanza e profilo di routing. Da `I miei tour salvati` si può aprire l'anteprima da partenza originale (anche senza GPS corrente), da posizione GPS attuale o eliminare. Sempre ricalcolo della rotta con Valhalla: non si salvano geometrie obsolete. Test unitari aggiunti per generazione/anello/POI ordinati/limite di distanza/persistenza JSON. **ESP32, BLE, mappe offline e clipping LVGL invariati.**
 
-**Collaudi:** l'utente ha testato da fermo il precedente circuito automatico, giudicandolo coerente; per il precedente `valhalla` tre CI verdi e prova su strada positiva riferiti dall'utente. **Le nuove tappe obbligatorie e il salvataggio non sono ancora stati collaudati; Android CI 43746697897 fallita per due icone Material mancanti, corrette nel branch test; nuova build da verificare.** Non attribuire a questa versione il collaudo precedente.
+**Collaudi:** l'utente ha testato da fermo il precedente circuito automatico, giudicandolo coerente; per il precedente `valhalla` tre CI verdi e prova su strada positiva riferiti dall'utente. **L'utente ha confermato da fermo la pianificazione e il salvataggio; resta da collaudare la correzione dello zoom manuale dell'anteprima e la navigazione su strada.** Non attribuire a questa versione il collaudo precedente.
 
 **Limiti:** la lunghezza è indicativa, la qualità paesaggistica non è certificata e non è garantito che le strade siano tutte diverse; POI lontani dal grafo possono fallire. Quando Valhalla riceve più tappe disabilita le alternative multiple; mantiene il costing di strade preferite. I tour sono locali al dispositivo e non sincronizzati o esportati. Con partenza salvata l'anteprima usa l'origine originale, mentre la navigazione reale usa sempre il GPS corrente: informare l'utente di questo comportamento. Marcatori geometrici tappe ESP32 differiti a una fase compatibile col protocollo. Non modificare il renderer stabile.
 
-**Prossima azione unica:** verificare la CI Android del commit finale sul branch test e collaudare sul telefono ricerca dei POI, salvataggio/riavvio/ripristino, preview senza GPS da origine salvata, circuiti con 0/1/2+ tappe, distanza impossibile e ritorno a partenza prima di proporre merge.
+**Prossima azione unica:** verificare la CI Android finale del branch test e riprovare pinch/pan persistenti nell'anteprima; poi proseguire col collaudo su strada prima di proporre merge.
+
+## Correzione zoom e pan dell'anteprima del tour — 15 novembre 2026
+
+**Feedback dispositivo dell'utente:** pianificazione e salvataggio dei tour collaudati da fermo e riferiti funzionanti. Difetto riproducibile nell'anteprima Android: il pinch zoom funzionava ma tornava subito all'inquadratura dell'intero itinerario.
+
+**Causa verificata nel codice:** `RouteMapView` invocava `mapView.zoomToBoundingBox(bounds, true, 64)` ad ogni callback `AndroidView.update`, quindi anche dopo aggiornamenti di stato Compose non correlati alla rotta.
+
+**Correzione sul branch test:** `RouteMapView` riceve la chiave `route_id` della rotta selezionata e memorizza l'ultima chiave adattata. Ora esegue il fit automatico soltanto quando cambia la rotta selezionata o compare una nuova anteprima; gli aggiornamenti ordinari non ripristinano zoom/centro. Una callback `post` obsoleta non adatta una rotta già sostituita. **Nessun cambiamento a routing, BLE o ESP32.** Commit `ff869950da2b31c039fc2490ee12844144edc800` [skip ci] prima della build unica finale.
+
+**Verifiche:** causa e fix controllati a livello sorgente; **CI finale e riprova sul dispositivo non ancora completate**. Controllare pinch, doppio tap e trascinamento, modifica preferenze o tappe (nuova rotta = nuovo fit), e passaggio giorno/notte senza rifit indesiderato.
+
+**Prossimo passo:** verificare Android Actions della build finale e collaudare l'anteprima con zoom manuale persistente.
 
 ## Correzione Android CI — 15 novembre 2026
 
