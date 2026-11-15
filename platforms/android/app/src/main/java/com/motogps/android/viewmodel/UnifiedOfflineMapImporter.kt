@@ -26,6 +26,10 @@ internal object UnifiedOfflineMapImporter {
         "photon" to "photon/photon-italy-v2.sqlite"
     )
 
+    /** Preserve native extensions: Valhalla's importer uses .tar.zst to select Zstd. */
+    internal fun stagingName(key: String): String =
+        names.getValue(key).substringAfterLast('/')
+
     /**
      * Callback for UI updates. Caller must dispatch this off the main thread.
      * Reuses existing importers; caller must prevent navigation and concurrent
@@ -34,7 +38,7 @@ internal object UnifiedOfflineMapImporter {
     fun install(context: Context, uri: Uri, progress: (String) -> Unit = {}, cancelled: () -> Boolean = { false }) {
         val dir = File(context.cacheDir, "motopack-staging")
         if (!dir.exists() && !dir.mkdirs()) throw IOException("Directory temporanea non disponibile")
-        val staged = names.mapValues { (key, _) -> File(dir, "$key.pending") }
+        val staged = names.mapValues { (key, _) -> File(dir, stagingName(key)) }
         val lengths = mutableMapOf<String, Long>()
         val hashes = mutableMapOf<String, String>()
         val seen = mutableSetOf<String>()
@@ -114,7 +118,13 @@ internal object UnifiedOfflineMapImporter {
             OfflinePhotonPlaceSearch.install(context, Uri.fromFile(staged.getValue("photon")))
             if (cancelled()) throw java.util.concurrent.CancellationException("Importazione annullata")
             progress("Installazione Valhalla...")
-            ValhallaGraphImporter.install(context, Uri.fromFile(staged.getValue("valhalla")))
+            val graphBytes = ValhallaGraphImporter.install(
+                context, Uri.fromFile(staged.getValue("valhalla")),
+                { copied -> progress("Valhalla: elaborati ${copied / 1048576L} MiB") },
+                cancelled
+            )
+            if (graphBytes <= 0L) throw IOException("Valhalla non installato")
+            progress("Valhalla installato (${graphBytes / 1048576L} MiB)")
             progress("Pacchetto offline installato")
         } finally {
             staged.values.forEach { it.delete() }
