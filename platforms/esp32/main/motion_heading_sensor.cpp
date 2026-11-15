@@ -5,6 +5,7 @@
 #include <cmath>
 
 #include "bsp/esp-bsp.h"
+#include "esp_check.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -98,14 +99,18 @@ void MotionHeadingSensor::task_entry(void* context) {
   vTaskDelete(nullptr);
 }
 
-void MotionHeadingSensor::run() {
+esp_err_t MotionHeadingSensor::run() {
   qmi8658_dev_t device{};
+  // Explicitly handle an I2C bus that has not yet been initialized.
+  if (bsp_i2c_get_handle() == nullptr) {
+    ESP_RETURN_ON_ERROR(bsp_i2c_init(), kTag, "bsp_i2c_init failed");
+  }
   const esp_err_t init = qmi8658_init(
       &device, bsp_i2c_get_handle(), QMI8658_ADDRESS_HIGH);
   if (init != ESP_OK) {
     ESP_LOGW(kTag, "QMI8658 unavailable; using phone course only: %s",
              esp_err_to_name(init));
-    return;
+    return init;
   }
   ESP_ERROR_CHECK_WITHOUT_ABORT(
       qmi8658_set_accel_range(&device, QMI8658_ACCEL_RANGE_4G));
