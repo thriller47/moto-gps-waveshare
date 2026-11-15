@@ -30,8 +30,11 @@ internal object SavedCircularTourStore {
 
     fun save(context: Context, tour: SavedCircularTour): List<SavedCircularTour> {
         val existing = read(context)
-        val updated = (listOf(tour) + existing.filterNot { it.id == tour.id })
-            .take(MAX_TOURS)
+        // Saving a revised tour under the same name updates its entry instead
+        // of filling the local archive with indistinguishable duplicates.
+        val updated = (listOf(tour) + existing.filterNot {
+            it.id == tour.id || it.title.equals(tour.title, ignoreCase = true)
+        }).take(MAX_TOURS)
         require(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().putString(KEY, encode(updated)).commit()) {
             "Impossibile salvare il tour sul telefono"
