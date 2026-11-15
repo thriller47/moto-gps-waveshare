@@ -1133,7 +1133,7 @@ fun NavigationScreen(
                             modifier = Modifier.fillMaxWidth()
                                 .padding(horizontal = 16.dp, vertical = 4.dp)
                         ) {
-                            Icon(Icons.Default.Save, contentDescription = null)
+                            Icon(Icons.Default.Check, contentDescription = null)
                             Spacer(Modifier.width(8.dp))
                             Text("Salva questo tour")
                         }
@@ -1299,7 +1299,7 @@ fun NavigationScreen(
                     modifier = Modifier.fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 4.dp)
                 ) {
-                    Icon(Icons.Default.Folder, contentDescription = null)
+                    Icon(Icons.Default.Place, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
                     Text("I miei tour salvati (${savedCircularTours.size})")
                 }
