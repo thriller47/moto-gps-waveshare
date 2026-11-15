@@ -571,37 +571,6 @@ void test_removed_music_page_ignores_disconnect_media_state() {
   CHECK(moto_nav_ui_get_page() == MOTO_UI_PAGE_NAVIGATION);
 }
 
-void test_demo_mode_visual_contract() {
-  // Demo mode suppresses the full-screen connection lifecycle and labels the
-  // status line "DEMO RIDE"; toggling it must be perfectly reversible.
-  moto_ui_state_t empty = base_state();
-  empty.mode = MOTO_UI_ACQUIRING_FIX;
-  empty.has_destination = 0;
-  empty.route_point_count = 0;
-  empty.road_name = nullptr;
-  empty.next_road_name = nullptr;
-  moto_nav_ui_set_state(&empty);
-  moto_nav_ui_set_phone_connection(MOTO_UI_PHONE_OFFLINE);
-  moto_nav_ui_set_demo_active(0);
-  const Frame without_demo = capture();
-
-  moto_nav_ui_set_demo_active(1);
-  const Frame with_demo = capture();
-  CHECK(with_demo.hash != without_demo.hash);
-
-  moto_nav_ui_set_demo_active(0);
-  CHECK(capture().hash == without_demo.hash);
-
-  // Contract: demo mode is connection-independent. The lifecycle surface is
-  // hidden while demo is active, so connecting the phone must not change a
-  // single pixel of the demo frame.
-  moto_nav_ui_set_demo_active(1);
-  moto_nav_ui_set_phone_connection(MOTO_UI_PHONE_ONLINE);
-  CHECK(capture().hash == with_demo.hash);
-  moto_nav_ui_set_demo_active(0);
-  moto_nav_ui_set_phone_connection(MOTO_UI_PHONE_OFFLINE);
-}
-
 void test_capacity_payloads_render_stably() {
   // Maximum-capacity geometry must render identically across repeats.
   moto_ui_state_t max_state = base_state();
@@ -1028,7 +997,6 @@ int main(int argc, char **argv) {
   test_no_turn_suppresses_false_arrow_without_losing_destination_distance();
   test_phone_lifecycle_renders_deterministically();
   test_removed_music_page_ignores_disconnect_media_state();
-  test_demo_mode_visual_contract();
   test_capacity_payloads_render_stably();
   test_motion_frames_interpolate_then_settle_without_residue();
   test_reroute_without_geometry_preserves_road_map();

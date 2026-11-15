@@ -104,9 +104,6 @@ typedef void (*moto_music_command_callback_t)(moto_music_command_t command,
                                                void *context);
 typedef void (*moto_page_change_callback_t)(moto_ui_page_t page,
                                              void *context);
-typedef void (*moto_demo_change_callback_t)(uint8_t enabled,
-                                             void *context);
-
 typedef struct {
     moto_ui_page_t page;
     moto_ui_mode_t mode;
@@ -185,13 +182,6 @@ void moto_nav_ui_set_music_page_enabled(uint8_t enabled);
 void moto_nav_ui_set_music_command_callback(
     moto_music_command_callback_t callback,
     void *context);
-/** Mark the production navigation renderer as being fed by demo snapshots. */
-void moto_nav_ui_set_demo_active(uint8_t enabled);
-/** Long-pressing the navigation page toggles this test-build demo source. */
-void moto_nav_ui_set_demo_change_callback(
-    moto_demo_change_callback_t callback,
-    void *context);
-
 
 #ifdef __cplusplus
 }

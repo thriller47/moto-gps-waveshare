@@ -44,7 +44,7 @@ class PhoneNavBridge {
     return power_arrived_.load(std::memory_order_relaxed);
   }
   void on_imu_sample(float heading_rate_dps, std::uint64_t sample_ms);
-  void update_demo(std::uint64_t now_ms);
+  void update_motion_tick();
   void service_diagnostics(std::uint64_t now_ms);
   moto::ble::AckStatus on_message(
       const moto::ble::ReassembledMessage& message);
@@ -68,7 +68,6 @@ class PhoneNavBridge {
 
   static void page_changed(moto_ui_page_t page, void* context);
   static void music_command(moto_music_command_t command, void* context);
-  static void demo_changed(uint8_t enabled, void* context);
 
   void consume_navigation(const moto::ble::NavigationSnapshot& input);
   moto::ble::AckStatus consume_geometry(
@@ -90,12 +89,6 @@ class PhoneNavBridge {
   void send_page_command(moto_ui_page_t page);
   void send_music_command(moto_music_command_t command);
   void send_device_command(moto::ble::DeviceCommand command);
-  void set_demo_active(bool active);
-  // Fill an existing member in place. NavSnapshot contains the bounded map
-  // window and is intentionally several kilobytes; returning one by value can
-  // overflow the small FreeRTOS demo-task stack as road density grows.
-  static void fill_demo_snapshot(moto::nav::NavSnapshot& output,
-                                 std::uint64_t elapsed_ms);
 
   moto::nav::NavPresenter& presenter_;
   moto::nav::NavSnapshot snapshot_{};
@@ -128,7 +121,6 @@ class PhoneNavBridge {
   bool render_music_page_enabled_ = false;
   moto_ui_phone_connection_t render_phone_connection_ =
       MOTO_UI_PHONE_OFFLINE;
-  bool render_demo_active_ = false;
   // BLE instruction control marker, copied to the single LVGL render task.
   std::uint8_t waypoint_seen_index_ = 0;
   std::uint8_t waypoint_pending_index_ = 0;
@@ -150,7 +142,4 @@ class PhoneNavBridge {
   std::uint64_t last_motion_present_ms_ = 0;
   std::uint64_t last_diagnostic_send_ms_ = 0;
   moto::ble::DiagnosticBatch pending_diagnostic_batch_{};
-  moto::nav::NavSnapshot snapshot_before_demo_{};
-  std::uint64_t demo_started_ms_ = 0;
-  bool demo_active_ = false;
 };

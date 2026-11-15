@@ -75,12 +75,12 @@ void update_motion_heading(float heading_rate_dps, std::uint64_t sample_ms,
                                                        sample_ms);
 }
 
-void demo_tick_task(void* context) {
+void motion_tick_task(void* context) {
   auto* bridge = static_cast<PhoneNavBridge*>(context);
   while (true) {
     const auto now_ms = static_cast<std::uint64_t>(esp_timer_get_time()) /
                         1'000U;
-    bridge->update_demo(now_ms);
+    bridge->update_motion_tick();
     // A maximum of one small diagnostic BLE batch/second, only when
     // explicitly enabled by Android. OFF does no work and never writes flash.
     bridge->service_diagnostics(now_ms);
@@ -406,11 +406,11 @@ extern "C" void app_main(void) {
     ESP_LOGI(kTag, "BOOT_DIAG stage=ble_advertising_requested");
   }
 
-  // Demo generation fills the retained snapshot in place, but geometry and
-  // LVGL projection still use deeper C++ call frames than a trivial task.
-  if (xTaskCreate(demo_tick_task, "moto_demo", 6'144, &phone_bridge, 2,
+  // Maintain 40 Hz motion interpolation and low-rate BLE diagnostics.
+  // This is NOT a simulated demo route: all map geometry comes from Android.
+  if (xTaskCreate(motion_tick_task, "moto_motion", 6'144, &phone_bridge, 2,
                   nullptr) != pdPASS) {
-    ESP_LOGW(kTag, "navigation demo task could not start");
+    ESP_LOGW(kTag, "navigation motion tick task could not start");
   }
 
 #ifdef MOTO_SIGNAL_AUDIO_BOOT_TEST
