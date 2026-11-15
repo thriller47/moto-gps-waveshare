@@ -9,6 +9,7 @@
 #include "esp_timer.h"
 #include "esp_attr.h"
 #include "esp_system.h"
+#include "driver/rtc_io.h"
 #include "sdkconfig.h"
 #include "lvgl.h"
 #include "freertos/FreeRTOS.h"
@@ -123,6 +124,8 @@ void power_down(const char* reason) {
   }
   vTaskDelay(pdMS_TO_TICKS(500));
   while (board_port_power_button_pressed()) vTaskDelay(pdMS_TO_TICKS(20));
+  rtc_gpio_pulldown_en(GPIO_NUM_3);
+  rtc_gpio_pullup_dis(GPIO_NUM_3);
   ESP_ERROR_CHECK(esp_sleep_enable_ext1_wakeup_io(
       1ULL << 3, ESP_EXT1_WAKEUP_ANY_HIGH));
   esp_deep_sleep_start();
