@@ -16,6 +16,12 @@
 
 **Prossima azione unica:** registrare il giro di prova del clipping ESP32 con **log seriale** e (facoltativamente) diagnostica Android: valutare `LVGL_ROADS` (`seg`, `seg_skip`, `dirty`, `tiles`), `display perf`, FPS, sfarfallio, integrità della rotta verde e ricalcoli. Solo dopo decidere se tenere definitivamente il clipping o correggerlo. Le istruzioni operative attuali sono in [docs/MANUALE_OPERATIVO.md](docs/MANUALE_OPERATIVO.md).
 
+## Pulizia repository e documentazione — 15 novembre 2026
+
+**Scope:** pulizia della documentazione del progetto originario cinese/inglese non più utilizzata: vecchi README, tutorial iOS/gateway, piani software superati, duplicati bilingui e proposta completa di hardware non attuale (PDF/DOCX/asset e relativo generatore); rimozione dei banner pubblicitari ereditati. Sostituiti README principale, guida ai contributi, avvisi terze parti e indici `hardware/` e `platforms/esp32/` con versioni italiane coerenti con Android+ESP32, Photon v2, MotoMap v4 e Valhalla V5. **Intatti:** `LICENSE.md`, `LICENSES/`, `.gitmodules`, submodule `third_party/lvgl`, `shared/offline_map/ATTRIBUTION.txt`, sorgenti, risorse della scheda, CAD/KiCad e file di produzione hardware, script di build e i due documenti operativi aggiornati. Il materiale eliminato rimane recuperabile nella cronologia Git; non ricreare guide obsolete. La licenza principale non sostituisce MIT, Apache-2.0, OFL o ODbL per componenti/dati di terzi.
+
+**Verifiche:** censimento completo del tree GitHub e verifica dei riferimenti principali; diff finale e assenza di modifiche a codice/SDK da controllare. Intervento esclusivamente documentale/asset pubblicitari, nessuna nuova prova hardware o build richiesta. **Il test su strada del clipping LVGL resta P0**, rinviato per maltempo e non ancora confermato. Il vecchio ramo di test rimane finché il clipping non è collaudato.
+
 ## Architettura attuale e artefatti indipendenti
 
 | Componente | Stato operativo | Artefatto/importazione | Principale limite |

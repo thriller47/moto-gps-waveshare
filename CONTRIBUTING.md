@@ -1,16 +1,17 @@
-> **语言 / Language:** 中文 · [English](CONTRIBUTING.en.md)
+# Contribuire a Moto Chat GPS
 
-# 参与开发
+Il progetto è sviluppato principalmente sul branch **`valhalla`**. Prima di proporre modifiche leggere [PROJECT_STATE.md](PROJECT_STATE.md), [AGENTS.md](AGENTS.md) e il [manuale operativo](docs/MANUALE_OPERATIVO.md). Il progetto è destinato allo sviluppo sperimentale e personale, senza promessa di assistenza o manutenzione commerciale.
 
-欢迎提交非商业用途的 bug 复现、文档修正和代码改进。提交贡献前请阅读 LICENSE.md
-与 THIRD_PARTY_NOTICES.md；原创贡献须可按本项目许可分发，第三方内容必须说明来源。
+## Proposte e modifiche
 
-- 先说明目标板型号、iOS / ESP-IDF 版本、复现步骤和实际结果。
-- 变更共享协议时，同步更新 C++ / iOS 两端与 golden fixture 测试。
-- 路线/位置 bug 请使用公共 POI 或匿名化数据，不要公开家庭位置、完整出行轨迹。
-- 不提交 Key、Apple 签名证书、设备标识、服务凭证或未经授权的地图缓存。
-- PR 中列出实际执行的测试；编译通过不能代替蓝牙、路线正确性或实车验收。
-- 地图几何不得用随机线条或虚构建筑填补真实数据缺失。
+1. Descrivere problema, dispositivo, versione firmware/APK, passaggi per riprodurlo e comportamento atteso.
+2. Lavorare su un ramo di prova separato quando il cambiamento comporta rischi. **Non reintrodurre** `main`, gateway OSRM/Render, vecchie pagine o formati delle mappe.
+3. Mantenere la compatibilità Android↔BLE↔ESP32; se si modifica un payload, aggiornare codice, fixture e test coinvolti.
+4. Verificare build/test effettivamente eseguiti e distinguerli dai test su strada. Una modifica non deve essere dichiarata collaudata soltanto perché compila.
+5. Evitare commit di credenziali, API key, log GPS personali, dati di posizione privati, dump OSM, mappe compilate o certificati di firma.
 
-安全问题请勿在公开 Issue 粘贴密钥或可用于攻击现有服务的细节。
-本仓库是开发快照，暂不承诺商业维护、响应期限或稳定性。
+## Licenze e attribuzioni
+
+Leggere [LICENSE.md](LICENSE.md) e [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Conservare i riferimenti a OpenStreetMap, Valhalla, Photon, Waveshare, LVGL e alle licenze di font/componenti. Non copiare materiale proprietario o di terzi senza autorizzazione. Le eventuali modifiche a codice di terzi devono preservare licenza e avvisi originali.
+
+Per le prove su strada non maneggiare telefono o cavi durante la guida; usare tracciati anonimizzati quando si condividono report.
