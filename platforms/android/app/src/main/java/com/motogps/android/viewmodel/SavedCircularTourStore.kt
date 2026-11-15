@@ -7,7 +7,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /** Save a tour PLAN, not its obsolete route geometry, for later Valhalla recalculation. */
-internal data class SavedCircularTour(
+data class SavedCircularTour(
     val id: String,
     val title: String,
     val departure: Pair<Double, Double>,
