@@ -6,13 +6,32 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
+import android.os.PowerManager
 import androidx.core.app.NotificationCompat
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
+
+object LocationRepository {
+    private val _locationFlow = MutableSharedFlow<Location>(
+        replay = 1,
+        extraBufferCapacity = 64,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
+    val locationFlow: SharedFlow<Location> = _locationFlow.asSharedFlow()
+
+    fun emit(location: Location) {
+        _locationFlow.tryEmit(location)
+    }
+}
 
 class LocationForegroundService : Service(), LocationListener {
     companion object {
@@ -25,6 +44,7 @@ class LocationForegroundService : Service(), LocationListener {
     private val gpsIntervalMs = 200L
     private val networkFallbackIntervalMs = 1000L
     private lateinit var locationManager: LocationManager
+    private var wakeLock: PowerManager.WakeLock? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -41,7 +61,21 @@ class LocationForegroundService : Service(), LocationListener {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
 
-        startForeground(NOTIFICATION_ID, notification)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val serviceTypes = ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION or
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+            startForeground(NOTIFICATION_ID, notification, serviceTypes)
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
+        }
+
+        if (wakeLock == null) {
+            val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
+            wakeLock = powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MotoGPS:LocationWakeLock")?.apply {
+                setReferenceCounted(false)
+                acquire(12 * 60 * 60 * 1000L) // Bounded max 12 hours
+            }
+        }
 
         startLocationUpdates()
         return START_STICKY
@@ -58,6 +92,7 @@ class LocationForegroundService : Service(), LocationListener {
 
             val bestLast = selectBestLocation(lastGps, lastNet)
             if (bestLast != null) {
+                LocationRepository.emit(bestLast)
                 onLocationUpdate?.invoke(bestLast)
             }
 
@@ -88,6 +123,7 @@ class LocationForegroundService : Service(), LocationListener {
     }
 
     override fun onLocationChanged(location: Location) {
+        LocationRepository.emit(location)
         onLocationUpdate?.invoke(location)
     }
 
@@ -103,6 +139,14 @@ class LocationForegroundService : Service(), LocationListener {
         try {
             locationManager.removeUpdates(this)
         } catch (_: Exception) {}
+        try {
+            wakeLock?.let {
+                if (it.isHeld) {
+                    it.release()
+                }
+            }
+        } catch (_: Exception) {}
+        wakeLock = null
     }
 
     private fun createNotificationChannel() {

@@ -6,3 +6,6 @@
 # Valhalla's JNI-facing API must keep the names and constructors expected by
 # its native library. Other dependencies retain their own consumer rules.
 -keep class com.valhalla.valhalla.** { *; }
+
+# MotoBLE protocol data models and codec
+-keep class com.motogps.android.jni.** { *; }
