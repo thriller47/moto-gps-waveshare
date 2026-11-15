@@ -127,7 +127,7 @@ fun RouteMapView(
     onWaypointLongPress: ((Double, Double) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
-    // The AndroidView.update callback runs on unrelated Compose changes (GPS,
+    // Route-fitting is deliberately one-shot per route ID, not per recomposition.\n    // The AndroidView.update callback runs on unrelated Compose changes (GPS,
     // dialog state, theme). Fit the whole route only when its identity changes.
     // A plain remembered cell avoids recomposition just to record the fitted key.
     val lastFitKey = remember { arrayOfNulls<String>(1) }
