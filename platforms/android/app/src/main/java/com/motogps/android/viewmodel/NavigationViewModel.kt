@@ -31,6 +31,7 @@ import com.motogps.android.routing.RoutePreferences
 import com.motogps.android.routing.RouteStyle
 import com.motogps.android.routing.ValhallaTurnGuidance
 import com.motogps.android.routing.ValhallaRouteLocations
+import com.motogps.android.routing.CircularTourPlanner
 import com.motogps.android.routing.RerouteDepartureDirection
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
@@ -360,6 +361,39 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
             } finally {
                 _isLoading.value = false
             }
+        }
+    }
+
+    /** Plan a round trip from the latest accepted GPS location.
+     *  The three intermediate locations are real Valhalla stops, not drawn lines.
+     */
+    fun previewCircularTour(distanceKm: Int, orientationDegrees: Int = 0) {
+        if (_isNavigating.value || _isLoading.value) return
+        if (!hasFirstFix) {
+            _errorMessage.value = "Attendi un fix GPS valido per creare il tour circolare"
+            return
+        }
+        try {
+            val (lat, lon) = currentLocation.value
+            val stops = CircularTourPlanner.generate(
+                lat, lon, distanceKm, orientationDegrees)
+            _routeWaypoints.value = stops.mapIndexed { index, coordinates ->
+                PlaceSearchResult("Tappa circolare ${index + 1}", "",
+                    "Tour circolare", coordinates.first, coordinates.second)
+            }
+            // A very short closing leg can be ambiguous for the routing engine.
+            // The three mandatory intermediate stops force a full road-following circuit.
+            val start = PlaceSearchResult("Ritorno al punto di partenza", "",
+                "Tour circolare", lat, lon)
+            if (_routePreferences.value.style == RouteStyle.FASTEST) {
+                _routePreferences.value = _routePreferences.value.copy(
+                    style = RouteStyle.PANORAMIC)
+            }
+            DiagnosticLog.event("CIRCULAR_TOUR",
+                "requested_km=$distanceKm orientation=$orientationDegrees stops=3")
+            previewRoute(start)
+        } catch (e: IllegalArgumentException) {
+            _errorMessage.value = "Tour circolare non valido: ${e.message}"
         }
     }
 
