@@ -37,6 +37,56 @@ internal object CircularTourPlanner {
         }
     }
 
+    /**
+     * Mandatory stops always remain in user order. With no mandatory locations
+     * use the legacy three-stop circle. With just one add one optional detour
+     * point on the side of the selected orientation to avoid an out-and-back.
+     * Two or more mandatory locations are never reordered or diluted with
+     * synthetic points: only Valhalla decides if a road circuit exists.
+     */
+    fun planStops(
+        latitude: Double, longitude: Double, distanceKm: Int,
+        orientationDegrees: Int,
+        mandatory: List<Pair<Double, Double>>
+    ): List<Pair<Double, Double>> {
+        require(mandatory.size <= ValhallaRouteLocations.MAX_STOPS)
+        // Validate parameters and geography even when no automatic points are used.
+        val generated = generate(latitude, longitude, distanceKm, orientationDegrees)
+        if (mandatory.isEmpty()) return generated
+        require(mandatory.all { it.first.isFinite() && it.second.isFinite() &&
+            it.first in -90.0..90.0 && it.second in -180.0..180.0 })
+        if (mandatory.size >= 2) return mandatory
+
+        // Put a single optional stop beyond the mandatory location, offset
+        // sideways in the requested tour direction. Never replace the user's POI.
+        val mandatoryPoint = mandatory.single()
+        val side = (orientationDegrees + 90) % 360
+        val detour = destination(mandatoryPoint.first, mandatoryPoint.second,
+            side.toDouble(), distanceKm * 125.0)
+        return listOf(mandatoryPoint, detour)
+    }
+
+    /** Minimum possible distance to visit all compulsory points and return.
+     * Used only as a lower bound, not as an estimate of road-network length.
+     */
+    fun straightLineMinimumKm(
+        latitude: Double, longitude: Double,
+        mandatory: List<Pair<Double, Double>>
+    ): Double {
+        if (mandatory.isEmpty()) return 0.0
+        val ordered = listOf(latitude to longitude) + mandatory +
+            listOf(latitude to longitude)
+        return ordered.zipWithNext().sumOf { (a, b) ->
+            val dLat = (b.first - a.first) * PI / 180.0
+            val dLon = (b.second - a.second) * PI / 180.0
+            val lat1 = a.first * PI / 180.0
+            val lat2 = b.first * PI / 180.0
+            val h = sin(dLat / 2) * sin(dLat / 2) +
+                cos(lat1) * cos(lat2) * sin(dLon / 2) * sin(dLon / 2)
+            2.0 * 6371.0 * asin(kotlin.math.sqrt(h.coerceIn(0.0, 1.0)))
+        }
+    }
+
     private fun destination(lat: Double, lon: Double, bearingDeg: Double, meters: Double)
         : Pair<Double, Double> {
         val radiusEarth = 6_371_000.0
