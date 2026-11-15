@@ -20,7 +20,7 @@ class MotionHeadingSensor {
 
  private:
   static void task_entry(void* context);
-  void run();
+  esp_err_t run();
 
   SampleCallback callback_ = nullptr;
   void* callback_context_ = nullptr;
