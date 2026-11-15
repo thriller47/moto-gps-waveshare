@@ -179,6 +179,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
 
         viewModel.loadRoutePreferences(this)
         viewModel.loadSavedCircularTours(this)
+        viewModel.loadTourSession(this)
 
         // BLE must exist before the foreground GPS service can initialize the
         // ViewModel through its first location callback on an already-running app.
@@ -219,6 +220,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             val routePreview = viewModel.routePreview.collectAsState().value
             val routeOptions = viewModel.routeOptions.collectAsState().value
             val routeWaypoints = viewModel.routeWaypoints.collectAsState().value
+            val pausedTour = viewModel.pausedTour.collectAsState().value
             val circularMandatoryStops = viewModel.circularMandatoryStops.collectAsState().value
             val savedCircularTours = viewModel.savedCircularTours.collectAsState().value
             val waypointSearchResults = viewModel.waypointSearchResults.collectAsState().value
@@ -303,6 +305,10 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     routePreview = routePreview,
                     routeOptions = routeOptions,
                     routeWaypoints = routeWaypoints,
+                    pausedTour = pausedTour,
+                    onPauseTour = { viewModel.pauseTour() },
+                    onPreviewResumeTour = { viewModel.previewResumeTour() },
+                    onDiscardPausedTour = { viewModel.discardPausedTour() },
                     circularMandatoryStops = circularMandatoryStops,
                     savedCircularTours = savedCircularTours,
                     onSaveCircularTour = { name ->
