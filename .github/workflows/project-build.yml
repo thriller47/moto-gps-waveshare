@@ -148,6 +148,9 @@ jobs:
       - name: Verify unified Moto Chat GPS offline bundle
         run: python3 -m unittest discover -s scripts/offline_map -p 'test_motopack.py'
 
+      - name: Smoke-test WSL unified map builder CLI
+        run: python3 -m unittest discover -s scripts/offline_map -p 'test_build_motopack_wsl.py'
+
       - name: Verify Valhalla V5 motorcycle-only filter script
         run: python3 -m unittest discover -s scripts/offline_map -p 'test_valhalla_moto_v5.py'
 
