@@ -78,6 +78,72 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     private val _routePreview = MutableStateFlow<PlaceSearchResult?>(null)
     val routePreview: StateFlow<PlaceSearchResult?> = _routePreview
 
+    private val _savedCircularTours = MutableStateFlow<List<SavedCircularTour>>(emptyList())
+    val savedCircularTours: StateFlow<List<SavedCircularTour>> = _savedCircularTours
+    private var circularRequestedKm = 100
+    private var circularOrientationDegrees = 0
+    private var previewOriginOverride: Pair<Double, Double>? = null
+
+    fun loadSavedCircularTours(context: Context) {
+        _savedCircularTours.value = SavedCircularTourStore.read(context.applicationContext)
+    }
+
+    fun saveCurrentCircularTour(context: Context, title: String) {
+        val preview = _routePreview.value
+        if (_isNavigating.value || preview?.displayArea != "Tour circolare") {
+            _errorMessage.value = "Apri un tour circolare prima di salvarlo"
+            return
+        }
+        if (title.isBlank()) {
+            _errorMessage.value = "Inserisci un nome per il tour"
+            return
+        }
+        try {
+            val tour = SavedCircularTour(
+                java.util.UUID.randomUUID().toString(), title.trim().take(80),
+                previewOriginOverride ?: (preview.latitude to preview.longitude),
+                circularRequestedKm, circularOrientationDegrees,
+                _circularMandatoryStops.value.toList(), _routeWaypoints.value.toList(),
+                _routePreferences.value
+            )
+            _savedCircularTours.value =
+                SavedCircularTourStore.save(context.applicationContext, tour)
+            DiagnosticLog.event("CIRCULAR_TOUR_SAVED",
+                "stops=${tour.via.size} mandatory=${tour.mandatory.size}")
+        } catch (e: Exception) {
+            _errorMessage.value = "Impossibile salvare il tour: ${e.message}"
+        }
+    }
+
+    fun removeSavedCircularTour(context: Context, id: String) {
+        try {
+            _savedCircularTours.value =
+                SavedCircularTourStore.remove(context.applicationContext, id)
+        } catch (e: Exception) {
+            _errorMessage.value = "Impossibile eliminare il tour: ${e.message}"
+        }
+    }
+
+    fun openSavedCircularTour(tour: SavedCircularTour, fromCurrentPosition: Boolean) {
+        if (_isNavigating.value) return
+        if (fromCurrentPosition && !hasFirstFix) {
+            _errorMessage.value = "Attendi un fix GPS per partire dalla posizione attuale"
+            return
+        }
+        circularRequestedKm = tour.desiredKm
+        circularOrientationDegrees = tour.orientationDegrees
+        _circularMandatoryStops.value = tour.mandatory.toList()
+        _routeWaypoints.value = tour.via.toList()
+        _routePreferences.value = tour.preferences
+        previewOriginOverride = if (fromCurrentPosition) null else tour.departure
+        val destination = if (fromCurrentPosition) currentLocation.value else tour.departure
+        DiagnosticLog.event("CIRCULAR_TOUR_LOADED",
+            "mandatory=${tour.mandatory.size} stops=${tour.via.size} " +
+                "origin=${if (fromCurrentPosition) "current" else "saved"}")
+        previewRoute(PlaceSearchResult("Ritorno al punto di partenza", "",
+            "Tour circolare", destination.first, destination.second))
+    }
+
     private val _routeWaypoints = MutableStateFlow<List<PlaceSearchResult>>(emptyList())
     val routeWaypoints: StateFlow<List<PlaceSearchResult>> = _routeWaypoints
     private val _circularMandatoryStops = MutableStateFlow<List<PlaceSearchResult>>(emptyList())
@@ -412,6 +478,27 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
             return
         }
         try {
+            previewOriginOverride = null
+            circularRequestedKm = distanceKm
+            circularOrientationDegrees = orientationDegrees
+            previewOriginOverride = null
+            circularRequestedKm = distanceKm
+            circularOrientationDegrees = orientationDegrees
+            previewOriginOverride = null
+            circularRequestedKm = distanceKm
+            circularOrientationDegrees = orientationDegrees
+            previewOriginOverride = null
+            circularRequestedKm = distanceKm
+            circularOrientationDegrees = orientationDegrees
+            previewOriginOverride = null
+            circularRequestedKm = distanceKm
+            circularOrientationDegrees = orientationDegrees
+            previewOriginOverride = null
+            circularRequestedKm = distanceKm
+            circularOrientationDegrees = orientationDegrees
+            previewOriginOverride = null
+            circularRequestedKm = distanceKm
+            circularOrientationDegrees = orientationDegrees
             val (lat, lon) = currentLocation.value
             val mandatory = _circularMandatoryStops.value.toList()
             val coordinates = mandatory.map { it.latitude to it.longitude }
@@ -490,6 +577,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         arrivalDetector.reset()
         routePreviewJob?.cancel()
         waypointSearchJob?.cancel()
+        previewOriginOverride = null
         _routeWaypoints.value = emptyList()
         _waypointSearchResults.value = emptyList()
         _waypointSearching.value = false
@@ -1633,9 +1721,9 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     }
 
     private fun fetchRouteOptions(place: PlaceSearchResult): List<RouteOption> {
-        if (!hasFirstFix)
+        if (!hasFirstFix && previewOriginOverride == null)
             throw IllegalStateException("Attendi un fix GPS valido prima del calcolo")
-        val (lat, lon) = currentLocation.value
+        val (lat, lon) = previewOriginOverride ?: currentLocation.value
         val response = resolveRoute(lat, lon, place)
         val route = response.getJSONObject("route")
         val maneuvers = route.optJSONArray("maneuvers")
