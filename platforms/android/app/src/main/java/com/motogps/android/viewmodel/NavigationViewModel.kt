@@ -1276,8 +1276,15 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                     )
                 }
                 refreshSavedMaps(context)
+                val graphInstalled = OfflineValhallaRouter.hasTiles(context.applicationContext)
+                val photonInstalled = OfflinePhotonPlaceSearch.installed(context.applicationContext)
+                if (!graphInstalled || !photonInstalled) {
+                    throw java.io.IOException("Verifica finale: Valhalla o Photon non disponibile")
+                }
+                _valhallaStatus.value = "Grafo Valhalla installato dal pacchetto unificato"
+                _photonStatus.value = "Indice Photon installato dal pacchetto unificato"
                 _downloadProgress.value = 1f
-                _downloadStatus.value = "Pacchetto Moto Chat GPS installato"
+                _downloadStatus.value = "MotoMap, Photon e Valhalla installati"
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
