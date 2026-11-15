@@ -119,6 +119,7 @@ private fun MotoChatAppBarTitle() {
 @Composable
 fun RouteMapView(
     geoPoints: List<GeoPoint>,
+    routeFitKey: String,
     nightMode: Boolean = true,
     currentLocation: Pair<Double, Double>? = null,
     destinationLocation: Pair<Double, Double>? = null,
@@ -126,6 +127,10 @@ fun RouteMapView(
     onWaypointLongPress: ((Double, Double) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
+    // The AndroidView.update callback runs on unrelated Compose changes (GPS,
+    // dialog state, theme). Fit the whole route only when its identity changes.
+    // A plain remembered cell avoids recomposition just to record the fitted key.
+    val lastFitKey = remember { arrayOfNulls<String>(1) }
     AndroidView(
         factory = { context ->
             Configuration.getInstance().userAgentValue = context.packageName
@@ -188,12 +193,21 @@ fun RouteMapView(
                 })
                 if (geoPoints.size < 2) viewPoints.add(target)
             }
-            if (viewPoints.size >= 2) {
-                val bounds = BoundingBox.fromGeoPoints(viewPoints)
-                mapView.post { mapView.zoomToBoundingBox(bounds, true, 64) }
-            } else if (viewPoints.size == 1) {
-                mapView.controller.setCenter(viewPoints.first())
-                mapView.controller.setZoom(15.0)
+            if (lastFitKey[0] != routeFitKey) {
+                lastFitKey[0] = routeFitKey
+                if (viewPoints.size >= 2) {
+                    val bounds = BoundingBox.fromGeoPoints(viewPoints)
+                    mapView.post {
+                        // If a newer preview replaced this one before the UI
+                        // callback runs, never refit an obsolete route.
+                        if (lastFitKey[0] == routeFitKey) {
+                            mapView.zoomToBoundingBox(bounds, true, 64)
+                        }
+                    }
+                } else if (viewPoints.size == 1) {
+                    mapView.controller.setCenter(viewPoints.first())
+                    mapView.controller.setZoom(15.0)
+                }
             }
             mapView.invalidate()
         },
@@ -1084,6 +1098,8 @@ fun NavigationScreen(
                     RouteMapView(
                         nightMode = nightMapEnabled,
                         geoPoints = geoPoints,
+                        routeFitKey = selectedRoute?.rawRouteJson?.optString("route_id")
+                            ?: "preview-without-route",
                         currentLocation = currentLocation,
                         destinationLocation = Pair(routePreview.latitude, routePreview.longitude),
                         waypoints = routeWaypoints,
