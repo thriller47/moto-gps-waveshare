@@ -288,6 +288,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     onSearch = { query ->
                         viewModel.searchDestination(query)
                     },
+                    onCircularTour = { distanceKm, orientation ->
+                        viewModel.previewCircularTour(distanceKm, orientation)
+                    },
                     onConnectRequest = {
                         checkPermissionsAndScan(forceScan = true)
                     },
