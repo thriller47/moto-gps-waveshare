@@ -4,7 +4,15 @@
 
 **Questa è la procedura corrente.** Il manuale precedente, con vecchi branch, Photon v1, MotoMap v2/v3, proposte non ancora implementate e note di debug ripetute, è conservato in [archive/MANUALE_OPERATIVO_PRE_CLEANUP_2026-11-15.md](archive/MANUALE_OPERATIVO_PRE_CLEANUP_2026-11-15.md) **solo per riferimento storico**. Lo stato del progetto e le prove ancora aperte sono in [../PROJECT_STATE.md](../PROJECT_STATE.md). Non usare i comandi di checkout dei rami di test dell'archivio.
 
-**Stato delle prove:** Photon SQLite v2 e grafo Valhalla Italia V5 sono stati **collaudati dall'utente sul telefono**. Il **clipping LVGL per singoli segmenti grigi** è già in `valhalla`, ma la prova stradale prevista il 14 novembre è stata rinviata per maltempo; non dichiararlo ancora validato.
+**Stato delle prove:** MotoPack (MotoMap v4/Photon v2/Valhalla V5), clipping LVGL e migliorie BLE/IMU **collaudati dall'utente il 15 novembre**: tre controlli GitHub verdi riferiti, APK e firmware aggiornati, giro su strada positivo. **Panoramico e tour circolare sono ancora sperimentali sul branch test** e non hanno prove su telefono; non modificare il firmware stabile per questi esperimenti.
+
+## Tour Panoramico, tappe e circuito — sviluppo sperimentale (15 novembre 2026)
+
+**Solo nel branch `test/unified-offline-map-20261115`; non ancora provato su telefono.** La schermata "Opzioni percorso" propone il nuovo profilo **Panoramico** accanto al già esistente **Touring moto**. Valhalla continua a utilizzare il grafo Italia V5 con costing `auto`: preferisce strade secondarie asfaltate e limita pedaggi, senza mappe nuove. Quando non ci sono tappe, può valutare fino a due alternative più tortuose entro limiti di deviazione; **non misura la bellezza del paesaggio**. Quando sono presenti tappe, Valhalla disattiva le alternative multiple: resta comunque applicato il profilo stradale panoramico.
+
+**Uso Android previsto:** dalla ricerca principale, con un fix GPS valido, selezionare **Crea tour circolare**, distanza indicativa fra **30 e 300 km** e direzione prevalente **N / E / S / O**, quindi **Calcola tour**. Il pianificatore crea tre tappe in ordine attorno alla posizione iniziale, con **arrivo alla posizione di partenza**. La mappa mostra tappe numerate 1–3 e bandierina all'arrivo; si possono modificare le tappe manualmente dall'anteprima. **La distanza effettiva è quella restituita da Valhalla**, non una promessa di chilometraggio esatto. Se non esiste un percorso percorribile per tutti i segmenti, l'app deve segnalare l'errore anziché disegnare linee inventate.
+
+**Verifiche richieste:** Android CI sul branch test, poi anteprima circolare su grafo Italia V5 offline (es. 50/100/150 km, tutte le direzioni), route preview e passaggio delle tre tappe, navigazione con ricalcolo, ritorno al punto iniziale e controllo che la distanza all'arrivo non vada a zero prematuramente. Confrontare il risultato Panoramico/Touring sullo stesso itinerario; nessuna garanzia di giro privo di strade ripetute prima di verifica topologica dedicata. La visualizzazione delle tappe numerate è **solo Android** in questa fase: inviare marcatori geometrici all'ESP32 richiede una successiva estensione BLE con test di compatibilità, non inclusa.
 
 ## Esperimento di robustezza BLE/IMU — 15 novembre 2026
 
