@@ -6,6 +6,12 @@
 
 **Stato delle prove:** Photon SQLite v2 e grafo Valhalla Italia V5 sono stati **collaudati dall'utente sul telefono**. Il **clipping LVGL per singoli segmenti grigi** è già in `valhalla`, ma la prova stradale prevista il 14 novembre è stata rinviata per maltempo; non dichiararlo ancora validato.
 
+## Esperimento di robustezza BLE/IMU — 15 novembre 2026
+
+**Non ancora validato sull'hardware.** Sul branch `test/unified-offline-map-20261115` sono state recuperate selettivamente alcune migliorie individuate su `gemini_review`, **senza importare o mergiare quel branch divergente**. Il decoder BLE Android ora rifiuta frammenti fuori sequenza, offset non contigui, CRC errati, messaggi incompleti e interruzioni di oltre 1,5 secondi tra frammenti; mantiene il ritardo di 18 ms fra scritture GATT già collaudato. Le esportazioni dei log Android usano coroutine di Activity senza cambiare il formato dei file. Il firmware ESP32 esegue una verifica difensiva dell'inizializzazione I²C prima di aprire l'IMU QMI8658; fusione heading, UI e protocollo BLE rimangono invariati.
+
+**Prova dopo la build del branch test:** aggiornare l'APK Android e il firmware ESP32 solo dopo CI verde. Eseguire connessione iniziale, chiusura/riapertura app, allontanamento e ritorno nel raggio BLE, navigazione con rotonde e ricalcolo, export diagnostica e replay, oltre al controllo log IMU `motion_heading` durante l'avvio. Conservare i log in caso di disconnessione o perdita messaggi e confrontarli con una build stabile `valhalla`. **Non** aggiornare il branch `valhalla` prima della prova. Non sono stati adottati WakeLock di 12 ore, cambi GPIO3, nuova pipeline GPS `SharedFlow` o eliminazione del pacing GATT.
+
 ## 1. Aggiornare il repository (Windows PowerShell)
 
 ```powershell
