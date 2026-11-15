@@ -2,17 +2,23 @@
 
 ## STATO ATTUALE — RIPARTIRE DA QUI
 
-**Aggiornato:** 15 novembre 2026. **Branch stabile/predefinito:** `valhalla`, con integrazione MotoPack completata tramite fast-forward al commit `57117dd4203ce43c8f5fe0f2c87d31f99cc2eef8`. **Branch sperimentale attivo:** `test/unified-offline-map-20261115` riutilizzato su richiesta dell'utente per recuperare selettivamente le migliorie da `gemini_review`; **non effettuare merge automatico**. `gemini_review` è divergente (8 commit propri e 28 commit di integrazione assenti).
+**Aggiornato:** 15 novembre 2026. **Branch di integrazione/predefinito:** `valhalla`. **Branch sperimentale mantenuto per esplicita richiesta dell'utente:** `test/unified-offline-map-20261115`. Il merge delle migliorie BLE/IMU/diagnostica è stato confermato via fast-forward GitHub al commit `74702702410f3f99f4871bea1871c3f4b4b00460`. Il branch di test deve essere riallineato al nuovo head di `valhalla` e **non eliminato**: l'utente intende riutilizzarlo per i prossimi sviluppi.
 
-**Base stabile validata dall'utente:** generazione Italia completa da PBF/POLY/Photon su WSL, verifica SHA-256 di `.motopack`, importazione Android e ricerca/routing/mappe offline funzionanti. Photon 1.074 MiB, Valhalla 1.766 MB, MotoMap 763,73 MB installati. Questi risultati si riferiscono alla base `valhalla`, non alle nuove patch BLE/IMU.
+**Funzionalità integrate:** MotoPack unico WSL/Android (MotoMap v4, Photon v2, Valhalla V5), decoder BLE Android con validazione di CRC, sequenza, tipo, offset, lunghezza e timeout tra frammenti di 1500 ms, test JUnit associati; export diagnostica/replay con coroutine lifecycle-bound e controllo I²C difensivo per QMI8658. Formato BLE invariato. Non sono state integrate proposte Gemini su WakeLock, GPIO3, gestione GPS SharedFlow o rimozione del delay GATT 18 ms.
 
-**Nuove modifiche sul solo branch test:** decoder Kotlin `MotoBLEProtocolCodec` con reset su CRC errato, verifiche di offset/sequence/type/length, limite 1500 ms fra frammenti, reset su end prematuro; test JUnit specifici per sequenza, CRC, timeout e recupero; esportazioni diagnostiche/replay con `lifecycleScope` e `Dispatchers.IO`; controllo I²C prima di inizializzare QMI8658. Sono stati mantenuti delay GATT 18 ms, pipeline GPS/callback già collaudata e gestione energia GPIO3; non è stato incluso il WakeLock proposto da Gemini. Nessuna modifica al formato BLE, alle mappe o al renderer.
+**Collaudo dell'utente (15/11):** riferiti **tre controlli GitHub Actions verdi**, firmware ESP32 e APK Android aggiornati, navigazione e connessione funzionanti, grafica corretta, buona fluidità, zoom rotonde/tornanti corretto; clipping LVGL confermato positivo su strada. Analisi log: sei ricalcoli Valhalla offline riusciti, nessun BLE_ERROR/BLE_WRITE_FAILURE, cali FPS minimi durante fermo/ripartenze, quattro timeout TE isolati e recuperati. **Disconnessione finale intenzionale**, avvenuta perché l'utente ha terminato prima il replay e successivamente il log seriale. Distinguere CI riferita dall'utente da verifiche indipendenti: in questa sessione il confronto e il fast-forward GitHub sono stati verificati, non è stata condotta una nuova build locale.
 
-**Verifica:** prova su strada del 15/11 **riportata positiva dall'utente** (grafica, fluidità, rotonde, tornanti, zoom) con log ESP32/Android/replay analizzati; 6 ricalcoli Valhalla offline riusciti, nessun BLE_WRITE_FAILURE/BLE_ERROR, 4 TE timeout isolati, cali grafici intermittenti fino a 3,9 FPS. **CI del commit sperimentale ancora da verificare**; non attribuire l'esito integrato alla validazione separata di ogni singola modifica.
+**Residui non bloccanti:** alcuni picchi di rendering LVGL in scene molto dense; la prova pratica è positiva, perciò non modificare il renderer in assenza di regressioni osservabili. Conservarne le misure come baseline. Test di interruzione installazione MotoPack e comportamento sotto congestione BLE non isolati.
 
-**Rischi aperti:** la soglia dei frammenti 1500 ms può richiedere regolazione in presenza di congestione GATT; inizializzazione I²C duplicata da evitare (controllo esplicito prima di init). Prova clipping LVGL per singoli segmenti grigi ancora separata e non confermata; non modificare il renderer.
+**Prossima azione:** lasciare `valhalla` stabile e avviare le prossime modifiche sul branch test mantenuto, dopo averne confermato l'allineamento a `valhalla` e aver scelto il prossimo obiettivo. Nessun altro merge o cambiamento al renderer previsto in questa sessione.
 
-**Prossima azione unica:** controllare la CI del branch test e poi valutare con l'utente il merge selettivo su `valhalla`. Il collaudo visivo del clipping è riuscito; conservare un monitoraggio dei picchi LVGL, senza interventi preventivi.
+## Integrazione selettiva completata e branch test conservato — 15 novembre 2026
+
+L'utente ha confermato tre check GitHub verdi, installazione aggiornata APK+ESP32 e test funzionale positivo, quindi ha autorizzato esplicitamente il merge. Verificato GitHub: `test/unified-offline-map-20261115` era avanti di 9 commit e non indietro rispetto a `valhalla`; fast-forward non forzato riuscito al commit `74702702410f3f99f4871bea1871c3f4b4b00460`, preservando tutto lo storico. Per richiesta esplicita, **il branch test resta disponibile come ramo sperimentale**; eccezione intenzionale alla normale regola di pulizia dei branch completati. Dopo questa sola rettifica documentale sincronizzare il branch test con `valhalla`.
+
+**Test:** riferiti tre semafori verdi dall'utente, e riscontro positivo su strada; verificati direttamente confronto GitHub e fast-forward. Nessuna nuova build locale. L'utente ha precisato che la disconnessione BLE a fine log era deliberata e che i minimi FPS estremi coincidevano con soste o ripartenze.
+
+**Prossimo passo:** prossime prove e migliorie solo nel branch test, lasciando `valhalla` stabile.
 
 ## Collaudo su strada e diagnostiche — 15 novembre 2026
 
