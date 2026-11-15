@@ -178,6 +178,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         }
 
         viewModel.loadRoutePreferences(this)
+        viewModel.loadSavedCircularTours(this)
 
         // BLE must exist before the foreground GPS service can initialize the
         // ViewModel through its first location callback on an already-running app.
@@ -219,6 +220,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             val routeOptions = viewModel.routeOptions.collectAsState().value
             val routeWaypoints = viewModel.routeWaypoints.collectAsState().value
             val circularMandatoryStops = viewModel.circularMandatoryStops.collectAsState().value
+            val savedCircularTours = viewModel.savedCircularTours.collectAsState().value
             val waypointSearchResults = viewModel.waypointSearchResults.collectAsState().value
             val waypointSearching = viewModel.waypointSearching.collectAsState().value
             val waypointSearchError = viewModel.waypointSearchError.collectAsState().value
@@ -302,6 +304,16 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     routeOptions = routeOptions,
                     routeWaypoints = routeWaypoints,
                     circularMandatoryStops = circularMandatoryStops,
+                    savedCircularTours = savedCircularTours,
+                    onSaveCircularTour = { name ->
+                        viewModel.saveCurrentCircularTour(this@MainActivity, name)
+                    },
+                    onOpenSavedCircularTour = { tour, useCurrent ->
+                        viewModel.openSavedCircularTour(tour, useCurrent)
+                    },
+                    onDeleteSavedCircularTour = { id ->
+                        viewModel.removeSavedCircularTour(this@MainActivity, id)
+                    },
                     onAddCircularMandatoryStop = { viewModel.addCircularMandatoryStop(it) },
                     onRemoveCircularMandatoryStop = { viewModel.removeCircularMandatoryStop(it) },
                     onMoveCircularMandatoryStop = { index, offset ->
