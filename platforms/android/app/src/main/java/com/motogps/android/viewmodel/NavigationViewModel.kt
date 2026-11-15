@@ -1254,6 +1254,41 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     private fun getOrCreateRepo(context: Context): HybridMapRepository =
         HybridMapRepository(context.applicationContext)
 
+    fun importUnifiedOfflinePack(context: Context, uri: Uri) {
+        if (_isNavigating.value || _isDownloadingMap.value ||
+            _photonImporting.value || _valhallaImporting.value) {
+            _errorMessage.value = "Arrestare navigazione e altre importazioni"
+            return
+        }
+        mapDownloadJob = viewModelScope.launch {
+            _isDownloadingMap.value = true
+            _photonImporting.value = true
+            _valhallaImporting.value = true
+            _downloadProgress.value = 0f
+            _downloadStatus.value = "Verifica pacchetto offline..."
+            try {
+                withContext(Dispatchers.IO) {
+                    UnifiedOfflineMapImporter.install(context.applicationContext, uri) { message ->
+                        _downloadStatus.value = message
+                    }
+                }
+                refreshSavedMaps(context)
+                _downloadProgress.value = 1f
+                _downloadStatus.value = "Pacchetto Moto Chat GPS installato"
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _downloadStatus.value = "Pacchetto non installato completamente: ${e.message}"
+                _errorMessage.value = _downloadStatus.value
+                refreshSavedMaps(context)
+            } finally {
+                _isDownloadingMap.value = false
+                _photonImporting.value = false
+                _valhallaImporting.value = false
+            }
+        }
+    }
+
     fun importOsmRoadPack(context: Context, uri: Uri) {
         if (_isDownloadingMap.value) {
             _errorMessage.value = "Un download mappe è già in corso"
