@@ -26,11 +26,13 @@ internal object ValhallaGraphImporter {
 
     private fun displayName(context: Context, uri: Uri): String {
         val resolver = context.contentResolver
-        val name = resolver.query(
+        // Internal staging uses file:// URIs: no DocumentsProvider is involved.
+        // Do not query OpenableColumns on a file URI; keep its actual filename.
+        val name = (if (uri.scheme == "file") null else resolver.query(
             uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null
         )?.use { cursor ->
             if (cursor.moveToFirst()) cursor.getString(0) else null
-        } ?: uri.lastPathSegment.orEmpty().substringAfterLast('/')
+        }) ?: uri.lastPathSegment.orEmpty().substringAfterLast('/')
             .substringAfterLast(':')
         if (!isSupportedName(name)) {
             throw IOException("Selezionare un file .tar o .tar.zst")
