@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/brand/moto-chat-gps-splash.webp" alt="Moto Chat GPS — Powered by Valhalla, OSM and Photon" width="900">
+</p>
+
 # Moto Chat GPS
 
 Navigatore motociclistico con sorgenti pubblici in sviluppo per **Waveshare ESP32-S3-Touch-AMOLED-1.75C** (display AMOLED 466×466) e app Android. Il telefono gestisce GPS, ricerca destinazioni, calcolo itinerari e mappe offline; il dispositivo ESP32 riceve i dati via **Bluetooth LE** e visualizza la rotta verde, le strade di contesto grigie, distanze e indicazioni di prossimità.

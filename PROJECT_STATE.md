@@ -28,6 +28,10 @@
 
 **Richiesta esplicita dell'utente:** svuotare `hardware/` e conservare **esclusivamente** lo ZIP allegato, qui registrato come `hardware/MotoNavFusion_v015.zip`. Prima della pulizia erano presenti **499 file** (circa 61 MB) di proposte PCB/CAD e riferimento; tutti rimossi dalla versione corrente. Lo ZIP originale ricevuto (17.351 byte) è verificato senza modifiche mediante SHA-256 `0e6f654885c166b53af280af98c6cdf0fe84fd3b1f1ebaacc2f9f3ec1d71f969` e Git blob SHA `f22d74f6c1222212f5d63c9e04340cfee4bb8989`. Contiene `MotoNavFusion.py`, `MotoNavFusion.manifest` e `LEGGIMI_v015.txt`. Variante Fusion v0.15 del supporto con pin antisgancio profondo 9 mm, tasche power/reset e rinforzo guide: **richiede ancora controllo CAD/Fusion e test meccanico reale**. Materiali PCB eliminati ancora reperibili nella cronologia Git; nessuna modifica a sorgenti di navigazione, licenze root o workflow. README e avvisi di terze parti aggiornati per non fare riferimento alla cartella hardware precedente. **Prossima azione funzionale invariata:** collaudo clipping LVGL su strada.
 
+## Splash e homepage GitHub — 15 novembre 2026
+
+Aggiunta la splash **rettangolare** Moto Chat GPS alla testata del README GitHub su `valhalla`, riutilizzando l'immagine già realizzata nel progetto (montagne, rotta verde, logo e crediti Valhalla/OSM/Photon). File ottimizzato WebP 900 px di larghezza, 12.078 byte, in `assets/brand/moto-chat-gps-splash.webp`. Non confondere con il logo circolare destinato alla UI ESP32. Nessuna modifica a codice, licenze, firmware o APK; nessuna CI necessaria. La prova clipping su strada resta aperta.
+
 ## Architettura attuale e artefatti indipendenti
 
 | Componente | Stato operativo | Artefatto/importazione | Principale limite |
