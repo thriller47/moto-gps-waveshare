@@ -7,7 +7,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * Small crash-safe navigation checkpoint. Never store obsolete route geometry:
+ * Persistent Android-only multi-day tour checkpoint. Never store obsolete route geometry:
  * resume calculates fresh Valhalla legs from the current accepted GPS fix.
  */
 data class TourSession(
