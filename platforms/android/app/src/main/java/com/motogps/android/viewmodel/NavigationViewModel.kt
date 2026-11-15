@@ -1593,9 +1593,12 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         val instructions = (0 until (maneuvers?.length() ?: 0)).map { i ->
             maneuvers!!.getJSONObject(i).optString("instruction", "")
         }.filter { it.isNotBlank() }
+        val displayName = if (_routeWaypoints.value.firstOrNull()?.displayArea == "Tour circolare")
+            "Tour circolare · distanza effettiva"
+        else "Percorso Valhalla"
         return listOf(RouteOption(
             "valhalla-0",
-            "Percorso Valhalla",
+            displayName,
             route.getLong("total_distance_m"), route.getLong("estimated_duration_s"),
             instructions, route))
     }
