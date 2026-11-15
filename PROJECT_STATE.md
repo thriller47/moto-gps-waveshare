@@ -2,7 +2,7 @@
 
 ## STATO ATTUALE — RIPARTIRE DA QUI
 
-**Aggiornato:** 15 novembre 2026. **Repository:** [thriller47/moto-gps-waveshare](https://github.com/thriller47/moto-gps-waveshare). **Branch di integrazione e predefinito:** `valhalla` (non `main`, eliminato). **Esperimento attivo:** `test/unified-offline-map-20261115`, non mergiato. **Ultima integrazione:** fast-forward del ramo `test/lvgl-single-road-renderer-20261113` su `valhalla` il 14/11, 26 commit, fino a `902de169`; successive rettifiche documentali su `valhalla`. Il vecchio branch di test è ancora presente, **non eliminarlo prima della verifica del clipping**.
+**Aggiornato:** 15 novembre 2026. **Repository:** [thriller47/moto-gps-waveshare](https://github.com/thriller47/moto-gps-waveshare). **Branch di integrazione e predefinito:** `valhalla` (non `main`, eliminato). **Esperimento attivo:** `test/unified-offline-map-20261115`, non mergiato. **Primo collaudo unificato:** MotoMap e Photon installati, grafo Valhalla assente; corretta la perdita di estensione `.tar.zst` nello staging, nuova verifica Android pendente. **Ultima integrazione:** fast-forward del ramo `test/lvgl-single-road-renderer-20261113` su `valhalla` il 14/11, 26 commit, fino a `902de169`; successive rettifiche documentali su `valhalla`. Il vecchio branch di test è ancora presente, **non eliminarlo prima della verifica del clipping**.
 
 **Funziona e risulta collaudato dall'utente:** navigazione con MotoMap v4 e Valhalla offline, rendering precedente LVGL/predittore su strada, ricerca Photon **offline v2** (Courmayeur, Via Roma Torino, indirizzo con civico e accento) e nuovo grafo **Valhalla Italia V5** installato e testato su Android. Non trattare queste conferme come una nuova misura automatica.
 
@@ -17,6 +17,16 @@
 **Ultime CI automatiche verificabili:** [43615504345](https://github.com/thriller47/moto-gps-waveshare/actions/runs/43615504345) Android/native SUCCESS, [43616826002](https://github.com/thriller47/moto-gps-waveshare/actions/runs/43616826002) native SUCCESS con test dello script V5; precedenti build ESP32 erano riuscite nel ciclo LVGL. Queste sono verifiche di commit sperimentali **precedenti al fast-forward**, non una nuova CI completa post-merge su `valhalla`. Nessuna prova hardware del nuovo clipping ancora effettuata.
 
 **Prossima azione stabile su `valhalla`:** registrare il giro di prova del clipping ESP32 con **log seriale** e (facoltativamente) diagnostica Android: valutare `LVGL_ROADS` (`seg`, `seg_skip`, `dirty`, `tiles`), `display perf`, FPS, sfarfallio, integrità della rotta verde e ricalcoli. Solo dopo decidere se tenere definitivamente il clipping o correggerlo. Le istruzioni operative attuali sono in [docs/MANUALE_OPERATIVO.md](docs/MANUALE_OPERATIVO.md).
+
+## Correzione prima importazione unificata — 15 novembre 2026
+
+**Riscontro hardware Android dell'utente:** prima della prova erano state eliminate tutte le mappe precedenti; l'APK sperimentale mostra MotoMap v4 e Photon v2 installati ma non il grafo Valhalla. La verifica del pacchetto `.motopack` generato dai tre file è PASS riportato dall'utente; non attribuire il problema ai dataset senza prove.
+
+**Diagnosi verificata nel codice:** `UnifiedOfflineMapImporter` estraeva i payload come `motomap.pending`, `photon.pending`, `valhalla.pending`. `ValhallaGraphImporter.displayName` richiede `.tar` o `.tar.zst` e usa quest'ultima estensione per attivare la decompressione Zstandard. Il nome temporaneo rendeva impossibile l'installazione Valhalla dalla procedura unificata. La precedente presenza MotoMap/Photon non era dovuta a installazioni precedenti (eliminate dall'utente).
+
+**Correzioni isolate su branch test:** nomi degli staging originali (`italy-v4.motomap.zip`, `valhalla_tiles.tar.zst`, `photon-italy-v2.sqlite`), riconoscimento esplicito URI file locali nei vecchi importatori MotoMap/Valhalla e lettura size locale Photon; telemetria dei byte decompressi Valhalla e controllo finale che il TAR Valhalla sia effettivamente presente. Aggiunto test JUnit per preservare le estensioni dei tre file. Nessun cambiamento a motori, BLE o firmware; pacchetto `.motopack` già creato riutilizzabile. **Compilazione CI e prova su telefono della correzione ancora da verificare.** Recupero immediato possibile tramite import Valhalla V5 TAR.ZST autonomo.
+
+**Prossima azione unica sul test:** verificare Android CI del commit finale e ripetere l'importazione con lo stesso `.motopack`, confermando la dimensione del grafo nella schermata e una rotta offline. Non mergiare su `valhalla` prima della prova.
 
 ## Generatore end-to-end in WSL — 15 novembre 2026 (branch test)
 
