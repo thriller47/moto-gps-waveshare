@@ -141,6 +141,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         circularRequestedKm = tour.desiredKm
         circularOrientationDegrees = tour.orientationDegrees
         _circularMandatoryStops.value = tour.mandatory.toList()
+        resumeOriginSession = null
         _routeWaypoints.value = tour.via.toList()
         _routePreferences.value = tour.preferences
         previewOriginOverride = if (fromCurrentPosition) null else tour.departure
@@ -155,6 +156,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     private val _pausedTour = MutableStateFlow<TourSession?>(null)
     val pausedTour: StateFlow<TourSession?> = _pausedTour
     private var lastTourCheckpointMillis = 0L
+    private var resumeOriginSession: TourSession? = null
 
     fun loadTourSession(context: Context) {
         // An active session from a previous process is resumable, but NEVER
@@ -206,6 +208,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
             return
         }
         _routePreferences.value = checkpoint.preferences
+        resumeOriginSession = checkpoint
         _routeWaypoints.value = checkpoint.pendingStops
         previewOriginOverride = null
         DiagnosticLog.event("TOUR_RESUME_PREVIEW",
@@ -560,24 +563,6 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
             previewOriginOverride = null
             circularRequestedKm = distanceKm
             circularOrientationDegrees = orientationDegrees
-            previewOriginOverride = null
-            circularRequestedKm = distanceKm
-            circularOrientationDegrees = orientationDegrees
-            previewOriginOverride = null
-            circularRequestedKm = distanceKm
-            circularOrientationDegrees = orientationDegrees
-            previewOriginOverride = null
-            circularRequestedKm = distanceKm
-            circularOrientationDegrees = orientationDegrees
-            previewOriginOverride = null
-            circularRequestedKm = distanceKm
-            circularOrientationDegrees = orientationDegrees
-            previewOriginOverride = null
-            circularRequestedKm = distanceKm
-            circularOrientationDegrees = orientationDegrees
-            previewOriginOverride = null
-            circularRequestedKm = distanceKm
-            circularOrientationDegrees = orientationDegrees
             val (lat, lon) = currentLocation.value
             val mandatory = _circularMandatoryStops.value.toList()
             val coordinates = mandatory.map { it.latitude to it.longitude }
@@ -652,6 +637,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     }
 
     fun clearRoutePreview() {
+        resumeOriginSession = null
         _hasArrived.value = false
         arrivalDetector.reset()
         routePreviewJob?.cancel()
@@ -706,8 +692,17 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                 }
 
                 activeDestination = place
-                activeWaypoints = _routeWaypoints.value.toList()
-                nextWaypointIndex = 0
+                val resumed = resumeOriginSession
+                activeWaypoints = if (resumed != null &&
+                    resumed.destination.latitude == place.latitude &&
+                    resumed.destination.longitude == place.longitude) {
+                    resumed.stops.take(resumed.completedStops) + _routeWaypoints.value
+                } else _routeWaypoints.value.toList()
+                nextWaypointIndex = if (resumed != null &&
+                    resumed.destination.latitude == place.latitude &&
+                    resumed.destination.longitude == place.longitude)
+                    resumed.completedStops else 0
+                resumeOriginSession = null
                 if (place.displayArea == "Tour circolare") {
                     // Persist before the first BLE frame, so a sudden app
                     // termination still leaves a complete resumable itinerary.
