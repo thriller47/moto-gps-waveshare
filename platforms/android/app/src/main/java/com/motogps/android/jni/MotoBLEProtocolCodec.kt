@@ -97,6 +97,7 @@ class MotoBLEProtocolCodec {
         var activeSequence: Int = 0
         var activeMessageLength: Int = 0
         var activeType: Byte = 0
+        var lastFragmentTimeMs: Long = 0L
         val reassemblyBuffer = mutableListOf<Byte>()
 
         init {
@@ -116,6 +117,7 @@ class MotoBLEProtocolCodec {
             activeSequence = 0
             activeMessageLength = 0
             activeType = 0
+            lastFragmentTimeMs = 0L
             reassemblyBuffer.clear()
         }
     }
@@ -261,6 +263,7 @@ class MotoBLEProtocolCodec {
         val expectedCrc = (frame[crcOffset].toInt() and 0xFF) or ((frame[crcOffset + 1].toInt() and 0xFF) shl 8)
         val actualCrc = crc16CcittFalse(frame, crcOffset)
         if (expectedCrc != actualCrc) {
+            storage.resetInbound()
             return MotoBLEInboundMessage(0, false, false, false, null, null, null, null)
         }
 
@@ -273,11 +276,28 @@ class MotoBLEProtocolCodec {
         val starts = (flags and FRAME_START) != 0
         val ends = (flags and FRAME_END) != 0
 
+        // Reset if more than 500ms passed since last fragment
+        if (storage.reassemblyBuffer.isNotEmpty() && storage.lastFragmentTimeMs > 0L) {
+            if (receivedAtMs - storage.lastFragmentTimeMs > 500L) {
+                storage.resetInbound()
+            }
+        }
+
         if (starts) {
             storage.resetInbound()
             storage.activeSequence = sequence
             storage.activeMessageLength = messageLength
             storage.activeType = msgType
+            storage.lastFragmentTimeMs = receivedAtMs
+        } else {
+            // Validate sequence, message type, and contiguous fragmentOffset
+            if (sequence != storage.activeSequence ||
+                msgType != storage.activeType ||
+                fragmentOffset != storage.reassemblyBuffer.size) {
+                storage.resetInbound()
+                return MotoBLEInboundMessage(sequence, false, false, false, null, null, null, null)
+            }
+            storage.lastFragmentTimeMs = receivedAtMs
         }
 
         val payloadSize = frame.size - FRAME_OVERHEAD
@@ -292,56 +312,58 @@ class MotoBLEProtocolCodec {
         var diagnosticRecords: List<MotoBLEDiagnosticRecord> = emptyList()
         var isComplete = false
 
-        if (ends && storage.reassemblyBuffer.size == storage.activeMessageLength) {
-            isComplete = true
-            val payload = storage.reassemblyBuffer.toByteArray()
-            val reader = Reader(payload)
+        if (ends) {
+            if (storage.reassemblyBuffer.size == storage.activeMessageLength) {
+                isComplete = true
+                val payload = storage.reassemblyBuffer.toByteArray()
+                val reader = Reader(payload)
 
-            if (reader.remaining() > 0) {
-                val rev = reader.readU8()
-                if (rev == PAYLOAD_REVISION.toInt()) {
-                    when (msgType) {
-                        MSG_CONNECTION_STATUS -> {
-                            if (reader.remaining() >= 16) {
-                                val role = reader.readU8()
-                                val state = reader.readU8()
-                                val minVer = reader.readU8()
-                                val maxVer = reader.readU8()
-                                val capabilities = reader.readU32()
-                                val sessionId = reader.readU32()
-                                val maxFrameSize = reader.readU16()
-                                val hbInterval = reader.readU16()
-                                connStatus = MotoBLEConnectionStatus(
-                                    role, state, minVer, maxVer, capabilities, sessionId, maxFrameSize, hbInterval
-                                )
-                            }
-                        }
-                        MSG_DIAGNOSTIC_BATCH -> {
-                            if (reader.remaining() >= 1) {
-                                val count = reader.readU8()
-                                if (count in 1..4 && reader.remaining() == count * 32) {
-                                    diagnosticRecords = List(count) {
-                                        val eventSequence = reader.readU32()
-                                        val uptimeMs = reader.readU32()
-                                        val event = reader.readU16()
-                                        val reserved = reader.readU16()
-                                        val values = List(5) { reader.readU32().toInt() }
-                                        MotoBLEDiagnosticRecord(eventSequence, uptimeMs, event, values, reserved)
-                                    }.filter { it.event in 1..7 && it.reserved == 0 }
+                if (reader.remaining() > 0) {
+                    val rev = reader.readU8()
+                    if (rev == PAYLOAD_REVISION.toInt()) {
+                        when (msgType) {
+                            MSG_CONNECTION_STATUS -> {
+                                if (reader.remaining() >= 16) {
+                                    val role = reader.readU8()
+                                    val state = reader.readU8()
+                                    val minVer = reader.readU8()
+                                    val maxVer = reader.readU8()
+                                    val capabilities = reader.readU32()
+                                    val sessionId = reader.readU32()
+                                    val maxFrameSize = reader.readU16()
+                                    val hbInterval = reader.readU16()
+                                    connStatus = MotoBLEConnectionStatus(
+                                        role, state, minVer, maxVer, capabilities, sessionId, maxFrameSize, hbInterval
+                                    )
                                 }
                             }
-                        }
-                        MSG_DEVICE_COMMAND -> {
-                            if (reader.remaining() >= 12) {
-                                val kind = reader.readU8()
-                                val cmdId = reader.readU16()
-                                val page = reader.readU8()
-                                val x = reader.readU16()
-                                val y = reader.readU16()
-                                val eventTimeMs = reader.readU32()
-                                command = MotoBLEDeviceCommand(
-                                    sequence, false, kind, cmdId, page, x, y, eventTimeMs
-                                )
+                            MSG_DIAGNOSTIC_BATCH -> {
+                                if (reader.remaining() >= 1) {
+                                    val count = reader.readU8()
+                                    if (count in 1..4 && reader.remaining() == count * 32) {
+                                        diagnosticRecords = List(count) {
+                                            val eventSequence = reader.readU32()
+                                            val uptimeMs = reader.readU32()
+                                            val event = reader.readU16()
+                                            val reserved = reader.readU16()
+                                            val values = List(5) { reader.readU32().toInt() }
+                                            MotoBLEDiagnosticRecord(eventSequence, uptimeMs, event, values, reserved)
+                                        }.filter { it.event in 1..7 && it.reserved == 0 }
+                                    }
+                                }
+                            }
+                            MSG_DEVICE_COMMAND -> {
+                                if (reader.remaining() >= 12) {
+                                    val kind = reader.readU8()
+                                    val cmdId = reader.readU16()
+                                    val page = reader.readU8()
+                                    val x = reader.readU16()
+                                    val y = reader.readU16()
+                                    val eventTimeMs = reader.readU32()
+                                    command = MotoBLEDeviceCommand(
+                                        sequence, false, kind, cmdId, page, x, y, eventTimeMs
+                                    )
+                                }
                             }
                         }
                     }
