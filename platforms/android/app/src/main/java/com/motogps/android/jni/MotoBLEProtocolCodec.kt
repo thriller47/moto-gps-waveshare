@@ -97,6 +97,7 @@ class MotoBLEProtocolCodec {
         var activeSequence: Int = 0
         var activeMessageLength: Int = 0
         var activeType: Byte = 0
+        var lastFragmentTimeMs: Long = 0L
         val reassemblyBuffer = mutableListOf<Byte>()
 
         init {
@@ -116,6 +117,7 @@ class MotoBLEProtocolCodec {
             activeSequence = 0
             activeMessageLength = 0
             activeType = 0
+            lastFragmentTimeMs = 0L
             reassemblyBuffer.clear()
         }
     }
@@ -261,6 +263,7 @@ class MotoBLEProtocolCodec {
         val expectedCrc = (frame[crcOffset].toInt() and 0xFF) or ((frame[crcOffset + 1].toInt() and 0xFF) shl 8)
         val actualCrc = crc16CcittFalse(frame, crcOffset)
         if (expectedCrc != actualCrc) {
+            storage.resetInbound()
             return MotoBLEInboundMessage(0, false, false, false, null, null, null, null)
         }
 
@@ -273,14 +276,38 @@ class MotoBLEProtocolCodec {
         val starts = (flags and FRAME_START) != 0
         val ends = (flags and FRAME_END) != 0
 
+        // Reject stale or non-contiguous fragments before allocating payload bytes.
+        // 1500 ms allows brief Android notification scheduling delays.
+        if (storage.reassemblyBuffer.isNotEmpty() &&
+            (receivedAtMs < storage.lastFragmentTimeMs ||
+             receivedAtMs - storage.lastFragmentTimeMs > 1500L)) {
+            storage.resetInbound()
+        }
+
+        val payloadSize = frame.size - FRAME_OVERHEAD
+        val valid = if (starts) {
+            fragmentOffset == 0 && messageLength > 0 &&
+                payloadSize <= messageLength
+        } else {
+            storage.lastFragmentTimeMs != 0L &&
+                storage.activeMessageLength == messageLength &&
+                storage.activeSequence == sequence &&
+                storage.activeType == msgType &&
+                fragmentOffset == storage.reassemblyBuffer.size &&
+                storage.reassemblyBuffer.size + payloadSize <= messageLength
+        }
+        if (!valid) {
+            storage.resetInbound()
+            return MotoBLEInboundMessage(sequence, false, false, false, null, null, null, null)
+        }
         if (starts) {
             storage.resetInbound()
             storage.activeSequence = sequence
             storage.activeMessageLength = messageLength
             storage.activeType = msgType
         }
+        storage.lastFragmentTimeMs = receivedAtMs
 
-        val payloadSize = frame.size - FRAME_OVERHEAD
         for (i in 0 until payloadSize) {
             storage.reassemblyBuffer.add(frame[10 + i])
         }
@@ -291,6 +318,11 @@ class MotoBLEProtocolCodec {
         var command: MotoBLEDeviceCommand? = null
         var diagnosticRecords: List<MotoBLEDiagnosticRecord> = emptyList()
         var isComplete = false
+
+        if (ends && storage.reassemblyBuffer.size != storage.activeMessageLength) {
+            storage.resetInbound()
+            return MotoBLEInboundMessage(sequence, false, false, false, null, null, null, null)
+        }
 
         if (ends && storage.reassemblyBuffer.size == storage.activeMessageLength) {
             isComplete = true
