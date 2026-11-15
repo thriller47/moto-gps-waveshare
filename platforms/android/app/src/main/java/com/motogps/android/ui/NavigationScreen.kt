@@ -563,6 +563,7 @@ fun OfflineMapsDialog(
 @Composable
 fun NavigationScreen(
     onSearch: (String) -> Unit,
+    onCircularTour: (Int, Int) -> Unit = { _, _ -> },
     onConnectRequest: () -> Unit,
     connectionState: String,
     isLoading: Boolean,
@@ -619,6 +620,55 @@ fun NavigationScreen(
     diagnosticMode: Int = 0,
     onDiagnosticModeChange: (Int) -> Unit = {}
 ) {
+    var showCircularTourDialog by remember { mutableStateOf(false) }
+    var circularDistanceKm by remember { mutableFloatStateOf(100f) }
+    var circularOrientation by remember { mutableIntStateOf(0) }
+    if (showCircularTourDialog) {
+        AlertDialog(
+            onDismissRequest = { showCircularTourDialog = false },
+            title = { Text("Tour circolare") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Partenza e arrivo dalla posizione GPS attuale. " +
+                        "Valhalla calcola tutte le strade: la distanza è indicativa.")
+                    Text("Distanza desiderata: ${circularDistanceKm.toInt()} km")
+                    Slider(
+                        value = circularDistanceKm,
+                        onValueChange = { circularDistanceKm = it },
+                        valueRange = 30f..300f,
+                        steps = 26
+                    )
+                    Text("Direzione prevalente")
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        listOf(0 to "N", 90 to "E", 180 to "S", 270 to "O")
+                            .forEach { (degrees, label) ->
+                                FilterChip(
+                                    selected = circularOrientation == degrees,
+                                    onClick = { circularOrientation = degrees },
+                                    label = { Text(label) }
+                                )
+                            }
+                    }
+                    Text("Tre tappe intermedie formano l'anello. Puoi modificarle " +
+                        "nella schermata successiva. Il tracciato non è inventato.",
+                        style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showCircularTourDialog = false
+                    onCircularTour(circularDistanceKm.toInt(), circularOrientation)
+                }, enabled = !isNavigating && !isLoading) {
+                    Text("Calcola tour")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCircularTourDialog = false }) {
+                    Text("Annulla")
+                }
+            }
+        )
+    }
     var searchQuery by remember { mutableStateOf("") }
     var showOfflineDialog by remember { mutableStateOf(false) }
     var corridorConfirmation by remember { mutableStateOf<Int?>(null) }
@@ -1059,6 +1109,18 @@ fun NavigationScreen(
                         }
                     })
                 )
+
+                OutlinedButton(
+                    onClick = { showCircularTourDialog = true },
+                    enabled = !isLoading && !isNavigating &&
+                        currentLocation != null,
+                    modifier = Modifier.fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                ) {
+                    Icon(Icons.Default.Refresh, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Crea tour circolare")
+                }
 
                 Text(
                     "Cerca un indirizzo oppure tieni premuto sulla mappa. Puoi anche inserire coordinate GPS, ad esempio 45.4642, 9.1900.",
