@@ -97,7 +97,7 @@ class MotoBLEProtocolCodec {
         var activeSequence: Int = 0
         var activeMessageLength: Int = 0
         var activeType: Byte = 0
-        var lastFragmentTimeMs: Long = 0L
+        var lastFragmentTimeMs: Long = -1L
         val reassemblyBuffer = mutableListOf<Byte>()
 
         init {
@@ -117,7 +117,7 @@ class MotoBLEProtocolCodec {
             activeSequence = 0
             activeMessageLength = 0
             activeType = 0
-            lastFragmentTimeMs = 0L
+            lastFragmentTimeMs = -1L
             reassemblyBuffer.clear()
         }
     }
@@ -255,7 +255,7 @@ class MotoBLEProtocolCodec {
         if (frame.size < FRAME_OVERHEAD) {
             return MotoBLEInboundMessage(0, false, false, false, null, null, null, null)
         }
-        if (frame[0] != FRAME_MAGIC) {
+        if (frame[0] != FRAME_MAGIC || frame[1] != PROTOCOL_VERSION) {
             return MotoBLEInboundMessage(0, false, false, false, null, null, null, null)
         }
 
@@ -278,7 +278,7 @@ class MotoBLEProtocolCodec {
 
         // Reject stale or non-contiguous fragments before allocating payload bytes.
         // 1500 ms allows brief Android notification scheduling delays.
-        if (storage.reassemblyBuffer.isNotEmpty() &&
+        if (storage.lastFragmentTimeMs >= 0L &&
             (receivedAtMs < storage.lastFragmentTimeMs ||
              receivedAtMs - storage.lastFragmentTimeMs > 1500L)) {
             storage.resetInbound()
@@ -289,7 +289,7 @@ class MotoBLEProtocolCodec {
             fragmentOffset == 0 && messageLength > 0 &&
                 payloadSize <= messageLength
         } else {
-            storage.lastFragmentTimeMs != 0L &&
+            storage.lastFragmentTimeMs >= 0L &&
                 storage.activeMessageLength == messageLength &&
                 storage.activeSequence == sequence &&
                 storage.activeType == msgType &&
