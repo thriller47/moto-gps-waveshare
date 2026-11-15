@@ -4,13 +4,21 @@
 
 **Aggiornato:** 15 novembre 2026. **Integrazione stabile:** `valhalla`, non modificata. **Branch sperimentale:** `test/unified-offline-map-20261115`, conservato per richiesta utente. Non mergiare senza consenso e prova su strada.
 
-**Confermato dall'utente:** pianificazione e salvataggio dei tour funzionanti da fermo; zoom e pan liberi nell'anteprima collaudati con successo. Versione stabile antecedente con tre check CI verdi e prove BLE/rendering positive. I risultati della nuova funzionalità pausa/ripresa non sono ancora disponibili.
+**Pulizia legacy:** rimossi esclusivamente dal branch test script/demo Jinan e tool KiCad Rev A non più collegati alla build; conservato `hardware/MotoNavFusion_v015.zip` con il supporto 3D. **Confermato dall'utente:** pianificazione e salvataggio dei tour funzionanti da fermo; zoom e pan liberi nell'anteprima collaudati con successo. Versione stabile antecedente con tre check CI verdi e prove BLE/rendering positive. I risultati della nuova funzionalità pausa/ripresa non sono ancora disponibili.
 
 **Novità in test da verificare:** pausa manuale di tour circolare con checkpoint duraturo Android; vengono salvati destinazione, tappe ordinate, indice completato, preferenze di navigazione, posizione e timestamp. Checkpoint anche automatico all'avvio, a ogni tappa raggiunta e periodicamente (~30 s) per recupero dopo crash. Alla riapertura l'app mostra tour in pausa/interrotto; `Riprendi da qui` ricalcola anteprima da GPS corrente verso i **soli waypoint pendenti** e arrivo finale, senza avviare la navigazione automaticamente. Comando di abbandono separato dall'archivio dei tour. Test Kotlin `TourSessionStoreTest` aggiunti, manuale aggiornato. **Firmware ESP32, formato BLE, grafo e grafica invariati.**
 
 **Limiti:** massimo un checkpoint locale, nessuna sincronizzazione cloud; la tappa conta come raggiunta se il GPS arriva entro 60 m. Nel caso di più riprese successive il conteggio cumulativo delle tappe completate resta conservato; ogni ricalcolo Valhalla riceve soltanto le tappe ancora pendenti. Distanza richiesta nei tour indicativa. Valhalla esegue sempre il nuovo routing al ripristino. Verificare compilazione Android e comportamento di pausa/ripresa dopo chiusura app e reboot del telefono; la prova sul tragitto casa–lavoro–casa proposta dall'utente è prioritaria.
 
-**Prossima azione unica:** verificare una sola CI finale sul branch test; poi prova utente con tappa lavoro, pausa, chiusura app e ripresa del ritorno, prima di valutare un merge in `valhalla`.
+**Prossima azione unica:** verificare la CI consolidata dopo la pulizia dei file legacy, poi collaudare pausa/ripresa sul tragitto casa–lavoro–casa prima di qualsiasi merge.
+
+## Rimozione artefatti legacy Jinan e KiCad — 15 novembre 2026
+
+**Rilevazione utente:** restavano script Jinan e test hardware PCB per sorgenti non più presenti. Audit diretto del branch `test/unified-offline-map-20261115`: `scripts/generate_jinan_demo_fixture.mjs`, `update_jinan_road_context.mjs`, `update_jinan_map_scene_sample.mjs`, il vecchio `fixture_coordinates.mjs`, gli estrattori `build_jinan_sqlite.mjs`/`extract_jinan.sh`, `shared/demo_fixture/` e `shared/offline_map/` sono dedicati unicamente al prototipo cinese. `.github/workflows/project-build.yml` eseguiva ancora `Verify public demo map fixture` e filtrava file legacy. `scripts/hardware/` conteneva gate fabbricazione KiCad e relativi test che richiedono vecchi PCB Rev A ormai assenti dal repository. Lo stesso `scripts/hardware/README.md` segnala l'assenza dei sorgenti.
+
+**Rimosso dal SOLO branch test:** file legacy Jinan e strumenti KiCad orfani, relativi campioni/demo dati e controllo CI obsoleto. **Preservato esplicitamente `hardware/MotoNavFusion_v015.zip`**: l'utente conferma che contiene l'unica versione nel repo del supporto 3D. Non modificati altri script `scripts/offline_map` (MotoPack/Photon/Valhalla), `scripts/diagnostics`, `scripts/build_web.sh`, test nav/BLE/ESP32, codice Android o simulatori. Attribution OSM per i dati correnti resta negli strumenti e nelle licenze attuali: eliminata solo la licenza specifica dell'archivio Jinan rimosso.
+
+**Verifiche:** inventario GitHub e riferimenti diretti a CMake, Android, ESP32 e workflow controllati. Nuova CI consolidata da verificare; **nessun test hardware locale**. `valhalla` resta intatto. **Prossima azione:** controllare Actions su branch test dopo la pulizia e verificare che native/Android/ESP32 restino verdi.
 
 ## Tour su più giorni: pausa e ripresa — branch test, 15 novembre 2026
 

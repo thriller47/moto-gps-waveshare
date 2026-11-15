@@ -75,8 +75,6 @@ jobs:
               - 'include/**'
               - 'tests/native/**'
               - 'platforms/web/**'
-              - 'scripts/generate_jinan_demo_fixture.mjs'
-              - 'scripts/fixture_coordinates.mjs'
               - 'scripts/offline_map/**'
               - 'third_party/**'
             android:
@@ -86,11 +84,9 @@ jobs:
               # so a lone negative pattern also matches unrelated files.
               - 'shared/ble_protocol/**'
               - 'shared/coordinates/**'
-              - 'shared/demo_fixture/**'
               - 'shared/nav_app/**'
               - 'shared/nav_core/**'
               - 'shared/nav_presenter/**'
-              - 'shared/offline_map/**'
               - 'shared/port_api/**'
               - 'shared/protocol/**'
               - 'core/**'
@@ -135,9 +131,6 @@ jobs:
           node --check platforms/web/simulator/fallback_map.js
           node --check platforms/web/simulator/ring_alignment.js
           node --test platforms/web/simulator/trace_model.test.cjs platforms/web/simulator/fallback_map.test.cjs platforms/web/simulator/ring_alignment.test.cjs
-
-      - name: Verify public demo map fixture
-        run: node scripts/generate_jinan_demo_fixture.mjs --check
 
       - name: Verify MotoMap v3 converter contract
         run: python3 -m unittest discover -s scripts/offline_map -p 'test_motomap_v4.py'
