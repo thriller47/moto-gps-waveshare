@@ -334,12 +334,9 @@ class MotoBLEManager(private val context: Context) {
                         writeInProgress = false
                     }
                     try {
-                        gatt.disconnect()
-                    } catch (_: Exception) {}
-                    try {
                         gatt.close()
                     } catch (_: Exception) {}
-                    if (bluetoothGatt == gatt) {
+                    if (bluetoothGatt === gatt) {
                         bluetoothGatt = null
                     }
                     if (retryInitialConnect) {
@@ -428,9 +425,7 @@ class MotoBLEManager(private val context: Context) {
                         "phase=callback status=$status type=${failed[2].toInt() and 0xff} seq=$failedSeq")
                 }
             }
-            mainHandler.postDelayed({
-                processNextWrite()
-            }, 18)
+            processNextWrite()
         }
 
         @Deprecated("Deprecated in API 33")
@@ -658,9 +653,18 @@ class MotoBLEManager(private val context: Context) {
             bleCodec.nativeResetInboundState(codecPtr)
             bleCodec.nativeSetMaximumFrameSize(codecPtr, 20)
         }
-        gatt?.let {
-            try { it.disconnect() } catch (_: Exception) {}
-            try { it.close() } catch (_: Exception) {}
+        gatt?.let { g ->
+            try {
+                g.disconnect()
+            } catch (_: Exception) {
+                try { g.close() } catch (_: Exception) {}
+                if (bluetoothGatt === g) bluetoothGatt = null
+            }
+            // Fallback: close GATT after 1000ms if onConnectionStateChange does not report DISCONNECTED
+            mainHandler.postDelayed({
+                try { g.close() } catch (_: Exception) {}
+                if (bluetoothGatt === g) bluetoothGatt = null
+            }, 1000L)
         }
         onConnectionStateChange?.invoke("Non connesso")
     }
