@@ -80,6 +80,44 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
 
     private val _routeWaypoints = MutableStateFlow<List<PlaceSearchResult>>(emptyList())
     val routeWaypoints: StateFlow<List<PlaceSearchResult>> = _routeWaypoints
+    private val _circularMandatoryStops = MutableStateFlow<List<PlaceSearchResult>>(emptyList())
+    val circularMandatoryStops: StateFlow<List<PlaceSearchResult>> = _circularMandatoryStops
+
+    fun addCircularMandatoryStop(place: PlaceSearchResult) {
+        if (_isNavigating.value || _circularMandatoryStops.value.size >= ValhallaRouteLocations.MAX_STOPS) return
+        if (!place.latitude.isFinite() || !place.longitude.isFinite() ||
+            place.latitude !in -90.0..90.0 || place.longitude !in -180.0..180.0) {
+            _errorMessage.value = "Coordinate tappa non valide"
+            return
+        }
+        val duplicate = _circularMandatoryStops.value.any {
+            calculateDistanceMeters(it.latitude, it.longitude,
+                place.latitude, place.longitude) < 60.0
+        }
+        if (duplicate) {
+            _errorMessage.value = "Questo luogo è già fra le tappe obbligatorie"
+            return
+        }
+        _circularMandatoryStops.value = _circularMandatoryStops.value + place
+        _waypointSearchResults.value = emptyList()
+        DiagnosticLog.event("CIRCULAR_POI", "action=add count=${_circularMandatoryStops.value.size}")
+    }
+
+    fun removeCircularMandatoryStop(index: Int) {
+        if (_isNavigating.value || index !in _circularMandatoryStops.value.indices) return
+        _circularMandatoryStops.value =
+            _circularMandatoryStops.value.filterIndexed { i, _ -> i != index }
+        DiagnosticLog.event("CIRCULAR_POI", "action=remove count=${_circularMandatoryStops.value.size}")
+    }
+
+    fun moveCircularMandatoryStop(index: Int, direction: Int) {
+        if (_isNavigating.value || direction !in listOf(-1, 1)) return
+        val updated = _circularMandatoryStops.value.toMutableList()
+        if (index !in updated.indices || index + direction !in updated.indices) return
+        java.util.Collections.swap(updated, index, index + direction)
+        _circularMandatoryStops.value = updated
+    }
+
     private val _waypointSearchResults = MutableStateFlow<List<PlaceSearchResult>>(emptyList())
     val waypointSearchResults: StateFlow<List<PlaceSearchResult>> = _waypointSearchResults
     private val _waypointSearching = MutableStateFlow(false)
@@ -364,8 +402,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         }
     }
 
-    /** Plan a round trip from the latest accepted GPS location.
-     *  The three intermediate locations are real Valhalla stops, not drawn lines.
+    /** Plan a circular tour while preserving all user-selected obligatory POIs.
+     * Valhalla still calculates the real road route and can reject impossible legs.
      */
     fun previewCircularTour(distanceKm: Int, orientationDegrees: Int = 0) {
         if (_isNavigating.value || _isLoading.value) return
@@ -375,14 +413,24 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         }
         try {
             val (lat, lon) = currentLocation.value
-            val stops = CircularTourPlanner.generate(
-                lat, lon, distanceKm, orientationDegrees)
-            _routeWaypoints.value = stops.mapIndexed { index, coordinates ->
-                PlaceSearchResult("Tappa circolare ${index + 1}", "",
-                    "Tour circolare", coordinates.first, coordinates.second)
+            val mandatory = _circularMandatoryStops.value.toList()
+            val coordinates = mandatory.map { it.latitude to it.longitude }
+            val lowerBoundKm = CircularTourPlanner.straightLineMinimumKm(lat, lon, coordinates)
+            // If even straight-line travel exceeds the requested budget, don't
+            // silently generate a much longer loop. The user can raise the target.
+            if (lowerBoundKm > distanceKm) {
+                _errorMessage.value = "Le tappe obbligatorie richiedono almeno " +
+                    "${kotlin.math.ceil(lowerBoundKm).toInt()} km in linea d'aria " +
+                    "(su strada saranno di più). Aumenta la distanza del tour."
+                return
             }
-            // A very short closing leg can be ambiguous for the routing engine.
-            // The three mandatory intermediate stops force a full road-following circuit.
+            val stops = CircularTourPlanner.planStops(
+                lat, lon, distanceKm, orientationDegrees, coordinates)
+            _routeWaypoints.value = stops.mapIndexed { index, point ->
+                mandatory.getOrNull(index) ?: PlaceSearchResult(
+                    "Tappa automatica ${index + 1}", "", "Tour automatico",
+                    point.first, point.second)
+            }
             val start = PlaceSearchResult("Ritorno al punto di partenza", "",
                 "Tour circolare", lat, lon)
             if (_routePreferences.value.style == RouteStyle.FASTEST) {
@@ -390,7 +438,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                     style = RouteStyle.PANORAMIC)
             }
             DiagnosticLog.event("CIRCULAR_TOUR",
-                "requested_km=$distanceKm orientation=$orientationDegrees stops=3")
+                "requested_km=$distanceKm orientation=$orientationDegrees " +
+                    "mandatory=${mandatory.size} automatic=${stops.size - mandatory.size}")
             previewRoute(start)
         } catch (e: IllegalArgumentException) {
             _errorMessage.value = "Tour circolare non valido: ${e.message}"
