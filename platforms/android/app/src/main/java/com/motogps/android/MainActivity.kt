@@ -220,6 +220,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             val routePreview = viewModel.routePreview.collectAsState().value
             val routeOptions = viewModel.routeOptions.collectAsState().value
             val routeWaypoints = viewModel.routeWaypoints.collectAsState().value
+            val nextWaypointToSkip = viewModel.nextWaypointToSkip.collectAsState().value
             val pausedTour = viewModel.pausedTour.collectAsState().value
             val circularMandatoryStops = viewModel.circularMandatoryStops.collectAsState().value
             val savedCircularTours = viewModel.savedCircularTours.collectAsState().value
@@ -307,6 +308,8 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     routeWaypoints = routeWaypoints,
                     pausedTour = pausedTour,
                     onPauseTour = { viewModel.pauseTour() },
+                    nextWaypointToSkip = nextWaypointToSkip,
+                    onSkipNextWaypoint = { viewModel.skipNextWaypoint() },
                     onPreviewResumeTour = { viewModel.previewResumeTour() },
                     onDiscardPausedTour = { viewModel.discardPausedTour() },
                     circularMandatoryStops = circularMandatoryStops,

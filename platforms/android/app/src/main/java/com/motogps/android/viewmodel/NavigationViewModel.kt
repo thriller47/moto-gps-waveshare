@@ -275,6 +275,12 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     private var waypointSearchJob: Job? = null
     private var activeWaypoints: List<PlaceSearchResult> = emptyList()
     private var nextWaypointIndex = 0
+    private val _nextWaypointToSkip = MutableStateFlow<PlaceSearchResult?>(null)
+    val nextWaypointToSkip: StateFlow<PlaceSearchResult?> = _nextWaypointToSkip
+
+    private fun publishPendingWaypoint() {
+        _nextWaypointToSkip.value = activeWaypoints.getOrNull(nextWaypointIndex)
+    }
     // Short-lived display-only notice; does not change route progress or maneuvers.
     private var waypointNoticeIndex = 0
     private var waypointNoticeTotal = 0
@@ -703,6 +709,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                     resumed.destination.longitude == place.longitude)
                     resumed.completedStops else 0
                 resumeOriginSession = null
+                publishPendingWaypoint()
                 if (place.displayArea == "Tour circolare") {
                     // Persist before the first BLE frame, so a sudden app
                     // termination still leaves a complete resumable itinerary.
@@ -864,6 +871,81 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         }
     }
 
+    /**
+     * Skip ONLY the next intermediate stop. The return destination is never
+     * skippable. Do not mutate the itinerary or checkpoint until Valhalla
+     * produces a valid replacement geometry.
+     */
+    fun skipNextWaypoint() {
+        if (!_isNavigating.value || _hasArrived.value ||
+            _isLoading.value || rerouteInProgress) return
+        val destination = activeDestination ?: return
+        val index = nextWaypointIndex
+        val skip = WaypointSkipPlan.create(activeWaypoints, index) ?: return
+        val skipped = skip.skipped
+        val remaining = skip.pending
+        rerouteInProgress = true
+        _isLoading.value = true
+        DiagnosticLog.event("WAYPOINT_SKIP", "phase=request remaining=${remaining.size}")
+        viewModelScope.launch {
+            try {
+                val (snapshot, geometry, guidance) = withContext(Dispatchers.IO) {
+                    performRoutingWithGeometry(destination, isReroute = true,
+                        pendingOverride = remaining)
+                }
+                // If the rider reached the stop while Valhalla was working,
+                // or the tour was stopped, the result is stale: discard it.
+                if (!_isNavigating.value || _hasArrived.value ||
+                    activeDestination != destination ||
+                    nextWaypointIndex != index ||
+                    activeWaypoints.getOrNull(index) != skipped) {
+                    DiagnosticLog.event("WAYPOINT_SKIP", "phase=stale")
+                    return@launch
+                }
+                val revised = skip.revised
+                // Commit the new checkpoint before changing the active plan,
+                // so a storage failure never loses the abandoned waypoint.
+                if (destination.displayArea == "Tour circolare") {
+                    val context = appContext ?: navigationMapsContext
+                        ?: throw IllegalStateException("Contesto Android non disponibile")
+                    val (lat, lon) = currentLocation.value
+                    val checkpoint = TourSession(destination, revised, index,
+                        _routePreferences.value, lat, lon,
+                        System.currentTimeMillis(), paused = false)
+                    TourSessionStore.write(context.applicationContext, checkpoint)
+                    _pausedTour.value = checkpoint
+                    lastTourCheckpointMillis = SystemClock.elapsedRealtime()
+                }
+                activeWaypoints = revised
+                publishPendingWaypoint()
+                currentSnapshot = snapshot
+                currentGeometry = geometry
+                turnPlan = guidance
+                routeDistanceGuard.reset()
+                routeProgressMatcher.reset(geometry?.points.orEmpty())
+                offRouteFixCount = 0
+                offRouteFirstFixMs = 0L
+                val (lat, lon) = currentLocation.value
+                currentSnapshot = updateManeuverAndDistance(lat, lon) ?: snapshot
+                rerouteStability.accepted(SystemClock.elapsedRealtime(), lat, lon)
+                _routingSource.value = lastRoutingProvider
+                if (geometry != null) sendNearbyRouteGeometry(geometry)
+                bleManager.sendNavigationSnapshot(requireNotNull(currentSnapshot))
+                DiagnosticLog.event("WAYPOINT_SKIP",
+                    "phase=success remaining=${activeWaypoints.size - nextWaypointIndex}")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _errorMessage.value = "Tappa non saltata: ${e.message}"
+                DiagnosticLog.event("WAYPOINT_SKIP",
+                    "phase=failed type=${e.javaClass.simpleName}")
+            } finally {
+                rerouteInProgress = false
+                _isLoading.value = false
+            }
+        }
+    }
+
     fun stopNavigation() = stopNavigationInternal(preserveTourCheckpoint = false)
 
     private fun stopNavigationInternal(preserveTourCheckpoint: Boolean) {
@@ -880,6 +962,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         activeDestination = null
         activeWaypoints = emptyList()
         nextWaypointIndex = 0
+        publishPendingWaypoint()
         waypointNoticeIndex = 0
         waypointNoticeTotal = 0
         waypointNoticeStartedMs = 0L
@@ -1090,6 +1173,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                 latitude, longitude)
             if (reachedIndex != nextWaypointIndex) {
                 nextWaypointIndex = reachedIndex
+                publishPendingWaypoint()
                 waypointNoticeIndex = nextWaypointIndex
                 waypointNoticeTotal = activeWaypoints.size
                 waypointNoticeStartedMs = SystemClock.elapsedRealtime()
@@ -1847,7 +1931,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     }
 
     private fun performRoutingWithGeometry(
-        place: PlaceSearchResult, isReroute: Boolean = false
+        place: PlaceSearchResult, isReroute: Boolean = false,
+        pendingOverride: List<PlaceSearchResult>? = null
     ): PlannedNavigation {
         if (!hasFirstFix)
             throw IllegalStateException("Fix GPS assente: impossibile navigare")
@@ -1857,8 +1942,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         val bearing = if (lastGpsSpeedMs >= 3f &&
             SystemClock.elapsedRealtime() - lastReliableGpsBearingMs in 0L..5_000L)
             lastReliableGpsBearing else null
-        val pending = if (isReroute) activeWaypoints.drop(nextWaypointIndex)
-            else _routeWaypoints.value
+        val pending = pendingOverride ?: if (isReroute)
+            activeWaypoints.drop(nextWaypointIndex) else _routeWaypoints.value
         val initial = resolveRoute(originLat, originLon, place, isReroute, bearing, pending)
         // Only inspect an *actual* moving reroute. Route geometry can legitimately
         // lead backwards when a mandatory stop is behind the rider, so this is

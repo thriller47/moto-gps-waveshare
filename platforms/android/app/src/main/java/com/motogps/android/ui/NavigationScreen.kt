@@ -590,6 +590,8 @@ fun NavigationScreen(
     routeWaypoints: List<PlaceSearchResult> = emptyList(),
     pausedTour: TourSession? = null,
     onPauseTour: () -> Unit = {},
+    nextWaypointToSkip: PlaceSearchResult? = null,
+    onSkipNextWaypoint: () -> Unit = {},
     onPreviewResumeTour: () -> Unit = {},
     onDiscardPausedTour: () -> Unit = {},
     circularMandatoryStops: List<PlaceSearchResult> = emptyList(),
@@ -1247,6 +1249,42 @@ fun NavigationScreen(
                     }
 
                     if (isNavigating) {
+                        if (!hasArrived && nextWaypointToSkip != null) {
+                            var confirmSkip by remember(nextWaypointToSkip) {
+                                mutableStateOf(false)
+                            }
+                            OutlinedButton(
+                                onClick = { confirmSkip = true },
+                                enabled = !isLoading,
+                                modifier = Modifier.fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 4.dp)
+                                    .heightIn(min = 48.dp)
+                            ) {
+                                Text("Salta prossima tappa")
+                            }
+                            if (confirmSkip) {
+                                AlertDialog(
+                                    onDismissRequest = { confirmSkip = false },
+                                    title = { Text("Saltare questa tappa?") },
+                                    text = {
+                                        Text("Escludere \"${nextWaypointToSkip.name}\" dal tour? " +
+                                            "Valhalla ricalcolerà il percorso verso la tappa " +
+                                            "successiva o l'arrivo. Le altre tappe resteranno.")
+                                    },
+                                    confirmButton = {
+                                        TextButton(onClick = {
+                                            confirmSkip = false
+                                            onSkipNextWaypoint()
+                                        }) { Text("Salta tappa") }
+                                    },
+                                    dismissButton = {
+                                        TextButton(onClick = { confirmSkip = false }) {
+                                            Text("Annulla")
+                                        }
+                                    }
+                                )
+                            }
+                        }
                         if (routePreview.displayArea == "Tour circolare" && !hasArrived) {
                             OutlinedButton(
                                 onClick = onPauseTour,

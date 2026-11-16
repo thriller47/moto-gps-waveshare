@@ -1,3 +1,9 @@
+## Saltare una tappa non raggiungibile — Android, sperimentale (16 novembre 2026)
+
+Durante una navigazione con tappe intermedie, aprire la schermata Android e premere **Salta prossima tappa**. Compare il nome della tappa e una richiesta di conferma: usare questo comando solo quando è sicuro fermarsi. Confermando, Valhalla ricalcola dalla posizione attuale verso le tappe residue e infine la destinazione originale. Non è consentito saltare l'arrivo finale.
+
+Se il ricalcolo o il salvataggio del checkpoint falliscono, la tappa resta nell'itinerario: riprovare da una posizione sicura con copertura del grafo. Per i tour circolari il checkpoint viene aggiornato dopo il ricalcolo; mettendo in pausa e riaprendo l'app, la tappa saltata non deve ricomparire. Il comando ESP32 è **rimandato**: prima occorre definire un'interazione che eviti tocchi accidentali in movimento e un messaggio BLE di richiesta sicuro.
+
 # Moto Chat GPS — Manuale operativo
 
 **Aggiornato:** 15 novembre 2026. Repository `thriller47/moto-gps-waveshare`, branch stabile **`valhalla`**. Scheda Waveshare ESP32-S3-Touch-AMOLED-1.75C (466×466, 8 MB PSRAM, 32 MB flash). Nei comandi Windows la porta **COM3 è un esempio**, sostituirla con quella effettiva. Usare **PowerShell**, **CMD** o **WSL Ubuntu** come indicato.
