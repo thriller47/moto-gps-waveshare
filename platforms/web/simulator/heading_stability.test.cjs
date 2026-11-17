@@ -15,8 +15,8 @@ test("straight heading jitter is attenuated",()=>{
  assert.ok(Math.abs(h.diff(v.at(-1),90))<0.5);
 });
 test("roundabout responds promptly to turning",()=>{
- const f=[frame(0,340),frame(250,350,{maneuver:"roundabout"}),
-  frame(500,3,{maneuver:"roundabout"})];
+ const f=[frame(0,340),frame(250,350,{maneuver:"roundabout",turn_m:0}),
+  frame(500,3,{maneuver:"roundabout",turn_m:0})];
  const v=h.build(f);
  assert.ok(Math.abs(h.diff(v[2],3))<3);
  assert.ok(Math.abs(h.at(f,v,375)-h.interpolate(v[1],v[2],0.5))<1e-6);
@@ -58,4 +58,30 @@ test("GPS verified heading follows genuine track turn",()=>{
     state:"navigating",maneuver:"continue"}}));
  const v=h.buildCourseValidated(f);
  assert.ok(Math.abs(h.diff(v.at(-1),0))<15);
+});
+
+
+// The replay reports the NEXT instruction, possibly thousands of metres
+// away. Never mark the current road as a roundabout just because of that.
+test("distant next roundabout does not bypass straight smoothing",()=>{
+  const f=[frame(0,90,{maneuver:"roundabout",turn_m:2300}),
+    frame(250,110,{maneuver:"roundabout",turn_m:2300}),
+    frame(500,90,{maneuver:"roundabout",turn_m:2290})];
+  const v=h.build(f);
+  assert.ok(Math.abs(h.diff(v[1],90))<6);
+});
+test("GPS verified recognizes straight despite distant roundabout label",()=>{
+  const f=[];
+  for(let i=0;i<7;i++)f.push({t:i*1000,route:{token:1,generation:1},
+    snapshot:{lat:45,lon:9+i*0.00018,heading_deg:i===4?120:90,
+      speed_mps:14,state:"navigating",maneuver:"roundabout",turn_m:2300-i*15}});
+  const v=h.buildCourseValidated(f);
+  assert.ok(Math.abs(h.diff(v[4],90))<4);
+});
+test("a near roundabout still has prompt heading response",()=>{
+  const f=[frame(0,340,{maneuver:"roundabout",turn_m:50}),
+    frame(250,350,{maneuver:"roundabout",turn_m:18}),
+    frame(500,3,{maneuver:"roundabout",turn_m:0})];
+  const v=h.build(f);
+  assert.ok(Math.abs(h.diff(v.at(-1),3))<3);
 });

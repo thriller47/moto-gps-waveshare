@@ -27,9 +27,15 @@
           s.state!=="navigating"){
         heading=raw;
       } else if(gap>0){
-        // Do not classify noise in recorded heading as a real turn.
-        // A fast turn is explicit only when maneuver context supports it.
-        const turning=s.maneuver==="roundabout"||s.maneuver==="u_turn";
+        // A maneuver is the NEXT instruction, not the current road shape.
+        // "roundabout" may appear kilometres before the actual junction.
+        // Use a fast response only close to the maneuver, never just
+        // because the next Valhalla instruction happens to be a roundabout.
+        const turnMetres=Number(s.turn_m);
+        const nearManeuver=finite(turnMetres) && turnMetres>=0 &&
+          turnMetres<=35;
+        const turning=nearManeuver &&
+          (s.maneuver==="roundabout"||s.maneuver==="u_turn");
         const tau=turning?0.12:1.1; // fast turns, calm straight lines
         const alpha=1-Math.exp(-gap/1000/tau);
         const error=diff(raw,heading);
@@ -90,9 +96,10 @@
               Math.abs(diff(course,previousCourse)):Infinity;
             // A straight is established by two consecutive independent
             // displacement vectors, not by a possibly noisy raw bearing.
+            // Classify the actual track, independent of the NEXT maneuver.
+            // A roundabout 2 km ahead must not disable straight recognition.
             const straight=plausible && bend<9 &&
-              finite(speed)&&speed>=6 && s.maneuver!=="roundabout" &&
-              s.maneuver!=="u_turn";
+              finite(speed)&&speed>=6;
             const turn=plausible && finite(previousCourse)&&bend>=9;
             if(straight){
               straightCourse=finite(straightCourse)?
