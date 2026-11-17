@@ -518,6 +518,36 @@ Il separatore `|` mantiene gli spazi nel nome rete: ad esempio `wifi set Hotspot
 
 ## 9. Simulatore browser e replay GPS
 
+### Confrontare il simulatore del 15 novembre con il branch attuale (diagnostica)
+La versione collaudata il 15 novembre è fissata in `diagnostics/baseline-20261115` al commit `e1cc5cdf`, senza modificare `valhalla`. **Da WSL Ubuntu**, nel checkout sperimentale con modifiche locali già salvate:
+
+```bash
+cd ~/MotoGPS/moto-gps-waveshare
+git status --short
+git fetch origin --prune
+git switch test/unified-offline-map-20261115
+git pull --ff-only origin test/unified-offline-map-20261115
+bash scripts/diagnostics/prepare_20261115_replay_ab.sh
+```
+
+Se `git status --short` mostra modifiche non salvate, **non resettare** né fare checkout/pull sopra il lavoro. Lo script non installa nulla sul telefono: usa il compilatore Emscripten già presente in `~/emsdk` e crea due checkout staccati (worktree) in `~/MotoGPS/motogps-regression-20261117/`, compilando entrambi i runtime WASM. Si rifiuta di sovrascrivere worktree già esistenti a revisioni diverse. Il build non si avvia automaticamente se non è disponibile Emscripten.
+
+Dopo la compilazione, aprire **due altri terminali WSL**:
+
+Terminale baseline:
+```bash
+python3 -m http.server 4174 --directory "$HOME/MotoGPS/motogps-regression-20261117/baseline"
+```
+
+Terminale attuale:
+```bash
+python3 -m http.server 4175 --directory "$HOME/MotoGPS/motogps-regression-20261117/current"
+```
+
+Aprire **http://127.0.0.1:4174/platforms/web/simulator/index.html** e **http://127.0.0.1:4175/platforms/web/simulator/index.html**. Caricare **lo stesso JSONL del 17/11** su entrambi. Velocità 1×; heading originale; disattivare i controlli sperimentali disponibili. Guardare soprattutto le 17:44:35 e 17:45:43–17:46:07. Se uno dei server è già in uso, fermare quello vecchio con Ctrl+C prima di riavviarlo sulla porta desiderata; la porta 4173 del simulatore abituale non viene toccata.
+
+**Limite del confronto:** il replay del 17 contiene già la manovra e la geometria decise dall'Android del 17. Differenze fra simulatori isolano la visualizzazione; risultati identici non dimostrano che il vecchio APK Android commettesse gli stessi errori. Il browser non simula la vera IMU QMI8658. Dettagli in `docs/diagnostics/REGRESSION_BASELINE_20261115_VS_20261117.md`.
+
 **Confronto A/B del problema zoom 17/11 (branch test):** dopo `./scripts/build_web.sh`, il controllo **Zoom geometrico 17/11 · A/B** è OFF per default come nel firmware ESP32 di test aggiornato. In ON riproduce l'algoritmo che nei video 19:14:25 e 19:15:20 ha ingrandito una piega inesistente e oscillato 1× → ~3,5× → 1× fra 17:45:43 e 17:46:07. Usare OFF per il replay di riferimento, lasciare separatamente **Zoom tornanti sperimentale** OFF e poi provare ON per diagnosi. Richiede ricompilazione WASM: CI native/Android/ESP32 non compila Emscripten. Lo switch non rimuove i vertici del percorso problematico, già presenti nelle route windows Android.
 
 ### Avvio del simulatore LVGL in WSL Ubuntu
