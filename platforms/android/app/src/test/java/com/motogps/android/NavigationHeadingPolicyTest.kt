@@ -15,13 +15,13 @@ class NavigationHeadingPolicyTest {
     @Test fun gpsCourseWinsOverDisplacementWhenMoving() {
         assertEquals(90f,
             NavigationHeadingPolicy.movingHeading(20f, 90f, 30.0, 270f)!!, 0.001f)
-        assertEquals(5f,
-            NavigationHeadingPolicy.movingHeading(15f, 365f, 8.0, 185f)!!, 0.001f)
+        assertEquals(185f,
+            NavigationHeadingPolicy.movingHeading(15f, 365f, 15.0, 185f)!!, 0.001f)
     }
 
     @Test fun displacementCourseOnlyWhenGpsCourseUnavailable() {
         assertEquals(270f,
-            NavigationHeadingPolicy.movingHeading(12f, null, 8.0, -90f)!!, 0.001f)
+            NavigationHeadingPolicy.movingHeading(12f, null, 15.0, -90f)!!, 0.001f)
         assertNull(NavigationHeadingPolicy.movingHeading(12f, null, 2.0, 90f))
         assertNull(NavigationHeadingPolicy.movingHeading(12f, Float.NaN, 0.0, null))
     }
@@ -31,7 +31,15 @@ class NavigationHeadingPolicyTest {
         assertNull(NavigationHeadingPolicy.movingHeading(Float.NaN, 90f, 10.0, 90f))
         assertNull(NavigationHeadingPolicy.movingHeading(4f, Float.NaN, 3.9, 120f))
         assertEquals(270f,
-            NavigationHeadingPolicy.movingHeading(4f, null, 4.0, -90f)!!, 0.001f)
+            NavigationHeadingPolicy.movingHeading(4f, null, 12.0, -90f)!!, 0.001f)
+    }
+
+    @Test fun lowAccuracyCourseIsIgnoredAndFallbackRequiresRealMovement() {
+        assertNull(NavigationHeadingPolicy.movingHeading(4f, 90f, 3.0, 270f, 50f))
+        assertEquals(270f,
+            NavigationHeadingPolicy.movingHeading(4f, 90f, 15.0, 270f, 50f)!!, 0.001f)
+        assertNull(NavigationHeadingPolicy.movingHeading(2.9f, 90f, 15.0, 270f, 1f))
+        assertNull(NavigationHeadingPolicy.movingHeading(5f, -1f, 8.0, 10f))
     }
 
     @Test fun stopHoldsLastCourseInsteadOfFollowingPhoneMagnetometer() {

@@ -140,6 +140,28 @@ void test_curve_compensation_tapers_instead_of_switching_off() {
   CHECK(stopped.longitude_deg < straight.longitude_deg);
 }
 
+void test_low_frame_rate_integrates_full_elapsed_time() {
+  MapOriginPredictor predictor;
+  const MapOriginPredictor::Position start{45.0, 9.0};
+  predictor.advance(start, 1'000, 1, "route", 1, 20, 90, true);
+  const auto p400 = predictor.advance(start, 1'400, 1, "route", 1, 20, 90, true);
+  CHECK(east_metres(p400, start.longitude_deg) > 7.9);
+  CHECK(east_metres(p400, start.longitude_deg) < 8.1);
+  const auto p800 = predictor.advance(start, 1'800, 1, "route", 1, 20, 90, true);
+  CHECK(east_metres(p800, start.longitude_deg) > 15.9);
+  CHECK(east_metres(p800, start.longitude_deg) < 16.1);
+}
+
+void test_turning_freezes_straight_line_extrapolation_until_new_geometry() {
+  MapOriginPredictor predictor;
+  const MapOriginPredictor::Position start{45.0, 9.0};
+  predictor.advance(start, 1'000, 1, "route", 1, 15, 90, true);
+  const auto straight = predictor.advance(start, 2'000, 1, "route", 1, 15, 90, true);
+  const auto corner = predictor.advance(start, 2'400, 1, "route", 1, 15, 40, true);
+  CHECK(std::abs(corner.latitude_deg - straight.latitude_deg) < 1e-10);
+  CHECK(std::abs(corner.longitude_deg - straight.longitude_deg) < 1e-10);
+}
+
 void test_stale_stop_and_route_changes() {
   MapOriginPredictor predictor;
   const MapOriginPredictor::Position start{45.0, 9.0};
@@ -164,6 +186,8 @@ void test_stale_stop_and_route_changes() {
 
 int main() {
   test_subframe_motion_and_correction();
+  test_low_frame_rate_integrates_full_elapsed_time();
+  test_turning_freezes_straight_line_extrapolation_until_new_geometry();
   test_stale_stop_and_route_changes();
   test_prediction_freezes_after_missing_geometry_anchor();
   test_three_second_ble_geometry_cadence_stays_in_motion();

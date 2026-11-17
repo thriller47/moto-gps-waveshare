@@ -1087,6 +1087,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
             longitude = location.longitude,
             speedMs = fix.speedMetersPerSecond,
             gpsBearingDeg = if (location.hasBearing()) location.bearing else null,
+            bearingAccuracyDeg = if (android.os.Build.VERSION.SDK_INT >= 26 &&
+                location.hasBearingAccuracy()) location.bearingAccuracyDegrees else null,
             context = context
         )
     }
@@ -1096,6 +1098,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         longitude: Double,
         speedMs: Float,
         gpsBearingDeg: Float?,
+        bearingAccuracyDeg: Float?,
         context: Context?
     ) {
         if (context != null) navigationMapsContext = context.applicationContext
@@ -1105,10 +1108,6 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         lastLocationTimeMs = now
 
         lastGpsSpeedMs = speedMs
-        if (gpsBearingDeg != null && gpsBearingDeg.isFinite() && speedMs >= 3f) {
-            lastReliableGpsBearing = (gpsBearingDeg % 360f + 360f) % 360f
-            lastReliableGpsBearingMs = SystemClock.elapsedRealtime()
-        }
         val speedZero = speedMs < 0.8f
         if (speedZero) {
             currentSpeedDeciKph = 0
@@ -1119,16 +1118,17 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         val displacementM = if (prevLat != null && prevLon != null)
             calculateDistanceMeters(prevLat!!, prevLon!!, latitude, longitude)
         else 0.0
-        val displacementCourse = if (displacementM >= 4.0)
+        val displacementCourse = if (displacementM >= 12.0)
             calculateBearingDeg(prevLat!!, prevLon!!, latitude, longitude)
         else null
         val travelCourse = NavigationHeadingPolicy.movingHeading(
-            speedMs, gpsBearingDeg, displacementM, displacementCourse)
+            speedMs, gpsBearingDeg, displacementM, displacementCourse,
+            bearingAccuracyDeg)
         if (travelCourse != null) {
             currentHeadingCentiDeg = (travelCourse * 100f).toInt().coerceIn(0, 35999)
             // When the GNSS provider has no bearing, two real fixes still
             // establish a reliable travel direction for the next reroute.
-            if (speedMs >= 3f && displacementM >= 6.0) {
+            if (speedMs >= 3f) {
                 lastReliableGpsBearing = travelCourse
                 lastReliableGpsBearingMs = SystemClock.elapsedRealtime()
             }

@@ -60,8 +60,13 @@ class MotionHeadingFusion {
       const float error = shortest_delta(phone, heading_deg_);
       // Align faster during initial pull-away without snapping every
       // subsequent slightly noisy GNSS course.
-      const float correction = std::abs(error) > 80.0F ? 0.82F : 0.48F;
-      heading_deg_ = normalize(heading_deg_ + error * correction);
+      // GNSS course is delayed relative to the gyro, especially in a turn.
+      // Never pull the display back toward a stale course during a fast yaw.
+      // A moderate gain avoids a single course jump rotating the entire map.
+      if (std::abs(filtered_rate_dps_) <= 5.0F) {
+        constexpr float kCorrection = 0.22F;
+        heading_deg_ = normalize(heading_deg_ + error * kCorrection);
+      }
     }
   }
 

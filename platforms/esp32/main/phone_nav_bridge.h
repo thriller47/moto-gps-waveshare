@@ -139,6 +139,8 @@ class PhoneNavBridge {
   std::atomic<TaskHandle_t> render_task_handle_{nullptr};
 #endif
   MotionHeadingFusion heading_fusion_;
+  float last_anchored_phone_heading_deg_ = -1.0F;
+  std::uint64_t last_phone_anchor_ms_ = 0;
   std::uint64_t last_motion_present_ms_ = 0;
   std::uint64_t last_diagnostic_send_ms_ = 0;
   moto::ble::DiagnosticBatch pending_diagnostic_batch_{};

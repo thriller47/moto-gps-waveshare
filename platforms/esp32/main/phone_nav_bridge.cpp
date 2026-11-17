@@ -242,6 +242,8 @@ void PhoneNavBridge::on_link_state(bool active) {
       phone_snapshot.route_view_point_count = 0;
       clear_map_context(phone_snapshot);
       heading_fusion_.reset();
+      last_phone_anchor_ms_ = 0;
+      last_anchored_phone_heading_deg_ = -1.0F;
       last_motion_present_ms_ = 0;
       music_page_enabled_ = false;
       media_state_ = {};
@@ -433,9 +435,23 @@ void PhoneNavBridge::consume_navigation(
         static_cast<float>(input.heading_cdeg) / 100.0F;
     const bool has_usable_fix = has_flag(
         input.flags, moto::ble::NavigationHasFix);
-    heading_fusion_.anchor(phone_heading_deg, phone_speed_mps,
-                           has_usable_fix && !has_flag(
-                               input.flags, moto::ble::NavigationGnssStale));
+    // Snapshots can arrive 4x per second while the phone's GNSS course is
+    // updated only about once per second. Re-anchoring every copy would
+    // compound the correction gain and effectively disable gyro smoothing.
+    const bool valid_course = has_usable_fix && !has_flag(
+        input.flags, moto::ble::NavigationGnssStale) &&
+        std::isfinite(phone_heading_deg) &&
+        phone_heading_deg >= 0.0F && phone_heading_deg < 360.0F;
+    const std::uint64_t anchor_now_ms = monotonic_ms();
+    const bool repeat_course = last_phone_anchor_ms_ != 0 &&
+        anchor_now_ms >= last_phone_anchor_ms_ &&
+        anchor_now_ms - last_phone_anchor_ms_ < 900U &&
+        std::abs(phone_heading_deg - last_anchored_phone_heading_deg_) < 0.01F;
+    if (valid_course && (phone_speed_mps < 1.5F || !repeat_course)) {
+      heading_fusion_.anchor(phone_heading_deg, phone_speed_mps, true);
+      last_phone_anchor_ms_ = anchor_now_ms;
+      last_anchored_phone_heading_deg_ = phone_heading_deg;
+    }
 
     phone_snapshot.state = map_state(input.state);
     // A waypoint notice reuses the existing bounded instruction string.

@@ -44,8 +44,20 @@ void test_moving_phone_course_corrects_gyro_drift_progressively() {
   MotionHeadingFusion fusion;
   fusion.anchor(10.0F, 8.0F, true);
   fusion.anchor(110.0F, 10.0F, true);
-  CHECK(fusion.heading_deg() > 90.0F);
-  CHECK(fusion.heading_deg() < 95.0F);
+  CHECK(fusion.heading_deg() > 30.0F);
+  CHECK(fusion.heading_deg() < 34.0F);
+}
+
+void test_active_turn_does_not_snap_toward_delayed_phone_course() {
+  MotionHeadingFusion fusion;
+  fusion.anchor(90.0F, 15.0F, true);
+  feed_rate(fusion, 90.0F, 8, 248);
+  const float during_turn = fusion.heading_deg();
+  fusion.anchor(90.0F, 15.0F, true);  // delayed course, still 90
+  CHECK(std::abs(fusion.heading_deg() - during_turn) < 0.01F);
+  feed_rate(fusion, 0.0F, 256, 856);
+  fusion.anchor(90.0F, 15.0F, true);
+  CHECK(fusion.heading_deg() < during_turn);
 }
 
 void test_first_phone_course_replaces_gyro_local_zero() {
@@ -69,8 +81,8 @@ void test_startup_heading_fast_and_stationary_hold() {
   fusion.anchor(110.0F, 8.0F, true);
   CHECK(std::abs(fusion.heading_deg() - 110.0F) < 0.01F);
   fusion.anchor(120.0F, 8.0F, true);
-  CHECK(fusion.heading_deg() > 113.0F);
-  CHECK(fusion.heading_deg() < 117.0F);
+  CHECK(fusion.heading_deg() > 111.0F);
+  CHECK(fusion.heading_deg() < 113.0F);
   const float corrected = fusion.heading_deg();
   fusion.anchor(250.0F, 0.0F, true);
   CHECK(std::abs(fusion.heading_deg() - corrected) < 0.01F);
@@ -151,6 +163,7 @@ void test_stationary_freeze_holds_heading_until_riding_resumes() {
 
 int main() {
   test_fast_gyro_turn_and_wrap();
+  test_active_turn_does_not_snap_toward_delayed_phone_course();
   test_stationary_phone_course_does_not_drag_handlebar_heading();
   test_moving_phone_course_corrects_gyro_drift_progressively();
   test_first_phone_course_replaces_gyro_local_zero();

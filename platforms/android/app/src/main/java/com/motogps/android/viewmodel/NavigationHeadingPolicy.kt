@@ -20,12 +20,16 @@ internal object NavigationHeadingPolicy {
         speedMs: Float,
         gpsBearingDeg: Float?,
         displacementMeters: Double,
-        displacementBearingDeg: Float?
+        displacementBearingDeg: Float?,
+        bearingAccuracyDeg: Float? = null
     ): Float? {
-        if (!speedMs.isFinite() || speedMs < 1.5f) return null
-        val gps = normalized(gpsBearingDeg)
+        if (!speedMs.isFinite() || speedMs < 3.0f) return null
+        val gps = if (gpsBearingDeg != null && gpsBearingDeg >= 0f &&
+            gpsBearingDeg < 360f && (bearingAccuracyDeg == null ||
+            (bearingAccuracyDeg.isFinite() && bearingAccuracyDeg <= 25f)))
+            normalized(gpsBearingDeg) else null
         if (gps != null) return gps
-        return if (displacementMeters.isFinite() && displacementMeters >= 4.0)
+        return if (displacementMeters.isFinite() && displacementMeters >= 12.0)
             normalized(displacementBearingDeg)
         else null
     }
