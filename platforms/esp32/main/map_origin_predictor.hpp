@@ -55,16 +55,12 @@ class MapOriginPredictor {
     // Normal BLE route windows can arrive 3.1s apart. The old 1.5s cap
     // froze the moving map until the next window, causing 30m catch-ups.
     // Bound prediction at 3.4s, still freezing during a genuine outage.
-    // GPS remains authoritative and the route geometry is not modified.
+    // Extrapolate continuously along the live fused vehicle heading
+    // through curves, roundabouts, and deceleration.
     if (std::isfinite(speed) && speed >= 1.5 && speed <= 35.0 &&
         std::isfinite(heading_deg) && heading_deg >= 0.0F &&
         heading_deg < 360.0F &&
-        now_ms - last_geometry_seen_ms_ <= 3'400U &&
-        ( !std::isfinite(last_anchor_heading_deg_) ||
-          std::abs(std::remainder(static_cast<double>(heading_deg -
-                    last_anchor_heading_deg_), 360.0)) <= 15.0 ) &&
-        (!std::isfinite(last_anchor_speed_mps_) ||
-          speed >= static_cast<double>(last_anchor_speed_mps_) * 0.75)) {
+        now_ms - last_geometry_seen_ms_ <= 3'400U) {
       const double heading = static_cast<double>(heading_deg) *
                              3.14159265358979323846 / 180.0;
       move(std::cos(heading) * speed * dt,
