@@ -32,6 +32,133 @@ SPEED = [110, 90, 70, 50]
 JUNCTION_KIND = {"roundabout": 1, "circular": 2}
 JUNCTION_SCHEMA = "osm-junction-way-v4"
 
+# OSM numeric km/h, selected Italian implicit limits and compatible units.
+# A v4 row contains one speed only: divergent directional/compound limits
+# cannot be represented faithfully and remain on the legacy class fallback.
+ITALIAN_LIMITS = {
+    "it:urban": 50,
+    "it:rural": 90,
+    "it:trunk": 110,
+    "it:motorway": 130,
+    "it:living_street": 20,
+}
+SPEED_RE = re.compile(r"(\d{1,3})(?:\s*(?:km/h|kmh|kph))?", re.IGNORECASE)
+
+
+def parse_maxspeed(raw):
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    values = []
+    for token in raw.lower().split(";"):
+        token = token.strip()
+        if token in ITALIAN_LIMITS:
+            speed = ITALIAN_LIMITS[token]
+        else:
+            matched = SPEED_RE.fullmatch(token)
+            if matched is None:
+                return None
+            speed = int(matched.group(1))
+        if not 5 <= speed <= 140:
+            return None
+        values.append(speed)
+    # Preserve an unambiguous numeric value; do not arbitrarily choose 50
+    # from "50;70", or confuse seasonal/conditional rules with static limits.
+    return values[0] if values and len(set(values)) == 1 else None
+
+
+def speed_for_way(tags, cls):
+    direct = parse_maxspeed(tags.get("maxspeed", ""))
+    if direct is not None:
+        return direct
+    # A single forward limit does not describe the reverse direction. Only
+    # accept identical directional values when the main tag is missing.
+    if not str(tags.get("maxspeed", "")).strip():
+        forward = parse_maxspeed(tags.get("maxspeed:forward", ""))
+        backward = parse_maxspeed(tags.get("maxspeed:backward", ""))
+        if forward is not None and forward == backward:
+            return forward
+    # source:maxspeed describes provenance, not necessarily a proven
+    # current limit. Keep existing v4 fallback until certainty can be encoded.
+    return SPEED[cls]
+
+
+def tile_xy_float(lat, lon):
+    latitude = max(-85.0, min(85.0, lat))
+    longitude = max(-180.0, min(180.0, lon))
+    x = (longitude + 180.0) / 360.0 * GRID
+    phi = math.radians(latitude)
+    y = (1.0 - math.asinh(math.tan(phi)) / math.pi) * GRID / 2.0
+    return (max(0.0, min(GRID - 1e-9, x)),
+            max(0.0, min(GRID - 1e-9, y)))
+
+
+def supercover_grid(x0, y0, x1, y1):
+    """Return every z15 tile touched by a segment, including corner touches.
+
+    Grid traversal is O(crossed vertical + horizontal boundaries), unlike
+    oversampling a diagonal or scanning its rectangular bounding box.
+    """
+    if x1 - x0 > GRID / 2:
+        x1 -= GRID
+    elif x0 - x1 > GRID / 2:
+        x1 += GRID
+    touched = set()
+    def add(x, y):
+        if 0 <= y < GRID:
+            touched.add((x % GRID, y))
+    x, y = math.floor(x0), math.floor(y0)
+    dx, dy = x1 - x0, y1 - y0
+    sx = (dx > 0) - (dx < 0)
+    sy = (dy > 0) - (dy < 0)
+    next_x = ((x + 1 - x0) / dx if sx > 0 else (x - x0) / dx) if sx else math.inf
+    next_y = ((y + 1 - y0) / dy if sy > 0 else (y - y0) / dy) if sy else math.inf
+    interval_x = 1 / abs(dx) if sx else math.inf
+    interval_y = 1 / abs(dy) if sy else math.inf
+    tolerance = 1e-12
+    while True:
+        add(x, y)
+        if min(next_x, next_y) > 1 + tolerance:
+            break
+        if next_x < next_y - tolerance:
+            x += sx
+            next_x += interval_x
+        elif next_y < next_x - tolerance:
+            y += sy
+            next_y += interval_y
+        else:
+            # At a corner both side tiles count, even if traversed only
+            # at one point; the diagonal tile is visited next.
+            if sx:
+                add(x + sx, y)
+            if sy:
+                add(x, y + sy)
+            x += sx
+            y += sy
+            next_x += interval_x
+            next_y += interval_y
+
+    # Include tiles touching exact-boundary endpoints, and both sides of
+    # a path that runs precisely along one grid line.
+    basic = set(touched)
+    if sx == 0 and abs(x0 - round(x0)) <= tolerance:
+        touched.update(((a - 1) % GRID, b) for a, b in basic)
+    if sy == 0 and abs(y0 - round(y0)) <= tolerance:
+        touched.update((a, b - 1) for a, b in basic if b > 0)
+    for px, py in ((x0, y0), (x1, y1)):
+        xx, yy = math.floor(px), math.floor(py)
+        xs = (xx - 1, xx) if abs(px - round(px)) <= tolerance else (xx,)
+        ys = (yy - 1, yy) if abs(py - round(py)) <= tolerance else (yy,)
+        for xi in xs:
+            for yi in ys:
+                add(xi, yi)
+    return touched
+
+
+def segment_tiles(lat_a, lon_a, lat_b, lon_b):
+    x0, y0 = tile_xy_float(lat_a, lon_a)
+    x1, y1 = tile_xy_float(lat_b, lon_b)
+    return supercover_grid(x0, y0, x1, y1)
+
 
 def tile(lat, lon):
     lat = max(-85.0, min(85.0, lat))
@@ -70,9 +197,7 @@ def rows_for_way(way):
     if highway not in KEEP:
         return ()
     cls = KEEP[highway]
-    raw_speed = way.tags.get("maxspeed", "")
-    m = re.fullmatch(r"(\d{1,3})(?: km/h)?", raw_speed.strip())
-    speed = int(m.group(1)) if m and 5 <= int(m.group(1)) <= 140 else SPEED[cls]
+    speed = speed_for_way(way.tags, cls)
     level = road_level(way.tags)
     junction_kind = JUNCTION_KIND.get(way.tags.get("junction"), 0)
     points = []
@@ -100,13 +225,9 @@ def rows_for_way(way):
         # the way's starting point. Long ways must remain accessible everywhere.
         touched = set()
         for (lat_a, lon_a, _), (lat_b, lon_b, _) in zip(segment, segment[1:]):
-            x1, y1 = tile(lat_a / 1e6, lon_a / 1e6)
-            x2, y2 = tile(lat_b / 1e6, lon_b / 1e6)
-            steps = max(abs(x2-x1), abs(y2-y1), 1)
-            for j in range(steps + 1):
-                t = j / steps
-                touched.add(tile((lat_a + (lat_b-lat_a)*t) / 1e6,
-                                 (lon_a + (lon_b-lon_a)*t) / 1e6))
+            touched.update(segment_tiles(
+                lat_a / 1e6, lon_a / 1e6,
+                lat_b / 1e6, lon_b / 1e6))
         output.append((touched, line))
     return output
 

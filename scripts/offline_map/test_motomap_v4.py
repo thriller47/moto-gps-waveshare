@@ -42,6 +42,61 @@ class FakeWay:
 
 
 class MotoMapV4Tests(unittest.TestCase):
+    def test_supercover_diagonal_crosses_third_tile(self):
+        cells = module.supercover_grid(17000.2, 11500.2, 17001.2, 11501.8)
+        self.assertEqual(cells, {
+            (17000, 11500), (17000, 11501), (17001, 11501)})
+        self.assertEqual(cells, module.supercover_grid(
+            17001.2, 11501.8, 17000.2, 11500.2))
+
+    def test_supercover_corner_boundary_and_long_segments(self):
+        self.assertEqual(module.supercover_grid(
+            17000.2, 11500.2, 17001.2, 11501.2), {
+            (17000, 11500), (17001, 11500),
+            (17000, 11501), (17001, 11501)})
+        self.assertEqual(module.supercover_grid(
+            17000.2, 11500.5, 17004.2, 11500.5), {
+            (x, 11500) for x in range(17000, 17005)})
+        self.assertEqual(module.supercover_grid(
+            17000, 11500.3, 17000, 11503.4), {
+            (x, y) for x in (16999, 17000)
+            for y in range(11500, 11504)})
+        self.assertEqual(module.supercover_grid(
+            32767.8, 12000.2, 0.2, 12000.3), {
+            (32767, 12000), (0, 12000)})
+
+    def test_rows_for_way_include_intervening_diagonal_tile(self):
+        def coordinate(x, y):
+            longitude = (x / module.GRID) * 360 - 180
+            latitude = __import__("math").degrees(__import__("math").atan(
+                __import__("math").sinh(__import__("math").pi *
+                                       (1 - 2 * y / module.GRID))))
+            return latitude, longitude
+        a = coordinate(17000.2, 11500.2)
+        b = coordinate(17001.2, 11501.8)
+        way = FakeWay({"highway": "primary"}, [
+            FakeNode(*a, 100), FakeNode(*b, 101)])
+        cells, line = module.rows_for_way(way)[0]
+        self.assertIn((17000, 11501), cells)
+        self.assertTrue(line.startswith("1,90,0,34567,0|"))
+
+    def test_osm_italian_speed_tags_without_schema_change(self):
+        self.assertEqual(module.parse_maxspeed("IT:urban"), 50)
+        self.assertEqual(module.parse_maxspeed("IT:rural"), 90)
+        self.assertEqual(module.parse_maxspeed("IT:motorway"), 130)
+        self.assertEqual(module.parse_maxspeed("50 kmh"), 50)
+        self.assertEqual(module.parse_maxspeed("50 km/h"), 50)
+        self.assertEqual(module.parse_maxspeed("50;50"), 50)
+        self.assertIsNone(module.parse_maxspeed("50;70"))
+        self.assertIsNone(module.parse_maxspeed("30 @ (Mo-Fr 08:00-18:00)"))
+        self.assertEqual(module.speed_for_way(
+            {"maxspeed:forward": "50", "maxspeed:backward": "50"}, 2), 50)
+        self.assertEqual(module.speed_for_way(
+            {"maxspeed:forward": "50", "maxspeed:backward": "70"}, 2), 70)
+        self.assertEqual(module.speed_for_way(
+            {"source:maxspeed": "IT:urban"}, 2), 70)
+        self.assertEqual(module.speed_for_way({"maxspeed": "IT:urban"}, 2), 50)
+
     def test_crossing_keeps_distinct_osm_node_ids(self):
         bridge = FakeWay(
             {"highway": "primary", "bridge": "yes"},

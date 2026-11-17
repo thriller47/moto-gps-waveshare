@@ -611,3 +611,34 @@ Per installarlo: copiare il database `.sqlite` (non lo `.zst` dump) in **Downloa
 | Test rimasto aperto | **Clipping LVGL per segmento**: prova su strada, senza modifiche prima del feedback |
 
 **Materiale storico:** [archive/MANUALE_OPERATIVO_PRE_CLEANUP_2026-11-15.md](archive/MANUALE_OPERATIVO_PRE_CLEANUP_2026-11-15.md); non usarlo per comandi correnti.
+
+
+
+## Rigenerazione MotoMap v4 dopo correzione tile diagonali e maxspeed (17 novembre 2026)
+
+Questa modifica riguarda **solo gli strumenti Python**. Il formato di ogni riga MotoMap v4, il suo manifest, il protocollo BLE e l'APK Android rimangono invariati. Valhalla Italia V5 e Photon v2 già validi possono essere **riutilizzati**: non serve ricostruire i grafi.
+
+Dopo aver aggiornato il branch `test/unified-offline-map-20261115` in WSL con `git pull --ff-only origin test/unified-offline-map-20261115`, rigenerare **soltanto MotoMap**, scegliendo nuovi nomi per non sovrascrivere i file attualmente installati. Esempio WSL Ubuntu (adattare percorsi PBF, POLY e cartella dei dati):
+
+```bash
+cd ~/MotoGPS/moto-gps-waveshare
+mkdir -p "$HOME/motogps-build/ItaliaMotoMapCorretta"
+python3 scripts/offline_map/pbf_to_motomap.py \
+  /mnt/c/MotoGPS/PBF/italy-latest.osm.pbf \
+  --coverage-poly /mnt/c/MotoGPS/PBF/italy.poly \
+  -o "$HOME/motogps-build/ItaliaMotoMapCorretta/italy-v4.motomap.zip"
+
+python3 scripts/offline_map/motopack.py build \
+  --motomap "$HOME/motogps-build/ItaliaMotoMapCorretta/italy-v4.motomap.zip" \
+  --valhalla "/PERCORSO/VALHALLA/valhalla_tiles.tar.zst" \
+  --photon "/PERCORSO/PHOTON/photon-italy-v2.sqlite" \
+  -o "$HOME/motogps-build/ItaliaMotoMapCorretta/MotoChatGPS-Italia.motopack"
+
+python3 scripts/offline_map/motopack.py verify \
+  "$HOME/motogps-build/ItaliaMotoMapCorretta/MotoChatGPS-Italia.motopack"
+```
+
+**IMPORTANTE:** Non usare `--resume` del builder completo su una vecchia cartella per ottenere queste correzioni: riutilizzerebbe il vecchio `italy-v4.motomap.zip`. Se si preferisce il builder integrale, scegliere una cartella output nuova; ricostruirà però anche Valhalla e Photon. Per risparmiare tempo usare i tre comandi sopra. Il convertitore continua a usare un singolo valore di limite per strada: forme ambigue come `50;70`, limiti orari e direzioni differenti conservano il fallback della classe; non sono limiti verificati.
+
+Per installare, importare il nuovo `.motopack` da **Mappe offline** nell'app Android già installata; l'importatore verifica gli hash prima della sostituzione. Eseguire l'operazione fuori dalla navigazione, con spazio sufficiente, perché tutti e tre i componenti vengono reimportati (anche se due sono identici).
+

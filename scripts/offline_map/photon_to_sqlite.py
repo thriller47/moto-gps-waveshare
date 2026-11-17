@@ -15,6 +15,7 @@ from pathlib import Path
 import sqlite3
 import subprocess
 import sys
+import tempfile
 
 SCHEMA = """
 PRAGMA user_version=2;
@@ -77,16 +78,28 @@ def open_lines(filename):
     if filename == "-":
         yield sys.stdin
     elif str(filename).lower().endswith(".zst"):
-        proc = subprocess.Popen(["zstd", "-dc", "--", str(filename)],
-                                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                encoding="utf-8", text=True)
-        try:
-            yield proc.stdout
-        finally:
-            if proc.stdout: proc.stdout.close()
-            error = proc.stderr.read() if proc.stderr else ""
-            if proc.wait() != 0:
-                raise RuntimeError("zstd error: " + error[-500:])
+        # A stderr PIPE can deadlock if zstd fills it before stdout has
+        # been drained. A temporary file preserves diagnostics without
+        # requiring a second consuming thread.
+        with tempfile.TemporaryFile() as diagnostics:
+            proc = subprocess.Popen(["zstd", "-dc", "--", str(filename)],
+                                    stdout=subprocess.PIPE, stderr=diagnostics,
+                                    encoding="utf-8", text=True)
+            try:
+                yield proc.stdout
+                if proc.stdout:
+                    proc.stdout.close()
+                if proc.wait() != 0:
+                    diagnostics.seek(0, 2)
+                    diagnostics.seek(max(0, diagnostics.tell() - 500))
+                    error = diagnostics.read().decode("utf-8", "replace")
+                    raise RuntimeError("zstd error: " + error)
+            finally:
+                if proc.stdout and not proc.stdout.closed:
+                    proc.stdout.close()
+                if proc.poll() is None:
+                    proc.kill()
+                    proc.wait()
     else:
         with open(filename, "r", encoding="utf-8") as stream:
             yield stream

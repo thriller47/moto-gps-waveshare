@@ -1,11 +1,15 @@
 """Offline Photon JSONL converter regression checks, no network required."""
 import json
+import subprocess
+import sys
+from unittest.mock import patch
 from pathlib import Path
 import sqlite3
 import tempfile
 import unittest
 
-from photon_to_sqlite import build
+from photon_to_sqlite import build, open_lines
+from analyze_valhalla_graph import inspect
 
 class TestPhotonSQLite(unittest.TestCase):
     def test_indirect_addresses_and_unicode(self):
@@ -126,3 +130,47 @@ class TestPhotonSQLite(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestZstdPipes(unittest.TestCase):
+    """Exercise real subprocess streaming with >1MiB diagnostic output."""
+
+    def test_photon_decoder_verbose_stderr_does_not_deadlock(self):
+        script = (
+            'import signal,sys; signal.alarm(6); '
+            'sys.stderr.write("E"*1048576); '
+            'sys.stdout.write("one\\ntwo\\n")'
+        )
+        real_popen = subprocess.Popen
+        def fake_zstd(argv, **kwargs):
+            self.assertEqual(argv[0], "zstd")
+            return real_popen([sys.executable, "-c", script], **kwargs)
+        with patch.object(subprocess, "Popen", side_effect=fake_zstd):
+            with open_lines("virtual.jsonl.zst") as source:
+                self.assertEqual(list(source), ["one\\n", "two\\n"])
+
+    def test_graph_decoder_verbose_stderr_does_not_deadlock(self):
+        script = """
+import io, signal, sys, tarfile
+signal.alarm(6)
+sys.stderr.write("E" * 1048576)
+header = bytearray(48)
+header[16:19] = b"3.1"
+header[40:48] = (1 | (2 << 21)).to_bytes(8, "little")
+with tarfile.open(fileobj=sys.stdout.buffer, mode="w|") as archive:
+    member = tarfile.TarInfo("0/000/000/001.gph")
+    member.size = len(header)
+    archive.addfile(member, io.BytesIO(header))
+"""
+        real_popen = subprocess.Popen
+        def fake_zstd(argv, **kwargs):
+            self.assertEqual(argv[0], "zstd")
+            return real_popen([sys.executable, "-c", script], **kwargs)
+        with tempfile.TemporaryDirectory() as directory:
+            fake_input = Path(directory) / "graph.tar.zst"
+            fake_input.write_bytes(b"test")
+            with patch.object(subprocess, "Popen", side_effect=fake_zstd):
+                report = inspect(fake_input)
+        self.assertTrue(report["complete"])
+        self.assertEqual(report["totals"]["nodes"], 1)
+        self.assertEqual(report["totals"]["directed_edges"], 2)

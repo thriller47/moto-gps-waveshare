@@ -14,6 +14,7 @@ import struct
 import subprocess
 import sys
 import tarfile
+import tempfile
 
 MASK = (1 << 21) - 1
 VERSION = re.compile(rb"^3\.[0-9]+(?:\.[0-9]+)?(?:-[0-9A-Za-z._-]+)?$")
@@ -38,10 +39,14 @@ def inspect(filename):
         raise FileNotFoundError(path)
     proc = None
     stream = None
+    diagnostics = None
     try:
         if path.name.lower().endswith(".zst"):
+            # Redirect stderr to disk so a verbose decoder cannot block
+            # the tar stream by filling its diagnostic pipe.
+            diagnostics = tempfile.TemporaryFile()
             proc = subprocess.Popen(["zstd", "-dc", "--", str(path)],
-                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                                    stdout=subprocess.PIPE, stderr=diagnostics)
             stream = proc.stdout
         else:
             stream = path.open("rb")
@@ -78,9 +83,11 @@ def inspect(filename):
                     bucket["directed_edges"] += edges
         if proc:
             stream.close()
-            err = proc.stderr.read().decode("utf-8", "replace")
             if proc.wait() != 0:
-                raise RuntimeError("Zstandard decompression failed: " + err[-500:])
+                diagnostics.seek(0, 2)
+                diagnostics.seek(max(0, diagnostics.tell() - 500))
+                err = diagnostics.read().decode("utf-8", "replace")
+                raise RuntimeError("Zstandard decompression failed: " + err)
         totals = {k: sum(v[k] for v in levels.values()) for k in
                   ("tiles", "nodes", "directed_edges", "unknown")}
         return {"archive": str(path), "archive_bytes": path.stat().st_size,
@@ -94,6 +101,8 @@ def inspect(filename):
         if proc is not None and proc.poll() is None:
             proc.kill()
             proc.wait()
+        if diagnostics is not None:
+            diagnostics.close()
 
 
 def main():
