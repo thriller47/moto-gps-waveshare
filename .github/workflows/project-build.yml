@@ -9,7 +9,7 @@ on:
       - '**.md'
       - 'docs/**'
       - '.gitignore'
-      - 'LICENSE'
+      - 'LICENSE.md'
   pull_request:
     branches:
       - valhalla
@@ -17,7 +17,7 @@ on:
       - '**.md'
       - 'docs/**'
       - '.gitignore'
-      - 'LICENSE'
+      - 'LICENSE.md'
   workflow_dispatch:
     inputs:
       build_native:
@@ -130,7 +130,9 @@ jobs:
           node --check platforms/web/simulator/trace_model.js
           node --check platforms/web/simulator/fallback_map.js
           node --check platforms/web/simulator/ring_alignment.js
-          node --test platforms/web/simulator/trace_model.test.cjs platforms/web/simulator/fallback_map.test.cjs platforms/web/simulator/ring_alignment.test.cjs
+          node --check platforms/web/simulator/heading_diagnostics.js
+          node --check platforms/web/simulator/heading_stability.js
+          node --test platforms/web/simulator/trace_model.test.cjs platforms/web/simulator/fallback_map.test.cjs platforms/web/simulator/ring_alignment.test.cjs platforms/web/simulator/heading_stability.test.cjs platforms/web/simulator/wasm_exports.test.cjs
 
       - name: Verify MotoMap v3 converter contract
         run: python3 -m unittest discover -s scripts/offline_map -p 'test_motomap_v4.py'

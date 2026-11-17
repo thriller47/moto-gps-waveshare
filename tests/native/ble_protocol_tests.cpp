@@ -244,6 +244,9 @@ std::unordered_map<std::string, std::string> read_golden() {
   std::unordered_map<std::string, std::string> values;
   std::string line;
   while (std::getline(input, line)) {
+    if (!line.empty() && line.back() == '\r') {
+      line.pop_back();
+    }
     if (line.empty() || line[0] == '#') {
       continue;
     }

@@ -45,6 +45,15 @@ class RerouteStabilityPolicyTest {
         assertFalse(p.shouldDeferWhileTurning(12_100L, 81.0))
     }
 
+    @Test fun acceptedClearsTurnGuardImmediately() {
+        val p = RerouteStabilityPolicy()
+        p.observeCourse(1_000L, 20f, 8f)
+        p.observeCourse(2_000L, 48f, 8f) // Turn detected: turnGuardUntilMs = 8_000L
+        assertTrue(p.shouldDeferWhileTurning(3_000L, 50.0))
+        p.accepted(3_000L, 45.0, 9.0) // New route accepted -> turnGuardUntilMs reset to -1
+        assertFalse(p.shouldDeferWhileTurning(3_000L, 50.0))
+    }
+
     @Test fun resetOrClockRollbackNeverBlocksNavigation() {
         val p = RerouteStabilityPolicy()
         p.accepted(9_000L, 45.0, 9.0)

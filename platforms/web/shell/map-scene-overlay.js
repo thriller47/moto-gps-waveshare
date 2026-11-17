@@ -215,82 +215,13 @@
     canvas.setAttribute("aria-hidden", "true");
     ring.prepend(canvas);
 
-    const context = canvas.getContext("2d", { alpha: false });
-    let scene = null;
-    let route = null;
-    let animationFrame = 0;
-    let stopped = false;
-    let displayedProgress = Number.NaN;
-    let previousTime = performance.now();
+    // The Jinan demo fixtures were removed during repository cleanup.
+    // Degrade cleanly without attempting HTTP requests to nonexistent files.
+    ring.classList.remove("has-map-scene");
+    canvas.remove();
 
-    const sceneUrl = new URL(
-      "../../../shared/demo_fixture/jinan_map_scene_sample.json",
-      location.href,
-    );
-    const routeUrl = new URL(
-      "../../../shared/demo_fixture/jinan_big_data_to_inspur.json",
-      location.href,
-    );
-
-    function frame(now) {
-      if (stopped) return;
-      const visible = Boolean(scene && route && isVisible())
-        && Number(runtime.getPage?.() ?? 0) === 0;
-      canvas.hidden = !visible;
-      ring.classList.toggle("has-map-scene", visible);
-
-      if (visible) {
-        const target = Math.max(0, Math.min(route.total,
-          Number(runtime.getRouteProgress?.() ?? 0)));
-        if (!Number.isFinite(displayedProgress) || Math.abs(target - displayedProgress) > 170) {
-          displayedProgress = target;
-        } else {
-          const elapsed = Math.min(100, Math.max(0, now - previousTime));
-          const blend = 1 - Math.exp(-elapsed / 135);
-          displayedProgress += (target - displayedProgress) * blend;
-        }
-        renderScene(context, scene, route, displayedProgress);
-      }
-      previousTime = now;
-      animationFrame = requestAnimationFrame(frame);
-    }
-
-    Promise.all([
-      fetch(sceneUrl, { cache: "no-store" }).then((response) => {
-        if (!response.ok) throw new Error(`scene HTTP ${response.status}`);
-        return response.json();
-      }),
-      fetch(routeUrl, { cache: "no-store" }).then((response) => {
-        if (!response.ok) throw new Error(`route HTTP ${response.status}`);
-        return response.json();
-      }),
-    ]).then(([sceneDocument, routeDocument]) => {
-      if (!validScene(sceneDocument) || !Array.isArray(routeDocument.route_wgs84)
-        || routeDocument.route_wgs84.length < 2) {
-        throw new Error("invalid map-scene fixture");
-      }
-      scene = sceneDocument;
-      route = routeModel(routeDocument.route_wgs84);
-      canvas.dataset.roadCount = String(scene.roads.length);
-      canvas.dataset.buildingCount = String(scene.buildings.length);
-      canvas.dataset.sceneRevision = String(scene.scene_revision ?? "unknown");
-      window.__MOTO_MAP_SCENE_QA__ = Object.freeze({
-        source: scene.source?.provider ?? "unknown",
-        roads: scene.roads.length,
-        buildings: scene.buildings.length,
-        routePoints: route.points.length,
-      });
-    }).catch((error) => {
-      ring.classList.remove("has-map-scene");
-      canvas.remove();
-      console.warn("MOTO GPS real map scene unavailable; no synthetic fallback was drawn.", error);
-    });
-
-    animationFrame = requestAnimationFrame(frame);
     return Object.freeze({
       destroy() {
-        stopped = true;
-        cancelAnimationFrame(animationFrame);
         ring.classList.remove("has-map-scene");
         canvas.remove();
       },

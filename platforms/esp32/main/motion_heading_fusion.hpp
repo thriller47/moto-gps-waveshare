@@ -23,13 +23,15 @@ class MotionHeadingFusion {
     last_sample_ms_ = 0;
     large_error_count_ = 0;
     pending_large_course_deg_ = 0.0F;
+    pending_large_course_ms_ = 0;
     // Preserve learned gyro bias across a BLE reconnect.
   }
 
   // course_accuracy_deg is optional until the BLE payload negotiates an
   // angular-accuracy extension. Without it, confidence depends on speed.
   void anchor(float phone_heading_deg, float speed_mps, bool usable_fix,
-              float course_accuracy_deg = NAN) noexcept {
+              float course_accuracy_deg = NAN,
+              std::uint64_t now_ms = 0) noexcept {
     if (!usable_fix || !std::isfinite(phone_heading_deg)) return;
 
     // Starting to move releases the gyro before GNSS course is trustworthy.
@@ -50,6 +52,7 @@ class MotionHeadingFusion {
     }
     if (!moving_course) {
       large_error_count_ = 0;
+      pending_large_course_ms_ = 0;
       return;
     }
     // The 07:49:53 replay shows ~40deg bearing error near 8m/s.
@@ -60,6 +63,7 @@ class MotionHeadingFusion {
         : std::clamp(45.0F - (speed_mps - 1.5F) * 5.5F, 20.0F, 45.0F);
     if (sigma > 60.0F) {
       large_error_count_ = 0;
+      pending_large_course_ms_ = 0;
       return;  // let the gyro continue without an unusable course
     }
     if (!has_phone_reference_ || !has_moving_course_) {
@@ -69,6 +73,7 @@ class MotionHeadingFusion {
       has_phone_reference_ = true;
       has_moving_course_ = true;
       large_error_count_ = 0;
+      pending_large_course_ms_ = 0;
       return;
     }
     // The phone course lags rapid gyro turns. Do not correct during yaw.
@@ -78,16 +83,23 @@ class MotionHeadingFusion {
     // consistent phone courses (no fast 0.82 branch exists in current code).
     // Threshold set to 35 deg so 40 deg GNSS spikes on straight roads are confirmed
     // rather than accepted immediately without gyro confirmation.
+    // The confirmation candidate expires if not corroborated within 2,500 ms.
     if (std::abs(error) > 35.0F && sigma > 12.0F) {
-      if (large_error_count_ == 0 ||
+      const bool expired = now_ms != 0U && pending_large_course_ms_ != 0U &&
+          (now_ms < pending_large_course_ms_ ||
+           now_ms - pending_large_course_ms_ > kLargeErrorConfirmationTimeoutMs);
+      if (large_error_count_ == 0 || expired ||
           std::abs(shortest_delta(phone, pending_large_course_deg_)) > 25.0F) {
         large_error_count_ = 1;
         pending_large_course_deg_ = phone;
+        pending_large_course_ms_ = now_ms;
         return;
       }
       large_error_count_ = 2;
+      pending_large_course_ms_ = 0;
     } else {
       large_error_count_ = 0;
+      pending_large_course_ms_ = 0;
     }
     // Scalar complementary/Kalman-like observation weight; not a full
     // covariance-propagating Kalman filter.
@@ -161,6 +173,7 @@ class MotionHeadingFusion {
   static constexpr float kDeadbandDps = 0.3F;
   static constexpr float kGyroSigmaDeg = 10.0F;
   static constexpr std::uint64_t kMaximumIntegrationGapMs = 160;
+  static constexpr std::uint64_t kLargeErrorConfirmationTimeoutMs = 2'500;
 
   static float normalize(float value) noexcept {
     float result = std::fmod(value, 360.0F);
@@ -184,5 +197,6 @@ class MotionHeadingFusion {
   std::uint64_t last_sample_ms_ = 0;
   float bias_dps_ = 0.0F;
   float pending_large_course_deg_ = 0.0F;
+  std::uint64_t pending_large_course_ms_ = 0;
   std::uint8_t large_error_count_ = 0;
 };

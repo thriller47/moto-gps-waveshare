@@ -246,6 +246,8 @@ def certified_z14_cells(poly_path):
         current, hole = [], False
         for raw in stream:
             line = raw.strip()
+            if not line:
+                continue
             if line == "END":
                 if current:
                     rings.append((hole, current))

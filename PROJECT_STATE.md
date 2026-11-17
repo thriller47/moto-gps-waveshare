@@ -2,7 +2,29 @@
 
 ## STATO ATTUALE — RIPARTIRE DA QUI
 
-**Collaudo serale 17 novembre 2026 — patch sperimentale:** l'utente ha identificato sette scene del replay (17:43:12, :50, 17:44:30, 17:45:20, :40, 17:46, 17:48:15); è sempre rimasto sulla rotta. Due REROUTE Android alle 17:37:01 (81 m) e 17:37:19 (62 m), prima dell'inizio del replay, sono falsi secondo la prova su strada; un secondo ricalcolo può avvenire 18 s dopo il primo. Il replay mostra finestre di rotta curve vicino alle 17:44:30 / 17:46 ma la manovra successiva Valhalla a 734/508 m; alle 17:45:20 / :40 annuncia una rotonda vicina con geometria locale rettilinea. Patch solo nel test: zoom di curvatura misurata a 24–104 m e veto a roundabout non corroborati da finestre estese; filtro di continuità finestra BLE fino a 35 m su rami paralleli; differimento ricalcolo <100 m per 6 s dopo rotazioni GNSS affidabili e 25 s dopo una nuova rotta. Android BLE wire format, IMU, predittore e LVGL invariati. Fixture native su 4 scene reali e JUnit su policy/rami; CI, WASM e hardware **non ancora verificati**. Non affermare che le anomalie laterali siano risolte senza replay e prova ESP32. **Prossima azione:** controllare l'unica CI del commit, ricompilare WASM in WSL e confrontare gli stessi istanti, quindi prova reale; nessun merge su valhalla.
+**Aggiornato:** 17 novembre 2026 (consolidamento branch sperimentale `gemini_test`). **Repository:** [thriller47/moto-gps-waveshare](https://github.com/thriller47/moto-gps-waveshare). **Branch di integrazione stabile:** `valhalla` (non toccato, nessun merge eseguito). **Branch sperimentale attivo:** `gemini_test`.
+
+**Ultimo sviluppo effettivamente implementato:**
+1. **Predittore mappa (`map_origin_predictor.hpp`):** ripristinata e validata l'inibizione dell'estrapolazione dead-reckoning (`move(...)`) quando lo scostamento angolare breve tra `heading_deg` e `last_anchor_heading_deg_` supera 15,0° oppure quando la velocità scende sotto il 75% di `last_anchor_speed_mps_`, mantenendo sempre attiva la correzione progressiva all'ancora.
+2. **Fusione heading e IMU (`motion_heading_fusion.hpp` & `phone_nav_bridge.cpp`):** introdotta scadenza temporale a 2.500 ms per la conferma del doppio outlier GNSS con propagazione del timestamp da `PhoneNavBridge`.
+3. **Policy ricalcolo Android (`RerouteStabilityPolicy.kt`):** semplificati i rami di `shouldDefer()` eliminando condizioni ombreggiate/morte; azzerato `turnGuardUntilMs = -1L` in `accepted()` per sbloccare tempestivamente la navigazione dopo l'accettazione di una nuova rotta.
+4. **Mappa manovre simulatore (`player.js`):** aggiunte tutte le varianti BLE v1 (`slight_left: 2`, `u_turn_left: 5`, `slight_right: 6`, `u_turn_right: 9`) preservando retrocompatibilità.
+5. **Runtime Web/WASM (`map-scene-overlay.js`, `wasm-loader.js`, `CMakeLists.txt`):** rimossi i fetch HTTP a fixture Jinan cancellate con degradazione pulita; allineati simboli esportati (`_moto_web_preview_phone_lifecycle`, `_moto_web_set_phone_connection`) e introdotto helper `safeCwrap`.
+6. **Tool offline (`pbf_to_motomap.py`):** gestione difensiva delle righe vuote nei file `.poly` prima del parsing coordinate.
+7. **Workflow CI (`project-build.yml`):** corretta eccezione `'LICENSE.md'` sotto `paths-ignore`; aggiunti controlli `node --check` e test unitari `node --test` per diagnostica heading, stabilità e binding WASM.
+
+**Verifiche eseguite localmente (100% superate):**
+- **Test nativi C++/CMake/CTest (WSL Ubuntu 24.04):** 15/15 test superati (100%), inclusi `map_origin_predictor_tests`, `motion_heading_fusion_tests`, `nav_presenter_tests`, `ble_protocol_tests`, `connection_epoch_gate_tests`, `phone_nav_bridge_tests`.
+- **Test Python (`scripts/offline_map`):** 27 test superati in WSL; 10/10 test `test_motomap_v4.py` superati con `py -3` su Windows (inclusa la nuova verifica del file `.poly` con righe vuote e Shapely).
+- **Test Node.js simulatore:** superati i check sintattici e i test unitari `trace_model`, `fallback_map`, `ring_alignment`, `heading_stability`, `wasm_exports`.
+- **Line ending fix:** normalizzati i terminatori CRLF nel parser fixture golden di `ble_protocol_tests.cpp`.
+
+**Ancora da verificare:**
+- Build remota consolidata GitHub Actions CI sul branch `gemini_test`.
+- Compilazione APK Android e test Gradle (non eseguibili localmente per assenza di JDK sull'host).
+- Build WASM Emscripten su WSL e collaudo finale su strada con hardware ESP32.
+
+**Prossima azione:** eseguire una singola commit e push consolidata sul branch `gemini_test` e monitorare l'esito della run di GitHub Actions. Nessun merge su `valhalla`.
 
 **Aggiornato:** 17 novembre 2026 (fix Python di copertura MotoMap z15, tag maxspeed e pipe zstd; formato v4 invariato). **Integrazione stabile:** `valhalla` (non modificata in questa sessione). **Branch sperimentale attivo:** `test/unified-offline-map-20261115`; non eseguire merge senza approvazione dell'utente. Al controllo GitHub del 16/11: branch test 51 commit avanti e 3 indietro rispetto a `valhalla` (rivalutare divergenza prima del merge).
 
@@ -362,3 +384,28 @@ Su richiesta utente, corretti `scripts/offline_map/pbf_to_motomap.py`: supercove
 `photon_to_sqlite.py` e `analyze_valhalla_graph.py`: stderr decoder zstd diretto a `tempfile.TemporaryFile` anziché pipe potenzialmente bloccante; errori letti in coda di 500 byte. Test Python aggiunti in `test_motomap_v4.py` e `test_photon_to_sqlite.py`, anche test subprocess con 1MiB stderr e stream. Nessun cambio schema MotoMap v4, `motopack` v1, Android, ESP, BLE o librerie di routing. La regione IT resta intenzionalmente fissa. Il manuale operativo riporta la procedura di rigenerazione del solo MotoMap con riuso degli asset Valhalla e Photon e l'avvertenza su `--resume`. **Non sono stati rigenerati qui i grandi asset reali italiani**; un test di copertura effettiva e import Android è ancora necessario. Il test su strada heading con commit `349e67d` resta indipendente.
 
 **Controllo CI offline del commit `0f69cc3`:** 9 test MotoMap superati, suite native/JS superate, test Photon fallito soltanto per un'asserzione del fixture che confrontava la stringa letterale `\\n` anziché il ritorno a capo; lo streaming stderr da 1 MiB ha funzionato. Corretto nel commit successivo e richiesta nuova verifica native; il formato degli asset resta invariato.
+
+### 17 novembre 2026 — consolidamento e regressioni sul branch gemini_test
+
+- **Branch:** `gemini_test` (derivato e allineato con le ultime modifiche sperimentali; `valhalla` non toccato).
+- **Componenti e file modificati:**
+  1. `platforms/esp32/main/map_origin_predictor.hpp`: congelamento dell'estrapolazione rettilinea continua durante curve (>15°) o frenate (>25%), mantenendo attiva la correzione progressiva all'ancora.
+  2. `tests/native/map_origin_predictor_tests.cpp`: ripristinati i test di congelamento in curva/frenata e aggiunta suite esplicita di regressione per curve >15°, frenate >25% e combinazioni di entrambe.
+  3. `platforms/esp32/main/motion_heading_fusion.hpp` & `phone_nav_bridge.cpp`: timeout a 2.500 ms per la conferma del doppio outlier GNSS con reset se il secondo fix non giunge in tempo.
+  4. `tests/native/motion_heading_fusion_tests.cpp`: test unitario per la scadenza della conferma del doppio outlier.
+  5. `platforms/android/app/src/main/java/com/motogps/android/viewmodel/RerouteStabilityPolicy.kt` & `RerouteStabilityPolicyTest.kt`: semplificate le condizioni in `shouldDefer()`, azzerato `turnGuardUntilMs` in `accepted()`, estesa suite di test JUnit.
+  6. `platforms/web/simulator/player.js`: completamento manovre BLE v1 (`slight_left`, `u_turn_left`, `slight_right`, `u_turn_right`).
+  7. `platforms/web/shell/map-scene-overlay.js`: rimossi tentativi di fetch a fixture Jinan eliminate con degradazione pulita.
+  8. `platforms/web/shell/wasm-loader.js` & `platforms/web/wasm/CMakeLists.txt`: aggiunti export mancanti `_moto_web_preview_phone_lifecycle` e `_moto_web_set_phone_connection`, protetti i binding con `safeCwrap`.
+  9. `scripts/offline_map/pbf_to_motomap.py` & `test_motomap_v4.py`: gestione righe vuote nei file `.poly` in `certified_z14_cells()` e test di regressione con Shapely.
+  10. `.github/workflows/project-build.yml`: corretta esclusione `'LICENSE.md'` sotto `paths-ignore` e inclusi i test Node.js su heading e WASM exports nel job `native`.
+  11. `tests/native/ble_protocol_tests.cpp`: normalizzazione dei terminatori CRLF nel lettore di golden vectors.
+- **Test eseguiti localmente:**
+  - CTest nativo (WSL Ubuntu 24.04): 15/15 test superati (100%).
+  - Python unittest (`scripts/offline_map`): 27 test superati in WSL; 10/10 test `test_motomap_v4.py` superati con Python 3.15 Windows.
+  - Node.js simulator (`node --check` e `node --test`): syntax check e test superati su tutti i moduli web.
+- **Test non eseguiti localmente:**
+  - Compilazione APK Android e test Gradle (assenza di JDK locale sull'host Windows).
+  - Ricompilazione WASM Emscripten e collaudo reale su hardware ESP32.
+- **Rischio e bloccanti aperti:** nessuno noto nel codice modificato; il wire format BLE v1 è preservato senza alcuna rottura.
+- **Prossima azione:** commit e push unico su `gemini_test`, verifica della GitHub Actions CI consolidata.

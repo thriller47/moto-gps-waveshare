@@ -50,6 +50,7 @@ internal class RerouteStabilityPolicy {
         acceptedAtMs = nowMs
         acceptedLat = lat
         acceptedLon = lon
+        turnGuardUntilMs = -1L
     }
 
     fun shouldDefer(
@@ -60,10 +61,14 @@ internal class RerouteStabilityPolicy {
         // A major, real departure always remains eligible for fast rerouting.
         if (distanceFromRouteM >= 100.0) return false
         val age = nowMs - acceptedAtMs
-        // 17:37:01 -> 17:37:19 were two false, near-junction reroutes.
-        if (!reverseOnly && age < 25_000L) return true
-        if (age < 12_000L) return true
-        if (!reverseOnly || age >= 45_000L) return false
+
+        if (!reverseOnly) {
+            // 17:37:01 -> 17:37:19 were two false, near-junction reroutes.
+            return age < 25_000L
+        }
+
+        // reverseOnly = true
+        if (age >= 45_000L) return false
         if (age < 20_000L) return true
 
         // Do not recalculate for a transient opposite edge at the same

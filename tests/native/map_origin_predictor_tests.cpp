@@ -152,17 +152,55 @@ void test_low_frame_rate_integrates_full_elapsed_time() {
   CHECK(east_metres(p800, start.longitude_deg) < 16.1);
 }
 
-void test_turning_continues_dead_reckoning_along_live_heading() {
+void test_turning_freezes_straight_line_extrapolation_until_new_geometry() {
   MapOriginPredictor predictor;
   const MapOriginPredictor::Position start{45.0, 9.0};
   predictor.advance(start, 1'000, 1, "route", 1, 15, 90, true);
   const auto straight = predictor.advance(start, 2'000, 1, "route", 1, 15, 90, true);
   const auto corner = predictor.advance(start, 2'400, 1, "route", 1, 15, 40, true);
-  // Dead reckoning does not freeze in turns: it moves along the vehicle's live heading.
-  CHECK(corner.latitude_deg > straight.latitude_deg);
-  CHECK(corner.longitude_deg > straight.longitude_deg);
+  CHECK(std::abs(corner.latitude_deg - straight.latitude_deg) < 1e-10);
+  CHECK(std::abs(corner.longitude_deg - straight.longitude_deg) < 1e-10);
 }
 
+void test_curve_and_braking_freeze_extrapolation_before_new_geometry() {
+  const MapOriginPredictor::Position start{45.0, 9.0};
+
+  // Case 1: Heading divergence > 15 deg freezes extrapolation
+  {
+    MapOriginPredictor p;
+    p.advance(start, 1'000, 1, "route", 1, 20.0F, 90.0F, true);
+    auto p1 = p.advance(start, 1'200, 1, "route", 1, 20.0F, 90.0F, true);
+    CHECK(p1.longitude_deg > start.longitude_deg);
+    // Diverge by 20 deg (110 vs 90) -> freezes
+    auto p2 = p.advance(start, 1'400, 1, "route", 1, 20.0F, 110.0F, true);
+    CHECK(std::abs(p2.latitude_deg - p1.latitude_deg) < 1e-10);
+    CHECK(std::abs(p2.longitude_deg - p1.longitude_deg) < 1e-10);
+  }
+
+  // Case 2: Braking > 25% (speed < 0.75 * anchor) freezes extrapolation
+  {
+    MapOriginPredictor p;
+    p.advance(start, 1'000, 1, "route", 1, 20.0F, 90.0F, true);
+    auto p1 = p.advance(start, 1'200, 1, "route", 1, 20.0F, 90.0F, true);
+    CHECK(p1.longitude_deg > start.longitude_deg);
+    // Speed drops to 14 m/s (< 0.75 * 20 = 15 m/s) -> freezes
+    auto p2 = p.advance(start, 1'400, 1, "route", 1, 14.0F, 90.0F, true);
+    CHECK(std::abs(p2.latitude_deg - p1.latitude_deg) < 1e-10);
+    CHECK(std::abs(p2.longitude_deg - p1.longitude_deg) < 1e-10);
+  }
+
+  // Case 3: Both curve > 15 deg and braking > 25% freeze extrapolation
+  {
+    MapOriginPredictor p;
+    p.advance(start, 1'000, 1, "route", 1, 20.0F, 90.0F, true);
+    auto p1 = p.advance(start, 1'200, 1, "route", 1, 20.0F, 90.0F, true);
+    CHECK(p1.longitude_deg > start.longitude_deg);
+    // Both 110 deg and 13 m/s -> freezes
+    auto p2 = p.advance(start, 1'400, 1, "route", 1, 13.0F, 110.0F, true);
+    CHECK(std::abs(p2.latitude_deg - p1.latitude_deg) < 1e-10);
+    CHECK(std::abs(p2.longitude_deg - p1.longitude_deg) < 1e-10);
+  }
+}
 
 void test_roundabout_exit_three_second_geometry_gap() {
   // Synthetic regression, no user GPS data. Approximately mirrors the
@@ -184,21 +222,25 @@ void test_roundabout_exit_three_second_geometry_gap() {
   const auto straight = predictor.advance(origin, anchor_ms + 250, 1,
                                           route, 1, 17.0F, 344.0F, true);
   CHECK(north(straight) > 3.0);
-  // Extrapolation continues through deceleration and curves.
+  // With this speed ratio (13.5/17.67), only the heading still allows motion.
   const auto gentle = predictor.advance(origin, anchor_ms + 500, 1,
                                         route, 1, 13.5F, 349.2F, true);
   CHECK(north(gentle) > north(straight));
-  // At 3.2 deg, turning along roundabout continues smoothly.
-  const auto turning = predictor.advance(origin, anchor_ms + 750, 1,
-                                         route, 1, 12.31F, 3.2F, true);
-  CHECK(north(turning) > north(gentle));
-  // Repeated ticks advance along the curve without freezing before a new geometry anchor.
-  MapOriginPredictor::Position in_curve = turning;
+  // At 3.2 deg, angular difference to the last anchor exceeds 15 deg
+  // and speed has fallen below 75% of the anchor.
+  const auto gated = predictor.advance(origin, anchor_ms + 750, 1,
+                                       route, 1, 12.31F, 3.2F, true);
+  CHECK(std::abs(north(gated) - north(gentle)) < 0.01);
+  CHECK(std::abs(east(gated) - east(gentle)) < 0.01);
+  // Repeated ticks keep the actual code alive, but no straight-line
+  // extrapolation resumes before a new geometry anchor.
+  MapOriginPredictor::Position frozen = gated;
   for (std::uint64_t ms = anchor_ms + 1'000; ms <= anchor_ms + 3'000; ms += 250) {
-    in_curve = predictor.advance(origin, ms, 1, route, 1,
-                                 9.86F, 19.0F, true);
+    frozen = predictor.advance(origin, ms, 1, route, 1,
+                               9.86F, 19.0F, true);
   }
-  CHECK(north(in_curve) > north(turning));
+  CHECK(std::abs(north(frozen) - north(gated)) < 0.01);
+  CHECK(std::abs(east(frozen) - east(gated)) < 0.01);
 
   // This *distinct* next window arrives 3,075 ms after the last anchor.
   // It is only 75 ms after the previous render tick, so the predictor
@@ -207,22 +249,22 @@ void test_roundabout_exit_three_second_geometry_gap() {
       111'195.0 * std::cos(45.0 * 3.14159265358979323846 / 180.0);
   const MapOriginPredictor::Position next_anchor{
       45.0 + 45.0 / 111'195.0, 9.0 + 10.0 / longitude_scale};
-  const auto before_distance = std::hypot(45.0 - north(in_curve),
-                                          10.0 - east(in_curve));
+  const auto before_distance = std::hypot(45.0 - north(frozen),
+                                          10.0 - east(frozen));
   const auto corrected = predictor.advance(
       next_anchor, anchor_ms + 3'075, 2, route, 1, 9.86F, 19.0F, true);
   const auto immediately_after = std::hypot(
       45.0 - north(corrected), 10.0 - east(corrected));
-  // Because prediction continued through the roundabout, before_distance
-  // remains small (< 20m) rather than lagging by >25m.
-  CHECK(before_distance < 20.0);
-  CHECK(immediately_after <= before_distance);
+  CHECK(before_distance > 25.0);
+  CHECK(immediately_after < before_distance);
+  CHECK(immediately_after > 1.0); // No instantaneous position teleport.
   // During the next half second the soft GPS correction keeps converging.
   const auto recovering = predictor.advance(
       next_anchor, anchor_ms + 3'575, 2, route, 1, 9.86F, 19.0F, true);
   const auto after_half_second = std::hypot(
       45.0 - north(recovering), 10.0 - east(recovering));
   CHECK(after_half_second < immediately_after);
+  CHECK(after_half_second < before_distance * 0.6);
 }
 
 void test_stale_stop_and_route_changes() {
@@ -250,7 +292,8 @@ void test_stale_stop_and_route_changes() {
 int main() {
   test_subframe_motion_and_correction();
   test_low_frame_rate_integrates_full_elapsed_time();
-  test_turning_continues_dead_reckoning_along_live_heading();
+  test_turning_freezes_straight_line_extrapolation_until_new_geometry();
+  test_curve_and_braking_freeze_extrapolation_before_new_geometry();
   test_roundabout_exit_three_second_geometry_gap();
   test_stale_stop_and_route_changes();
   test_prediction_freezes_after_missing_geometry_anchor();

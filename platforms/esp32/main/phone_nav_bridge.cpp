@@ -448,7 +448,7 @@ void PhoneNavBridge::consume_navigation(
         anchor_now_ms - last_phone_anchor_ms_ < 900U &&
         std::abs(phone_heading_deg - last_anchored_phone_heading_deg_) < 0.01F;
     if (valid_course && (phone_speed_mps < 1.5F || !repeat_course)) {
-      heading_fusion_.anchor(phone_heading_deg, phone_speed_mps, true);
+      heading_fusion_.anchor(phone_heading_deg, phone_speed_mps, true, NAN, anchor_now_ms);
       last_phone_anchor_ms_ = anchor_now_ms;
       last_anchored_phone_heading_deg_ = phone_heading_deg;
     }

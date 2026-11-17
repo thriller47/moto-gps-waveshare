@@ -150,6 +150,36 @@ class MotoMapV4Tests(unittest.TestCase):
         self.assertIn("45001000,8000000,i", module.rows_for_way(way_a)[0][1])
         self.assertIn("45001000,8000000,i", module.rows_for_way(way_b)[0][1])
 
+    def test_certified_z14_cells_ignores_empty_lines_in_poly(self):
+        try:
+            import shapely
+        except ImportError:
+            self.skipTest("shapely not installed in this environment")
+        import tempfile
+        poly_data = (
+            "test_area\n"
+            "1\n"
+            "\n"
+            "   9.0   45.0\n"
+            "   9.1   45.0\n"
+            "\n"
+            "   9.1   45.1\n"
+            "   9.0   45.1\n"
+            "   9.0   45.0\n"
+            "\n"
+            "END\n"
+            "END\n"
+        )
+        with tempfile.NamedTemporaryFile("w", suffix=".poly", delete=False, encoding="utf-8") as tmp:
+            tmp.write(poly_data)
+            tmp_path = tmp.name
+        try:
+            cells = list(module.certified_z14_cells(tmp_path))
+            self.assertIsInstance(cells, list)
+            self.assertGreater(len(cells), 0)
+        finally:
+            Path(tmp_path).unlink(missing_ok=True)
+
 
 if __name__ == "__main__":
     unittest.main()

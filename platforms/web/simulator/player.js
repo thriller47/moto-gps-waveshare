@@ -15,9 +15,9 @@
     ringAlignment = window.MotoRingAlignment, headingDiagnostic = window.MotoHeadingDiagnostics,
     headingStability = window.MotoHeadingStability;
   if (!model || !fallback || !ringAlignment || !headingDiagnostic || !headingStability) throw Error("Moduli replay non caricati");
-  const manoeuvres = {unknown:0,continue:1,keep_left:2,turn_left:3,
-    sharp_left:4,u_turn:5,keep_right:6,turn_right:7,sharp_right:8,
-    roundabout:10,exit:11,arrive:12};
+  const manoeuvres = {unknown:0,continue:1,keep_left:2,slight_left:2,turn_left:3,
+    sharp_left:4,u_turn:5,u_turn_left:5,keep_right:6,slight_right:6,turn_right:7,sharp_right:8,
+    u_turn_right:9,roundabout:10,exit:11,arrive:12};
   const labels = ["—","Dritto","Tieni sinistra","Sinistra","Sinistra stretta",
     "Inversione","Tieni destra","Destra","Destra stretta","Inversione",
     "Rotatoria","Uscita","Arrivo"];

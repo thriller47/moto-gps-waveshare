@@ -177,6 +177,22 @@ void test_quality_weight_and_outlier_confirmation() {
   fusion.anchor(259.0F, 6.0F, true, 40.0F);
   CHECK(std::abs(fusion.heading_deg() - good) > 1.0F);
 }
+
+void test_large_outlier_confirmation_expires_after_timeout() {
+  MotionHeadingFusion fusion;
+  fusion.anchor(90.0F, 10.0F, true, 8.0F, 1'000);
+  const float baseline = fusion.heading_deg();
+  // First large outlier at t=1,000ms: rejected as single outlier
+  fusion.anchor(180.0F, 10.0F, true, 40.0F, 1'000);
+  CHECK(std::abs(fusion.heading_deg() - baseline) < 0.01F);
+  // Second outlier arrives at t=4,000ms (> 2,500ms later): the first candidate has expired,
+  // so this second fix is treated as a new first candidate, NOT confirmation!
+  fusion.anchor(180.0F, 10.0F, true, 40.0F, 4'000);
+  CHECK(std::abs(fusion.heading_deg() - baseline) < 0.01F);
+  // Third outlier arrives at t=4,500ms (<= 2,500ms after t=4,000ms): now confirmed!
+  fusion.anchor(180.0F, 10.0F, true, 40.0F, 4'500);
+  CHECK(std::abs(fusion.heading_deg() - baseline) > 1.0F);
+}
 void test_low_confidence_initial_course_and_held_phone_heading() {
   MotionHeadingFusion fusion;
   fusion.anchor(15.0F, 0.0F, true);
@@ -217,6 +233,7 @@ int main() {
   test_stale_timestamp_does_not_rewind_integration_clock();
   test_stationary_freeze_holds_heading_until_riding_resumes();
   test_quality_weight_and_outlier_confirmation();
+  test_large_outlier_confirmation_expires_after_timeout();
   test_low_confidence_initial_course_and_held_phone_heading();
   test_bias_learning_while_parked_and_persistence_after_reset();
 
