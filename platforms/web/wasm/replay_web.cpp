@@ -50,7 +50,6 @@ EMSCRIPTEN_KEEPALIVE void moto_web_replay_reset() {
   replay_predictor = MapOriginPredictor{};
   replay_geometry_sequence = 0;
   replay_geometry_anchor = {};
-  moto_nav_ui_set_demo_active(0);
   moto_nav_ui_set_phone_connection(MOTO_UI_PHONE_ONLINE);
   paint();
 }
@@ -133,7 +132,7 @@ EMSCRIPTEN_KEEPALIVE void moto_web_replay_road_end(int road_class) {
   trace.has_road_context = true;
 }
 
-// 15 ordinary numeric args so the JS player can call cwrap without new
+// 16 ordinary numeric args so the JS player can call cwrap without new
 // dependencies. Snapshot/route/scene are separate trace events.
 EMSCRIPTEN_KEEPALIVE void moto_web_replay_snapshot(
     int state, int maneuver, double lat, double lon, double heading,

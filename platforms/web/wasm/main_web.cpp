@@ -12,7 +12,6 @@
 #include <emscripten.h>
 
 #include "lvgl.h"
-#include "demo_fixture/jinan_big_data_demo.hpp"
 #include "moto_nav_presenter.hpp"
 #include "moto_nav_ui.h"
 #include "nav_app/nav_app.hpp"
@@ -21,14 +20,18 @@ namespace {
 
 using namespace moto::nav;
 
-constexpr Wgs84Point kStart =
-    moto::demo::jinan_big_data::kRouteWgs84.front();
-constexpr Wgs84Point kDestination =
-    moto::demo::jinan_big_data::kRouteWgs84.back();
+// Self-contained WEB-only geometric test route. Never substitute this for
+// MotoMap/Valhalla data or navigation from Android. The Jinan fixture was
+// deliberately removed from the project and must not be restored.
+constexpr std::array<Wgs84Point, 7> kFixtureGeometry{{
+    {44.3908, 7.5497}, {44.3913, 7.5497}, {44.3917, 7.5500},
+    {44.3921, 7.5503}, {44.3925, 7.5501}, {44.3929, 7.5504},
+    {44.3934, 7.5504},
+}};
+constexpr Wgs84Point kDestination = kFixtureGeometry.back();
+constexpr char kFixtureRouteId[] = "web-synthetic-route";
 constexpr double kPi = 3.14159265358979323846;
 constexpr double kFixtureEarthRadiusM = 6'371'000.0;
-constexpr const auto& kFixtureGeometry =
-    moto::demo::jinan_big_data::kRouteWgs84;
 
 NavApp app;
 NavPresenter presenter;
@@ -45,8 +48,6 @@ TrafficSnapshot live_traffic_builder;
 std::uint32_t live_traffic_request_id = 0;
 
 double fixture_route_distance();
-double fixture_maneuver_offset(
-    const moto::demo::jinan_big_data::ManeuverFixture& maneuver);
 bool lifecycle_preview_active = false;
 NavSnapshot lifecycle_preview_snapshot;
 
@@ -142,14 +143,6 @@ void present_snapshot(const NavSnapshot& snapshot, void* context) {
   NavSnapshot presented = lifecycle_preview_active
                               ? lifecycle_preview_snapshot
                               : snapshot;
-  // The browser demo renders the same traceable OSM fixture in a web-only
-  // canvas layer, including road classes and building footprints. Suppress
-  // this legacy, unclassified copy so streets are not double-brightened.
-  if (presented.route_id == moto::demo::jinan_big_data::kRouteId) {
-    presented.has_road_context = false;
-    presented.road_context_point_count = 0;
-    presented.road_context_polyline_count = 0;
-  }
   target->update(presented);
   target->apply_to_lvgl();
 }
@@ -177,23 +170,21 @@ GnssFix fixture_fix(Wgs84Point point, float speed_mps, float heading_deg) {
 
 RouteBundle fixture_route() {
   RouteBundle route;
-  route.route_id = moto::demo::jinan_big_data::kRouteId;
-  route.polyline.assign(moto::demo::jinan_big_data::kRoute.begin(),
-                        moto::demo::jinan_big_data::kRoute.end());
-  for(const auto& maneuver : moto::demo::jinan_big_data::kManeuvers) {
-    route.maneuvers.push_back({
-        maneuver.id,
-        maneuver.type,
-        fixture_maneuver_offset(maneuver),
-        maneuver.road_name,
-        maneuver.instruction,
-        0,
-    });
-  }
+  route.route_id = kFixtureRouteId;
+  route.polyline.assign(kFixtureGeometry.begin(), kFixtureGeometry.end());
+  // Web-only maneuver positions along the generated route. Real replay
+  // supplies its own route and maneuvers, never these synthetic points.
+  route.maneuvers.push_back({
+      1, ManeuverType::TurnRight, fixture_route_distance() * 0.45,
+      "", "Svolta a destra", 0,
+  });
+  route.maneuvers.push_back({
+      2, ManeuverType::Arrive, fixture_route_distance(),
+      "", "Arrivo", 0,
+  });
   route.traffic = {{0.0, fixture_route_distance(), desired_traffic}};
   route.total_distance_m = fixture_route_distance();
-  route.total_duration_s =
-      moto::demo::jinan_big_data::kFallbackDurationS;
+  route.total_duration_s = 90;
   route.speed_limit_kph = 50;
   route.generated_at_ms = now_ms;
   return route;
@@ -328,14 +319,6 @@ const std::array<double, kFixtureGeometry.size()>& fixture_cumulative() {
 
 double fixture_route_distance() {
   return fixture_cumulative().back();
-}
-
-double fixture_maneuver_offset(
-    const moto::demo::jinan_big_data::ManeuverFixture& maneuver) {
-  const auto& cumulative = fixture_cumulative();
-  const std::size_t index = std::min<std::size_t>(
-      maneuver.route_point_index, cumulative.size() - 1);
-  return cumulative[index];
 }
 
 Wgs84Point fixture_point(double route_offset_m) {

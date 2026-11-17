@@ -2,7 +2,7 @@
 
 ## STATO ATTUALE — RIPARTIRE DA QUI
 
-**Aggiornato:** 17 novembre 2026 (mattina). **Integrazione stabile:** `valhalla` (non modificata in questa sessione). **Branch sperimentale attivo:** `test/unified-offline-map-20261115`; non eseguire merge senza approvazione dell'utente. Al controllo GitHub del 16/11: branch test 51 commit avanti e 3 indietro rispetto a `valhalla` (rivalutare divergenza prima del merge).
+**Aggiornato:** 17 novembre 2026 (patch runtime web). **Integrazione stabile:** `valhalla` (non modificata in questa sessione). **Branch sperimentale attivo:** `test/unified-offline-map-20261115`; non eseguire merge senza approvazione dell'utente. Al controllo GitHub del 16/11: branch test 51 commit avanti e 3 indietro rispetto a `valhalla` (rivalutare divergenza prima del merge).
 
 **Ultimo sviluppo effettivamente implementato (prima di questa patch):** «Salta prossima tappa» su Android, con dialogo di conferma, ricalcolo Valhalla dalla posizione GPS attuale verso le sole tappe pendenti, esclusione della tappa solo a routing riuscito e aggiornamento checkpoint per gli anelli; supportato anche per percorsi ordinari con tappe, mai per l'arrivo finale. Commit codice `90a1be168c022561514e9303dfddfcc77e53c205`. ESP32 e protocollo BLE **non** modificati per questa funzione. Il branch test contiene inoltre MotoMap v4 + Valhalla Italia V5 + Photon v2 unificati, anelli, tour salvati, pausa/ripresa e rimozione completa della demo Jinan. Unico supporto 3D `hardware/MotoNavFusion_v015.zip` preservato.
 
@@ -24,6 +24,16 @@
 **Prossima azione unica:** domani ricevere e analizzare diagnostica Android e replay GPS del percorso ripetuto, prima di qualunque nuova modifica di firmware o UI.
 
 **Correzione sperimentale 17/11 (da verificare):** ridotta la re-ancoratura ripetuta dello stesso bearing BLE, congelata la correzione GNSS durante yaw IMU >5°/s e ridotto il guadagno a 0,22; Android scarta course sotto 3 m/s, course con precisione dichiarata >25° e fallback dislocamento <12 m; predittore integra tutto il tempo del tick (fino a 1 s), smussa compensazione 25–45 m e congela l'extrapolazione rettilinea quando diverge dal heading dell'ultima geometria >15° o frena oltre il 25%. Aggiunti test nativi e Android. **Build CI da verificare**. È stato aggiunto al simulatore LVGL un confronto A/B del predittore C++ isolato, disattivato per default. Per provare la nuova opzione va ricompilato WASM. Il simulatore non esegue PhoneNavBridge, BLE o fusione IMU: ON testa solo l'origine predetta con le finestre presenti nel replay, non l'intera pipeline ESP32. Non confondere prova nel simulatore con test su strada.
+
+**Ultima correzione:** runtime Emscripten bloccato da riferimenti Jinan e funzione LVGL demo rimossi in precedenza. Ripristinato scenario sintetico solo web e tolta API non esistente, senza toccare il firmware. **Compilazione WASM ancora da verificare in WSL;** prossima azione unica: ricompilare `./scripts/build_web.sh` e verificare l'opzione predittore A/B sul replay mattutino. GitHub native/Android/ESP32 non sostituisce il test Emscripten.
+
+## Riparazione runtime simulatore dopo pulizia Jinan — 17 novembre 2026
+
+**Errore riportato dall'utente (WSL Emscripten):** `main_web.cpp` includeva ancora `demo_fixture/jinan_big_data_demo.hpp`, eliminato correttamente dal repo; `replay_web.cpp` chiamava `moto_nav_ui_set_demo_active(0)`, eliminata dalla UI. Il precedente CI native/Android/ESP32 non compilava il target Emscripten; quindi il verde native non certificava il runtime web.
+
+**Fix su branch test:** sostituita la geometria demo Jinan di `main_web.cpp` con una breve geometria **sintetica esclusivamente web**, mantenendo l'interfaccia delle funzioni scena/progresso; rimossi riferimenti Jinan e l'override speciale dei contesti stradali. Eliminata la funzione obsoleta da `replay_web.cpp`. Nessuna demo Jinan ripristinata. Non modificati Valhalla, Android, ESP32 fisico o protocollo BLE. **Test WASM locale non eseguito dall'assistente;** utente deve verificare `./scripts/build_web.sh` dopo aggiornamento checkout e ritentare confronto A/B. CI finale da verificare: il workflow GitHub non compila ancora Emscripten. L'utente era bloccato prima di attivare il controllo predittore, che è presente in `platforms/web/simulator/index.html`.
+
+**Prossima azione:** utente ricompila runtime WASM in WSL con branch test aggiornato e confronta replay 07:50–07:56 a 1×, segnalando eventuali nuovi errori di compilazione.
 
 ## Diagnosi e patch heading/GPS intermittente — 17 novembre 2026
 
