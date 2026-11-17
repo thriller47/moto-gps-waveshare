@@ -54,6 +54,10 @@ Aprire il medesimo file di replay delle 17:40–17:58 in entrambe le schede. Con
 
 **Prossimo esperimento:** rendere riproducibile l'accoppiamento fix → matcher raw → guard → `turnPlan.next` con geometria completa locale (senza pubblicare coordinate private in GitHub). Prima diagnostica, poi un singolo intervento circoscritto su routing/progressione se confermato. Evitare ulteriori soglie IMU/zoom, patch cosmetiche o rollback generici.
 
+## Nuovo replay diagnostico Android (17 novembre sera)
+
+La nuova versione sperimentale registra, **solo durante LOG → Avvia registrazione GPS**, gli eventi privati `route_full` e `progress_debug` assenti dal replay iniziale. Il primo contiene l'intera polilinea e i punti di tutte le manovre Valhalla; il secondo distingue progresso del matcher, distanza grezza, distanza limitata dal guard e manovra successiva per ogni aggiornamento. `scripts/diagnostics/analyze_progress_replay.py` scrive un CSV locale e calcola la proiezione geometrica globale soltanto a fini diagnostici. **Nessuna riproduzione dei vecchi dati può recuperare la geometria completa assente**; occorre nuova registrazione con APK aggiornato. Il matcher, il filtro e il renderer non sono stati modificati funzionalmente.
+
 ## Esperimenti successivi — una sola variabile alla volta
 - **A:** confrontare le due visualizzazioni (questa preparazione; nessun codice navigazione cambiato).
 - **B:** a parità di APK e di percorso, eventualmente confrontare ESP32 con fusione/predittore del 15 vs corrente; usare log reali, firmware e BLE compatibili. Non dedurre conclusioni da due tragitti con precisione GNSS differente.

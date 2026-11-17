@@ -133,8 +133,10 @@ jobs:
           node --check platforms/web/simulator/ring_alignment.js
           node --test platforms/web/simulator/trace_model.test.cjs platforms/web/simulator/fallback_map.test.cjs platforms/web/simulator/ring_alignment.test.cjs
 
-      - name: Validate historical replay A/B preparation script
-        run: bash -n scripts/diagnostics/prepare_20261115_replay_ab.sh
+      - name: Validate replay diagnostic scripts and deterministic offline analyzer
+        run: |
+          bash -n scripts/diagnostics/prepare_20261115_replay_ab.sh
+          python3 -m unittest discover -s scripts/diagnostics -p 'test_*.py'
 
       - name: Verify MotoMap v3 converter contract
         run: python3 -m unittest discover -s scripts/offline_map -p 'test_motomap_v4.py'

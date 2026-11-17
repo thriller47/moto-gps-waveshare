@@ -584,6 +584,27 @@ Aprire in Chrome/Edge su Windows: **http://127.0.0.1:4173/platforms/web/simulato
 
 **Nota PC Windows/WSL:** se il checkout per il simulatore si trova invece in `~/MotoGPS/moto-gps-waveshare`, usare **quel** percorso coerentemente sia per build sia per server. Su un PC con poca RAM limitare il parallelismo della compilazione dopo una diagnosi, non interpretare un processo `Killed` come bug di LVGL.
 
+### Analizzare il matcher della rotta completa (APK test dal 17 novembre)
+
+Questa diagnostica serve quando il GPS avanza ma la distanza alla svolta rimane ferma o cambia troppo rapidamente. **Non cambia il routing né il firmware ESP32.** Richiede il nuovo APK compilato dal branch `test/unified-offline-map-20261115` con `route_full` e `progress_debug`. I vecchi replay del 17 novembre non contengono questi eventi e non possono essere completati retroattivamente.
+
+1. Nell'app Android, aprire **LOG → Avvia registrazione GPS** *prima* di iniziare una navigazione di prova (oppure durante: la rotta completa sarà salvata al successivo invio della finestra). La registrazione resta disabilitata per impostazione predefinita.
+2. Riprodurre un percorso con rotonda e controllare il comportamento dell'ESP32; non maneggiare telefono o cavi durante la guida. Al termine usare **Ferma registrazione GPS → Esporta tracciato simulatore**. Se presenti più parti, esportare l'intero archivio `motogps-replay-parts.zip`.
+3. Copiare il JSONL o lo ZIP nel proprio WSL **senza committarlo**. Nel terminale Ubuntu:
+
+```bash
+cd ~/MotoGPS/moto-gps-waveshare
+git switch test/unified-offline-map-20261115
+git pull --ff-only origin test/unified-offline-map-20261115
+python3 scripts/diagnostics/analyze_progress_replay.py \
+  "$HOME/motogps-replay.jsonl" \
+  --csv "$HOME/motogps-progress-analysis.csv"
+```
+
+Se si è esportato uno ZIP multipart, sostituire il file di input con `"$HOME/motogps-replay-parts.zip"`; non occorre concatenare a mano i file. Il CSV separa `matched_progress_m`, `scored_candidate_m`, `raw_remaining_m`, `guarded_remaining_m`, `plan_progress_m`, `nearest_cross_m`, `next_type` e `turn_m`. `match_mode=hold_offroute` indica che il matcher ha congelato il progresso perché la distanza minima alla geometria completa supera 45m; non significa automaticamente che la moto fosse fisicamente fuori carreggiata. Il confronto con `nearest_route_progress_m` è soltanto diagnostico su incroci/rami vicini.
+
+**Riservatezza:** il replay contiene fix e *intera rotta*, inclusi luoghi visitati. Rimane nell'archivio privato dell'app fino a esportazione volontaria; il ZIP ordinario di diagnostica Android non lo include. Lo script non usa Internet e non pubblica coordinate, ma CSV e JSONL devono essere trattati come dati personali. La CI verifica l'analizzatore con dati sintetici; la correttezza durante una prova reale richiede un nuovo log.
+
 ### Registrare un replay GPS dall'app Android
 
 La registrazione del trace GPS rimane **OFF per impostazione predefinita** e si attiva manualmente dal pannello **LOG → Avvia registrazione GPS**. Non si interrompe automaticamente dopo 60 minuti; salva file consecutivi `replay-current-part-00001.jsonl`, `00002.jsonl`, ecc. La rotazione avviene ogni **30 minuti o circa 12 MiB per singolo file**, senza un limite fissato al numero di file o alla durata totale della sessione (resta il limite fisico dello spazio disponibile sul telefono). La scrittura resta su thread privato, senza carico di I/O nel callback GPS/BLE.

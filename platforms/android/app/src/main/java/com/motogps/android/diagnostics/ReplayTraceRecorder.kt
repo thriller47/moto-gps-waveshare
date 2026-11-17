@@ -6,6 +6,8 @@ import com.motogps.android.jni.GeoPointE6
 import com.motogps.android.jni.MotoBLEMapScene
 import com.motogps.android.jni.MotoBLENavigationSnapshot
 import com.motogps.android.jni.MotoBLERouteGeometry
+import com.motogps.android.routing.ValhallaTurnGuidance
+import com.motogps.android.viewmodel.RouteProgressMatcher
 import java.io.File
 import java.util.concurrent.Executors
 import java.util.Locale
@@ -35,6 +37,8 @@ object ReplayTraceRecorder {
     private var partFile: File? = null
     // Carry the last visible route, scene and snapshot into every new part.
     // Otherwise a file opened on its own could start without map context.
+    private var lastRouteFullEvent: String? = null
+    @Volatile private var lastFullRouteKey: String? = null
     private var lastRouteEvent: String? = null
     private var lastSceneEvent: String? = null
     private var lastSnapshotEvent: String? = null
@@ -50,6 +54,7 @@ object ReplayTraceRecorder {
         val capturedWallMs = System.currentTimeMillis()
         startElapsed = SystemClock.elapsedRealtime()
         active = true
+        lastFullRouteKey = null
         worker.execute {
             try {
                 // Like the old replay-current.jsonl, a new recording replaces
@@ -64,6 +69,7 @@ object ReplayTraceRecorder {
                 sessionWallMs = capturedWallMs
                 partIndex = 0
                 partFile = null
+                lastRouteFullEvent = null
                 lastRouteEvent = null
                 lastSceneEvent = null
                 lastSnapshotEvent = null
@@ -93,7 +99,8 @@ object ReplayTraceRecorder {
         val prefix = StringBuilder(header.toString()).append('\n')
         // Every part can be replayed independently, including one starting
         // halfway through a curve or immediately before a reroute.
-        for (event in listOfNotNull(lastRouteEvent, lastSceneEvent, lastSnapshotEvent)) {
+        for (event in listOfNotNull(
+                lastRouteFullEvent, lastRouteEvent, lastSceneEvent, lastSnapshotEvent)) {
             prefix.append(JSONObject(event).put("t_ms", 0L).toString()).append('\n')
         }
         file.writeText(prefix.toString())
@@ -133,6 +140,7 @@ object ReplayTraceRecorder {
                 // Update the replay context only after the event was
                 // successfully written, never from a discarded queue entry.
                 when (data.optString("type")) {
+                    "route_full" -> lastRouteFullEvent = data.toString()
                     "route" -> lastRouteEvent = data.toString()
                     "scene" -> lastSceneEvent = data.toString()
                     "snapshot" -> lastSnapshotEvent = data.toString()
@@ -153,6 +161,39 @@ object ReplayTraceRecorder {
         if (headingDeg != null && headingDeg.isFinite())
             e.put("heading_deg", headingDeg.toDouble())
         write(e)
+    }
+
+    /**
+     * Private, complete routing geometry; never sent over BLE or written to
+     * DiagnosticLog. Record once per navigation route per explicit session,
+     * including when GPS recording is enabled halfway through a ride.
+     */
+    @Synchronized fun fullRoute(
+        g: MotoBLERouteGeometry, plan: ValhallaTurnGuidance.Plan
+    ) {
+        if (!active || g.points.size < 2 || g.points.size > 150_000) return
+        val key = "${sessionId}:${g.routeToken}:${g.routeGeneration}"
+        if (key == lastFullRouteKey) return
+        // Only mark as recorded after building the event successfully.
+        val event = ReplayProgressPayload.fullRoute(g, plan)
+        lastFullRouteKey = key
+        write(event)
+    }
+
+    /** Same fix, raw matcher remaining, guarded remaining and Valhalla turn. */
+    fun progress(
+        lat: Double, lon: Double,
+        routeToken: Long, generation: Long, speedMps: Float,
+        travelHeading: Float?, rawRemainingM: Long,
+        guardedRemainingM: Long,
+        match: RouteProgressMatcher.MatchEvidence?,
+        next: ValhallaTurnGuidance.Plan.Next?,
+        totalShapeM: Double
+    ) {
+        if (!active || !lat.isFinite() || !lon.isFinite()) return
+        write(ReplayProgressPayload.progress(
+            lat, lon, routeToken, generation, speedMps, travelHeading,
+            rawRemainingM, guardedRemainingM, match, next, totalShapeM))
     }
 
     /** The same moving 24-point geometry window submitted to BLE. */

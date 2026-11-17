@@ -468,6 +468,9 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                         "route_token=${route.routeToken}")
             }
         }
+        // Emit the full private route only once per recorded navigation;
+        // the BLE payload remains the same 24-point moving window.
+        ReplayTraceRecorder.fullRoute(route, turnPlan)
         ReplayTraceRecorder.route(window)
         bleManager.sendRouteGeometry(window)
         val endpoint = route.points.lastOrNull()
@@ -1486,12 +1489,13 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         val travelHeading = if (lastGpsSpeedMs >= 3f &&
             SystemClock.elapsedRealtime() - lastReliableGpsBearingMs in 0L..3_000L)
             lastReliableGpsBearing else null
-        var remainingMeters = routeProgressMatcher.remaining(
+        val rawRemainingMeters = routeProgressMatcher.remaining(
             lat, lon, travelHeading, lastGpsSpeedMs)
             ?: baseSnapshot.remainingDistanceM
         // Do not let a nearest-segment snap at an intersection consume
         // 20-30m instantaneously and make the next turn disappear early.
-        remainingMeters = routeDistanceGuard.stabilize(remainingMeters, lat, lon)
+        val remainingMeters = routeDistanceGuard.stabilize(
+            rawRemainingMeters, lat, lon)
         val snapshot = baseSnapshot.copy(
             remainingDistanceM = remainingMeters,
             routeProgressM = (turnPlan.totalShapeMeters - remainingMeters)
@@ -1503,6 +1507,13 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         // existing destination-distance calculation, never as a straight
         // GPS-to-intersection shortcut.
         val upcoming = turnPlan.next(remainingMeters)
+        // Private replay-only evidence. Same accepted fix, no reroute/
+        // matching/heading change; inert when GPS recording is OFF.
+        ReplayTraceRecorder.progress(
+            lat, lon, baseSnapshot.routeToken, baseSnapshot.routeGeneration,
+            lastGpsSpeedMs, travelHeading, rawRemainingMeters, remainingMeters,
+            routeProgressMatcher.lastMatchEvidence, upcoming,
+            turnPlan.totalShapeMeters)
         if (upcoming != null) {
             val step = upcoming.action
             val instrText = if (step.roadName.isNotBlank())

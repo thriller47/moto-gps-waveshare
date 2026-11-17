@@ -117,6 +117,25 @@ class RouteProgressMatcherTest {
         assertTrue(tracker.matchedProgressMeters()!! > 200.0)
     }
 
+    @Test fun evidenceExplainsOffRouteHoldWithoutChangingRemaining() {
+        val tracker = RouteProgressMatcher()
+        tracker.reset(listOf(point(0), point(500)))
+        assertNull(tracker.lastMatchEvidence)
+        tracker.remaining(lat(100), lon(0), 0f, 12f)
+        val initial = tracker.lastMatchEvidence!!
+        assertEquals("initial_origin", initial.mode)
+        assertEquals(100.0, initial.selectedProgressM, 2.0)
+        val before = tracker.matchedProgressMeters()!!
+        tracker.remaining(lat(120), lon(90), 90f, 12f)
+        val hold = tracker.lastMatchEvidence!!
+        assertEquals("hold_offroute", hold.mode)
+        assertTrue(hold.nearestCrossTrackM > 45.0)
+        assertEquals(before, hold.selectedProgressM, 0.001)
+        assertEquals(before, tracker.matchedProgressMeters()!!, 0.001)
+        tracker.reset()
+        assertNull(tracker.lastMatchEvidence)
+    }
+
     @Test fun offRouteMotionFreezesDistanceUntilReroute() {
         val tracker = RouteProgressMatcher()
         tracker.reset(listOf(point(0), point(500)))

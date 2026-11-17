@@ -29,6 +29,26 @@ internal class RouteProgressMatcher {
     private var lastLat = Double.NaN
     private var lastLon = Double.NaN
 
+    /**
+     * Evidence from the EXACT projection selected by remaining(). Telemetry
+     * only: the diagnostics never influence matching, routing or BLE.
+     * crossTrackM is the globally nearest edge, while scoredCandidateM is
+     * the best edge after continuity and course penalties.
+     */
+    data class MatchEvidence(
+        val mode: String,
+        val previousProgressM: Double?,
+        val scoredCandidateM: Double,
+        val selectedProgressM: Double,
+        val nearestCrossTrackM: Double,
+        val fixStepM: Double,
+        val originGapM: Double,
+        val initialCandidateM: Double?
+    )
+
+    var lastMatchEvidence: MatchEvidence? = null
+        private set
+
     fun reset(points: List<GeoPointE6> = emptyList()) {
         route = points
         cumulative = DoubleArray(points.size)
@@ -42,6 +62,7 @@ internal class RouteProgressMatcher {
                     (a.latitudeE6 + b.latitudeE6) / 2e6)))
         }
         progress = null
+        lastMatchEvidence = null
         lastLat = Double.NaN
         lastLon = Double.NaN
     }
@@ -106,7 +127,10 @@ internal class RouteProgressMatcher {
     }
 
     fun remaining(lat: Double, lon: Double, heading: Float?, speed: Float): Long? {
-        if (route.size < 2 || !lat.isFinite() || !lon.isFinite()) return null
+        if (route.size < 2 || !lat.isFinite() || !lon.isFinite()) {
+            lastMatchEvidence = null
+            return null
+        }
         val mx = 111_195.0 * cos(Math.toRadians(lat))
         val prev = progress
         val travelled = if (lastLat.isFinite() && lastLon.isFinite())
@@ -168,7 +192,10 @@ internal class RouteProgressMatcher {
                 initialBestPos = candidate
             }
         }
-        if (!bestScore.isFinite()) return null
+        if (!bestScore.isFinite()) {
+            lastMatchEvidence = null
+            return null
+        }
 
         // Outside the route corridor the rider is awaiting a reroute:
         // do not count travel away from the route as a distance increase.
@@ -179,6 +206,21 @@ internal class RouteProgressMatcher {
             else -> max(prev, min(bestPos,
                 prev + max(22.0, travelled * 1.8 + 10.0)))
         }
+        lastMatchEvidence = MatchEvidence(
+            mode = when {
+                prev != null && minCross > 45.0 -> "hold_offroute"
+                prev == null && initialBestScore.isFinite() -> "initial_origin"
+                prev == null -> "initial_global"
+                else -> "monotonic"
+            },
+            previousProgressM = prev,
+            scoredCandidateM = bestPos,
+            selectedProgressM = next,
+            nearestCrossTrackM = minCross,
+            fixStepM = travelled,
+            originGapM = originGap,
+            initialCandidateM = initialBestPos.takeIf { initialBestScore.isFinite() }
+        )
         progress = next
         lastLat = lat
         lastLon = lon
