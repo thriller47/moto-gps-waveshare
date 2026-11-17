@@ -2,7 +2,7 @@
 
 ## STATO ATTUALE — RIPARTIRE DA QUI
 
-**Aggiornato:** 17 novembre 2026 (patch runtime web). **Integrazione stabile:** `valhalla` (non modificata in questa sessione). **Branch sperimentale attivo:** `test/unified-offline-map-20261115`; non eseguire merge senza approvazione dell'utente. Al controllo GitHub del 16/11: branch test 51 commit avanti e 3 indietro rispetto a `valhalla` (rivalutare divergenza prima del merge).
+**Aggiornato:** 17 novembre 2026 (diagnostica replay GPS/predittore). **Integrazione stabile:** `valhalla` (non modificata in questa sessione). **Branch sperimentale attivo:** `test/unified-offline-map-20261115`; non eseguire merge senza approvazione dell'utente. Al controllo GitHub del 16/11: branch test 51 commit avanti e 3 indietro rispetto a `valhalla` (rivalutare divergenza prima del merge).
 
 **Ultimo sviluppo effettivamente implementato (prima di questa patch):** «Salta prossima tappa» su Android, con dialogo di conferma, ricalcolo Valhalla dalla posizione GPS attuale verso le sole tappe pendenti, esclusione della tappa solo a routing riuscito e aggiornamento checkpoint per gli anelli; supportato anche per percorsi ordinari con tappe, mai per l'arrivo finale. Commit codice `90a1be168c022561514e9303dfddfcc77e53c205`. ESP32 e protocollo BLE **non** modificati per questa funzione. Il branch test contiene inoltre MotoMap v4 + Valhalla Italia V5 + Photon v2 unificati, anelli, tour salvati, pausa/ripresa e rimozione completa della demo Jinan. Unico supporto 3D `hardware/MotoNavFusion_v015.zip` preservato.
 
@@ -250,3 +250,8 @@ Aggiunta la splash **rettangolare** Moto Chat GPS alla testata del README GitHub
 ## Storico e note obsolete
 
 La cronologia completa di commit, prove, diagnosi e rollback dal settembre al 14 novembre 2026 è conservata senza modifiche in [docs/archive/PROJECT_STATE_PRE_CLEANUP_2026-11-15.md](docs/archive/PROJECT_STATE_PRE_CLEANUP_2026-11-15.md). **È un archivio storico, non un manuale operativo.** Contiene ipotesi ed istruzioni successivamente superate (Overpass, MotoMap v2/v3, Photon v1, branch di test eliminati, problemi LVGL già corretti). Fare riferimento sempre a questo file corrente e al codice del branch `valhalla`.
+
+
+### 17 novembre 2026 — diagnostica GPS/predittore (branch test)
+
+Aggiunti getter WASM `moto_web_replay_origin_lat/lon` e letture browser per coordinate snapshot Android, heading inviato a NavPresenter, origine mappa reale del bridge e offset in metri, compresi frame interpolati. Il replay non contiene bearing GNSS grezzo, heading IMU o angolo post-filtro: non attribuire rotazioni a una fonte senza dati. Nessuna modifica Android, ESP32, BLE, routing o `valhalla`. Istruzioni in `platforms/web/simulator/README.md`. Verifica effettuata: corrispondenza statica dei nomi getter/cwrap. Emscripten, CI e prova Chrome ancora non eseguiti nell'ambiente utente. Prossima azione: build WASM e replay 07:50–07:56 a 1×, registrare valori nei salti.

@@ -7,7 +7,7 @@
   const $ = id => document.getElementById(id);
   const names = ["trace-file","sample","snapshot","status","play","previous","next",
     "prev-event","next-event","speed","timeline","time","frame","maneuver",
-    "roads","ring-alignment","zoom","speed-kph","performance","lvgl-performance","map-motion","events","profile","canvas","preview","summary","curve-zoom","predictor-ab"];
+    "roads","ring-alignment","zoom","speed-kph","gps-position","gps-heading","map-origin","prediction-offset","performance","lvgl-performance","map-motion","events","profile","canvas","preview","summary","curve-zoom","predictor-ab"];
   const ui = Object.fromEntries(names.map(id=>[id,$(id)]));
   const required = names.filter(id=>!ui[id]);
   if (required.length) throw Error("Controlli simulator mancanti: " + required.join(", "));
@@ -58,7 +58,34 @@
     appliedRoute = null;
     appliedScene = null;
   }
-  function projectWithLvgl(frame, nextIndex) {
+  function coordinateLabel(lat,lon) {
+    return Number.isFinite(lat)&&Number.isFinite(lon) ?
+      lat.toFixed(6)+", "+lon.toFixed(6) : "—";
+  }
+  function updatePositionTelemetry(s, interpolated=false) {
+    const lat=Number(s.lat), lon=Number(s.lon), heading=Number(s.heading_deg);
+    const valid=Number.isFinite(lat)&&Number.isFinite(lon);
+    const tag=interpolated?" · interpolato JS":" · registrato";
+    ui["gps-position"].textContent=coordinateLabel(lat,lon)+tag;
+    ui["gps-heading"].textContent=(Number.isFinite(heading) ?
+      (((heading%360)+360)%360).toFixed(1)+"°" : "—")+tag+
+      (api?" · ingresso NavPresenter":" · anteprima 2D");
+    if (!api) {
+      ui["map-origin"].textContent="Non disponibile senza WASM";
+      ui["prediction-offset"].textContent="Non disponibile senza WASM";
+      return;
+    }
+    const a=api.originLat(),b=api.originLon();
+    ui["map-origin"].textContent=coordinateLabel(a,b);
+    if (!valid||!Number.isFinite(a)||!Number.isFinite(b)) {
+      ui["prediction-offset"].textContent="— (coordinate non valide)";
+      return;
+    }
+    const north=(a-lat)*111195, east=(b-lon)*111195*Math.cos(lat*Math.PI/180);
+    ui["prediction-offset"].textContent=Math.hypot(north,east).toFixed(1)+" m"+
+      (ui["predictor-ab"].checked?" · predittore ON":" · predittore OFF");
+  }
+  function projectWithLvgl(frame, nextIndex, interpolated=false) {
     if (!api) return;
     const updateStarted=performance.now();
     if (nextIndex < rendered || rendered === -1) resetRenderer();
@@ -88,6 +115,7 @@
       networks[s.network] ?? 0,s.has_turn===false?0:1,
       numeric(frame.t,0));
     rendered = nextIndex;
+    updatePositionTelemetry(s,interpolated);
     const cost=performance.now()-updateStarted;
     diagUpdates++;
     diagCost+=cost;
@@ -150,7 +178,7 @@
     index = Math.max(0,Math.min(frames.length-1,Math.trunc(Number(i)||0)));
     const f=frames[index],s=f.snapshot;
     if (api) { if (project) projectWithLvgl(f,index); }
-    else fallback.draw(ui.preview,f,annotation(f.t));
+    else {fallback.draw(ui.preview,f,annotation(f.t));updatePositionTelemetry(s);}
     ui.timeline.value=String(index);
     ui.time.textContent=clock(f.t)+" · +"+timeLabel(f.t-dataset.firstMs);
     ui.frame.textContent=(index+1)+" / "+frames.length;
@@ -247,7 +275,7 @@
     diagInterpolated++;
     const frame=frames[index];
     projectWithLvgl({snapshot:{...frame.snapshot,...motion},
-      route:frame.route,scene:frame.scene,t:target},index);
+      route:frame.route,scene:frame.scene,t:target},index,true);
     return true;
   }
   function tick(now){
@@ -364,6 +392,8 @@
           roadPoint:fn("road_point",["number","number"]),roadEnd:fn("road_end",["number"]),
           snapshot:fn("snapshot",Array(16).fill("number")),
           predictor:fn("set_predictor_enabled",["number"]),
+          originLat:mod.cwrap("moto_web_replay_origin_lat","number",[]),
+          originLon:mod.cwrap("moto_web_replay_origin_lon","number",[]),
           curveZoom:fn("set_curve_zoom_enabled",["number"]),
           zoomFactor:mod.cwrap("moto_web_replay_zoom_factor","number",[]),
           lvglRender:mod.cwrap("moto_web_lvgl_render_hz","number",[]),

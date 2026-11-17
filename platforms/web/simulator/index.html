@@ -73,10 +73,15 @@ code{background:#0b151a;padding:2px 4px;border-radius:3px}a{color:#90d8ff}
 <div><small>Scarto anello prioritario / finestra verde</small><b id="ring-alignment">—</b></div>
 <div><small>Zoom applicato al display</small><b id="zoom">—</b></div>
 <div><small>Velocità GNSS/snapshot</small><b id="speed-kph">—</b></div>
+<div><small>Posizione snapshot Android (lat, lon)</small><b id="gps-position">—</b></div>
+<div><small>Heading snapshot → ingresso renderer</small><b id="gps-heading">—</b></div>
+<div><small>Origine mappa inviata al renderer (lat, lon)</small><b id="map-origin">—</b></div>
+<div><small>Scarto origine rispetto allo snapshot</small><b id="prediction-offset">—</b></div>
 <div><small>Diagnostica replay WASM</small><b id="performance">—</b></div>
 <div><small>Diagnostica ciclo LVGL</small><b id="lvgl-performance">—</b></div>
 <div><small>Movimento mappa (solo WASM)</small><b id="map-motion">—</b></div>
 </div>
+<p class="hint">Diagnostica: lo snapshot Android non è il fix GNSS grezzo; durante Play posizione e heading possono essere interpolati nel browser. L'heading indicato è l'ingresso di NavPresenter, non l'angolo finale post-filtro o la fusione IMU. Lo scarto tra i due centri mappa non misura l'errore GPS.</p>
 <p id="summary" aria-live="polite">—</p>
 <canvas id="profile" width="600" height="100" aria-label="Velocità nel tempo e posizione degli eventi; fai clic per spostarti"></canvas>
 <p class="hint">Grafico velocità: righe arancioni = cambi rotta, verde = tappa, bianco = arrivo. Clicca per raggiungere un istante.</p>

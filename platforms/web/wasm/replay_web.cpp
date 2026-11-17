@@ -23,6 +23,9 @@ MapOriginPredictor replay_predictor;
 std::uint32_t replay_geometry_sequence = 0;
 MapOriginPredictor::Position replay_geometry_anchor{};
 bool replay_predictor_enabled = false;
+// Replay-only telemetry; no raw GNSS or IMU heading is available.
+double replay_origin_lat = NAN;
+double replay_origin_lon = NAN;
 
 bool valid_point(double lat, double lon) {
   return std::isfinite(lat) && std::isfinite(lon) &&
@@ -50,6 +53,7 @@ EMSCRIPTEN_KEEPALIVE void moto_web_replay_reset() {
   replay_predictor = MapOriginPredictor{};
   replay_geometry_sequence = 0;
   replay_geometry_anchor = {};
+  replay_origin_lat = replay_origin_lon = NAN;
   moto_nav_ui_set_phone_connection(MOTO_UI_PHONE_ONLINE);
   paint();
 }
@@ -60,6 +64,9 @@ EMSCRIPTEN_KEEPALIVE void moto_web_replay_set_predictor_enabled(int enabled) {
   replay_predictor_enabled = enabled != 0;
   replay_predictor = MapOriginPredictor{};
 }
+
+EMSCRIPTEN_KEEPALIVE double moto_web_replay_origin_lat() { return replay_origin_lat; }
+EMSCRIPTEN_KEEPALIVE double moto_web_replay_origin_lon() { return replay_origin_lon; }
 
 // A/B comparison of geometry-aware zoom, only for the browser replay.
 // Turning the experiment off restores exactly the existing maneuver zoom.
@@ -181,6 +188,10 @@ EMSCRIPTEN_KEEPALIVE void moto_web_replay_snapshot(
     trace.route_view_origin = {predicted.latitude_deg,
                                predicted.longitude_deg};
   }
+  replay_origin_lat = trace.has_usable_fix ?
+      trace.route_view_origin.latitude_deg : NAN;
+  replay_origin_lon = trace.has_usable_fix ?
+      trace.route_view_origin.longitude_deg : NAN;
   paint();
 }
 }
