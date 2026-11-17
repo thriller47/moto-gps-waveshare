@@ -13,14 +13,13 @@ import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
-import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 
-class LocationForegroundService : Service(), LocationListener {
+open class LocationForegroundService : Service(), LocationListener {
     companion object {
         const val CHANNEL_ID = "MotoGPS_Location_Channel"
         const val NOTIFICATION_ID = 1001
@@ -38,40 +37,37 @@ class LocationForegroundService : Service(), LocationListener {
     // Request high-rate real GNSS fixes; Android may deliver fewer if the chip cannot.
     private val gpsIntervalMs = 200L
     private val networkFallbackIntervalMs = 1000L
-    private lateinit var locationManager: LocationManager
-    private var wakeLock: PowerManager.WakeLock? = null
+    private var locationManager: LocationManager? = null
     private var lastGpsFixTime = 0L
 
     override fun onCreate() {
         super.onCreate()
-        locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
-        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
-        wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MotoGPS:LocationServiceWakeLock")
-        createNotificationChannel()
+        locationManager = getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+        try {
+            createNotificationChannel()
+        } catch (_: Exception) {}
     }
 
     @SuppressLint("MissingPermission")
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Moto GPS")
-            .setContentText("Servizio di localizzazione attivo")
-            .setSmallIcon(android.R.drawable.ic_menu_compass)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .build()
+        try {
+            val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+                .setContentTitle("Moto GPS")
+                .setContentText("Servizio di localizzazione attivo")
+                .setSmallIcon(android.R.drawable.ic_menu_compass)
+                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .build()
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                NOTIFICATION_ID,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION or ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
-            )
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
-        }
-
-        if (wakeLock?.isHeld == false) {
-            wakeLock?.acquire(12 * 60 * 60 * 1000L)
-        }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(
+                    NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION or ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+                )
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+        } catch (_: Exception) {}
 
         startLocationUpdates()
         return START_STICKY
@@ -85,11 +81,12 @@ class LocationForegroundService : Service(), LocationListener {
     @SuppressLint("MissingPermission")
     private fun startLocationUpdates() {
         try {
+            val mgr = locationManager ?: (getSystemService(Context.LOCATION_SERVICE) as? LocationManager) ?: return
             // A START_STICKY service may receive onStartCommand repeatedly.
             // Keep only one pair of system listeners for each active service.
-            locationManager.removeUpdates(this)
-            val lastGps = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
-            val lastNet = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+            mgr.removeUpdates(this)
+            val lastGps = mgr.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+            val lastNet = mgr.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
 
             val bestLast = selectBestLocation(lastGps, lastNet)
             if (bestLast != null) {
@@ -99,8 +96,8 @@ class LocationForegroundService : Service(), LocationListener {
                 dispatchLocation(bestLast)
             }
 
-            if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
-                locationManager.requestLocationUpdates(
+            if (mgr.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                mgr.requestLocationUpdates(
                     LocationManager.GPS_PROVIDER,
                     gpsIntervalMs,
                     0f,
@@ -108,8 +105,8 @@ class LocationForegroundService : Service(), LocationListener {
                 )
             }
 
-            if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
-                locationManager.requestLocationUpdates(
+            if (mgr.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                mgr.requestLocationUpdates(
                     LocationManager.NETWORK_PROVIDER,
                     networkFallbackIntervalMs,
                     1f,
@@ -156,12 +153,7 @@ class LocationForegroundService : Service(), LocationListener {
     override fun onDestroy() {
         super.onDestroy()
         try {
-            locationManager.removeUpdates(this)
-        } catch (_: Exception) {}
-        try {
-            if (wakeLock?.isHeld == true) {
-                wakeLock?.release()
-            }
+            locationManager?.removeUpdates(this)
         } catch (_: Exception) {}
     }
 

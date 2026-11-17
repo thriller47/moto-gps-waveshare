@@ -12,6 +12,7 @@
 5. **Runtime Web/WASM (`map-scene-overlay.js`, `wasm-loader.js`, `CMakeLists.txt`):** rimossi i fetch HTTP a fixture Jinan cancellate con degradazione pulita; allineati simboli esportati (`_moto_web_preview_phone_lifecycle`, `_moto_web_set_phone_connection`) e introdotto helper `safeCwrap`.
 6. **Tool offline (`pbf_to_motomap.py`):** gestione difensiva delle righe vuote nei file `.poly` prima del parsing coordinate.
 7. **Workflow CI (`project-build.yml`):** corretta eccezione `'LICENSE.md'` sotto `paths-ignore`; aggiunti controlli `node --check` e test unitari `node --test` per diagnostica heading, stabilità e binding WASM.
+8. **Fix crash Android all'avvio (`LocationForegroundService.kt`):** rimossa l'acquisizione di `PowerManager.WakeLock` che causava `SecurityException` (`android.permission.WAKE_LOCK` non dichiarato nel manifest); la navigazione in background è protetta in modo efficiente dal ciclo di vita `ForegroundService` con tipi `location|connectedDevice`. Aggiunta suite di regressione JUnit (`LocationForegroundServiceTest.kt`) e abilitato `unitTests.isReturnDefaultValues = true` in Gradle.
 
 **Verifiche eseguite localmente (100% superate):**
 - **Test nativi C++/CMake/CTest (WSL Ubuntu 24.04):** 15/15 test superati (100%), inclusi `map_origin_predictor_tests`, `motion_heading_fusion_tests`, `nav_presenter_tests`, `ble_protocol_tests`, `connection_epoch_gate_tests`, `phone_nav_bridge_tests`.
@@ -20,11 +21,10 @@
 - **Line ending fix:** normalizzati i terminatori CRLF nel parser fixture golden di `ble_protocol_tests.cpp`.
 
 **Ancora da verificare:**
-- Build remota consolidata GitHub Actions CI sul branch `gemini_test`.
-- Compilazione APK Android e test Gradle (non eseguibili localmente per assenza di JDK sull'host).
+- Build remota consolidata GitHub Actions CI sul branch `gemini_test` (job `android`).
 - Build WASM Emscripten su WSL e collaudo finale su strada con hardware ESP32.
 
-**Prossima azione:** eseguire una singola commit e push consolidata sul branch `gemini_test` e monitorare l'esito della run di GitHub Actions. Nessun merge su `valhalla`.
+**Prossima azione:** eseguire una singola commit e push consolidata sul branch `gemini_test`, avviare `workflow_dispatch` per il job Android e verificare l'esito. Nessun merge su `valhalla`.
 
 **Aggiornato:** 17 novembre 2026 (fix Python di copertura MotoMap z15, tag maxspeed e pipe zstd; formato v4 invariato). **Integrazione stabile:** `valhalla` (non modificata in questa sessione). **Branch sperimentale attivo:** `test/unified-offline-map-20261115`; non eseguire merge senza approvazione dell'utente. Al controllo GitHub del 16/11: branch test 51 commit avanti e 3 indietro rispetto a `valhalla` (rivalutare divergenza prima del merge).
 
@@ -409,3 +409,17 @@ Su richiesta utente, corretti `scripts/offline_map/pbf_to_motomap.py`: supercove
   - Ricompilazione WASM Emscripten e collaudo reale su hardware ESP32.
 - **Rischio e bloccanti aperti:** nessuno noto nel codice modificato; il wire format BLE v1 è preservato senza alcuna rottura.
 - **Prossima azione:** commit e push unico su `gemini_test`, verifica della GitHub Actions CI consolidata.
+
+### 17 novembre 2026 — risoluzione crash all'avvio Android (SecurityException WAKE_LOCK)
+
+- **Branch:** `gemini_test` (`valhalla` non modificato).
+- **Problema:** all'avvio dell'applicazione su Android, subito dopo la conferma dei permessi di localizzazione, si verificava un arresto anomalo irreversibile con eccezione:
+  `java.lang.SecurityException: Neither user 10677 nor current process has android.permission.WAKE_LOCK.`
+  `at android.os.PowerManager$WakeLock.acquire(PowerManager.java:5384)`
+  `at com.motogps.android.location.LocationForegroundService.onStartCommand(LocationForegroundService.kt:73)`
+- **Causa:** `LocationForegroundService` invocava `wakeLock.acquire(...)` senza che il permesso `android.permission.WAKE_LOCK` fosse dichiarato in `AndroidManifest.xml`.
+- **Risoluzione chirurgica:**
+  1. `LocationForegroundService.kt`: rimossa completamente ogni gestione e istanziazione di `PowerManager.WakeLock` (`acquire()` e `release()`), in piena coerenza con le decisioni architetturali documentate che affidano la persistenza in background al `ForegroundService` con tipi `location|connectedDevice` senza ricorrere a wake lock ad alto consumo.
+  2. `platforms/android/app/build.gradle.kts`: aggiunto `testOptions { unitTests.isReturnDefaultValues = true }` per consentire l'esecuzione affidabile dei test unitari sui componenti Android Service.
+  3. `platforms/android/app/src/test/java/com/motogps/android/location/LocationForegroundServiceTest.kt`: aggiunti test unitari JUnit di regressione che simulano l'assenza del permesso `WAKE_LOCK` e verificano che `onCreate`, `onStartCommand` e `onDestroy` completino senza sollevare `SecurityException`.
+- **Verifica:** delegata alla run consolidata GitHub Actions CI (`project-build.yml` su branch `gemini_test`).
