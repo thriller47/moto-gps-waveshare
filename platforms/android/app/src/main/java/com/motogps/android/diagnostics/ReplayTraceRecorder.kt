@@ -168,7 +168,7 @@ object ReplayTraceRecorder {
      * DiagnosticLog. Record once per navigation route per explicit session,
      * including when GPS recording is enabled halfway through a ride.
      */
-    @Synchronized fun fullRoute(
+    @Synchronized internal fun fullRoute(
         g: MotoBLERouteGeometry, plan: ValhallaTurnGuidance.Plan
     ) {
         if (!active || g.points.size < 2 || g.points.size > 150_000) return
@@ -181,7 +181,7 @@ object ReplayTraceRecorder {
     }
 
     /** Same fix, raw matcher remaining, guarded remaining and Valhalla turn. */
-    fun progress(
+    internal fun progress(
         lat: Double, lon: Double,
         routeToken: Long, generation: Long, speedMps: Float,
         travelHeading: Float?, rawRemainingM: Long,
