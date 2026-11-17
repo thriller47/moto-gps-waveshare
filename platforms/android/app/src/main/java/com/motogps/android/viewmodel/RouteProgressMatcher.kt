@@ -148,10 +148,10 @@ internal class RouteProgressMatcher {
                 if (candidate < prev - 10.0)
                     score += (prev - 10.0 - candidate) * 1.5
                 val high = prev + max(22.0, travelled * 1.8 + 10.0)
-                if (candidate > high) score += (candidate - high) * 0.8
+                if (candidate > high) score += (candidate - high) * 2.0
             }
             if (heading != null && heading.isFinite() && speed >= 3f &&
-                len2 >= 144.0) {
+                len2 >= 4.0) {
                 val direction = Math.toDegrees(atan2(dx, dy)).toFloat()
                 val error = abs(((heading - direction + 540f) % 360f) - 180f)
                 if (error > 90f) score += min(35.0, (error - 90.0) * 0.55)

@@ -25,6 +25,7 @@ class LocationForegroundService : Service(), LocationListener {
     private val gpsIntervalMs = 200L
     private val networkFallbackIntervalMs = 1000L
     private lateinit var locationManager: LocationManager
+    private var lastGpsFixTime = 0L
 
     override fun onCreate() {
         super.onCreate()
@@ -58,6 +59,9 @@ class LocationForegroundService : Service(), LocationListener {
 
             val bestLast = selectBestLocation(lastGps, lastNet)
             if (bestLast != null) {
+                if (bestLast.provider == LocationManager.GPS_PROVIDER) {
+                    lastGpsFixTime = System.currentTimeMillis()
+                }
                 onLocationUpdate?.invoke(bestLast)
             }
 
@@ -81,14 +85,31 @@ class LocationForegroundService : Service(), LocationListener {
         } catch (_: Exception) {}
     }
 
-    private fun selectBestLocation(loc1: Location?, loc2: Location?): Location? {
-        if (loc1 == null) return loc2
-        if (loc2 == null) return loc1
-        return if (loc1.time >= loc2.time) loc1 else loc2
+    private fun selectBestLocation(gps: Location?, net: Location?): Location? {
+        if (gps == null) return net
+        if (net == null) return gps
+        // Prefer GPS unless network is significantly fresher and GPS is stale (> 60s)
+        val timeDiff = net.time - gps.time
+        if (timeDiff > 60_000L) {
+            return net
+        }
+        if (gps.hasAccuracy() && net.hasAccuracy() && gps.accuracy <= net.accuracy) {
+            return gps
+        }
+        return if (gps.time >= net.time) gps else net
     }
 
     override fun onLocationChanged(location: Location) {
-        onLocationUpdate?.invoke(location)
+        if (location.provider == LocationManager.GPS_PROVIDER) {
+            lastGpsFixTime = System.currentTimeMillis()
+            onLocationUpdate?.invoke(location)
+        } else {
+            // Only use network fallback if no GPS fix received in the last 5 seconds
+            val now = System.currentTimeMillis()
+            if (now - lastGpsFixTime > 5_000L) {
+                onLocationUpdate?.invoke(location)
+            }
+        }
     }
 
     @Deprecated("Deprecated in Java")
