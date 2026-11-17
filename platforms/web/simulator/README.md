@@ -123,3 +123,8 @@ Nel pannello **Riproduzione** del simulatore LVGL appare **Predittore ESP32 sper
 Il banco prova mostra coordinate dello **snapshot Android**, heading di ingresso a NavPresenter, origine mappa **effettivamente inviata** al renderer dal WASM e scarto tra le due coordinate in metri. Durante Play l'interpolazione JavaScript è segnalata; con Pausa/Frame si legge il valore dello snapshot registrato. Scarto non significa errore GPS. Heading non è bearing GNSS grezzo, fusione IMU QMI8658 né angolo finale post-filtro grafico. Con predittore OFF la differenza è normalmente 0 m; ON può divergere. Firmware, BLE, Android e Valhalla restano invariati.
 
 In WSL: `git pull --ff-only origin test/unified-offline-map-20261115`; `source ~/emsdk/emsdk_env.sh && ./scripts/build_web.sh`; avviare da root `python3 -m http.server 4174 --directory .`. In Chrome fare **Ctrl+Maiusc+R** con cache disabilitata. Le nuove funzioni C++ richiedono il rebuild WASM.
+
+
+## Layout compatto del banco prova — 17 novembre 2026 (branch test)
+
+Il display resta visibile a sinistra, a dimensione naturale quando la finestra lo permette. Sul desktop il pannello di destra scorre **indipendentemente** dall'ESP32, senza richiedere di ridurre lo zoom del browser. Restano in vista comandi, replay, velocità e letture fondamentali (heading, posizione e offset). «Diagnostica avanzata», «Eventi del giro», «Limiti» e note sono pannelli richiudibili. Su viewport strette si torna alla disposizione verticale. Per aggiornare basta `git pull --ff-only origin test/unified-offline-map-20261115` e ricaricare Chrome con **Ctrl+Maiusc+R**: **nessuna ricompilazione WASM** per questo cambio HTML/CSS. Prima prova: Chrome a 100% di zoom.

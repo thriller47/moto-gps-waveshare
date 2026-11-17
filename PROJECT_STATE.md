@@ -2,7 +2,7 @@
 
 ## STATO ATTUALE — RIPARTIRE DA QUI
 
-**Aggiornato:** 17 novembre 2026 (diagnostica replay GPS/predittore). **Integrazione stabile:** `valhalla` (non modificata in questa sessione). **Branch sperimentale attivo:** `test/unified-offline-map-20261115`; non eseguire merge senza approvazione dell'utente. Al controllo GitHub del 16/11: branch test 51 commit avanti e 3 indietro rispetto a `valhalla` (rivalutare divergenza prima del merge).
+**Aggiornato:** 17 novembre 2026 (layout compatto del banco prova). **Integrazione stabile:** `valhalla` (non modificata in questa sessione). **Branch sperimentale attivo:** `test/unified-offline-map-20261115`; non eseguire merge senza approvazione dell'utente. Al controllo GitHub del 16/11: branch test 51 commit avanti e 3 indietro rispetto a `valhalla` (rivalutare divergenza prima del merge).
 
 **Ultimo sviluppo effettivamente implementato (prima di questa patch):** «Salta prossima tappa» su Android, con dialogo di conferma, ricalcolo Valhalla dalla posizione GPS attuale verso le sole tappe pendenti, esclusione della tappa solo a routing riuscito e aggiornamento checkpoint per gli anelli; supportato anche per percorsi ordinari con tappe, mai per l'arrivo finale. Commit codice `90a1be168c022561514e9303dfddfcc77e53c205`. ESP32 e protocollo BLE **non** modificati per questa funzione. Il branch test contiene inoltre MotoMap v4 + Valhalla Italia V5 + Photon v2 unificati, anelli, tour salvati, pausa/ripresa e rimozione completa della demo Jinan. Unico supporto 3D `hardware/MotoNavFusion_v015.zip` preservato.
 
@@ -255,3 +255,8 @@ La cronologia completa di commit, prove, diagnosi e rollback dal settembre al 14
 ### 17 novembre 2026 — diagnostica GPS/predittore (branch test)
 
 Aggiunti getter WASM `moto_web_replay_origin_lat/lon` e letture browser per coordinate snapshot Android, heading inviato a NavPresenter, origine mappa reale del bridge e offset in metri, compresi frame interpolati. Il replay non contiene bearing GNSS grezzo, heading IMU o angolo post-filtro: non attribuire rotazioni a una fonte senza dati. Nessuna modifica Android, ESP32, BLE, routing o `valhalla`. Istruzioni in `platforms/web/simulator/README.md`. Verifica effettuata: corrispondenza statica dei nomi getter/cwrap. Emscripten, CI e prova Chrome ancora non eseguiti nell'ambiente utente. Prossima azione: build WASM e replay 07:50–07:56 a 1×, registrare valori nei salti.
+
+
+### 17 novembre 2026 — simulatore compatto (branch test)
+
+Ridotta altezza apparente della pagina: pannello display sticky a sinistra, controlli/telemetria con scroll indipendente a destra su desktop, valori principali sempre visibili, diagnostica prestazioni/eventi/note richiudibili. Adattamento su viewport piccole; nessun cambiamento a player JavaScript, runtime WASM, APK, BLE, ESP32, routing o `valhalla`. Il cambio è soltanto HTML/CSS, quindi basta `git pull` e hard reload (nessuna build Emscripten). Verifica statica markup/CSS; verifica reale in Chrome non ancora eseguita dall'assistente. Nei video utente 11:19 OFF e 11:28 ON il browser era ridotto a zoom eccessivamente basso, impedendo la lettura della diagnostica; non concludere sul miglioramento del predittore da quei fotogrammi. Prossimo passo: verificare layout a zoom Chrome 100%, poi replay A/B con numeri leggibili.
