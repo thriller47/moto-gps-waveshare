@@ -78,7 +78,7 @@ LocalBendZoom local_bend_zoom(const NavSnapshot& s) {
   std::array<double, kRouteViewPointCapacity> along{};
   const double lat=s.route_view_origin.latitude_deg;
   const double lon=s.route_view_origin.longitude_deg;
-  const double lon_scale=111195.0*std::cos(radians(lat));
+  const double lon_scale=111195.0*std::cos(lat*kPi/180.0);
   const std::size_t count=s.route_view_point_count;
   for(std::size_t i=0;i<count;++i){
     const auto& p=s.route_view_points[i];
