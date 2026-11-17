@@ -38,6 +38,22 @@ Aprire il medesimo file di replay delle 17:40–17:58 in entrambe le schede. Con
 
 **Interpretazione rigorosa:** gli snapshot JSONL registrati il 17 novembre includono già coordinate, geometria verde, manovra e sua distanza calcolati dall'Android sperimentale. Se entrambi i renderer mostrano il medesimo errore, la causa può essere a monte, ma non è una prova contro il vecchio Android. Se differiscono con identico input, indagare renderer/JS/WebAssembly. Nessuna versione WASM riproduce per intero BLE, IMU fisica, ritardo GATT, la fase Valhalla Android o il percorso di un altro giorno. I falsi ricalcoli delle 17:37 non sono contenuti nel replay iniziato alle 17:40.
 
+## Esito A/B riferito dall'utente e verifica progressione — 17 novembre 2026
+
+**Esito osservazione:** i due simulatori (commit 15 novembre e branch test) appaiono sostanzialmente identici riproducendo lo stesso replay 17/11. Non è stato eseguito un confronto video quantitativo; l'osservazione segnala che non è vantaggioso continuare a cambiare zoom LVGL. Il JSONL è generato dal solo APK Android test e già contiene la manovra e la geometria in uscita.
+
+**Valori misurati nel replay originale** (distanze GPS cumulative sulla traccia, approssimazione equirettangolare in metri; `progress_m` è il valore registrato dallo snapshot Android, non un match ricalcolato):
+- t≈140 s: GPS ~1.107 m dall'inizio; progressione ~3 m. t≈160 s: GPS ~1.392 m; progressione ~74 m.
+- t=243–304 s: GPS ~529 m, progresso ~858 m (1,62×).
+- t=298–328 s: GPS ~248 m, progresso ~421 m (1,70×).
+- Tra 17:45:20 e 17:45:49 le manovre saltano fra `roundabout` a 12m, poi ~270m, poi 0m, un `keep_right` e una nuova `roundabout` a 597m, con `route_token` invariato. Le transizioni possono corrispondere a manovre distinte della stessa risposta Valhalla, non sono una prova di ricalcolo.
+- Per t=250–350 s, 100 fix GPS registrati: tutti a velocità >=3m/s con `heading_deg` presente; il log Android alle 17:45–46 riferisce `source=movement` anche quando lo zoom spurio si presenta. La semplice differenza soglie heading 15→17/11 non riproduce da sola il caso. Bearing accuracy non esportata.
+- Il primo segmento della rotta BLE è circa 123°, ma il primo bearing provider 319,8° alle 17:40:26 è scartato (`source=hold`). **Non dedurne da solo una rotta iniziale erroneamente opposta:** la traccia effettiva mostra movimento iniziale SE e successivo NW.
+
+**Audit del codice:** `ValhallaTurnGuidance.kt`, `RouteProgressMatcher.kt`, `RouteDistanceGuard.kt` e parser JSONL sono identici fra baseline e test; sono invece cambiati `NavigationHeadingPolicy`, `NavigationViewModel`, `RouteGeometryWindow`, fusion/predictor. Il matcher blocca il progresso quando distanza alla geometria completa supera 45m oppure quando seleziona un ramo distante; il guard impone limiti per passo. Non si può distinguere quale condizione si sia verificata usando il solo replay: le finestre BLE hanno max 24 punti e **non contengono la geometria completa da 725 vertici** dichiarata in `ROUTE_START ready ... points=725`.
+
+**Prossimo esperimento:** rendere riproducibile l'accoppiamento fix → matcher raw → guard → `turnPlan.next` con geometria completa locale (senza pubblicare coordinate private in GitHub). Prima diagnostica, poi un singolo intervento circoscritto su routing/progressione se confermato. Evitare ulteriori soglie IMU/zoom, patch cosmetiche o rollback generici.
+
 ## Esperimenti successivi — una sola variabile alla volta
 - **A:** confrontare le due visualizzazioni (questa preparazione; nessun codice navigazione cambiato).
 - **B:** a parità di APK e di percorso, eventualmente confrontare ESP32 con fusione/predittore del 15 vs corrente; usare log reali, firmware e BLE compatibili. Non dedurre conclusioni da due tragitti con precisione GNSS differente.
