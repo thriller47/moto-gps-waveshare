@@ -26,6 +26,13 @@ bool replay_predictor_enabled = false;
 // Replay-only telemetry; no raw GNSS or IMU heading is available.
 double replay_origin_lat = NAN;
 double replay_origin_lon = NAN;
+// Dedicated replay batch predictor: independent of the visual LVGL predictor.
+MapOriginPredictor batch_predictor;
+MapOriginPredictor::Position batch_anchor{};
+std::uint32_t batch_sequence = 0;
+std::string batch_route_id;
+std::uint32_t batch_generation = 0;
+bool batch_has_route = false;
 
 bool valid_point(double lat, double lon) {
   return std::isfinite(lat) && std::isfinite(lon) &&
@@ -67,6 +74,41 @@ EMSCRIPTEN_KEEPALIVE void moto_web_replay_set_predictor_enabled(int enabled) {
 
 EMSCRIPTEN_KEEPALIVE double moto_web_replay_origin_lat() { return replay_origin_lat; }
 EMSCRIPTEN_KEEPALIVE double moto_web_replay_origin_lon() { return replay_origin_lon; }
+
+// Run the C++ predictor at recorded snapshot timestamps, separately
+// from live replay. No IMU, BLE latency or RAF interpolation is simulated.
+EMSCRIPTEN_KEEPALIVE void moto_web_replay_batch_reset() {
+  batch_predictor = MapOriginPredictor{};
+  batch_anchor = {};
+  batch_sequence = 0;
+  batch_route_id.clear();
+  batch_generation = 0;
+  batch_has_route = false;
+}
+EMSCRIPTEN_KEEPALIVE void moto_web_replay_batch_route(
+    double lat, double lon, int generation, int token) {
+  batch_has_route = valid_point(lat, lon);
+  if (!batch_has_route) return;
+  batch_anchor = {lat, lon};
+  ++batch_sequence;
+  batch_route_id = "replay-" + std::to_string(
+      static_cast<std::uint32_t>(token));
+  batch_generation = static_cast<std::uint32_t>(std::max(1, generation));
+}
+EMSCRIPTEN_KEEPALIVE double moto_web_replay_batch_sample(
+    double lat, double lon, double heading, double speed, double time_ms) {
+  if (!batch_has_route || !valid_point(lat, lon) ||
+      !std::isfinite(time_ms) || time_ms < 0.0) return NAN;
+  const auto predicted = batch_predictor.advance(
+      batch_anchor, static_cast<std::uint64_t>(time_ms), batch_sequence,
+      batch_route_id, batch_generation, static_cast<float>(speed),
+      static_cast<float>(heading), true);
+  constexpr double metres_per_degree = 111195.0;
+  const double north = (predicted.latitude_deg - lat) * metres_per_degree;
+  const double east = (predicted.longitude_deg - lon) * metres_per_degree *
+      std::cos(lat * 3.14159265358979323846 / 180.0);
+  return std::hypot(north, east);
+}
 
 // A/B comparison of geometry-aware zoom, only for the browser replay.
 // Turning the experiment off restores exactly the existing maneuver zoom.

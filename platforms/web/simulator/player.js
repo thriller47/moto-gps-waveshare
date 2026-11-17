@@ -29,6 +29,25 @@
   let lastProfilePaint = -Infinity, lastActiveEventFrame = null;
   let profileSpeeds = [], profileMaxSpeed = 40;
   let diagnostics = [], predictorObservations = new Map(), lastDiagnosticDraw = 0;
+  function analyzeFullReplay() {
+    predictorObservations = new Map();
+    if(!api?.batchReset || !frames.length) return;
+    api.batchReset();
+    let previousRoute=null;
+    for(let i=0;i<frames.length;i++) {
+      const {route,snapshot:s,t}=frames[i];
+      if(route!==previousRoute) {
+        if(route) api.batchRoute(route.origin[0],route.origin[1],
+          route.generation,route.token);
+        else api.batchReset();
+        previousRoute=route;
+      }
+      if(!route) continue;
+      const on=api.batchSample(Number(s.lat),Number(s.lon),
+        Number(s.heading_deg),Number(s.speed_mps),Number(t));
+      predictorObservations.set(i,{off:0,on:Number.isFinite(on)?on:NaN});
+    }
+  }
   // Separate JS-to-WASM update cost from browser animation-frame pacing.
   let diagStart = 0, diagRaf = 0, diagUpdates = 0, diagCost = 0;
   let diagMaxCost = 0, diagSlowRaf = 0, diagLastRaf = 0;
@@ -86,14 +105,8 @@
     const offset=Math.hypot(north,east);
     ui["prediction-offset"].textContent=offset.toFixed(1)+" m"+
       (ui["predictor-ab"].checked?" · predittore ON":" · predittore OFF");
-    // Only sample actual recorded snapshots, never attribute an interpolated
-    // prediction to a different GPS fix or to a mode never replayed.
-    if(!interpolated && diagnostics.length) {
-      const key=index;
-      const record=predictorObservations.get(key)||{};
-      record[ui["predictor-ab"].checked?"on":"off"]=offset;
-      predictorObservations.set(key,record);
-    }
+    // Batch CSV analysis uses independent state and never samples this
+    // interactive renderer, so A/B data does not depend on the seek history.
   }
   function projectWithLvgl(frame, nextIndex, interpolated=false) {
     if (!api) return;
@@ -286,7 +299,7 @@
     pause();dataset=result;frames=result.frames;events=result.events;index=0;
     motionSpans=model.buildMotionSpans(frames);
     diagnostics=headingDiagnostic.analyze(frames);
-    predictorObservations=new Map();
+    analyzeFullReplay();
     lastDiagnosticDraw=0;
     profileSpeeds=frames.map(f=>Math.max(0,numeric(f.snapshot.speed_mps)*3.6));
     profileMaxSpeed=Math.max(40,Math.ceil(
@@ -456,6 +469,10 @@
           roadPoint:fn("road_point",["number","number"]),roadEnd:fn("road_end",["number"]),
           snapshot:fn("snapshot",Array(16).fill("number")),
           predictor:fn("set_predictor_enabled",["number"]),
+           batchReset:fn("batch_reset",[]),
+           batchRoute:fn("batch_route",["number","number","number","number"]),
+           batchSample:mod.cwrap("moto_web_replay_batch_sample","number",
+             ["number","number","number","number","number"]),
           originLat:mod.cwrap("moto_web_replay_origin_lat","number",[]),
           originLon:mod.cwrap("moto_web_replay_origin_lon","number",[]),
           curveZoom:fn("set_curve_zoom_enabled",["number"]),
@@ -474,7 +491,8 @@
         ui["predictor-ab"].disabled=false;
         api.curveZoom(ui["curve-zoom"].checked?1:0);
         resetRenderer();
-        if(frames.length)display(index);else load(synthetic(),"Esempio sintetico");
+        if(frames.length){analyzeFullReplay();display(index);}
+        else load(synthetic(),"Esempio sintetico");
       } catch(error){api=null;ui.preview.hidden=false;
         status("Bridge WASM non disponibile: "+error.message,true);}
     },0);

@@ -56,14 +56,15 @@
     return data;
   }
   const format=x=>valid(x)?x.toFixed(2):"";
+  const coordinate=x=>valid(x)?x.toFixed(7):"";
   function csv(rows,observed){
     const cols=["t_ms","frame","snapshot_lat","snapshot_lon","heading_snapshot_deg",
       "heading_route_segment_deg","heading_mismatch_deg","heading_rate_deg_s",
       "distance_from_route_window_m","distance_between_fixes_m","speed_mps",
       "warning_flags","predicted_offset_off_m","predicted_offset_on_m"];
     return [cols.join(","),...rows.map(r=>{
-      const o=observed.get(r.i)||{};
-      return [r.t,r.i+1,format(r.lat),format(r.lon),format(r.gps),
+      const o=observed?.get(r.i)||{};
+      return [r.t,r.i+1,coordinate(r.lat),coordinate(r.lon),format(r.gps),
         format(r.routeHeading),format(r.headingMismatch),format(r.headingRate),
         format(r.lateral),format(r.moved),format(r.speed),r.flags.join("|"),
         valid(o.off)?format(o.off):"",valid(o.on)?format(o.on):""].join(",");
