@@ -172,3 +172,10 @@ Aggiunta modalità **GPS verificato (rettilinei, sperimentale)**: confronta vett
 
 ### Prova suggerita
 Sul medesimo segmento del replay, confrontare `Originale`, `Bloccato`, `Stabilizzato`, `GPS verificato`. Annotare se in `GPS verificato` spariscono rotazioni anomale ma la mappa segue ancora rotonde e tornanti. Il CSV originale resta intatto.
+
+
+## Fix bridge LVGL opzionale e esportazioni WASM — 17 novembre 2026
+
+Il loader del simulatore inizializzava `batch_reset`, `batch_route`, `batch_sample`, `batch_along_m`, `batch_lateral_m`, `origin_lat` e `origin_lon` come se fossero tutte funzioni obbligatorie, ma erano **assenti dall'elenco `EXPORTED_FUNCTIONS` di CMake Emscripten**. Questo provoca il ritorno alla preview 2D quando il binding fallisce, anche se il vero renderer è presente.
+
+Correzione: tutte le funzioni sono ora esportate nella build WASM; inoltre il player tratta i getter e la diagnostica batch come **opzionali**, così un vecchio WASM può ancora fornire LVGL senza abbattere l'intero simulatore. Se manca la diagnostica, il CSV lascia vuoti gli scarti ON e la UI lo segnala. Occorre `git pull`, `source ~/emsdk/emsdk_env.sh`, `./scripts/build_web.sh`, poi aggiornare Chrome con Ctrl+Maiusc+R. Per verificare l'export lanciare `grep -o '_moto_web_replay_batch_sample' platforms/web/shell/runtime/moto-gps-device.js | head`. È una verifica delle stringhe del runtime, non del rendering.

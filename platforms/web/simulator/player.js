@@ -52,7 +52,8 @@
   }
   function analyzeFullReplay() {
     predictorObservations = new Map();
-    if(!api?.batchReset || !frames.length) return;
+    if(!api?.batchReset || !api?.batchRoute || !api?.batchSample ||
+       !api?.batchAlong || !api?.batchLateral || !frames.length) return;
     api.batchReset();
     let previousRoute=null, lastGeometryMs=NaN;
     for(let i=0;i<frames.length;i++) {
@@ -128,6 +129,11 @@
     if (!api) {
       ui["map-origin"].textContent="Non disponibile senza WASM";
       ui["prediction-offset"].textContent="Non disponibile senza WASM";
+      return;
+    }
+    if(!api.originLat || !api.originLon){
+      ui["map-origin"].textContent="N/D (WASM da ricompilare)";
+      ui["prediction-offset"].textContent="N/D (telemetria opzionale assente)";
       return;
     }
     const a=api.originLat(),b=api.originLon();
@@ -514,6 +520,11 @@
       try {
         const mod=window.Module;
         const fn=(name,args)=>mod.cwrap("moto_web_replay_"+name,null,args);
+        // Older WASM builds may lack the optional diagnostic exports.
+        // Never let missing telemetry disable the real LVGL renderer.
+        const optional=(name,returnType,args)=>{
+          try{return mod.cwrap(name,returnType,args);}catch{return null;}
+        };
         api={reset:fn("reset",[]),
           routeBegin:fn("route_begin",["number","number","number","number"]),
           routePoint:fn("route_point",["number","number"]),
@@ -521,14 +532,15 @@
           roadPoint:fn("road_point",["number","number"]),roadEnd:fn("road_end",["number"]),
           snapshot:fn("snapshot",Array(16).fill("number")),
           predictor:fn("set_predictor_enabled",["number"]),
-           batchReset:fn("batch_reset",[]),
-           batchRoute:fn("batch_route",["number","number","number","number"]),
-           batchSample:mod.cwrap("moto_web_replay_batch_sample","number",
-             ["number","number","number","number","number"]),
-           batchAlong:mod.cwrap("moto_web_replay_batch_along_m","number",[]),
-           batchLateral:mod.cwrap("moto_web_replay_batch_lateral_m","number",[]),
-          originLat:mod.cwrap("moto_web_replay_origin_lat","number",[]),
-          originLon:mod.cwrap("moto_web_replay_origin_lon","number",[]),
+          batchReset:optional("moto_web_replay_batch_reset",null,[]),
+          batchRoute:optional("moto_web_replay_batch_route",null,
+            ["number","number","number","number"]),
+          batchSample:optional("moto_web_replay_batch_sample","number",
+            ["number","number","number","number","number"]),
+          batchAlong:optional("moto_web_replay_batch_along_m","number",[]),
+          batchLateral:optional("moto_web_replay_batch_lateral_m","number",[]),
+          originLat:optional("moto_web_replay_origin_lat","number",[]),
+          originLon:optional("moto_web_replay_origin_lon","number",[]),
           curveZoom:fn("set_curve_zoom_enabled",["number"]),
           zoomFactor:mod.cwrap("moto_web_replay_zoom_factor","number",[]),
           lvglRender:mod.cwrap("moto_web_lvgl_render_hz","number",[]),
