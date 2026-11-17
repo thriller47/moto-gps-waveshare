@@ -7,13 +7,14 @@
   const $ = id => document.getElementById(id);
   const names = ["trace-file","sample","snapshot","status","play","previous","next",
     "prev-event","next-event","speed","timeline","time","frame","maneuver",
-    "roads","ring-alignment","zoom","speed-kph","gps-position","gps-heading","map-origin","prediction-offset","heading-chart","offset-chart","diagnostic-summary","export-heading","performance","lvgl-performance","map-motion","events","profile","canvas","preview","summary","curve-zoom","predictor-ab"];
+    "roads","ring-alignment","zoom","speed-kph","gps-position","gps-heading","heading-mode","heading-mode-note","map-origin","prediction-offset","heading-chart","offset-chart","diagnostic-summary","export-heading","performance","lvgl-performance","map-motion","events","profile","canvas","preview","summary","curve-zoom","predictor-ab"];
   const ui = Object.fromEntries(names.map(id=>[id,$(id)]));
   const required = names.filter(id=>!ui[id]);
   if (required.length) throw Error("Controlli simulator mancanti: " + required.join(", "));
   const model = window.MotoReplayModel, fallback = window.MotoFallbackMap,
-    ringAlignment = window.MotoRingAlignment, headingDiagnostic = window.MotoHeadingDiagnostics;
-  if (!model || !fallback || !ringAlignment || !headingDiagnostic) throw Error("Moduli replay non caricati");
+    ringAlignment = window.MotoRingAlignment, headingDiagnostic = window.MotoHeadingDiagnostics,
+    headingStability = window.MotoHeadingStability;
+  if (!model || !fallback || !ringAlignment || !headingDiagnostic || !headingStability) throw Error("Moduli replay non caricati");
   const manoeuvres = {unknown:0,continue:1,keep_left:2,turn_left:3,
     sharp_left:4,u_turn:5,keep_right:6,turn_right:7,sharp_right:8,
     roundabout:10,exit:11,arrive:12};
@@ -29,6 +30,23 @@
   let lastProfilePaint = -Infinity, lastActiveEventFrame = null;
   let profileSpeeds = [], profileMaxSpeed = 40;
   let diagnostics = [], predictorObservations = new Map(), lastDiagnosticDraw = 0;
+  let stableHeadings = [], lockedHeading = NaN;
+  function selectedHeading(s,t,interpolated=false){
+    const raw=Number(s.heading_deg),mode=ui["heading-mode"].value;
+    if(mode==="locked" && Number.isFinite(lockedHeading))return lockedHeading;
+    if(mode==="stable" && stableHeadings.length)
+      return interpolated?headingStability.at(frames,stableHeadings,t):
+        stableHeadings[index];
+    return raw;
+  }
+  function refreshHeadingMode(){
+    const mode=ui["heading-mode"].value;
+    ui["heading-mode-note"].textContent=mode==="locked"?
+      "Bloccato a "+(Number.isFinite(lockedHeading)?lockedHeading.toFixed(1)+"°":"—")+
+      ": diagnostica; in curva non segue la moto.":
+      mode==="stable"?"Stabilizzato: rettilinei più fermi; curve reattive. Solo simulatore.":
+      "Originale: heading registrato, senza filtro aggiuntivo.";
+  }
   function analyzeFullReplay() {
     predictorObservations = new Map();
     if(!api?.batchReset || !frames.length) return;
@@ -100,9 +118,10 @@
     const valid=Number.isFinite(lat)&&Number.isFinite(lon);
     const tag=interpolated?" · interpolato JS":" · registrato";
     ui["gps-position"].textContent=coordinateLabel(lat,lon)+tag;
-    ui["gps-heading"].textContent=(Number.isFinite(heading) ?
-      (((heading%360)+360)%360).toFixed(1)+"°" : "—")+tag+
-      (api?" · ingresso NavPresenter":" · anteprima 2D");
+    const applied=selectedHeading(s,interpolated?Number(s.__replay_t):frames[index]?.t,interpolated);
+    const headingLabel=v=>Number.isFinite(v)?headingStability.norm(v).toFixed(1)+"°":"—";
+    ui["gps-heading"].textContent=headingLabel(heading)+" → "+headingLabel(applied)+
+      tag+(api?" · NavPresenter":" · anteprima 2D");
     if (!api) {
       ui["map-origin"].textContent="Non disponibile senza WASM";
       ui["prediction-offset"].textContent="Non disponibile senza WASM";
@@ -144,14 +163,15 @@
     }
     const m = Object.hasOwn(manoeuvres,s.maneuver) ? manoeuvres[s.maneuver] :
       numeric(s.maneuver,0);
+    const appliedHeading=selectedHeading(s,frame.t,interpolated);
     api.snapshot(states[s.state] ?? 3, m, numeric(s.lat),numeric(s.lon),
-      numeric(s.heading_deg),numeric(s.speed_mps),numeric(s.turn_m),
+      numeric(appliedHeading),numeric(s.speed_mps),numeric(s.turn_m),
       numeric(s.remaining_m),numeric(s.total_m),numeric(s.duration_s),
       numeric(s.progress_m),numeric(s.speed_limit),numeric(s.exit),
       networks[s.network] ?? 0,s.has_turn===false?0:1,
       numeric(frame.t,0));
     rendered = nextIndex;
-    updatePositionTelemetry(s,interpolated);
+    updatePositionTelemetry({...s,__replay_t:frame.t},interpolated);
     const cost=performance.now()-updateStarted;
     diagUpdates++;
     diagCost+=cost;
@@ -270,7 +290,12 @@
     index = Math.max(0,Math.min(frames.length-1,Math.trunc(Number(i)||0)));
     const f=frames[index],s=f.snapshot;
     if (api) { if (project) projectWithLvgl(f,index); }
-    else {fallback.draw(ui.preview,f,annotation(f.t));updatePositionTelemetry(s);}
+    else {
+      const adjusted={...f,snapshot:{...s,heading_deg:selectedHeading(s,f.t)}};
+      fallback.draw(ui.preview,adjusted,annotation(f.t));
+      // Telemetry retains the original GPS heading.
+      updatePositionTelemetry(s);
+    }
     ui.timeline.value=String(index);
     ui.time.textContent=clock(f.t)+" · +"+timeLabel(f.t-dataset.firstMs);
     ui.frame.textContent=(index+1)+" / "+frames.length;
@@ -318,6 +343,10 @@
     pause();dataset=result;frames=result.frames;events=result.events;index=0;
     motionSpans=model.buildMotionSpans(frames);
     diagnostics=headingDiagnostic.analyze(frames);
+    stableHeadings=headingStability.build(frames);
+    lockedHeading=NaN;
+    if(ui["heading-mode"].value==="locked")ui["heading-mode"].value="raw";
+    refreshHeadingMode();
     analyzeFullReplay();
     lastDiagnosticDraw=0;
     profileSpeeds=frames.map(f=>Math.max(0,numeric(f.snapshot.speed_mps)*3.6));
@@ -522,6 +551,16 @@
     const file=ui["trace-file"].files[0];if(!file)return;
     try{load(await file.text(),file.name);}
     catch(error){pause();status("Importazione fallita: "+error.message,true);}
+  });
+  ui["heading-mode"].addEventListener("change",()=>{
+    pause();
+    if(ui["heading-mode"].value==="locked"){
+      const current=frames[index]?.snapshot;
+      lockedHeading=current?Number(current.heading_deg):NaN;
+    }
+    refreshHeadingMode();
+    resetRenderer();
+    if(frames.length)display(index);
   });
   ui["predictor-ab"].addEventListener("change",()=>{
     if (!api) return;

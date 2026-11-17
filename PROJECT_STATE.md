@@ -2,7 +2,7 @@
 
 ## STATO ATTUALE — RIPARTIRE DA QUI
 
-**Aggiornato:** 17 novembre 2026 (regressione nativa sintetica rotonda: freeze e recupero). **Integrazione stabile:** `valhalla` (non modificata in questa sessione). **Branch sperimentale attivo:** `test/unified-offline-map-20261115`; non eseguire merge senza approvazione dell'utente. Al controllo GitHub del 16/11: branch test 51 commit avanti e 3 indietro rispetto a `valhalla` (rivalutare divergenza prima del merge).
+**Aggiornato:** 17 novembre 2026 (A/B heading originale, bloccato e stabilizzato nel simulatore). **Integrazione stabile:** `valhalla` (non modificata in questa sessione). **Branch sperimentale attivo:** `test/unified-offline-map-20261115`; non eseguire merge senza approvazione dell'utente. Al controllo GitHub del 16/11: branch test 51 commit avanti e 3 indietro rispetto a `valhalla` (rivalutare divergenza prima del merge).
 
 **Ultimo sviluppo effettivamente implementato (prima di questa patch):** «Salta prossima tappa» su Android, con dialogo di conferma, ricalcolo Valhalla dalla posizione GPS attuale verso le sole tappe pendenti, esclusione della tappa solo a routing riuscito e aggiornamento checkpoint per gli anelli; supportato anche per percorsi ordinari con tappe, mai per l'arrivo finale. Commit codice `90a1be168c022561514e9303dfddfcc77e53c205`. ESP32 e protocollo BLE **non** modificati per questa funzione. Il branch test contiene inoltre MotoMap v4 + Valhalla Italia V5 + Photon v2 unificati, anelli, tour salvati, pausa/ripresa e rimozione completa della demo Jinan. Unico supporto 3D `hardware/MotoNavFusion_v015.zip` preservato.
 
@@ -25,7 +25,7 @@
 
 **Limiti e regole:** non modificare navigazione o mapping senza log del difetto; checkpoint tour locale Android, nessuna sincronizzazione cloud; prossima tappa rilevata con soglia GPS ~60 m. Distinguere test utente da CI. Un solo build Actions a fine set di modifiche. Non toccare supporto 3D.
 
-**Prossima azione unica:** verificare in CI l'esito del nuovo test nativo di rotonda, poi confrontare A/B in simulatore una strategia di correzione di sola posizione in curva senza modificare ancora il predittore ESP32.
+**Prossima azione unica:** confrontare sul replay del 17/11, a parità di rettilineo e istante, heading originale, bloccato e stabilizzato nel simulatore; riferire se la rotazione persiste con heading bloccato. Non modificare ancora ESP32.
 
 **Correzione sperimentale 17/11 (da verificare):** ridotta la re-ancoratura ripetuta dello stesso bearing BLE, congelata la correzione GNSS durante yaw IMU >5°/s e ridotto il guadagno a 0,22; Android scarta course sotto 3 m/s, course con precisione dichiarata >25° e fallback dislocamento <12 m; predittore integra tutto il tempo del tick (fino a 1 s), smussa compensazione 25–45 m e congela l'extrapolazione rettilinea quando diverge dal heading dell'ultima geometria >15° o frena oltre il 25%. Aggiunti test nativi e Android. **Build CI da verificare**. È stato aggiunto al simulatore LVGL un confronto A/B del predittore C++ isolato, disattivato per default. Per provare la nuova opzione va ricompilato WASM. Il simulatore non esegue PhoneNavBridge, BLE o fusione IMU: ON testa solo l'origine predetta con le finestre presenti nel replay, non l'intera pipeline ESP32. Non confondere prova nel simulatore con test su strada.
 
@@ -299,3 +299,8 @@ Ricevuta osservazione utente «uscendo da una rotonda ... mi spostava parecchio 
 ### 17 novembre 2026 — regressione nativa sintetica su uscita rotonda (branch test)
 
 In `tests/native/map_origin_predictor_tests.cpp` aggiunto `test_roundabout_exit_three_second_geometry_gap`: sequenza sintetica GPS priva di dati personali, heading 340,59°→349,2°→3,2°→19°, speed 17,67→13,5→12,31→9,86 m/s, geometria iniziale e nuova geometria dopo **3.075 ms**. Verifica che il movimento prosegua sul rettilineo iniziale, si fermi quando i due guardrail vengono oltrepassati, non riparta senza geometria e rientri gradualmente alla nuova ancora senza snap. Test aggiunto alla suite già registrata in CTest; nessuna modifica in `MapOriginPredictor`, Android, ESP32 produzione, BLE o `valhalla`. **La compilazione/CTest e la verifica GitHub Actions restano da svolgere**; non dichiarare pass se non verificato. Prossima azione: validare il test, poi progettare un A/B reversibile isolato nel simulatore per gestire curve e frenata senza indebolire la protezione tornanti/svincoli.
+
+
+### 17 novembre 2026 — confronto heading nel banco prova web
+
+Implementato controllo **Originale / Bloccato / Stabilizzato** solo nel simulatore (nuovo `heading_stability.js`, aggiornamenti `player.js`/`index.html`). Baseline originale invariata; Bloccato mantiene l'heading dello snapshot alla selezione, per isolare la rotazione del renderer; Stabilizzato è filtro circolare replay deterministico precalcolato (tau 1,1 s, deadband 0,7° rettilinei; tau 0,12 s e deadband 0 in rotonde o forti variazioni, reset >3s/identità nuova). Heading applicato al NavPresenter e preview 2D; telemetria mostra GPS originale vs applicato, mentre CSV diagnostico e batch predittore restano sui valori originali. **Non replica QMI8658 o fusione heading del firmware**. Non toccati Douglas–Peucker, ESP32, Android, BLE, Valhalla. Solo JS/HTML e test Node: nessun nuovo WASM. Verificare statiche/test automatizzati e poi A/B su stesso rettilineo del replay.

@@ -150,3 +150,15 @@ L'export CSV del banco prova include ora tre ulteriori colonne:
 - `predicted_lateral_heading_m`: proiezione sul lato destro della direzione: positivo destra, negativo sinistra.
 
 Le proiezioni utilizzano esattamente la differenza coordinate prodotta dal predictor C++ **di analisi**, nello stesso snapshot del CSV. Non sono coordinate laterali rispetto alla geometria della strada né misure d'errore GNSS. Nella diagnostica sotto i grafici compaiono anche i tre numeri del frame corrente. Per il nuovo codice C++ ricompilare WASM in WSL (`git pull --ff-only origin test/unified-offline-map-20261115`, `source ~/emsdk/emsdk_env.sh`, `./scripts/build_web.sh`), poi ricaricare Chrome senza cache e riesportare il CSV del replay già disponibile.
+
+
+## Confronto heading originale / bloccato / stabilizzato — 17 novembre 2026
+
+Nel simulatore selezionare **Heading del replay**:
+- **Originale:** heading registrato senza cambiamenti, baseline (impostazione predefinita).
+- **Bloccato:** memorizza l'heading dello snapshot attivo quando si sceglie la modalità, e lo mantiene costante mentre la riproduzione avanza; serve solo a isolare se il movimento della mappa è una rotazione. Non adatto alla navigazione in curva.
+- **Stabilizzato:** filtro JavaScript sperimentale, precalcolato su timestamp di tutti gli snapshot, con interpolazione angolare circolare. Su rettilineo applica costante temporale 1,1 s e deadband di 0,7°, nelle rotatorie o variazioni rapide usa 0,12 s senza deadband; reinizializza dopo buchi >3 s, cambi di identità della rotta e fine navigazione. È un esperimento sul replay, **non il filtro IMU QMI8658 del firmware**.
+
+La modalità agisce esclusivamente sull'heading passato al `NavPresenter` e alla preview 2D, mantenendo intatto il tracciato e il CSV diagnostico originale. La telemetria distingue heading snapshot e applicato. La modalità bloccata va scelta mentre si è già sul rettilineo da analizzare. Se il problema persiste con heading bloccato, cercare movimento della geometria/posizione anziché una pura rotazione. Non modificati firmware, BLE, Android, Valhalla, predittore C++ e Douglas–Peucker.
+
+**Aggiornamento:** `git pull --ff-only origin test/unified-offline-map-20261115` e **Ctrl+Maiusc+R** in Chrome. Le modifiche sono JavaScript/HTML: **nessuna ricompilazione WASM**.

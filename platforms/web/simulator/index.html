@@ -64,9 +64,17 @@ code{background:#0b151a;padding:2px 4px;border-radius:3px}a{color:#90d8ff}
 <div class="separator"><h2>Riproduzione</h2>
 <label class="curve-control"><input id="curve-zoom" type="checkbox" disabled> Zoom tornanti sperimentale (renderer LVGL)</label>
 <label class="curve-control"><input id="predictor-ab" type="checkbox" disabled> Predittore ESP32 sperimentale · confronto A/B</label>
+<label class="curve-control">Heading del replay
+<select id="heading-mode" aria-label="Modalità heading del replay">
+<option value="raw">Originale (riferimento)</option>
+<option value="locked">Bloccato all'istante selezionato (diagnosi)</option>
+<option value="stable">Stabilizzato sperimentale (rettilinei)</option>
+</select></label>
+<p class="hint" id="heading-mode-note">Originale: heading registrato, senza filtro aggiuntivo.</p>
 <details><summary>Come funzionano i confronti A/B</summary>
 <p class="hint">Predittore OFF: posizione registrata/interpolata dal player. ON: stesso <code>MapOriginPredictor</code> C++ del firmware con finestre del replay come ancore; non include IMU reale, offset BLE o fusione heading. Confrontare a 1× dall'inizio.</p>
 <p class="hint">Zoom tornanti OFF: zoom originale. ON: curve della linea verde fino a 3×; rotatorie fino a 4×. Le modifiche C++ richiedono la ricompilazione WASM.</p>
+<p class="hint">Heading bloccato: congela l'orientamento all'istante in cui scegli la modalità, anche attraverso le curve (solo diagnosi). Stabilizzato: smorza piccole oscillazioni sui rettilinei e lascia risposta rapida alle curve. Entrambe le modalità modificano soltanto l'heading passato al renderer, non i dati registrati o il predittore C++ batch.</p>
 </details>
 <input id="timeline" aria-label="Posizione nel tracciato" type="range" min="0" max="0" value="0" disabled>
 <div class="toolbar">
@@ -83,7 +91,7 @@ code{background:#0b151a;padding:2px 4px;border-radius:3px}a{color:#90d8ff}
 <div><small>Zoom applicato al display</small><b id="zoom">—</b></div>
 <div><small>Velocità GNSS/snapshot</small><b id="speed-kph">—</b></div>
 <div><small>Posizione snapshot Android (lat, lon)</small><b id="gps-position">—</b></div>
-<div><small>Heading snapshot → ingresso renderer</small><b id="gps-heading">—</b></div>
+<div><small>Heading snapshot / applicato al renderer</small><b id="gps-heading">—</b></div>
 <div><small>Origine mappa inviata al renderer (lat, lon)</small><b id="map-origin">—</b></div>
 <div><small>Scarto origine rispetto allo snapshot</small><b id="prediction-offset">—</b></div>
 </div>
@@ -127,6 +135,7 @@ code{background:#0b151a;padding:2px 4px;border-radius:3px}a{color:#90d8ff}
 <script src="./fallback_map.js"></script>
 <script src="./ring_alignment.js"></script>
 <script src="./heading_diagnostics.js"></script>
+<script src="./heading_stability.js"></script>
 <script src="./player.js"></script>
 </body>
 </html>
