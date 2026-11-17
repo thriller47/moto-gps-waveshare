@@ -33,6 +33,10 @@ std::uint32_t batch_sequence = 0;
 std::string batch_route_id;
 std::uint32_t batch_generation = 0;
 bool batch_has_route = false;
+// Signed displacement relative to the input snapshot heading.
+// +along = ahead, -along = behind; +lateral = right, -lateral = left.
+double batch_along_m = NAN;
+double batch_lateral_m = NAN;
 
 bool valid_point(double lat, double lon) {
   return std::isfinite(lat) && std::isfinite(lon) &&
@@ -84,6 +88,7 @@ EMSCRIPTEN_KEEPALIVE void moto_web_replay_batch_reset() {
   batch_route_id.clear();
   batch_generation = 0;
   batch_has_route = false;
+  batch_along_m = batch_lateral_m = NAN;
 }
 EMSCRIPTEN_KEEPALIVE void moto_web_replay_batch_route(
     double lat, double lon, int generation, int token) {
@@ -97,6 +102,7 @@ EMSCRIPTEN_KEEPALIVE void moto_web_replay_batch_route(
 }
 EMSCRIPTEN_KEEPALIVE double moto_web_replay_batch_sample(
     double lat, double lon, double heading, double speed, double time_ms) {
+  batch_along_m = batch_lateral_m = NAN;
   if (!batch_has_route || !valid_point(lat, lon) ||
       !std::isfinite(time_ms) || time_ms < 0.0) return NAN;
   const auto predicted = batch_predictor.advance(
@@ -107,7 +113,19 @@ EMSCRIPTEN_KEEPALIVE double moto_web_replay_batch_sample(
   const double north = (predicted.latitude_deg - lat) * metres_per_degree;
   const double east = (predicted.longitude_deg - lon) * metres_per_degree *
       std::cos(lat * 3.14159265358979323846 / 180.0);
+  if (std::isfinite(heading)) {
+    constexpr double kPi = 3.14159265358979323846;
+    const double rad = heading * kPi / 180.0;
+    batch_along_m = north * std::cos(rad) + east * std::sin(rad);
+    batch_lateral_m = -north * std::sin(rad) + east * std::cos(rad);
+  }
   return std::hypot(north, east);
+}
+EMSCRIPTEN_KEEPALIVE double moto_web_replay_batch_along_m() {
+  return batch_along_m;
+}
+EMSCRIPTEN_KEEPALIVE double moto_web_replay_batch_lateral_m() {
+  return batch_lateral_m;
 }
 
 // A/B comparison of geometry-aware zoom, only for the browser replay.

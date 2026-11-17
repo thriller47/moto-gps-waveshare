@@ -104,7 +104,7 @@ code{background:#0b151a;padding:2px 4px;border-radius:3px}a{color:#90d8ff}
 <canvas id="heading-chart" width="700" height="170" aria-label="Heading del replay e del percorso" class="diagnostic-chart"></canvas>
 <canvas id="offset-chart" width="700" height="145" aria-label="Spostamenti tra GPS e rotta" class="diagnostic-chart"></canvas>
 <p id="diagnostic-summary" class="hint">Carica una traccia per visualizzare i dati.</p>
-<p class="hint">CSV: coordinate a 7 decimali. Il predittore C++ WASM calcola automaticamente lo scarto OFF/ON per tutti gli snapshot con rotta, agli stessi timestamp. Non ricostruisce IMU, latenza BLE o interpolazione RAF. Senza WASM, gli scarti non sono disponibili.</p>
+<p class="hint">CSV: coordinate a 7 decimali, scarto ON/OFF e tre nuove colonne: età dall'ultima finestra geometrica <strong>distinta</strong> registrata, spostamento avanti (+)/indietro (−) e destra (+)/sinistra (−) rispetto all'heading dello snapshot. L'età non misura il ritardo BLE reale: i pacchetti di rotta identici sono deduplicati. Il calcolo usa il predittore C++ isolato, non IMU o interpolazione browser.</p>
 </details>
 <p id="summary" aria-live="polite">—</p>
 <canvas id="profile" width="600" height="100" aria-label="Velocità nel tempo e posizione degli eventi; fai clic per spostarti"></canvas>

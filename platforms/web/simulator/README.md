@@ -140,3 +140,13 @@ Il codice condiviso `shared/nav_presenter/src/moto_nav_presenter.cpp` costruisce
 ## CSV ad alta precisione e confronto predittore automatico (17/11/2026)
 
 L'export include coordinate `snapshot_lat/lon` a **7 decimali**; le misure angolari e metriche rimangono a 2. Su ogni replay caricato il browser invoca `MapOriginPredictor` C++ **in un'istanza separata**, elaborando tutti gli snapshot registrati, con tempi e finestre geometriche originali; il CSV ha OFF=0 e ON=scarto calcolato per tutte le righe con rotta. Celle vuote se rotta mancante o WASM assente. Nessuna necessità di riprodurre tutta la traccia per riempire le colonne. Non sono emulati tempi BLE, fusione IMU o interpolazione in RAF. Necessario **ricompilare WASM** (`source ~/emsdk/emsdk_env.sh && ./scripts/build_web.sh`) dopo il pull e ricaricare Chrome senza cache. Non servono nuove registrazioni GPS.
+
+
+## Telemetria età geometria e componenti vettoriali (17 novembre 2026, branch test)
+
+L'export CSV del banco prova include ora tre ulteriori colonne:
+- `geometry_age_since_distinct_route_ms`: tempo trascorso dal cambio dell'ultima finestra **distinta** di geometria letta dal replay. Il parser unifica eventuali pacchetti ripetuti identici: **non è l'età dell'ultimo pacchetto BLE ricevuto, né il cronometro interno del predittore**. Vale 0 al primo snapshot che vede la nuova geometria; può essere indefinito senza rotta.
+- `predicted_along_heading_m`: proiezione dello scarto ON rispetto alla posizione snapshot nella direzione dell'heading: positivo in avanti, negativo indietro.
+- `predicted_lateral_heading_m`: proiezione sul lato destro della direzione: positivo destra, negativo sinistra.
+
+Le proiezioni utilizzano esattamente la differenza coordinate prodotta dal predictor C++ **di analisi**, nello stesso snapshot del CSV. Non sono coordinate laterali rispetto alla geometria della strada né misure d'errore GNSS. Nella diagnostica sotto i grafici compaiono anche i tre numeri del frame corrente. Per il nuovo codice C++ ricompilare WASM in WSL (`git pull --ff-only origin test/unified-offline-map-20261115`, `source ~/emsdk/emsdk_env.sh`, `./scripts/build_web.sh`), poi ricaricare Chrome senza cache e riesportare il CSV del replay già disponibile.

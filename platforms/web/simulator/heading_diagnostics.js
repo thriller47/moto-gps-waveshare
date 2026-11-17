@@ -61,13 +61,18 @@
     const cols=["t_ms","frame","snapshot_lat","snapshot_lon","heading_snapshot_deg",
       "heading_route_segment_deg","heading_mismatch_deg","heading_rate_deg_s",
       "distance_from_route_window_m","distance_between_fixes_m","speed_mps",
-      "warning_flags","predicted_offset_off_m","predicted_offset_on_m"];
+      "warning_flags","predicted_offset_off_m","predicted_offset_on_m",
+      "geometry_age_since_distinct_route_ms","predicted_along_heading_m",
+      "predicted_lateral_heading_m"];
     return [cols.join(","),...rows.map(r=>{
       const o=observed?.get(r.i)||{};
       return [r.t,r.i+1,coordinate(r.lat),coordinate(r.lon),format(r.gps),
         format(r.routeHeading),format(r.headingMismatch),format(r.headingRate),
         format(r.lateral),format(r.moved),format(r.speed),r.flags.join("|"),
-        valid(o.off)?format(o.off):"",valid(o.on)?format(o.on):""].join(",");
+        valid(o.off)?format(o.off):"",valid(o.on)?format(o.on):"",
+        valid(o.geometryAgeMs)?Math.round(o.geometryAgeMs):"",
+        valid(o.along)?format(o.along):"",
+        valid(o.lateral)?format(o.lateral):""].join(",");
     })].join("\r\n");
   }
   return {analyze,nearestRoute,delta,metres,csv};

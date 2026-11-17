@@ -33,19 +33,32 @@
     predictorObservations = new Map();
     if(!api?.batchReset || !frames.length) return;
     api.batchReset();
-    let previousRoute=null;
+    let previousRoute=null, lastGeometryMs=NaN;
     for(let i=0;i<frames.length;i++) {
       const {route,snapshot:s,t}=frames[i];
       if(route!==previousRoute) {
-        if(route) api.batchRoute(route.origin[0],route.origin[1],
-          route.generation,route.token);
-        else api.batchReset();
+        if(route) {
+          api.batchRoute(route.origin[0],route.origin[1],
+            route.generation,route.token);
+          lastGeometryMs=t;
+        } else {
+          api.batchReset();
+          lastGeometryMs=NaN;
+        }
         previousRoute=route;
       }
       if(!route) continue;
       const on=api.batchSample(Number(s.lat),Number(s.lon),
         Number(s.heading_deg),Number(s.speed_mps),Number(t));
-      predictorObservations.set(i,{off:0,on:Number.isFinite(on)?on:NaN});
+      predictorObservations.set(i,{
+        off:0,on:Number.isFinite(on)?on:NaN,
+        // Time since latest DISTINCT geometry in the parsed trace. The
+        // parser deduplicates identical retransmissions, so this is NOT
+        // physical BLE packet latency or the predictor's internal timer.
+        geometryAgeMs:Number.isFinite(lastGeometryMs)?Math.max(0,t-lastGeometryMs):NaN,
+        along:Number.isFinite(on)?api.batchAlong():NaN,
+        lateral:Number.isFinite(on)?api.batchLateral():NaN
+      });
     }
   }
   // Separate JS-to-WASM update cost from browser animation-frame pacing.
@@ -238,11 +251,17 @@
     draw(ui["offset-chart"],"Distanza dalla finestra verde (verde) / movimento fix (arancio), m",
       [d=>d.lateral,d=>d.moved],0,motionMax,"m");
     const row=diagnostics[index],warnings=diagnostics.filter(d=>d.flags.length).length;
+    const prediction=predictorObservations.get(index)||{};
+    const signed=x=>Number.isFinite(x)?x.toFixed(1):"n/d";
     ui["diagnostic-summary"].textContent=
       "Frame "+(index+1)+" · Δ heading/rotta "+
       (Number.isFinite(row.headingMismatch)?row.headingMismatch.toFixed(1)+"°":"n/d")+
       " · laterale "+(Number.isFinite(row.lateral)?row.lateral.toFixed(1)+" m":"n/d")+
       " · movimento "+(Number.isFinite(row.moved)?row.moved.toFixed(1)+" m":"n/d")+
+      " · ancora "+(Number.isFinite(prediction.geometryAgeMs)?
+        (prediction.geometryAgeMs/1000).toFixed(2)+" s":"n/d")+
+      " · avanti/indietro "+signed(prediction.along)+" m"+
+      " · destra/sinistra "+signed(prediction.lateral)+" m"+
       " · segnalazioni "+warnings+" frame (non necessariamente errori)"+
       (row.flags.length?" · QUI: "+row.flags.join(", "):"");
   }
@@ -473,6 +492,8 @@
            batchRoute:fn("batch_route",["number","number","number","number"]),
            batchSample:mod.cwrap("moto_web_replay_batch_sample","number",
              ["number","number","number","number","number"]),
+           batchAlong:mod.cwrap("moto_web_replay_batch_along_m","number",[]),
+           batchLateral:mod.cwrap("moto_web_replay_batch_lateral_m","number",[]),
           originLat:mod.cwrap("moto_web_replay_origin_lat","number",[]),
           originLon:mod.cwrap("moto_web_replay_origin_lon","number",[]),
           curveZoom:fn("set_curve_zoom_enabled",["number"]),
