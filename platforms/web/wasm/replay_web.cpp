@@ -65,6 +65,7 @@ EMSCRIPTEN_KEEPALIVE void moto_web_replay_reset() {
   replay_geometry_sequence = 0;
   replay_geometry_anchor = {};
   replay_origin_lat = replay_origin_lon = NAN;
+  replay_presenter.set_geometry_aware_zoom_enabled(true);
   moto_nav_ui_set_phone_connection(MOTO_UI_PHONE_ONLINE);
   paint();
 }

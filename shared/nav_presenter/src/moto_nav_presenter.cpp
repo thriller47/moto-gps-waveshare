@@ -57,6 +57,82 @@ double maneuver_zoom_factor(const NavSnapshot& snapshot) {
   return 1.0 + (kMaximumManeuverZoom - 1.0) * fraction;
 }
 
+
+struct LocalBendZoom {
+  double factor = 1.0;
+  bool enough_geometry = false;
+};
+
+// Six fixed 36-m chords across the next 24..104 m. This also works when
+// Valhalla's next maneuver refers to a DIFFERENT junction hundreds of metres
+// ahead. Small per-vertex zigzags do not trigger zoom.
+LocalBendZoom local_bend_zoom(const NavSnapshot& s) {
+  if (!s.has_route_view || s.route_view_point_count < 4 ||
+      s.route_view_point_count > kRouteViewPointCapacity ||
+      !std::isfinite(s.route_view_origin.latitude_deg) ||
+      !std::isfinite(s.route_view_origin.longitude_deg) ||
+      std::abs(s.route_view_origin.latitude_deg) > 85.0)
+    return {};
+  struct XY { double x, y; };
+  std::array<XY, kRouteViewPointCapacity> xy{};
+  std::array<double, kRouteViewPointCapacity> along{};
+  const double lat=s.route_view_origin.latitude_deg;
+  const double lon=s.route_view_origin.longitude_deg;
+  const double lon_scale=111195.0*std::cos(radians(lat));
+  const std::size_t count=s.route_view_point_count;
+  for(std::size_t i=0;i<count;++i){
+    const auto& p=s.route_view_points[i];
+    if(!std::isfinite(p.latitude_deg)||!std::isfinite(p.longitude_deg))
+      return {};
+    xy[i]={(p.longitude_deg-lon)*lon_scale,(p.latitude_deg-lat)*111195.0};
+    if(i)along[i]=along[i-1]+std::hypot(xy[i].x-xy[i-1].x,
+                                        xy[i].y-xy[i-1].y);
+  }
+  if(along[count-1]<150.0)return {};
+  LocalBendZoom result{1.0,true};
+  double nearest=1e30, rider_s=0.0;
+  // Only match the first 60 m of the GPS-forward BLE window; the opposite
+  // leg of a small roundabout can be nearer but is not yet the rider's leg.
+  for(std::size_t i=0;i+1<count&&along[i]<=60.0;++i){
+    const double dx=xy[i+1].x-xy[i].x,dy=xy[i+1].y-xy[i].y;
+    const double len2=dx*dx+dy*dy;
+    if(len2<0.01)continue;
+    const double len=std::sqrt(len2);
+    const double cap=std::clamp((60.0-along[i])/len,0.0,1.0);
+    const double t=std::clamp(-(xy[i].x*dx+xy[i].y*dy)/len2,0.0,cap);
+    const double gap=std::hypot(xy[i].x+t*dx,xy[i].y+t*dy);
+    if(gap<nearest){nearest=gap;rider_s=along[i]+t*len;}
+  }
+  if(nearest>35.0)return result; // Off-route: do not zoom on stale metadata.
+  const auto point_at=[&](double s_m)->XY{
+    const double d=std::clamp(s_m,0.0,along[count-1]);
+    for(std::size_t i=0;i+1<count;++i){
+      if(d<=along[i+1]||i+2==count){
+        const double len=along[i+1]-along[i];
+        const double t=len<0.001?0.0:(d-along[i])/len;
+        return {xy[i].x+t*(xy[i+1].x-xy[i].x),
+                xy[i].y+t*(xy[i+1].y-xy[i].y)};
+      }
+    }
+    return xy[count-1];
+  };
+  for(int ahead=24;ahead<=104;ahead+=16){
+    const double center=rider_s+ahead;
+    if(center+18.0>along[count-1])continue;
+    const XY a=point_at(center-18.0),b=point_at(center),
+             c=point_at(center+18.0);
+    const double ax=b.x-a.x,ay=b.y-a.y,bx=c.x-b.x,by=c.y-b.y;
+    if(std::hypot(ax,ay)<10.0||std::hypot(bx,by)<10.0)continue;
+    const double angle=std::abs(std::atan2(
+        ax*by-ay*bx,ax*bx+ay*by))*180.0/kPi;
+    if(angle<30.0)continue;
+    const double severity=std::clamp((angle-30.0)/45.0,0.0,1.0);
+    const double proximity=std::clamp((125.0-ahead)/100.0,0.0,1.0);
+    result.factor=std::max(result.factor,1.0+3.0*severity*proximity);
+  }
+  return result;
+}
+
 // A curved 466 px street label must contain an actual road name. Valhalla
 // instructions are kept in the navigation snapshot, but must not be rendered
 // as a tiny, unreadable sentence around the bezel. Do not truncate UTF-8.
@@ -511,13 +587,23 @@ void NavPresenter::update(const NavSnapshot& snapshot) {
     curve_zoom = std::max(curve_zoom, retained);
     if (release >= 1.0) curve_zoom_held_ = 1.0;
   }
+  const LocalBendZoom local_zoom = geometry_aware_zoom_enabled_ &&
+      snapshot.state == NavState::Navigating ? local_bend_zoom(snapshot) :
+                                              LocalBendZoom{};
+  // A roundabout announced within 100 m must agree with the forward green
+  // geometry if the window is long enough to decide. Sparse two-point routes
+  // retain the established maneuver zoom rather than guessing.
+  const bool allow_maneuver_zoom = maneuver_zoom_available(snapshot) &&
+      (snapshot.next_maneuver.type != ManeuverType::Roundabout ||
+       !local_zoom.enough_geometry || local_zoom.factor > 1.10);
   // A roundabout may remain the current maneuver at distance 0 while the
   // incoming BLE snapshot has has_next_maneuver=false. The previous behavior
   // instantly collapsed 4x to 1x at the entry/apex (11 Nov replay: 12:08:01
   // and 12:15:04), hiding the small physical circuit beneath the rider marker.
   // Retain zoom *through* the roundabout, releasing by distance rather than
   // by elapsed frames/time. All geometry uses this same transform.
-  const double maneuver_zoom = maneuver_zoom_factor(snapshot);
+  const double maneuver_zoom = allow_maneuver_zoom ?
+      maneuver_zoom_factor(snapshot) : 1.0;
   double roundabout_retained = 1.0;
   auto reset_roundabout_hold = [this]() {
     roundabout_zoom_held_ = 1.0;
@@ -555,7 +641,7 @@ void NavPresenter::update(const NavSnapshot& snapshot) {
     roundabout_prev_lon_ = snapshot.route_view_origin.longitude_deg;
     roundabout_prev_fix_ = true;
     const bool at_roundabout =
-        maneuver_zoom_available(snapshot) &&
+        allow_maneuver_zoom &&
         snapshot.next_maneuver.type == ManeuverType::Roundabout &&
         snapshot.distance_to_next_maneuver_m <= 30.0;
     if (at_roundabout) {
@@ -577,9 +663,10 @@ void NavPresenter::update(const NavSnapshot& snapshot) {
     if (release >= 1.0) roundabout_zoom_held_ = 1.0;
   }
   applied_zoom_factor_ = std::max({maneuver_zoom, curve_zoom,
-                                   roundabout_retained});
+                                   local_zoom.factor, roundabout_retained});
   ui_state_.maneuver_map_zoom_active =
-      maneuver_zoom_available(snapshot) || roundabout_retained > 1.01 ? 1U : 0U;
+      allow_maneuver_zoom || curve_zoom > 1.01 ||
+      local_zoom.factor > 1.01 || roundabout_retained > 1.01 ? 1U : 0U;
   const MapTransform transform = map_transform(snapshot, applied_zoom_factor_);
   project_route_view(snapshot, transform, ui_state_);
   project_road_context(snapshot, transform, ui_state_);

@@ -12,11 +12,38 @@ internal class RerouteStabilityPolicy {
     private var acceptedAtMs = -1L
     private var acceptedLat = Double.NaN
     private var acceptedLon = Double.NaN
+    private var previousCourseDeg: Float? = null
+    private var previousCourseMs = -1L
+    private var turnGuardUntilMs = -1L
+
+    /** Only accepted moving GNSS courses, not stale BLE/compass headings. */
+    fun observeCourse(nowMs: Long, courseDeg: Float?, speedMps: Float) {
+        if (courseDeg == null || !courseDeg.isFinite() ||
+            courseDeg < 0f || courseDeg >= 360f ||
+            !speedMps.isFinite() || speedMps < 3f) return
+        val previous = previousCourseDeg
+        if (previous != null && previousCourseMs >= 0L &&
+            nowMs >= previousCourseMs && nowMs - previousCourseMs <= 2_500L) {
+            val delta = kotlin.math.abs(
+                ((courseDeg - previous + 540f) % 360f) - 180f)
+            if (delta >= 14f) turnGuardUntilMs = nowMs + 6_000L
+        }
+        previousCourseDeg = courseDeg
+        previousCourseMs = nowMs
+    }
+
+    // A true >=100 m departure always remains eligible for fast rerouting.
+    fun shouldDeferWhileTurning(nowMs: Long, distanceFromRouteM: Double) =
+        nowMs >= 0L && turnGuardUntilMs >= nowMs &&
+            distanceFromRouteM < 100.0
 
     fun reset() {
         acceptedAtMs = -1L
         acceptedLat = Double.NaN
         acceptedLon = Double.NaN
+        previousCourseDeg = null
+        previousCourseMs = -1L
+        turnGuardUntilMs = -1L
     }
 
     fun accepted(nowMs: Long, lat: Double, lon: Double) {
@@ -33,6 +60,8 @@ internal class RerouteStabilityPolicy {
         // A major, real departure always remains eligible for fast rerouting.
         if (distanceFromRouteM >= 100.0) return false
         val age = nowMs - acceptedAtMs
+        // 17:37:01 -> 17:37:19 were two false, near-junction reroutes.
+        if (!reverseOnly && age < 25_000L) return true
         if (age < 12_000L) return true
         if (!reverseOnly || age >= 45_000L) return false
         if (age < 20_000L) return true

@@ -238,6 +238,8 @@ extern "C" void app_main(void) {
            static_cast<unsigned long>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)));
 
   MOTO_PSRAM_BSS static moto::nav::NavPresenter presenter;
+  // Experimental branch: corroborate junction zoom with nearby geometry.
+  presenter.set_geometry_aware_zoom_enabled(true);
 #ifdef MOTO_ESP_CURVE_ZOOM_EXPERIMENT
   // Test-only firmware: use the identical detector and 55 m / 80 m
   // hysteresis already exercised by browser replay/native tests.

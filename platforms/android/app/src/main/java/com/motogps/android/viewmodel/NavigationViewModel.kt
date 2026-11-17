@@ -1133,6 +1133,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                 lastReliableGpsBearingMs = SystemClock.elapsedRealtime()
             }
         }
+        rerouteStability.observeCourse(
+            SystemClock.elapsedRealtime(), travelCourse, speedMs)
         // Log the course AFTER arbitration, not the previously selected
         // compass heading from before this GPS callback.
         if (now - lastDiagnosticFixMs >= 1000L) {
@@ -1753,7 +1755,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         // as following the route. Require repeated fixes before rerouting,
         // to reject brief compass/GNSS errors on sharp bends.
         val farFromRoute = distanceFromRoute > 45.0
-        if ((!farFromRoute && !reverseCourse) || lastGpsSpeedMs < 1.5f) {
+        if ((!farFromRoute && !reverseCourse) || lastGpsSpeedMs < 1.5f ||
+            rerouteStability.shouldDeferWhileTurning(now, distanceFromRoute)) {
             offRouteFixCount = 0
             offRouteFirstFixMs = 0L
             return

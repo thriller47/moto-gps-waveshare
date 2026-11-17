@@ -16,7 +16,9 @@ class RerouteStabilityPolicyTest {
         val p = RerouteStabilityPolicy()
         p.accepted(1_000L, 45.0, 9.0)
         assertTrue(p.shouldDefer(10_000L, 45.0, 9.0, 60.0, false))
-        assertFalse(p.shouldDefer(13_100L, 45.0, 9.0, 60.0, false))
+        assertTrue(p.shouldDefer(13_100L, 45.0, 9.0, 60.0, false))
+        assertTrue(p.shouldDefer(19_000L, 45.0, 9.0, 62.0, false))
+        assertFalse(p.shouldDefer(26_100L, 45.0, 9.0, 60.0, false))
     }
 
     @Test fun reverseHoldRequiresTimeAndMovementAndAlwaysExpires() {
@@ -27,6 +29,20 @@ class RerouteStabilityPolicyTest {
         assertTrue(p.shouldDefer(25_000L, 45.0, 9.0, 1.0, true))
         assertFalse(p.shouldDefer(25_000L, moved60m, 9.0, 1.0, true))
         assertFalse(p.shouldDefer(47_000L, 45.0, 9.0, 1.0, true))
+    }
+
+    @Test fun movingTurnDefersBriefMapMismatchButNotLargeDeparture() {
+        val p = RerouteStabilityPolicy()
+        p.observeCourse(1_000L, 20f, 8f)
+        assertFalse(p.shouldDeferWhileTurning(1_500L, 81.0))
+        p.observeCourse(2_000L, 48f, 8f)
+        assertTrue(p.shouldDeferWhileTurning(7_500L, 81.0))
+        assertFalse(p.shouldDeferWhileTurning(7_500L, 105.0))
+        assertFalse(p.shouldDeferWhileTurning(8_001L, 81.0))
+        p.observeCourse(12_000L, 200f, 8f) // too old to infer a turn
+        assertFalse(p.shouldDeferWhileTurning(12_100L, 81.0))
+        p.reset()
+        assertFalse(p.shouldDeferWhileTurning(12_100L, 81.0))
     }
 
     @Test fun resetOrClockRollbackNeverBlocksNavigation() {

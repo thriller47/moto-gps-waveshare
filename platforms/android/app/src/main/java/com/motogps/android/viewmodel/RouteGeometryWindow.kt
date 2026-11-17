@@ -56,8 +56,10 @@ internal object RouteGeometryWindow {
         // Never override a clearly nearer GPS match or an off-route fix:
         // genuine departures still trigger an immediate Valhalla reroute.
         val hint = progressHintMeters?.takeIf { it.isFinite() && it >= 0.0 }
-        if (hint != null && bestSquaredDistance <= 400.0) {
-            val nearEnough = minOf(20.0, kotlin.math.sqrt(bestSquaredDistance) + 8.0)
+        // Nearby parallel legs remain ambiguous even when the GNSS drifts
+        // 20..35 m sideways; preserve the established route-progress leg.
+        if (hint != null && bestSquaredDistance <= 1_225.0) {
+            val nearEnough = minOf(35.0, kotlin.math.sqrt(bestSquaredDistance) + 8.0)
             var travelledMeters = 0.0
             var nearestProgressDifference = Double.POSITIVE_INFINITY
             for (i in 0 until full.lastIndex) {
