@@ -52,10 +52,12 @@ class MotionHeadingFusion {
       large_error_count_ = 0;
       return;
     }
+    // The 07:49:53 replay shows ~40deg bearing error near 8m/s.
+    // Without true bearing accuracy, speed alone cannot imply sigma=8deg.
     const float sigma = std::isfinite(course_accuracy_deg) &&
                             course_accuracy_deg > 0.0F
         ? course_accuracy_deg
-        : std::clamp(45.0F - (speed_mps - 1.5F) * 5.5F, 8.0F, 45.0F);
+        : std::clamp(45.0F - (speed_mps - 1.5F) * 5.5F, 20.0F, 45.0F);
     if (sigma > 60.0F) {
       large_error_count_ = 0;
       return;  // let the gyro continue without an unusable course

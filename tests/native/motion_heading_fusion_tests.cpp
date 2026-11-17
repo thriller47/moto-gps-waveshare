@@ -47,8 +47,8 @@ void test_moving_phone_course_corrects_gyro_drift_progressively() {
   fusion.anchor(110.0F, 10.0F, true);
   CHECK(std::abs(fusion.heading_deg() - 10.0F) < 0.01F);
   fusion.anchor(111.0F, 10.0F, true);
-  CHECK(fusion.heading_deg() > 65.0F);
-  CHECK(fusion.heading_deg() < 85.0F);
+  CHECK(fusion.heading_deg() > 30.0F);
+  CHECK(fusion.heading_deg() < 32.0F);
 }
 
 void test_active_turn_does_not_snap_toward_delayed_phone_course() {

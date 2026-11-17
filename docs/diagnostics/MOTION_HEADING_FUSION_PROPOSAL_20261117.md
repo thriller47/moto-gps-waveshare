@@ -25,3 +25,5 @@
 ## Convalida
 
 Le build CI test e la verifica sulla scheda reale restano distinte. Non abilitare una patch nel branch stabile prima di test su strada, ritardi in curve lente e rotonde.
+
+**Revisione del fallback:** senza accuratezza BLE, la sigma minima stimata dalla velocità è 20° (non 8°). Il replay delle 07:49:53 mostra un bearing errato di ~40° a ~8m/s; far crescere troppo la fiducia senza accuracy reale potrebbe peggiorare lo scatto della mappa. Il guadagno massimo del fallback è quindi 100/(100+400)=0,20; con accuracy realmente disponibile la formula usa invece quella misura.
