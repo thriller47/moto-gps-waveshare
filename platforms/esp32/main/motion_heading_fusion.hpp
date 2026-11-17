@@ -21,53 +21,75 @@ class MotionHeadingFusion {
     heading_deg_ = 0.0F;
     filtered_rate_dps_ = 0.0F;
     last_sample_ms_ = 0;
+    large_error_count_ = 0;
+    pending_large_course_deg_ = 0.0F;
+    // Preserve learned gyro bias across a BLE reconnect.
   }
 
-  void anchor(float phone_heading_deg, float speed_mps,
-              bool usable_fix) noexcept {
-    if (!usable_fix || !std::isfinite(phone_heading_deg)) {
-      return;
-    }
-    // Hysteresis on the phone-reported speed decides whether the bike is
-    // parked.  While parked, gyro integration is frozen: the QMI8658 zero
-    // offset (a few dps before calibration, worsened by engine vibration)
-    // otherwise leaks through the deadband and spins the heading in circles.
+  // course_accuracy_deg is optional until the BLE payload negotiates an
+  // angular-accuracy extension. Without it, confidence depends on speed.
+  void anchor(float phone_heading_deg, float speed_mps, bool usable_fix,
+              float course_accuracy_deg = NAN) noexcept {
+    if (!usable_fix || !std::isfinite(phone_heading_deg)) return;
+
+    // Starting to move releases the gyro before GNSS course is trustworthy.
     if (std::isfinite(speed_mps)) {
-      if (speed_mps >= kCourseAnchorSpeedMps) {
-        stationary_ = false;
-      } else if (speed_mps < kStationarySpeedMps) {
-        stationary_ = true;
-      }
+      if (speed_mps >= kStationaryReleaseSpeedMps) stationary_ = false;
+      else if (speed_mps < kStationarySpeedMps) stationary_ = true;
     }
     const float phone = normalize(phone_heading_deg);
+    // Match Android's >=3m/s fresh-course policy; below that the phone may
+    // transmit a previously held bearing, not a new measured course.
     const bool moving_course =
         std::isfinite(speed_mps) && speed_mps >= kCourseAnchorSpeedMps;
-    // Gyro integration may start seconds before BLE supplies the first fix.
-    // Its local zero must never be mistaken for an absolute phone reference.
-    // Likewise, the first course after pulling away replaces a stationary
-    // placeholder immediately, so an east/west route is not drawn behind us.
-    if (!has_phone_reference_ || (moving_course && !has_moving_course_)) {
+    if (!has_phone_reference_ && !moving_course) {
+      heading_deg_ = phone;  // stationary reference, not moving-course trust
+      initialized_ = true;
+      has_phone_reference_ = true;
+      return;
+    }
+    if (!moving_course) {
+      large_error_count_ = 0;
+      return;
+    }
+    const float sigma = std::isfinite(course_accuracy_deg) &&
+                            course_accuracy_deg > 0.0F
+        ? course_accuracy_deg
+        : std::clamp(45.0F - (speed_mps - 1.5F) * 5.5F, 8.0F, 45.0F);
+    if (sigma > 60.0F) {
+      large_error_count_ = 0;
+      return;  // let the gyro continue without an unusable course
+    }
+    if (!has_phone_reference_ || !has_moving_course_) {
+      if (sigma > 30.0F) return;  // no first snap from noisy startup
       heading_deg_ = phone;
       initialized_ = true;
       has_phone_reference_ = true;
-      has_moving_course_ = moving_course;
+      has_moving_course_ = true;
+      large_error_count_ = 0;
       return;
     }
-
-    // A course is trustworthy only once the receiver is actually moving.
-    // Correct drift progressively to avoid a visible snap during a bend.
-    if (moving_course) {
-      const float error = shortest_delta(phone, heading_deg_);
-      // Align faster during initial pull-away without snapping every
-      // subsequent slightly noisy GNSS course.
-      // GNSS course is delayed relative to the gyro, especially in a turn.
-      // Never pull the display back toward a stale course during a fast yaw.
-      // A moderate gain avoids a single course jump rotating the entire map.
-      if (std::abs(filtered_rate_dps_) <= 5.0F) {
-        constexpr float kCorrection = 0.22F;
-        heading_deg_ = normalize(heading_deg_ + error * kCorrection);
+    // The phone course lags rapid gyro turns. Do not correct during yaw.
+    if (std::abs(filtered_rate_dps_) > 5.0F) return;
+    const float error = shortest_delta(phone, heading_deg_);
+    // A single large jump must never rotate the map. Require two mutually
+    // consistent phone courses (no fast 0.82 branch exists in current code).
+    if (std::abs(error) > 80.0F && sigma > 12.0F) {
+      if (large_error_count_ == 0 ||
+          std::abs(shortest_delta(phone, pending_large_course_deg_)) > 25.0F) {
+        large_error_count_ = 1;
+        pending_large_course_deg_ = phone;
+        return;
       }
+      large_error_count_ = 2;
+    } else {
+      large_error_count_ = 0;
     }
+    // Scalar complementary/Kalman-like observation weight; not a full
+    // covariance-propagating Kalman filter.
+    const float gain = kGyroSigmaDeg * kGyroSigmaDeg /
+                       (kGyroSigmaDeg * kGyroSigmaDeg + sigma * sigma);
+    heading_deg_ = normalize(heading_deg_ + error * gain);
   }
 
   // yaw_rate_dps is positive for increasing compass heading (clockwise).
@@ -77,8 +99,15 @@ class MotionHeadingFusion {
       return false;
     }
     if (stationary_) {
-      // Parked: hold the heading exactly. Keep last_sample_ms_ untouched so
-      // the first sample after pulling away only sees a normal-rate gap.
+      // Learn zero-rate gyro bias only from small stationary readings. Keep
+      // the timestamp fresh so resuming does not rely on a huge-gap guard.
+      if (sample_ms > last_sample_ms_) {
+        last_sample_ms_ = sample_ms;
+        if (std::abs(yaw_rate_dps) < 3.0F) {
+          bias_dps_ += (yaw_rate_dps - bias_dps_) * 0.002F;
+        }
+      }
+      filtered_rate_dps_ = 0.0F;
       return false;
     }
     if (!initialized_) {
@@ -102,7 +131,8 @@ class MotionHeadingFusion {
       return false;
     }
 
-    const float bounded = std::clamp(yaw_rate_dps, -500.0F, 500.0F);
+    const float bounded =
+        std::clamp(yaw_rate_dps - bias_dps_, -500.0F, 500.0F);
     // About 30 ms of smoothing at the 125 Hz sensor rate: vibration is
     // suppressed without the sluggish response of phone-only course updates.
     filtered_rate_dps_ += (bounded - filtered_rate_dps_) * 0.24F;
@@ -121,9 +151,11 @@ class MotionHeadingFusion {
   [[nodiscard]] float heading_deg() const noexcept { return heading_deg_; }
 
  private:
-  static constexpr float kCourseAnchorSpeedMps = 1.5F;
+  static constexpr float kCourseAnchorSpeedMps = 3.0F;
   static constexpr float kStationarySpeedMps = 0.6F;
-  static constexpr float kDeadbandDps = 0.65F;
+  static constexpr float kStationaryReleaseSpeedMps = 1.0F;
+  static constexpr float kDeadbandDps = 0.3F;
+  static constexpr float kGyroSigmaDeg = 10.0F;
   static constexpr std::uint64_t kMaximumIntegrationGapMs = 160;
 
   static float normalize(float value) noexcept {
@@ -146,4 +178,7 @@ class MotionHeadingFusion {
   float heading_deg_ = 0.0F;
   float filtered_rate_dps_ = 0.0F;
   std::uint64_t last_sample_ms_ = 0;
+  float bias_dps_ = 0.0F;
+  float pending_large_course_deg_ = 0.0F;
+  std::uint8_t large_error_count_ = 0;
 };

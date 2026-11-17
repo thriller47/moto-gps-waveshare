@@ -1123,7 +1123,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         else null
         val travelCourse = NavigationHeadingPolicy.movingHeading(
             speedMs, gpsBearingDeg, displacementM, displacementCourse,
-            bearingAccuracyDeg)
+            bearingAccuracyDeg, lastFixAccuracyM)
         if (travelCourse != null) {
             currentHeadingCentiDeg = (travelCourse * 100f).toInt().coerceIn(0, 35999)
             // When the GNSS provider has no bearing, two real fixes still

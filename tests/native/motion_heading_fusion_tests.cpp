@@ -43,9 +43,12 @@ void test_stationary_phone_course_does_not_drag_handlebar_heading() {
 void test_moving_phone_course_corrects_gyro_drift_progressively() {
   MotionHeadingFusion fusion;
   fusion.anchor(10.0F, 8.0F, true);
+  // Large GNSS error is rejected once, then accepted when consistent.
   fusion.anchor(110.0F, 10.0F, true);
-  CHECK(fusion.heading_deg() > 30.0F);
-  CHECK(fusion.heading_deg() < 34.0F);
+  CHECK(std::abs(fusion.heading_deg() - 10.0F) < 0.01F);
+  fusion.anchor(111.0F, 10.0F, true);
+  CHECK(fusion.heading_deg() > 65.0F);
+  CHECK(fusion.heading_deg() < 85.0F);
 }
 
 void test_active_turn_does_not_snap_toward_delayed_phone_course() {
@@ -144,12 +147,12 @@ void test_stationary_freeze_holds_heading_until_riding_resumes() {
   fusion.anchor(30.0F, 0.4F, true);
   feed_rate(fusion, 90.0F, 8, 2'008);
   CHECK(std::abs(fusion.heading_deg() - 30.0F) < 0.01F);
-  // Between 0.6 and 1.5 m/s the freeze stays engaged (hysteresis band).
-  fusion.anchor(30.0F, 1.0F, true);
+  // 0.6..1.0m/s holds the prior stationary state.
+  fusion.anchor(30.0F, 0.8F, true);
   feed_rate(fusion, 90.0F, 2'016, 4'016);
   CHECK(std::abs(fusion.heading_deg() - 30.0F) < 0.01F);
-  // Pulling away releases the freeze and integration works again.
-  fusion.anchor(30.0F, 6.0F, true);
+  // IMU resumes from 1m/s, but stale phone course remains ignored below 3.
+  fusion.anchor(220.0F, 1.0F, true);
   feed_rate(fusion, 90.0F, 4'024, 4'424);
   CHECK(fusion.heading_deg() > 45.0F);
   CHECK(fusion.heading_deg() < 80.0F);
@@ -157,6 +160,46 @@ void test_stationary_freeze_holds_heading_until_riding_resumes() {
   fusion.reset();
   feed_rate(fusion, 90.0F, 8, 248);
   CHECK(fusion.heading_deg() > 5.0F);
+}
+
+
+void test_quality_weight_and_outlier_confirmation() {
+  MotionHeadingFusion fusion;
+  fusion.anchor(90.0F, 10.0F, true, 8.0F);
+  fusion.anchor(120.0F, 10.0F, true, 60.0F);
+  const float uncertain = fusion.heading_deg();
+  CHECK(uncertain > 90.0F && uncertain < 92.0F);
+  fusion.anchor(120.0F, 10.0F, true, 8.0F);
+  CHECK(fusion.heading_deg() > uncertain + 12.0F);
+  const float good = fusion.heading_deg();
+  fusion.anchor(260.0F, 6.0F, true, 40.0F);
+  CHECK(std::abs(fusion.heading_deg() - good) < 0.01F);
+  fusion.anchor(259.0F, 6.0F, true, 40.0F);
+  CHECK(std::abs(fusion.heading_deg() - good) > 1.0F);
+}
+void test_low_confidence_initial_course_and_held_phone_heading() {
+  MotionHeadingFusion fusion;
+  fusion.anchor(15.0F, 0.0F, true);
+  fusion.anchor(185.0F, 2.0F, true);
+  CHECK(std::abs(fusion.heading_deg() - 15.0F) < 0.01F);
+  fusion.anchor(185.0F, 3.0F, true);
+  CHECK(std::abs(fusion.heading_deg() - 15.0F) < 0.01F);
+  fusion.anchor(185.0F, 8.0F, true);
+  CHECK(std::abs(fusion.heading_deg() - 185.0F) < 0.01F);
+}
+void test_bias_learning_while_parked_and_persistence_after_reset() {
+  MotionHeadingFusion fusion;
+  fusion.anchor(90.0F, 0.0F, true);
+  feed_rate(fusion, 1.0F, 8, 12'008);  // 12s at 125Hz
+  CHECK(std::abs(fusion.heading_deg() - 90.0F) < 0.01F);
+  fusion.anchor(90.0F, 2.0F, true); // release IMU, not course
+  feed_rate(fusion, 1.0F, 12'016, 14'016);
+  const float after_riding = fusion.heading_deg();
+  CHECK(std::abs(after_riding - 90.0F) < 0.7F);
+  fusion.reset(); // bias is retained across reconnection
+  fusion.anchor(90.0F, 2.0F, true);
+  feed_rate(fusion, 1.0F, 14'024, 16'024);
+  CHECK(std::abs(fusion.heading_deg() - 90.0F) < 0.7F);
 }
 
 }  // namespace
@@ -173,6 +216,9 @@ int main() {
   test_large_sensor_gap_is_not_integrated();
   test_stale_timestamp_does_not_rewind_integration_clock();
   test_stationary_freeze_holds_heading_until_riding_resumes();
+  test_quality_weight_and_outlier_confirmation();
+  test_low_confidence_initial_course_and_held_phone_heading();
+  test_bias_learning_while_parked_and_persistence_after_reset();
 
   if (failures != 0) {
     std::cerr << failures << " motion heading checks failed\n";

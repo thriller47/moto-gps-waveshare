@@ -47,3 +47,15 @@ class NavigationHeadingPolicyTest {
         assertNull(NavigationHeadingPolicy.movingHeading(1.0f, 90f, 30.0, 90f))
     }
 }
+
+// A single displacement close to horizontal GNSS noise is not heading.
+class HeadingDisplacementQualityTest {
+    @Test fun fallbackRequiresHorizontalAccuracyAtMostThirdOfTravel() {
+        assertNull(NavigationHeadingPolicy.movingHeading(
+            8f, null, 12.0, 90f, null, 5f))
+        assertEquals(90f, NavigationHeadingPolicy.movingHeading(
+            8f, null, 18.0, 90f, null, 4f)!!, 0.001f)
+        assertEquals(45f, NavigationHeadingPolicy.movingHeading(
+            8f, 45f, 12.0, 90f, null, 7f)!!, 0.001f)
+    }
+}

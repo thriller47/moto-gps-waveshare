@@ -2,7 +2,7 @@
 
 ## STATO ATTUALE — RIPARTIRE DA QUI
 
-**Aggiornato:** 17 novembre 2026 (prototipo web Course multifix con distanza minima, incluse basse velocità). **Integrazione stabile:** `valhalla` (non modificata in questa sessione). **Branch sperimentale attivo:** `test/unified-offline-map-20261115`; non eseguire merge senza approvazione dell'utente. Al controllo GitHub del 16/11: branch test 51 commit avanti e 3 indietro rispetto a `valhalla` (rivalutare divergenza prima del merge).
+**Aggiornato:** 17 novembre 2026 (fusione gyro/GNSS sperimentale con bias e guadagno per qualità; senza modifica BLE). **Integrazione stabile:** `valhalla` (non modificata in questa sessione). **Branch sperimentale attivo:** `test/unified-offline-map-20261115`; non eseguire merge senza approvazione dell'utente. Al controllo GitHub del 16/11: branch test 51 commit avanti e 3 indietro rispetto a `valhalla` (rivalutare divergenza prima del merge).
 
 **Ultimo sviluppo effettivamente implementato (prima di questa patch):** «Salta prossima tappa» su Android, con dialogo di conferma, ricalcolo Valhalla dalla posizione GPS attuale verso le sole tappe pendenti, esclusione della tappa solo a routing riuscito e aggiornamento checkpoint per gli anelli; supportato anche per percorsi ordinari con tappe, mai per l'arrivo finale. Commit codice `90a1be168c022561514e9303dfddfcc77e53c205`. ESP32 e protocollo BLE **non** modificati per questa funzione. Il branch test contiene inoltre MotoMap v4 + Valhalla Italia V5 + Photon v2 unificati, anelli, tour salvati, pausa/ripresa e rimozione completa della demo Jinan. Unico supporto 3D `hardware/MotoNavFusion_v015.zip` preservato.
 
@@ -27,7 +27,7 @@
 
 **Limiti e regole:** non modificare navigazione o mapping senza log del difetto; checkpoint tour locale Android, nessuna sincronizzazione cloud; prossima tappa rilevata con soglia GPS ~60 m. Distinguere test utente da CI. Un solo build Actions a fine set di modifiche. Non toccare supporto 3D.
 
-**Prossima azione unica:** confrontare sul replay 07:49:53–07:50:03 le modalità Originale, Bloccato e Course multifix, poi controllare la latenza su rotonde lente prima di valutare una modifica Android/ESP32.
+**Prossima azione unica:** verificare CI native/Android/ESP32 della fusione sperimentale, poi test a banco IMU/gyro e successivamente progettare il trasporto BLE negoziato di bearingAccuracyDegrees prima del flash in coppia.
 
 **Correzione sperimentale 17/11 (da verificare):** ridotta la re-ancoratura ripetuta dello stesso bearing BLE, congelata la correzione GNSS durante yaw IMU >5°/s e ridotto il guadagno a 0,22; Android scarta course sotto 3 m/s, course con precisione dichiarata >25° e fallback dislocamento <12 m; predittore integra tutto il tempo del tick (fino a 1 s), smussa compensazione 25–45 m e congela l'extrapolazione rettilinea quando diverge dal heading dell'ultima geometria >15° o frena oltre il 25%. Aggiunti test nativi e Android. **Build CI da verificare**. È stato aggiunto al simulatore LVGL un confronto A/B del predittore C++ isolato, disattivato per default. Per provare la nuova opzione va ricompilato WASM. Il simulatore non esegue PhoneNavBridge, BLE o fusione IMU: ON testa solo l'origine predetta con le finestre presenti nel replay, non l'intera pipeline ESP32. Non confondere prova nel simulatore con test su strada.
 
@@ -331,3 +331,13 @@ L'utente riporta freccia/linea verde divergenti di >=30° in ogni modalità del 
 ### 17 novembre 2026 — test GPS multifix a distanza minima
 
 Feedback utente: problemi più evidenti alle basse velocità. I fix sono più ravvicinati nello spazio, non necessariamente nel tempo; rapporto tra jitter metrico e distanza fra punti aumenta. Aggiunto solo al simulatore un metodo separato Course multifix: regressione temporale su almeno 4 fix distinti in max 6 s, avanzamento stimato >=16 m, netto >=14 m e errore laterale RMS <=4,5 m; salti angolari in assenza di dati attendibili vengono congelati, curve sbloccate su spostamenti consecutivi confermati. Il riferimento Valhalla non è usato nel filtro. Verifiche locali sintetiche su spike 35°, lentezza, posizione ferma, svolta vera; nessun mutamento Android/ESP32/BLE/Valhalla. Resta sperimentale; necessario test visivo sul replay e soprattutto rotonda lenta; non proporre per hardware senza evidenza. README simulatore aggiornato; manuale operativo invariato perche procedura di build non cambia.
+
+
+
+### 17 novembre 2026 — audit proposta qualità GNSS e bias QMI8658
+
+Confrontato il suggerimento con il CODICE del branch test: oggi il gain fisso è **0,22**, non 0,48; il ramo 0,82 per >80° era già stato rimosso; Android già riceve `Location.bearingAccuracyDegrees`, impone `<=25°` se disponibile, speed>=3m/s e fallback displacement>=12m. **Non applicare patch obsolete**. Bug rilevante: `MotionHeadingFusion` usa il course da >=1,5m/s, mentre Android sotto 3m/s conserva un heading vecchio: allineata soglia di ancoraggio ESP a 3m/s, sblocco sola IMU a 1m/s, stationary <0,6m/s.
+
+**Implementazione sperimentale:** `MotionHeadingFusion::anchor` accetta accuracy opzionale ma il BLE attuale NON la trasmette, quindi usa fallback sigma velocità come proposta, guadagno scalare 100/(100+sigma²), inizializzazione al primo course di movimento solo se sigma<=30°, due candidati coerenti per scarti >80° (senza riportare gain 0,82), correzione sospesa durante yaw >5°/s. `integrate()` usa il parcheggio per stimare bias Z con alpha 0,002 ai campioni sotto 3°/s, aggiorna sempre timestamp, non cancella bias con `reset()`, riduce deadband a 0,3°/s. Android conferma accuracy orizzontale <= un terzo della distanza per fallback di 12m; GNSS bearing prioritario se accurato mantiene policy attuale. Aggiunti casi test native/Android su qualita, outlier, bias, ripartenza e fallback.
+
+**Importante:** il trasporto opzionale della precisione angolare sul BLE va negoziato e versionato: il payload snapshot v1 attuale impone `require_end()`; appending un campo dal nuovo APK verrebbe rifiutato dal vecchio ESP. Non aggiungere ciecamente un campo né toccare il protocollo senza strategia di compatibilità e aggiornamento coordinato, specialmente dopo precedenti errori BLE. Stale heading dopo 10s e proiezione IMU in piega/sterzo sono aperti; non mettere tangente Valhalla come verità in rotonda/rami. CI native/Android/ESP32 da verificare, non equivale a test fisico.
