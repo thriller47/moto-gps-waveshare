@@ -30,12 +30,14 @@
   let lastProfilePaint = -Infinity, lastActiveEventFrame = null;
   let profileSpeeds = [], profileMaxSpeed = 40;
   let diagnostics = [], predictorObservations = new Map(), lastDiagnosticDraw = 0;
-  let stableHeadings = [], courseHeadings = [], lockedHeading = NaN;
+  let stableHeadings = [], courseHeadings = [], consensusHeadings = [],
+    consensusQuality = [], lockedHeading = NaN;
   function selectedHeading(s,t,interpolated=false){
     const raw=Number(s.heading_deg),mode=ui["heading-mode"].value;
     if(mode==="locked" && Number.isFinite(lockedHeading))return lockedHeading;
-    if((mode==="stable"||mode==="course") && stableHeadings.length){
-      const values=mode==="course"?courseHeadings:stableHeadings;
+    if((mode==="stable"||mode==="course"||mode==="consensus") && stableHeadings.length){
+      const values=mode==="course"?courseHeadings:
+        mode==="consensus"?consensusHeadings:stableHeadings;
       return interpolated?headingStability.at(frames,values,t):
         values[index];
     }
@@ -48,6 +50,7 @@
       ": diagnostica; in curva non segue la moto.":
       mode==="stable"?"Stabilizzato: non tratta un semplice picco heading come una curva.":
       mode==="course"?"GPS verificato: segue il movimento tra fix distinti e limita rotazioni isolate.":
+      mode==="consensus"?"Course multifix: almeno 16 m di movimento e curva confermata.":
       "Originale: heading registrato, senza filtro aggiuntivo.";
   }
   function analyzeFullReplay() {
@@ -125,7 +128,10 @@
     const applied=selectedHeading(s,interpolated?Number(s.__replay_t):frames[index]?.t,interpolated);
     const headingLabel=v=>Number.isFinite(v)?headingStability.norm(v).toFixed(1)+"°":"—";
     ui["gps-heading"].textContent=headingLabel(heading)+" → "+headingLabel(applied)+
-      tag+(api?" · NavPresenter":" · anteprima 2D");
+      tag+(api?" · NavPresenter":" · anteprima 2D")+
+      (ui["heading-mode"].value==="consensus"&&consensusQuality[index]?
+        " · "+consensusQuality[index].status+
+        (consensusQuality[index].metres>0?" ("+consensusQuality[index].metres.toFixed(0)+" m)":""):"");
     if (!api) {
       ui["map-origin"].textContent="Non disponibile senza WASM";
       ui["prediction-offset"].textContent="Non disponibile senza WASM";
@@ -354,6 +360,9 @@
     diagnostics=headingDiagnostic.analyze(frames);
     stableHeadings=headingStability.build(frames);
     courseHeadings=headingStability.buildCourseValidated(frames);
+    const consensus=headingStability.buildDistanceConsensus(frames);
+    consensusHeadings=consensus.values;
+    consensusQuality=consensus.quality;
     lockedHeading=NaN;
     if(ui["heading-mode"].value==="locked")ui["heading-mode"].value="raw";
     refreshHeadingMode();

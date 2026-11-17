@@ -70,12 +70,13 @@ code{background:#0b151a;padding:2px 4px;border-radius:3px}a{color:#90d8ff}
 <option value="locked">Bloccato all'istante selezionato (diagnosi)</option>
 <option value="stable">Stabilizzato sperimentale (rettilinei)</option>
 <option value="course">GPS verificato (rettilinei, sperimentale)</option>
+<option value="consensus">Course multifix · distanza minima (test)</option>
 </select></label>
 <p class="hint" id="heading-mode-note">Originale: heading registrato, senza filtro aggiuntivo.</p>
 <details><summary>Come funzionano i confronti A/B</summary>
 <p class="hint">Predittore OFF: posizione registrata/interpolata dal player. ON: stesso <code>MapOriginPredictor</code> C++ del firmware con finestre del replay come ancore; non include IMU reale, offset BLE o fusione heading. Confrontare a 1× dall'inizio.</p>
 <p class="hint">Zoom tornanti OFF: zoom originale. ON: curve della linea verde fino a 3×; rotatorie fino a 4×. Le modifiche C++ richiedono la ricompilazione WASM.</p>
-<p class="hint">Heading bloccato: orientamento fisso per diagnosi. Stabilizzato: non scambia più la sola oscillazione rapida del bearing per una curva. GPS verificato: usa direzioni tra fix GPS distinti, e ammette rotazioni rapide soltanto quando la traiettoria curva; resta una prova sperimentale, sensibile alla precisione GPS. I tre modi cambiano solo la visualizzazione, non i dati registrati.</p>
+<p class="hint">Heading bloccato: orientamento fisso. Stabilizzato: filtro sui rettilinei. GPS verificato: direzioni tra fix. Course multifix: almeno 4 fix distinti e 16 m di avanzamento su traiettoria coerente; se manca distanza sufficiente mantiene la direzione, e riconosce le curve su spostamenti GPS consecutivi. Tutte sono modalità sperimentali solo del replay.</p>
 </details>
 <input id="timeline" aria-label="Posizione nel tracciato" type="range" min="0" max="0" value="0" disabled>
 <div class="toolbar">

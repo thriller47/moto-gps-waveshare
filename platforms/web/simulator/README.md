@@ -190,3 +190,8 @@ Il replay `motogps-replay(20261117-072914).jsonl` ha 4.894 snapshot; **4.364** r
 **Correzione JS-only:** Stabilizzato usa la risposta rapida da rotonda/inversione solo quando `turn_m` è valido e non superiore a 35 m (soglia diagnostica, non modifica della navigazione). GPS verificato classifica il rettilineo dalla traiettoria GPS indipendentemente dalla manovra futura. Aggiunti test con rotonda lontana e vicino all'uscita. Restano limiti del GPS reale e della direzione fra fix: non è una soluzione verificata in auto, né replica la fusione IMU ESP32.
 
 **Comandi:** aggiornare il branch `test/unified-offline-map-20261115` e usare **Ctrl+Maiusc+R** nel simulatore già attivo con WASM. **Non occorre ricompilare Emscripten** per questa patch JavaScript, se LVGL era già attivo.
+
+
+## Esperimento Course multifix: bassa velocità e distanza percorsa (17/11/2026)
+
+Nuova modalità Course multifix nel selettore heading del simulatore. La bassa velocità non aumenta necessariamente la frequenza dei fix: riduce la loro distanza spaziale, peggiorando la direzione calcolabile tra coordinate affette da rumore. Il prototipo JS usa fino a 6 secondi e minimo 4 posizioni distinte, con avanzamento stimato >=16 m, netto >=14 m e RMS laterale <=4,5 m. Se insufficienti, mantiene l'heading invece di accettare un salto singolo; le curve richiedono variazioni coerenti tra spostamenti GPS consecutivi. Differisce dalla vecchia modalità GPS verificato: non richiede accordo di 22 gradi con il bearing raw quando la traiettoria multifix è affidabile. Solo simulatore, nessun Android/ESP32/IMU/BLE modificato. A 10-20 km/h può ritardare o perdere vere svolte; non è una modifica pronta per strada. Aggiornare git e Ctrl+Maiusc+R: nessun rebuild WASM richiesto.

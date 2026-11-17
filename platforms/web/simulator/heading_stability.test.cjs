@@ -85,3 +85,32 @@ test("a near roundabout still has prompt heading response",()=>{
   const v=h.build(f);
   assert.ok(Math.abs(h.diff(v.at(-1),3))<3);
 });
+
+const gpsPt=(east,north=0)=>({lat:45+north/111195,lon:9+east/(111195*Math.cos(45*Math.PI/180))});
+const gpsSample=(i,east,north,heading,speed=8)=>({t:i*1000,route:{token:1,generation:1},
+  snapshot:{...gpsPt(east,north),heading_deg:heading,speed_mps:speed,
+    state:"navigating",maneuver:"continue",turn_m:2400}});
+test("multifix discards isolated 35 degree heading spikes while moving straight",()=>{
+  const samples=Array.from({length:12},(_,i)=>gpsSample(i,i*8,0,(i===5||i===6)?125:90));
+  const r=h.buildDistanceConsensus(samples);
+  assert.ok(Math.abs(h.diff(r.values[5],90))<4);
+  assert.ok(Math.abs(h.diff(r.values[6],90))<4);
+  assert.equal(r.quality[5].status,"course-multifix");
+});
+test("low speed requires real travel distance and holds large heading glitches",()=>{
+  const samples=Array.from({length:6},(_,i)=>gpsSample(i,i*2.8,i%2?0.8:-0.8,i===4?140:90,2.8));
+  const r=h.buildDistanceConsensus(samples);
+  assert.ok(Math.abs(h.diff(r.values[4],90))<3);
+  assert.equal(r.quality[4].status,"heading-in-attesa");
+});
+test("GPS stationary snapshots never spin multifix map",()=>{
+  const samples=[gpsSample(0,0,0,90,.2),gpsSample(.25,0,0,165,.2),gpsSample(.5,0,0,220,.2)];
+  const r=h.buildDistanceConsensus(samples);
+  assert.ok(r.values.every(v=>Math.abs(h.diff(v,90))<.01));
+});
+test("two consecutive new GPS directions release a genuine 90 degree turn",()=>{
+  const coords=[[0,0,90],[9,0,90],[18,0,90],[27,0,90],[27,9,0],[27,18,0],[27,27,0]];
+  const r=h.buildDistanceConsensus(coords.map((c,i)=>gpsSample(i,...c)));
+  assert.ok(Math.abs(h.diff(r.values.at(-1),0))<18);
+  assert.ok(r.quality.some(q=>q.status==="curva-confermata"));
+});
