@@ -30,13 +30,15 @@
   let lastProfilePaint = -Infinity, lastActiveEventFrame = null;
   let profileSpeeds = [], profileMaxSpeed = 40;
   let diagnostics = [], predictorObservations = new Map(), lastDiagnosticDraw = 0;
-  let stableHeadings = [], lockedHeading = NaN;
+  let stableHeadings = [], courseHeadings = [], lockedHeading = NaN;
   function selectedHeading(s,t,interpolated=false){
     const raw=Number(s.heading_deg),mode=ui["heading-mode"].value;
     if(mode==="locked" && Number.isFinite(lockedHeading))return lockedHeading;
-    if(mode==="stable" && stableHeadings.length)
-      return interpolated?headingStability.at(frames,stableHeadings,t):
-        stableHeadings[index];
+    if((mode==="stable"||mode==="course") && stableHeadings.length){
+      const values=mode==="course"?courseHeadings:stableHeadings;
+      return interpolated?headingStability.at(frames,values,t):
+        values[index];
+    }
     return raw;
   }
   function refreshHeadingMode(){
@@ -44,7 +46,8 @@
     ui["heading-mode-note"].textContent=mode==="locked"?
       "Bloccato a "+(Number.isFinite(lockedHeading)?lockedHeading.toFixed(1)+"°":"—")+
       ": diagnostica; in curva non segue la moto.":
-      mode==="stable"?"Stabilizzato: rettilinei più fermi; curve reattive. Solo simulatore.":
+      mode==="stable"?"Stabilizzato: non tratta un semplice picco heading come una curva.":
+      mode==="course"?"GPS verificato: segue il movimento tra fix distinti e limita rotazioni isolate.":
       "Originale: heading registrato, senza filtro aggiuntivo.";
   }
   function analyzeFullReplay() {
@@ -344,6 +347,7 @@
     motionSpans=model.buildMotionSpans(frames);
     diagnostics=headingDiagnostic.analyze(frames);
     stableHeadings=headingStability.build(frames);
+    courseHeadings=headingStability.buildCourseValidated(frames);
     lockedHeading=NaN;
     if(ui["heading-mode"].value==="locked")ui["heading-mode"].value="raw";
     refreshHeadingMode();

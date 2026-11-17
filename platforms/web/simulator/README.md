@@ -162,3 +162,13 @@ Nel simulatore selezionare **Heading del replay**:
 La modalità agisce esclusivamente sull'heading passato al `NavPresenter` e alla preview 2D, mantenendo intatto il tracciato e il CSV diagnostico originale. La telemetria distingue heading snapshot e applicato. La modalità bloccata va scelta mentre si è già sul rettilineo da analizzare. Se il problema persiste con heading bloccato, cercare movimento della geometria/posizione anziché una pura rotazione. Non modificati firmware, BLE, Android, Valhalla, predittore C++ e Douglas–Peucker.
 
 **Aggiornamento:** `git pull --ff-only origin test/unified-offline-map-20261115` e **Ctrl+Maiusc+R** in Chrome. Le modifiche sono JavaScript/HTML: **nessuna ricompilazione WASM**.
+
+
+## Analisi di heading incoerente e confronto con direzione GPS — 17/11/2026
+
+Nel replay del 17/11 ci sono 75 snapshot con velocità >= 8 m/s e heading-rate >15°/s; **non sono tutti falsi**: i rettilinei e le curve vanno classificati con traiettoria e manovra, non con il rate da solo. La vecchia modalità "Stabilizzato" selezionava il filtro rapido (tau 0,12 s) quando il solo heading variava >4°/s, **anche se la moto viaggiava dritta**. Eliminata tale scorciatoia: ora la modalità utilizza filtro rapido solo nelle manovre esplicitamente segnalate come rotonda/inversione.
+
+Aggiunta modalità **GPS verificato (rettilinei, sperimentale)**: confronta vettori di spostamento tra fix *distinti* di almeno 6 m, entro 3 s, controlla plausibilità della velocità, rileva rettilineo con due vettori successivi allineati entro 9°; limita l'influenza di variazioni isolate del bearing registrato mentre non cambia la posizione. Con cambi di traiettoria >=9° lascia recuperare rapidamente l'heading. Serve a distinguere rumore di heading da curve reali: non è map matching né stima di yaw IMU, non è garantito quando GPS saltella, a velocità basse o in tratti senza fix distinti. Regola solo il rendering del simulatore, **non Android/ESP32/BLE**. Dopo `git pull` basta ricaricare il browser senza cache; nessun rebuild WASM.
+
+### Prova suggerita
+Sul medesimo segmento del replay, confrontare `Originale`, `Bloccato`, `Stabilizzato`, `GPS verificato`. Annotare se in `GPS verificato` spariscono rotazioni anomale ma la mappa segue ancora rotonde e tornanti. Il CSV originale resta intatto.

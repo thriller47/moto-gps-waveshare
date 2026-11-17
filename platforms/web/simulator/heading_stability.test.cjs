@@ -28,3 +28,34 @@ test("gap reanchors and seek interpolates deterministically",()=>{
  assert.equal(h.at(f,v,5100),180);
  assert.equal(h.at(f,v,2000),v[1]);
 });
+
+test("rapid isolated heading jump is not a turn in stabilized mode",()=>{
+ const f=[frame(0,90),frame(250,90),frame(500,110),frame(750,90)];
+ const v=h.build(f);
+ assert.ok(Math.abs(h.diff(v[2],90))<10);
+});
+test("GPS validated mode ignores heading jumps without motion",()=>{
+ const loc={lat:45,lon:9};
+ const f=[0,250,500,750,1000].map((t,i)=>({t,route:{token:1,generation:1},
+  snapshot:{...loc,heading_deg:i===2?155:90,speed_mps:14,
+   state:"navigating",maneuver:"continue"}}));
+ const v=h.buildCourseValidated(f);
+ assert.ok(v.every(x=>Math.abs(h.diff(x,90))<0.001));
+});
+test("GPS validated mode rejects non-causal heading jump on straight fixes",()=>{
+ const f=[];
+ for(let i=0;i<7;i++)f.push({t:i*1000,route:{token:1,generation:1},
+  snapshot:{lat:45,lon:9+i*0.00018,heading_deg:i===4?120:90,
+    speed_mps:14,state:"navigating",maneuver:"continue"}});
+ const v=h.buildCourseValidated(f);
+ assert.ok(Math.abs(h.diff(v[4],90))<4);
+});
+test("GPS verified heading follows genuine track turn",()=>{
+ const coords=[[45,9],[45,9.0002],[45,9.0004],[45.00014,9.0004],
+  [45.00028,9.0004],[45.00042,9.0004]];
+ const f=coords.map(([lat,lon],i)=>({t:i*1000,route:{token:1,generation:1},
+  snapshot:{lat,lon,heading_deg:i<3?90:0,speed_mps:14,
+    state:"navigating",maneuver:"continue"}}));
+ const v=h.buildCourseValidated(f);
+ assert.ok(Math.abs(h.diff(v.at(-1),0))<15);
+});
