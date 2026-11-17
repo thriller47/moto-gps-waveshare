@@ -175,7 +175,7 @@ RouteBundle fixture_route() {
   // Web-only maneuver positions along the generated route. Real replay
   // supplies its own route and maneuvers, never these synthetic points.
   route.maneuvers.push_back({
-      1, ManeuverType::TurnRight, fixture_route_distance() * 0.45,
+      1, ManeuverType::Right, fixture_route_distance() * 0.45,
       "", "Svolta a destra", 0,
   });
   route.maneuvers.push_back({
