@@ -171,7 +171,11 @@ GnssFix fixture_fix(Wgs84Point point, float speed_mps, float heading_deg) {
 RouteBundle fixture_route() {
   RouteBundle route;
   route.route_id = kFixtureRouteId;
-  route.polyline.assign(kFixtureGeometry.begin(), kFixtureGeometry.end());
+  for (const auto& point : kFixtureGeometry) {
+    // Web synthetic coordinates are passed through explicitly; real routing
+    // uses the project's WGS84/GCJ02 conversion boundary.
+    route.polyline.push_back({point.latitude_deg, point.longitude_deg});
+  }
   // Web-only maneuver positions along the generated route. Real replay
   // supplies its own route and maneuvers, never these synthetic points.
   route.maneuvers.push_back({
