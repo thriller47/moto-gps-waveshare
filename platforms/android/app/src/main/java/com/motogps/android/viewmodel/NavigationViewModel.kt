@@ -485,6 +485,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     private val locationFixFilter = LocationFixFilter()
     private val routeDistanceGuard = RouteDistanceGuard()
     private val routeProgressMatcher = RouteProgressMatcher()
+    private val routeProgressStallPolicy = RouteProgressStallPolicy()
     private val rerouteStability = RerouteStabilityPolicy()
     private var lastLocationTimeMs: Long = 0L
     private var lastFixElapsedMs: Long = 0L
@@ -685,6 +686,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         _hasArrived.value = false
         arrivalDetector.reset()
         rerouteStability.reset()
+        routeProgressStallPolicy.reset()
         lastRecalculationTime = 0L
         offRouteFixCount = 0
         offRouteFirstFixMs = 0L
@@ -734,6 +736,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                         "points=${geometry?.points?.size ?: 0} provider=${lastRoutingProvider.orEmpty()}")
                 routeDistanceGuard.reset()
                 routeProgressMatcher.reset(geometry?.points.orEmpty())
+                routeProgressStallPolicy.onRouteChanged()
                 val (startLat, startLon) = currentLocation.value
                 currentSnapshot = updateManeuverAndDistance(startLat, startLon)
                     ?: snapshot
@@ -926,6 +929,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                 turnPlan = guidance
                 routeDistanceGuard.reset()
                 routeProgressMatcher.reset(geometry?.points.orEmpty())
+                routeProgressStallPolicy.onRouteChanged()
                 offRouteFixCount = 0
                 offRouteFirstFixMs = 0L
                 val (lat, lon) = currentLocation.value
@@ -976,6 +980,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         turnPlan = ValhallaTurnGuidance.Plan(0.0, emptyList())
         routeDistanceGuard.reset()
         routeProgressMatcher.reset()
+        routeProgressStallPolicy.reset()
         rerouteStability.reset()
         lastRecalculationTime = 0L
         offRouteFixCount = 0
@@ -1762,11 +1767,22 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
             if (bearingIsFresh) lastReliableGpsBearing else null,
             lastGpsSpeedMs)
         val reverseCourse = reverseCandidate != null
-        // Moving in the opposite direction on the same road is not the same
-        // as following the route. Require repeated fixes before rerouting,
-        // to reject brief compass/GNSS errors on sharp bends.
+        // A rider can follow a later leg of this same route while the
+        // progress matcher stays pinned to its former leg. Whole-route
+        // proximity cannot detect that mismatch; require sustained, good
+        // GNSS motion before considering a new Valhalla route.
+        val stalledOnRoute = routeProgressStallPolicy.observe(
+            currentSnapshot?.routeToken ?: 0L, now,
+            latitude, longitude,
+            routeProgressMatcher.matchedProgressMeters(),
+            lastGpsSpeedMs,
+            if (bearingIsFresh) lastReliableGpsBearing else null,
+            lastFixAccuracyM, distanceFromRoute)
+        // No arbitrary segment jump: reuse the established de-bounced
+        // reroute path, mandatory stops and heading-aware route request.
         val farFromRoute = distanceFromRoute > 45.0
-        if ((!farFromRoute && !reverseCourse) || lastGpsSpeedMs < 1.5f ||
+        if ((!farFromRoute && !reverseCourse && !stalledOnRoute) ||
+            lastGpsSpeedMs < 1.5f ||
             rerouteStability.shouldDeferWhileTurning(now, distanceFromRoute)) {
             offRouteFixCount = 0
             offRouteFirstFixMs = 0L
@@ -1788,7 +1804,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         // Hold reverse-only triggers briefly after accepting a reroute;
         // substantial (>=100m) departures are never blocked.
         if (rerouteStability.shouldDefer(
-                now, latitude, longitude, distanceFromRoute, !farFromRoute)) {
+                now, latitude, longitude, distanceFromRoute,
+                !farFromRoute && !stalledOnRoute)) {
             offRouteFixCount = 0
             offRouteFirstFixMs = 0L
             return
@@ -1801,7 +1818,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         val cooldownMs = if (usesOnline) 15_000L else 8_000L
         if (now - lastRecalculationTime < cooldownMs) return
         DiagnosticLog.event("REROUTE",
-            "trigger off_route_m=${distanceFromRoute.toInt()} reverse=$reverseCourse speed_mps=$lastGpsSpeedMs " +
+            "trigger off_route_m=${distanceFromRoute.toInt()} reverse=$reverseCourse " +
+                "stalled=$stalledOnRoute speed_mps=$lastGpsSpeedMs " +
                 "match_delta_m=${reverseCandidate?.progressDeltaMeters?.toInt() ?: -999}")
         lastRecalculationTime = now
         offRouteFixCount = 0
@@ -1822,6 +1840,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                     "success provider=${lastRoutingProvider.orEmpty()} route_m=${snapshot.totalDistanceM}")
                 routeDistanceGuard.reset()
                 routeProgressMatcher.reset(geometry?.points.orEmpty())
+                routeProgressStallPolicy.onRouteChanged()
                 // The IO reroute may have taken seconds. Never initialise a
                 // new geometry using the old trigger fix.
                 val (acceptedLat, acceptedLon) = currentLocation.value
