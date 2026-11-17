@@ -55,6 +55,8 @@ code{background:#0b151a;padding:2px 4px;border-radius:3px}a{color:#90d8ff}
 <p id="status" role="status" aria-live="polite">Preparazione del riproduttore…</p>
 <div class="separator"><h2>Riproduzione</h2>
 <label class="curve-control"><input id="curve-zoom" type="checkbox" disabled> Zoom tornanti sperimentale (renderer LVGL)</label>
+<label class="curve-control"><input id="predictor-ab" type="checkbox" disabled> Predittore ESP32 sperimentale · confronto A/B</label>
+<p class="hint">OFF: posizione registrata/interpolata dal player. ON: stesso <code>MapOriginPredictor</code> C++ del firmware con le finestre del replay come ancore. Questa prova non comprende IMU reale, offset BLE o fusione heading; per il confronto visivo usa Play a 1× dall’inizio.</p>
 <p class="hint">Confronto A/B: disattivato = zoom originale; attivato = curva rilevata dalla geometria della linea verde fino a 3×. La rotatoria resta fino a 4×. Ricompila WebAssembly dopo l'aggiornamento.</p>
 <input id="timeline" aria-label="Posizione nel tracciato" type="range" min="0" max="0" value="0" disabled>
 <div class="toolbar">

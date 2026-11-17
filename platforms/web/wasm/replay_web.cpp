@@ -8,6 +8,7 @@
 #include <emscripten.h>
 #include "moto_nav_presenter.hpp"
 #include "moto_nav_ui.h"
+#include "map_origin_predictor.hpp"
 
 namespace {
 using namespace moto::nav;
@@ -16,6 +17,12 @@ NavSnapshot trace;
 std::uint32_t serial = 0;
 std::uint8_t active_road_start = 0;
 bool collecting_road = false;
+// Replay-only comparison, not the full BLE+IMU pipeline. Geometry event
+// arrivals are treated as anchors, and recorded time drives dead reckoning.
+MapOriginPredictor replay_predictor;
+std::uint32_t replay_geometry_sequence = 0;
+MapOriginPredictor::Position replay_geometry_anchor{};
+bool replay_predictor_enabled = false;
 
 bool valid_point(double lat, double lon) {
   return std::isfinite(lat) && std::isfinite(lon) &&
@@ -40,9 +47,19 @@ EMSCRIPTEN_KEEPALIVE void moto_web_replay_reset() {
   trace.has_road_context = false;
   serial = 0;
   collecting_road = false;
+  replay_predictor = MapOriginPredictor{};
+  replay_geometry_sequence = 0;
+  replay_geometry_anchor = {};
   moto_nav_ui_set_demo_active(0);
   moto_nav_ui_set_phone_connection(MOTO_UI_PHONE_ONLINE);
   paint();
+}
+
+// A/B comparison of ESP's isolated position predictor (no physical IMU
+// measurements and no actual BLE delivery timestamps are in the JSONL).
+EMSCRIPTEN_KEEPALIVE void moto_web_replay_set_predictor_enabled(int enabled) {
+  replay_predictor_enabled = enabled != 0;
+  replay_predictor = MapOriginPredictor{};
 }
 
 // A/B comparison of geometry-aware zoom, only for the browser replay.
@@ -63,6 +80,8 @@ EMSCRIPTEN_KEEPALIVE void moto_web_replay_route_begin(
   trace.route_view_point_count = 0;
   if (valid_point(origin_lat, origin_lon)) {
     trace.route_view_origin = {origin_lat, origin_lon};
+    replay_geometry_anchor = {origin_lat, origin_lon};
+    ++replay_geometry_sequence;
   }
   trace.route_generation = static_cast<std::uint32_t>(std::max(1, generation));
   trace.route_id = "replay-" + std::to_string(
@@ -120,7 +139,8 @@ EMSCRIPTEN_KEEPALIVE void moto_web_replay_snapshot(
     int state, int maneuver, double lat, double lon, double heading,
     double speed_mps, double turn_m, double remaining_m,
     double total_m, double duration_s, double progress_m,
-    int speed_limit, int roundabout_exit, int network, int has_turn) {
+    int speed_limit, int roundabout_exit, int network, int has_turn,
+    double replay_time_ms) {
   trace.state = static_cast<NavState>(std::clamp(state, 0, 5));
   trace.network = static_cast<NetworkState>(std::clamp(network, 0, 2));
   trace.has_usable_fix = valid_point(lat, lon);
@@ -151,6 +171,17 @@ EMSCRIPTEN_KEEPALIVE void moto_web_replay_snapshot(
   trace.speed_limit_kph = static_cast<std::uint16_t>(
       std::clamp(speed_limit, 0, 300));
   trace.now_ms = ++serial;
+  if (replay_predictor_enabled && trace.has_usable_fix &&
+      trace.has_route_view && replay_geometry_sequence > 0 &&
+      std::isfinite(replay_time_ms) && replay_time_ms >= 0.0) {
+    const auto predicted = replay_predictor.advance(
+        replay_geometry_anchor,
+        static_cast<std::uint64_t>(replay_time_ms), replay_geometry_sequence,
+        trace.route_id, trace.route_generation, trace.speed_mps,
+        trace.heading_deg, trace.has_usable_fix);
+    trace.route_view_origin = {predicted.latitude_deg,
+                               predicted.longitude_deg};
+  }
   paint();
 }
 }

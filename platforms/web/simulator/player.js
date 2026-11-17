@@ -7,7 +7,7 @@
   const $ = id => document.getElementById(id);
   const names = ["trace-file","sample","snapshot","status","play","previous","next",
     "prev-event","next-event","speed","timeline","time","frame","maneuver",
-    "roads","ring-alignment","zoom","speed-kph","performance","lvgl-performance","map-motion","events","profile","canvas","preview","summary","curve-zoom"];
+    "roads","ring-alignment","zoom","speed-kph","performance","lvgl-performance","map-motion","events","profile","canvas","preview","summary","curve-zoom","predictor-ab"];
   const ui = Object.fromEntries(names.map(id=>[id,$(id)]));
   const required = names.filter(id=>!ui[id]);
   if (required.length) throw Error("Controlli simulator mancanti: " + required.join(", "));
@@ -53,7 +53,7 @@
     ui.play.textContent = "▶ Riproduci";
   }
   function resetRenderer() {
-    if (api) api.reset();
+    if (api) { api.reset(); api.predictor(ui['predictor-ab'].checked ? 1 : 0); }
     rendered = -1;
     appliedRoute = null;
     appliedScene = null;
@@ -85,7 +85,8 @@
       numeric(s.heading_deg),numeric(s.speed_mps),numeric(s.turn_m),
       numeric(s.remaining_m),numeric(s.total_m),numeric(s.duration_s),
       numeric(s.progress_m),numeric(s.speed_limit),numeric(s.exit),
-      networks[s.network] ?? 0,s.has_turn===false?0:1);
+      networks[s.network] ?? 0,s.has_turn===false?0:1,
+      numeric(frame.t,0));
     rendered = nextIndex;
     const cost=performance.now()-updateStarted;
     diagUpdates++;
@@ -246,7 +247,7 @@
     diagInterpolated++;
     const frame=frames[index];
     projectWithLvgl({snapshot:{...frame.snapshot,...motion},
-      route:frame.route,scene:frame.scene},index);
+      route:frame.route,scene:frame.scene,t:target},index);
     return true;
   }
   function tick(now){
@@ -361,7 +362,8 @@
           routePoint:fn("route_point",["number","number"]),
           sceneBegin:fn("scene_begin",["number"]),roadBegin:fn("road_begin",[]),
           roadPoint:fn("road_point",["number","number"]),roadEnd:fn("road_end",["number"]),
-          snapshot:fn("snapshot",Array(15).fill("number")),
+          snapshot:fn("snapshot",Array(16).fill("number")),
+          predictor:fn("set_predictor_enabled",["number"]),
           curveZoom:fn("set_curve_zoom_enabled",["number"]),
           zoomFactor:mod.cwrap("moto_web_replay_zoom_factor","number",[]),
           lvglRender:mod.cwrap("moto_web_lvgl_render_hz","number",[]),
@@ -375,6 +377,7 @@
           lvglMax:mod.cwrap("moto_web_lvgl_handler_max_ms","number",[])};
         ui.preview.hidden=true;ui.canvas.hidden=false;
         ui["curve-zoom"].disabled=false;
+        ui["predictor-ab"].disabled=false;
         api.curveZoom(ui["curve-zoom"].checked?1:0);
         resetRenderer();
         if(frames.length)display(index);else load(synthetic(),"Esempio sintetico");
@@ -386,6 +389,11 @@
     const file=ui["trace-file"].files[0];if(!file)return;
     try{load(await file.text(),file.name);}
     catch(error){pause();status("Importazione fallita: "+error.message,true);}
+  });
+  ui["predictor-ab"].addEventListener("change",()=>{
+    if (!api) return;
+    pause();resetRenderer();
+    if(frames.length)display(index);
   });
   ui["curve-zoom"].addEventListener("change",()=>{
     if (!api) return;
