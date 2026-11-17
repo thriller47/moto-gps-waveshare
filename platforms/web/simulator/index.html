@@ -32,6 +32,7 @@ button:disabled{opacity:.4;cursor:default}button:hover:enabled{background:#33565
 .muted{color:#9eb1b6;font-size:.91rem}#status{min-height:3em;overflow-wrap:anywhere}#status[data-error=true]{color:#ffb49d}
 code{background:#0b151a;padding:2px 4px;border-radius:3px}a{color:#90d8ff}
 #profile{display:block;width:100%;height:auto;cursor:crosshair;border-radius:8px;background:#0a151a;margin-top:8px}
+.diagnostic-chart{display:block;width:100%;height:auto;cursor:crosshair;border-radius:8px;background:#09171b;margin:7px 0}
 #summary{font-size:.88rem;color:#a9e6bd;margin:12px 0;line-height:1.5}
 .events{display:grid;gap:6px;max-height:244px;overflow-y:auto;padding-right:4px}
 .event{text-align:left;font-size:.88rem;width:100%;padding:8px 10px;background:#122329;border-color:#30474e}
@@ -97,6 +98,14 @@ code{background:#0b151a;padding:2px 4px;border-radius:3px}a{color:#90d8ff}
 <details><summary>Limiti della diagnostica</summary>
 <p class="hint">Diagnostica: lo snapshot Android non è il fix GNSS grezzo; durante Play posizione e heading possono essere interpolati nel browser. L'heading indicato è l'ingresso di NavPresenter, non l'angolo finale post-filtro o la fusione IMU. Lo scarto tra i due centri mappa non misura l'errore GPS.</p>
 </details>
+<details open><summary>Analisi heading e salti (replay)</summary>
+<p class="hint">Heading registrato, direzione del segmento verde più vicino e distanze dalla finestra di rotta. Le soglie sono segnalazioni esplorative, non diagnosi; una strada vicina può essere quella sbagliata (rotonde, cavalcavia, finestre parziali). Tocca il grafico per spostarti nel replay.</p>
+<div class="toolbar"><button id="export-heading" type="button">Esporta diagnostica CSV</button></div>
+<canvas id="heading-chart" width="700" height="170" aria-label="Heading del replay e del percorso" class="diagnostic-chart"></canvas>
+<canvas id="offset-chart" width="700" height="145" aria-label="Spostamenti tra GPS e rotta" class="diagnostic-chart"></canvas>
+<p id="diagnostic-summary" class="hint">Carica una traccia per visualizzare i dati.</p>
+<p class="hint">CSV: valori GPS/rotta per tutti gli snapshot; scarto predittore ON/OFF solo nei frame effettivamente visitati in ciascuna modalità. Nessuna simulazione fittizia degli altri valori.</p>
+</details>
 <p id="summary" aria-live="polite">—</p>
 <canvas id="profile" width="600" height="100" aria-label="Velocità nel tempo e posizione degli eventi; fai clic per spostarti"></canvas>
 <p class="hint">Grafico velocità: righe arancioni = cambi rotta, verde = tappa, bianco = arrivo. Clicca per raggiungere un istante.</p>
@@ -117,6 +126,7 @@ code{background:#0b151a;padding:2px 4px;border-radius:3px}a{color:#90d8ff}
 <script src="./trace_model.js"></script>
 <script src="./fallback_map.js"></script>
 <script src="./ring_alignment.js"></script>
+<script src="./heading_diagnostics.js"></script>
 <script src="./player.js"></script>
 </body>
 </html>

@@ -7,13 +7,13 @@
   const $ = id => document.getElementById(id);
   const names = ["trace-file","sample","snapshot","status","play","previous","next",
     "prev-event","next-event","speed","timeline","time","frame","maneuver",
-    "roads","ring-alignment","zoom","speed-kph","gps-position","gps-heading","map-origin","prediction-offset","performance","lvgl-performance","map-motion","events","profile","canvas","preview","summary","curve-zoom","predictor-ab"];
+    "roads","ring-alignment","zoom","speed-kph","gps-position","gps-heading","map-origin","prediction-offset","heading-chart","offset-chart","diagnostic-summary","export-heading","performance","lvgl-performance","map-motion","events","profile","canvas","preview","summary","curve-zoom","predictor-ab"];
   const ui = Object.fromEntries(names.map(id=>[id,$(id)]));
   const required = names.filter(id=>!ui[id]);
   if (required.length) throw Error("Controlli simulator mancanti: " + required.join(", "));
   const model = window.MotoReplayModel, fallback = window.MotoFallbackMap,
-    ringAlignment = window.MotoRingAlignment;
-  if (!model || !fallback || !ringAlignment) throw Error("Moduli replay non caricati");
+    ringAlignment = window.MotoRingAlignment, headingDiagnostic = window.MotoHeadingDiagnostics;
+  if (!model || !fallback || !ringAlignment || !headingDiagnostic) throw Error("Moduli replay non caricati");
   const manoeuvres = {unknown:0,continue:1,keep_left:2,turn_left:3,
     sharp_left:4,u_turn:5,keep_right:6,turn_right:7,sharp_right:8,
     roundabout:10,exit:11,arrive:12};
@@ -28,6 +28,7 @@
   let playing = false, base = 0, started = 0;
   let lastProfilePaint = -Infinity, lastActiveEventFrame = null;
   let profileSpeeds = [], profileMaxSpeed = 40;
+  let diagnostics = [], predictorObservations = new Map(), lastDiagnosticDraw = 0;
   // Separate JS-to-WASM update cost from browser animation-frame pacing.
   let diagStart = 0, diagRaf = 0, diagUpdates = 0, diagCost = 0;
   let diagMaxCost = 0, diagSlowRaf = 0, diagLastRaf = 0;
@@ -82,8 +83,17 @@
       return;
     }
     const north=(a-lat)*111195, east=(b-lon)*111195*Math.cos(lat*Math.PI/180);
-    ui["prediction-offset"].textContent=Math.hypot(north,east).toFixed(1)+" m"+
+    const offset=Math.hypot(north,east);
+    ui["prediction-offset"].textContent=offset.toFixed(1)+" m"+
       (ui["predictor-ab"].checked?" · predittore ON":" · predittore OFF");
+    // Only sample actual recorded snapshots, never attribute an interpolated
+    // prediction to a different GPS fix or to a mode never replayed.
+    if(!interpolated && diagnostics.length) {
+      const key=index;
+      const record=predictorObservations.get(key)||{};
+      record[ui["predictor-ab"].checked?"on":"off"]=offset;
+      predictorObservations.set(key,record);
+    }
   }
   function projectWithLvgl(frame, nextIndex, interpolated=false) {
     if (!api) return;
@@ -173,6 +183,56 @@
     ctx.fillText("Velocità 0–"+maxSpeed+" km/h",8,h-4);
     ctx.textAlign="right";ctx.fillText(timeLabel(dataset.lastMs-t0),w-6,h-4);
   }
+  function drawDiagnosticCharts(force=false) {
+    if(!diagnostics.length)return;
+    const now=performance.now();
+    if(!force && now-lastDiagnosticDraw<140)return;
+    lastDiagnosticDraw=now;
+    const t0=dataset.firstMs,span=Math.max(1,dataset.lastMs-t0);
+    const draw=(canvas,label,values,min,max,suffix)=>{
+      const ctx=canvas.getContext("2d");if(!ctx)return;
+      const w=canvas.width,h=canvas.height,left=35,right=w-9,top=24,bottom=h-24;
+      ctx.clearRect(0,0,w,h);
+      ctx.fillStyle="#aec3c9";ctx.font="12px system-ui";ctx.fillText(label,10,15);
+      ctx.strokeStyle="#28414a";ctx.lineWidth=1;
+      for(let k=0;k<=4;k++){const y=top+(bottom-top)*k/4;
+        ctx.beginPath();ctx.moveTo(left,y);ctx.lineTo(right,y);ctx.stroke();}
+      ctx.fillStyle="#94aab2";ctx.fillText(max.toFixed(0)+suffix,2,top+4);
+      ctx.fillText(min.toFixed(0)+suffix,2,bottom);
+      const x=t=>left+(right-left)*(t-t0)/span;
+      const y=v=>bottom-(v-min)/(max-min)*(bottom-top);
+      for(let j=0;j<values.length;j++){
+        ctx.beginPath();ctx.strokeStyle=["#72c9a9","#f0b67b","#8b9dff"][j];
+        let prevValid=false,prevT=0;
+        for(let i=0;i<diagnostics.length;i++){
+          const d=diagnostics[i],v=values[j](d);
+          if(!Number.isFinite(v)){prevValid=false;continue;}
+          // Do not draw a line across a large recording dropout.
+          if(!prevValid||d.t-prevT>3000)ctx.moveTo(x(d.t),y(Math.max(min,Math.min(max,v))));
+          else ctx.lineTo(x(d.t),y(Math.max(min,Math.min(max,v))));
+          prevValid=true;prevT=d.t;
+        }
+        ctx.stroke();
+      }
+      ctx.strokeStyle="#e5edf1";ctx.lineWidth=1;
+      const here=x(frames[index].t);ctx.beginPath();ctx.moveTo(here,top);ctx.lineTo(here,bottom);ctx.stroke();
+      ctx.fillStyle="#95b9ba";ctx.fillText("+ "+timeLabel(frames[index].t-t0),w-83,15);
+    };
+    draw(ui["heading-chart"],"Heading snapshot (verde) / segmento rotta (arancio), gradi",
+      [d=>d.gps,d=>d.routeHeading],0,360,"°");
+    const motionMax=Math.max(30,Math.min(200,Math.ceil(diagnostics.reduce((m,d)=>
+      Math.max(m,Number.isFinite(d.lateral)?d.lateral:0,Number.isFinite(d.moved)?d.moved:0),0)/20)*20));
+    draw(ui["offset-chart"],"Distanza dalla finestra verde (verde) / movimento fix (arancio), m",
+      [d=>d.lateral,d=>d.moved],0,motionMax,"m");
+    const row=diagnostics[index],warnings=diagnostics.filter(d=>d.flags.length).length;
+    ui["diagnostic-summary"].textContent=
+      "Frame "+(index+1)+" · Δ heading/rotta "+
+      (Number.isFinite(row.headingMismatch)?row.headingMismatch.toFixed(1)+"°":"n/d")+
+      " · laterale "+(Number.isFinite(row.lateral)?row.lateral.toFixed(1)+" m":"n/d")+
+      " · movimento "+(Number.isFinite(row.moved)?row.moved.toFixed(1)+" m":"n/d")+
+      " · segnalazioni "+warnings+" frame (non necessariamente errori)"+
+      (row.flags.length?" · QUI: "+row.flags.join(", "):"");
+  }
   function display(i, project = true) {
     if (!frames.length) return;
     index = Math.max(0,Math.min(frames.length-1,Math.trunc(Number(i)||0)));
@@ -202,6 +262,7 @@
     ui.zoom.textContent=(api?api.zoomFactor():
       fallback.zoomFactor(s,!!f.route)).toFixed(2)+"×";
     ui["speed-kph"].textContent=Math.round(numeric(s.speed_mps)*3.6)+" km/h";
+    drawDiagnosticCharts(!playing);
     // The LVGL canvas is the priority during playback. Redrawing the entire
     // speed profile (thousands of vertices) every GPS snapshot causes jank
     // in browsers, especially on older Windows machines.
@@ -224,6 +285,9 @@
     const result=model.parse(source);
     pause();dataset=result;frames=result.frames;events=result.events;index=0;
     motionSpans=model.buildMotionSpans(frames);
+    diagnostics=headingDiagnostic.analyze(frames);
+    predictorObservations=new Map();
+    lastDiagnosticDraw=0;
     profileSpeeds=frames.map(f=>Math.max(0,numeric(f.snapshot.speed_mps)*3.6));
     profileMaxSpeed=Math.max(40,Math.ceil(
       profileSpeeds.reduce((a,b)=>Math.max(a,b),0)/20)*20);
@@ -446,6 +510,23 @@
     const fraction=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width));
     const t=dataset.firstMs+(dataset.lastMs-dataset.firstMs)*fraction;
     pause();display(model.findFrameAtOrAfter(frames,t));
+  });
+  for(const id of ["heading-chart","offset-chart"]){
+    ui[id].addEventListener("click",e=>{
+      if(!frames.length)return;
+      const canvas=ui[id],r=canvas.getBoundingClientRect();
+      const fraction=Math.max(0,Math.min(1,(e.clientX-r.left)/r.width));
+      pause();display(model.findFrameAtOrAfter(frames,dataset.firstMs+
+        fraction*(dataset.lastMs-dataset.firstMs)));
+    });
+  }
+  ui["export-heading"].addEventListener("click",()=>{
+    if(!diagnostics.length)return;
+    const contents="\uFEFF"+headingDiagnostic.csv(diagnostics,predictorObservations);
+    const blob=new Blob([contents],{type:"text/csv;charset=utf-8"});
+    const url=URL.createObjectURL(blob),anchor=document.createElement("a");
+    anchor.href=url;anchor.download="moto-heading-diagnostics.csv";
+    anchor.click();setTimeout(()=>URL.revokeObjectURL(url),5000);
   });
   ui.speed.addEventListener("change",()=>{
     if(playing&&frames.length){base=frames[index].t-frames[0].t;started=performance.now();}
