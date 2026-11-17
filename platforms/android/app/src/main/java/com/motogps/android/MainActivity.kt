@@ -17,6 +17,10 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.widget.Toast
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
@@ -30,10 +34,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.lifecycleScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import com.motogps.android.ble.MotoBLEManager
 import com.motogps.android.location.LocationForegroundService
 import com.motogps.android.ui.MotoChatDarkColorScheme
@@ -64,44 +64,54 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     private val diagnosticTimeout = Runnable { diagnosticMode = 0 }
 
     private fun exportDiagnostics() {
-        lifecycleScope.launch {
+        lifecycleScope.launch(Dispatchers.IO) {
             try {
-                val file = withContext(Dispatchers.IO) { DiagnosticLog.exportZip() }
-                val uri = FileProvider.getUriForFile(
-                    this@MainActivity, "$packageName.diagnostics", file
-                )
-                val send = Intent(Intent.ACTION_SEND).apply {
-                    type = "application/zip"
-                    putExtra(Intent.EXTRA_STREAM, uri)
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                val file = DiagnosticLog.exportZip()
+                val uri = FileProvider.getUriForFile(this@MainActivity, "$packageName.diagnostics", file)
+                withContext(Dispatchers.Main) {
+                    if (!isFinishing && !isDestroyed) {
+                        val send = Intent(Intent.ACTION_SEND).apply {
+                            type = "application/zip"
+                            putExtra(Intent.EXTRA_STREAM, uri)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        startActivity(Intent.createChooser(send, "Esporta diagnostica Moto GPS"))
+                    }
                 }
-                startActivity(Intent.createChooser(send, "Esporta diagnostica Moto GPS"))
             } catch (e: Exception) {
-                Toast.makeText(this@MainActivity,
-                    "Esportazione non riuscita: ${e.message}", Toast.LENGTH_LONG).show()
+                withContext(Dispatchers.Main) {
+                    if (!isFinishing && !isDestroyed) {
+                        Toast.makeText(this@MainActivity, "Esportazione non riuscita: ${e.message}",
+                            Toast.LENGTH_LONG).show()
+                    }
+                }
             }
         }
     }
 
     private fun exportReplay() {
-        lifecycleScope.launch {
+        lifecycleScope.launch(Dispatchers.IO) {
             try {
-                val file = withContext(Dispatchers.IO) {
-                    ReplayTraceRecorder.export(this@MainActivity)
+                val file = ReplayTraceRecorder.export(this@MainActivity)
+                val uri = FileProvider.getUriForFile(this@MainActivity, "$packageName.diagnostics", file)
+                withContext(Dispatchers.Main) {
+                    if (!isFinishing && !isDestroyed) {
+                        val send = Intent(Intent.ACTION_SEND).apply {
+                            type = if (file.extension.equals("zip", ignoreCase = true))
+                                "application/zip" else "application/x-ndjson"
+                            putExtra(Intent.EXTRA_STREAM, uri)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        startActivity(Intent.createChooser(send, "Esporta tracciato GPS privato"))
+                    }
                 }
-                val uri = FileProvider.getUriForFile(
-                    this@MainActivity, "$packageName.diagnostics", file
-                )
-                val send = Intent(Intent.ACTION_SEND).apply {
-                    type = if (file.extension.equals("zip", ignoreCase = true))
-                        "application/zip" else "application/x-ndjson"
-                    putExtra(Intent.EXTRA_STREAM, uri)
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                }
-                startActivity(Intent.createChooser(send, "Esporta tracciato GPS privato"))
             } catch (e: Exception) {
-                Toast.makeText(this@MainActivity,
-                    "Esportazione GPS non riuscita: ${e.message}", Toast.LENGTH_LONG).show()
+                withContext(Dispatchers.Main) {
+                    if (!isFinishing && !isDestroyed) {
+                        Toast.makeText(this@MainActivity, "Esportazione GPS non riuscita: ${e.message}",
+                            Toast.LENGTH_LONG).show()
+                    }
+                }
             }
         }
     }
@@ -178,20 +188,16 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         }
 
         viewModel.loadRoutePreferences(this)
-        viewModel.loadSavedCircularTours(this)
-        viewModel.loadTourSession(this)
 
         // BLE must exist before the foreground GPS service can initialize the
-        // ViewModel through its first location callback on an already-running app.
-        val callback: (Location) -> Unit = { location ->
-            runOnUiThread {
+        // ViewModel through its first location update on an already-running app.
+        lifecycleScope.launch {
+            LocationForegroundService.locationFlow.collect { location ->
                 if (!isFinishing && !isDestroyed) {
-                    viewModel.updateDeviceLocation(location, context = this)
+                    viewModel.updateDeviceLocation(location, context = this@MainActivity)
                 }
             }
         }
-        foregroundLocationCallback = callback
-        LocationForegroundService.onLocationUpdate = callback
 
 
         // Double-tap Back button to exit
@@ -220,10 +226,6 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             val routePreview = viewModel.routePreview.collectAsState().value
             val routeOptions = viewModel.routeOptions.collectAsState().value
             val routeWaypoints = viewModel.routeWaypoints.collectAsState().value
-            val nextWaypointToSkip = viewModel.nextWaypointToSkip.collectAsState().value
-            val pausedTour = viewModel.pausedTour.collectAsState().value
-            val circularMandatoryStops = viewModel.circularMandatoryStops.collectAsState().value
-            val savedCircularTours = viewModel.savedCircularTours.collectAsState().value
             val waypointSearchResults = viewModel.waypointSearchResults.collectAsState().value
             val waypointSearching = viewModel.waypointSearching.collectAsState().value
             val waypointSearchError = viewModel.waypointSearchError.collectAsState().value
@@ -294,9 +296,6 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     onSearch = { query ->
                         viewModel.searchDestination(query)
                     },
-                    onCircularTour = { distanceKm, orientation ->
-                        viewModel.previewCircularTour(distanceKm, orientation)
-                    },
                     onConnectRequest = {
                         checkPermissionsAndScan(forceScan = true)
                     },
@@ -306,28 +305,6 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     routePreview = routePreview,
                     routeOptions = routeOptions,
                     routeWaypoints = routeWaypoints,
-                    pausedTour = pausedTour,
-                    onPauseTour = { viewModel.pauseTour() },
-                    nextWaypointToSkip = nextWaypointToSkip,
-                    onSkipNextWaypoint = { viewModel.skipNextWaypoint() },
-                    onPreviewResumeTour = { viewModel.previewResumeTour() },
-                    onDiscardPausedTour = { viewModel.discardPausedTour() },
-                    circularMandatoryStops = circularMandatoryStops,
-                    savedCircularTours = savedCircularTours,
-                    onSaveCircularTour = { name ->
-                        viewModel.saveCurrentCircularTour(this@MainActivity, name)
-                    },
-                    onOpenSavedCircularTour = { tour, useCurrent ->
-                        viewModel.openSavedCircularTour(tour, useCurrent)
-                    },
-                    onDeleteSavedCircularTour = { id ->
-                        viewModel.removeSavedCircularTour(this@MainActivity, id)
-                    },
-                    onAddCircularMandatoryStop = { viewModel.addCircularMandatoryStop(it) },
-                    onRemoveCircularMandatoryStop = { viewModel.removeCircularMandatoryStop(it) },
-                    onMoveCircularMandatoryStop = { index, offset ->
-                        viewModel.moveCircularMandatoryStop(index, offset)
-                    },
                     waypointSearchResults = waypointSearchResults,
                     waypointSearching = waypointSearching,
                     waypointSearchError = waypointSearchError,
@@ -413,6 +390,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             Manifest.permission.ACCESS_FINE_LOCATION,
             Manifest.permission.ACCESS_COARSE_LOCATION
         )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             permissions.add(Manifest.permission.BLUETOOTH_SCAN)
             permissions.add(Manifest.permission.BLUETOOTH_CONNECT)

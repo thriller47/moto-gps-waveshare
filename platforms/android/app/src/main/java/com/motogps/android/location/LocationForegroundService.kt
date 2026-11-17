@@ -6,18 +6,32 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
+import android.os.PowerManager
 import androidx.core.app.NotificationCompat
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 
 class LocationForegroundService : Service(), LocationListener {
     companion object {
         const val CHANNEL_ID = "MotoGPS_Location_Channel"
         const val NOTIFICATION_ID = 1001
+
+        private val _locationFlow = MutableSharedFlow<Location>(
+            replay = 1,
+            extraBufferCapacity = 64,
+            onBufferOverflow = BufferOverflow.DROP_OLDEST
+        )
+        val locationFlow: SharedFlow<Location> = _locationFlow.asSharedFlow()
+
         var onLocationUpdate: ((Location) -> Unit)? = null
     }
 
@@ -25,11 +39,14 @@ class LocationForegroundService : Service(), LocationListener {
     private val gpsIntervalMs = 200L
     private val networkFallbackIntervalMs = 1000L
     private lateinit var locationManager: LocationManager
+    private var wakeLock: PowerManager.WakeLock? = null
     private var lastGpsFixTime = 0L
 
     override fun onCreate() {
         super.onCreate()
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+        wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MotoGPS:LocationServiceWakeLock")
         createNotificationChannel()
     }
 
@@ -42,10 +59,27 @@ class LocationForegroundService : Service(), LocationListener {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
 
-        startForeground(NOTIFICATION_ID, notification)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(
+                NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION or ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+            )
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
+        }
+
+        if (wakeLock?.isHeld == false) {
+            wakeLock?.acquire(12 * 60 * 60 * 1000L)
+        }
 
         startLocationUpdates()
         return START_STICKY
+    }
+
+    private fun dispatchLocation(location: Location) {
+        _locationFlow.tryEmit(location)
+        onLocationUpdate?.invoke(location)
     }
 
     @SuppressLint("MissingPermission")
@@ -62,7 +96,7 @@ class LocationForegroundService : Service(), LocationListener {
                 if (bestLast.provider == LocationManager.GPS_PROVIDER) {
                     lastGpsFixTime = System.currentTimeMillis()
                 }
-                onLocationUpdate?.invoke(bestLast)
+                dispatchLocation(bestLast)
             }
 
             if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
@@ -102,12 +136,12 @@ class LocationForegroundService : Service(), LocationListener {
     override fun onLocationChanged(location: Location) {
         if (location.provider == LocationManager.GPS_PROVIDER) {
             lastGpsFixTime = System.currentTimeMillis()
-            onLocationUpdate?.invoke(location)
+            dispatchLocation(location)
         } else {
             // Only use network fallback if no GPS fix received in the last 5 seconds
             val now = System.currentTimeMillis()
             if (now - lastGpsFixTime > 5_000L) {
-                onLocationUpdate?.invoke(location)
+                dispatchLocation(location)
             }
         }
     }
@@ -123,6 +157,11 @@ class LocationForegroundService : Service(), LocationListener {
         super.onDestroy()
         try {
             locationManager.removeUpdates(this)
+        } catch (_: Exception) {}
+        try {
+            if (wakeLock?.isHeld == true) {
+                wakeLock?.release()
+            }
         } catch (_: Exception) {}
     }
 
