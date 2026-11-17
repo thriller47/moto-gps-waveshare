@@ -76,7 +76,9 @@ class MotionHeadingFusion {
     const float error = shortest_delta(phone, heading_deg_);
     // A single large jump must never rotate the map. Require two mutually
     // consistent phone courses (no fast 0.82 branch exists in current code).
-    if (std::abs(error) > 80.0F && sigma > 12.0F) {
+    // Threshold set to 35 deg so 40 deg GNSS spikes on straight roads are confirmed
+    // rather than accepted immediately without gyro confirmation.
+    if (std::abs(error) > 35.0F && sigma > 12.0F) {
       if (large_error_count_ == 0 ||
           std::abs(shortest_delta(phone, pending_large_course_deg_)) > 25.0F) {
         large_error_count_ = 1;
