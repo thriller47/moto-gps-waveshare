@@ -50,3 +50,8 @@ Al primo snapshot con finestra corrente l'heading/velocità d'ancora sono circa 
 - Eventuale correzione dovrà essere A/B reversibile sul banco prova, con guardrail per rotatorie e test di regressione, prima di qualsiasi proposta di patch firmware.
 
 **Stato:** audit completato; **nessuna modifica di firmware/Android/BLE/routing**, nessuna build Emscripten/CI avviata. La diagnosi del comportamento reale rimane aperta.
+
+
+## Regressione sintetica aggiunta (17/11)
+
+Il test `test_roundabout_exit_three_second_geometry_gap` in `tests/native/map_origin_predictor_tests.cpp` riproduce le **condizioni meccaniche**, non le coordinate personali: finestre distinte a distanza di 3.075 ms, curva e frenata oltre le due soglie, stop della previsione rettilinea e rientro progressivo al successivo anchor. Questa verifica protegge il comportamento baseline attuale; **non è una patch del predittore** né una prova dell'hardware. La suite è già registrata come `map_origin_predictor_tests` in CTest. Build/CTests da verificare prima di estendere l'esperimento A/B.

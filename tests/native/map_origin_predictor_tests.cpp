@@ -162,6 +162,72 @@ void test_turning_freezes_straight_line_extrapolation_until_new_geometry() {
   CHECK(std::abs(corner.longitude_deg - straight.longitude_deg) < 1e-10);
 }
 
+
+void test_roundabout_exit_three_second_geometry_gap() {
+  // Synthetic regression, no user GPS data. Approximately mirrors the
+  // recorded 3,075 ms gap, turning 340 -> 19 degrees while decelerating.
+  const MapOriginPredictor::Position origin{45.0, 9.0};
+  const auto north = [](MapOriginPredictor::Position p) {
+    return (p.latitude_deg - 45.0) * 111'195.0;
+  };
+  const auto east = [](MapOriginPredictor::Position p) {
+    return east_metres(p, 9.0);
+  };
+  MapOriginPredictor predictor;
+  constexpr std::uint64_t anchor_ms = 10'000;
+  const std::string route{"roundabout-synthetic"};
+  const auto first = predictor.advance(origin, anchor_ms, 1, route, 1,
+                                       17.67F, 340.59F, true);
+  CHECK(std::abs(north(first)) < 0.01);
+  // At the beginning, the speed/heading guardrails both permit movement.
+  const auto straight = predictor.advance(origin, anchor_ms + 250, 1,
+                                          route, 1, 17.0F, 344.0F, true);
+  CHECK(north(straight) > 3.0);
+  // With this speed ratio (13.5/17.67), only the heading still allows motion.
+  const auto gentle = predictor.advance(origin, anchor_ms + 500, 1,
+                                        route, 1, 13.5F, 349.2F, true);
+  CHECK(north(gentle) > north(straight));
+  // At 3.2 deg, angular difference to the last anchor exceeds 15 deg
+  // and speed has fallen below 75% of the anchor.
+  const auto gated = predictor.advance(origin, anchor_ms + 750, 1,
+                                       route, 1, 12.31F, 3.2F, true);
+  CHECK(std::abs(north(gated) - north(gentle)) < 0.01);
+  CHECK(std::abs(east(gated) - east(gentle)) < 0.01);
+  // Repeated ticks keep the actual code alive, but no straight-line
+  // extrapolation resumes before a new geometry anchor.
+  MapOriginPredictor::Position frozen = gated;
+  for (std::uint64_t ms = anchor_ms + 1'000; ms <= anchor_ms + 3'000; ms += 250) {
+    frozen = predictor.advance(origin, ms, 1, route, 1,
+                               9.86F, 19.0F, true);
+  }
+  CHECK(std::abs(north(frozen) - north(gated)) < 0.01);
+  CHECK(std::abs(east(frozen) - east(gated)) < 0.01);
+
+  // This *distinct* next window arrives 3,075 ms after the last anchor.
+  // It is only 75 ms after the previous render tick, so the predictor
+  // corrects smoothly rather than resetting on a >1s tick gap.
+  const double longitude_scale =
+      111'195.0 * std::cos(45.0 * 3.14159265358979323846 / 180.0);
+  const MapOriginPredictor::Position next_anchor{
+      45.0 + 45.0 / 111'195.0, 9.0 + 10.0 / longitude_scale};
+  const auto before_distance = std::hypot(45.0 - north(frozen),
+                                          10.0 - east(frozen));
+  const auto corrected = predictor.advance(
+      next_anchor, anchor_ms + 3'075, 2, route, 1, 9.86F, 19.0F, true);
+  const auto immediately_after = std::hypot(
+      45.0 - north(corrected), 10.0 - east(corrected));
+  CHECK(before_distance > 25.0);
+  CHECK(immediately_after < before_distance);
+  CHECK(immediately_after > 1.0); // No instantaneous position teleport.
+  // During the next half second the soft GPS correction keeps converging.
+  const auto recovering = predictor.advance(
+      next_anchor, anchor_ms + 3'575, 2, route, 1, 9.86F, 19.0F, true);
+  const auto after_half_second = std::hypot(
+      45.0 - north(recovering), 10.0 - east(recovering));
+  CHECK(after_half_second < immediately_after);
+  CHECK(after_half_second < before_distance * 0.6);
+}
+
 void test_stale_stop_and_route_changes() {
   MapOriginPredictor predictor;
   const MapOriginPredictor::Position start{45.0, 9.0};
@@ -188,6 +254,7 @@ int main() {
   test_subframe_motion_and_correction();
   test_low_frame_rate_integrates_full_elapsed_time();
   test_turning_freezes_straight_line_extrapolation_until_new_geometry();
+  test_roundabout_exit_three_second_geometry_gap();
   test_stale_stop_and_route_changes();
   test_prediction_freezes_after_missing_geometry_anchor();
   test_three_second_ble_geometry_cadence_stays_in_motion();
