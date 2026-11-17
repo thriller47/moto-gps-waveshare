@@ -5,91 +5,90 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class RouteProgressStallPolicyTest {
-    // Synthetic route at 45N: no actual rider's coordinates in GitHub.
-    private fun lat(northM: Int) = 45.0 + northM / 111_195.0
-    private fun observe(
-        policy: RouteProgressStallPolicy, tSec: Int, northM: Int,
-        progressM: Double, routeToken: Long = 7L,
-        speedMps: Float = 15f, course: Float? = 0f,
-        accuracyM: Float = 4f, crossM: Double = 4.0
-    ) = policy.observe(
-        routeToken, tSec * 1_000L,
-        lat(northM), 9.0, progressM,
-        speedMps, course, accuracyM, crossM)
+    // Synthetic geography only: no original GPS coordinates in source control.
+    private fun lat(m: Int) = 45.0 + m / 111_195.0
+    private fun check(
+        tracker: RouteProgressStallPolicy,
+        sec: Int, north: Int, progress: Double,
+        globalCross: Double = 5.0, localCross: Double = 80.0,
+        route: Long = 1L, course: Float? = 0f,
+        speed: Float = 15f, accuracy: Float = 4f
+    ) = tracker.observe(route, sec * 1000L, lat(north), 9.0,
+        progress, speed, course, accuracy, globalCross, localCross)
 
-    @Test fun normalOnRouteProgressNeverTriggers() {
-        val policy = RouteProgressStallPolicy()
-        for (sec in 0..34)
-            assertFalse(observe(policy, sec, sec * 15, sec * 15.0))
+    @Test fun frozenAnchorOnLaterRouteLegProducesDebouncedRerouteSignal() {
+        val p = RouteProgressStallPolicy()
+        assertFalse(check(p, 0, 0, 3.0))
+        assertFalse(check(p, 1, 15, 3.0))
+        assertFalse(check(p, 2, 30, 3.0))
+        assertTrue(check(p, 3, 45, 3.0))
+        assertTrue(check(p, 4, 60, 3.0)) // holds across existing debounce
+        assertFalse(check(p, 5, 75, 65.0)) // genuine matcher recovery cancels
     }
 
-    @Test fun catchesRecordedPatternButOnlyAfterSustainedMovement() {
-        val policy = RouteProgressStallPolicy()
-        var firstAt = -1
-        for (sec in 0..24) {
-            val pending = observe(policy, sec, sec * 15, 3.0)
-            if (pending && firstAt == -1) firstAt = sec
-        }
-        assertTrue("No recovery on >180m of motion with ~3m progress", firstAt >= 12)
-        assertTrue(firstAt <= 16)
-        assertTrue(observe(policy, 25, 25 * 15, 3.0))
-        // No second false request when the new route is installed.
-        policy.onRouteChanged()
-        assertFalse(observe(policy, 26, 0, 0.0, routeToken = 8L))
+    @Test fun ordinaryRouteProgressNeverTriggers() {
+        val p = RouteProgressStallPolicy()
+        for (s in 0..25)
+            assertFalse(check(p, s, s * 15, s * 15.0))
     }
 
-    @Test fun resumingNaturalProgressCancelsPendingReroute() {
-        val policy = RouteProgressStallPolicy()
-        var pending = false
-        for (sec in 0..14) pending = observe(policy, sec, sec * 15, 3.0)
-        assertTrue(pending)
-        assertFalse(observe(policy, 15, 225, 110.0))
+    @Test fun nearCurrentCorridorOrFarFromWholeRouteCannotTrigger() {
+        val p = RouteProgressStallPolicy()
+        for (s in 0..14)
+            assertFalse(check(p, s, s * 15, 3.0,
+                localCross = 10.0))
+        p.reset()
+        for (s in 0..14)
+            assertFalse(check(p, s, s * 15, 3.0,
+                globalCross = 55.0, localCross = 90.0))
+        // Genuine conventional off-route detection covers the second case.
     }
 
-    @Test fun stopsJitterTeleportAndPoorGpsAreIgnored() {
-        val policy = RouteProgressStallPolicy()
-        for (sec in 0..30)
-            assertFalse(observe(policy, sec, sec % 5, 3.0,
-                speedMps = 0f))
-        policy.reset()
-        assertFalse(observe(policy, 0, 0, 3.0))
-        assertFalse(observe(policy, 1, 160, 3.0)) // implausible 1s jump
-        assertFalse(observe(policy, 2, 175, 3.0))
-        policy.reset()
-        for (sec in 0..25)
-            assertFalse(observe(policy, sec, sec * 15, 3.0,
-                accuracyM = 26f))
+    @Test fun noisyStationaryCourseMissingAndBadAccuracyDoNotTrigger() {
+        val p = RouteProgressStallPolicy()
+        for (s in 0..14)
+            assertFalse(check(p, s, s % 4, 3.0, speed = 0f))
+        p.reset()
+        for (s in 0..14)
+            assertFalse(check(p, s, s * 15, 3.0, course = null))
+        p.reset()
+        for (s in 0..14)
+            assertFalse(check(p, s, s * 15, 3.0, accuracy = 24f))
+        p.reset()
+        assertFalse(check(p, 0, 0, 3.0))
+        assertFalse(check(p, 1, 170, 3.0)) // impossible GPS teleport
+        assertFalse(check(p, 2, 185, 3.0))
     }
 
-    @Test fun farFromRouteOrNoCourseDoNotTrigger() {
-        val policy = RouteProgressStallPolicy()
-        for (sec in 0..24)
-            assertFalse(observe(policy, sec, sec * 15, 3.0, crossM = 60.0))
-        policy.reset()
-        for (sec in 0..24)
-            assertFalse(observe(policy, sec, sec * 15, 3.0, course = null))
+    @Test fun aRoundaboutOrUturnBreaksTheStraightEvidenceWindow() {
+        val p = RouteProgressStallPolicy()
+        assertFalse(check(p, 0, 0, 3.0, course = 0f))
+        assertFalse(check(p, 1, 12, 3.0, course = 15f))
+        assertFalse(check(p, 2, 24, 3.0, course = 50f))
+        assertFalse(check(p, 3, 36, 3.0, course = 105f))
+        assertFalse(check(p, 4, 48, 3.0, course = 180f))
     }
 
-    @Test fun turnAndReturnCannotAccumulateOneFalseStraightWindow() {
-        val policy = RouteProgressStallPolicy()
-        for (sec in 0..20) {
-            val north = if (sec <= 10) sec * 16 else (20 - sec) * 16
-            val course = if (sec <= 10) 0f else 180f
-            assertFalse(observe(policy, sec, north, 3.0, course = course))
-        }
+    @Test fun freshRouteDoesNotInheritEvidenceAndHasNoTwoMinuteLockout() {
+        val p = RouteProgressStallPolicy()
+        for (s in 0..3) check(p, s, s * 15, 3.0)
+        assertTrue(check(p, 4, 60, 3.0))
+        p.onRouteChanged()
+        assertFalse(check(p, 90, 0, 2.0, route = 2L))
+        assertFalse(check(p, 91, 15, 2.0, route = 2L))
+        assertFalse(check(p, 92, 30, 2.0, route = 2L))
+        // After 90s and a legitimate NEW route, recovery is permitted.
+        assertTrue(check(p, 93, 45, 2.0, route = 2L))
     }
 
-    @Test fun freshRouteRetainsCooldownButNewJourneyCanRecover() {
-        val policy = RouteProgressStallPolicy()
-        for (sec in 0..16) observe(policy, sec, sec * 15, 3.0)
-        policy.onRouteChanged()
-        for (sec in 20..48)
-            assertFalse(observe(policy, sec, sec * 15, 3.0, routeToken = 9L))
-        policy.reset()
-        var confirmed = false
-        for (sec in 160..176)
-            confirmed = observe(policy, sec, (sec - 160) * 15, 3.0,
-                routeToken = 10L) || confirmed
-        assertTrue(confirmed)
+    @Test fun briefHeadingGlitchResetsConsecutiveGoodFixes() {
+        val p = RouteProgressStallPolicy()
+        assertFalse(check(p, 0, 0, 3.0))
+        assertFalse(check(p, 1, 15, 3.0))
+        assertFalse(check(p, 2, 30, 3.0, course = 95f))
+        assertFalse(check(p, 3, 45, 3.0))
+        assertFalse(check(p, 4, 60, 3.0))
+        assertFalse(check(p, 5, 75, 3.0))
+        assertTrue(check(p, 6, 90, 3.0))
     }
 }

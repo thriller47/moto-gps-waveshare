@@ -136,6 +136,44 @@ class RouteProgressMatcherTest {
         assertNull(tracker.lastMatchEvidence)
     }
 
+    @Test fun futureLoopLegLooksNearbyButMatchedCorridorIsFarAway() {
+        // Regression based on the 17 Nov trace, in intentionally synthetic
+        // coordinates: the route initially goes SOUTH and doubles back NORTH
+        // beside the start. Rider goes NORTH on the later leg instead.
+        val matcher = RouteProgressMatcher()
+        matcher.reset(listOf(
+            point(0), point(-100), point(-100, 40),
+            point(0, 40), point(250, 40)))
+        matcher.remaining(lat(0), lon(0), 0f, 12f)
+        matcher.remaining(lat(0), lon(35), 0f, 12f)
+        for (north in listOf(15, 30, 45, 60, 75, 90)) {
+            matcher.remaining(lat(north), lon(35), 0f, 12f)
+        }
+        // The existing continuity penalty keeps the anchor near start,
+        // although the GPS is 5m from a future edge. Whole-route deviation
+        // (5m) cannot identify the wrong matched branch.
+        assertTrue(matcher.matchedProgressMeters()!! < 25.0)
+        assertTrue(matcher.distanceToMatchedCorridorMeters(
+            lat(90), lon(35)) > 65.0)
+        // No silent re-anchor: a validated reroute must decide legally.
+        assertTrue(matcher.remaining(lat(105), lon(35), 0f, 12f)!! > 300L)
+    }
+
+    @Test fun matchedCorridorProjectsOnlyInsideItsProgressInterval() {
+        val matcher = RouteProgressMatcher()
+        matcher.reset(listOf(point(0), point(500)))
+        matcher.remaining(lat(100), lon(0), 0f, 12f)
+        assertTrue(matcher.distanceToMatchedCorridorMeters(
+            lat(100), lon(0)) < 1.5)
+        // Even on ONE long segment, the 100m lookahead bound is mandatory.
+        // Without clipping the projection, this would incorrectly be ~0m.
+        assertEquals(200.0,
+            matcher.distanceToMatchedCorridorMeters(lat(400), lon(0)), 3.0)
+        matcher.reset()
+        assertTrue(matcher.distanceToMatchedCorridorMeters(
+            lat(100), lon(0)).isNaN())
+    }
+
     @Test fun offRouteMotionFreezesDistanceUntilReroute() {
         val tracker = RouteProgressMatcher()
         tracker.reset(listOf(point(0), point(500)))

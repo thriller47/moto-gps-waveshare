@@ -1777,7 +1777,9 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
             routeProgressMatcher.matchedProgressMeters(),
             lastGpsSpeedMs,
             if (bearingIsFresh) lastReliableGpsBearing else null,
-            lastFixAccuracyM, distanceFromRoute)
+            lastFixAccuracyM, distanceFromRoute,
+            routeProgressMatcher.distanceToMatchedCorridorMeters(
+                latitude, longitude))
         // No arbitrary segment jump: reuse the established de-bounced
         // reroute path, mandatory stops and heading-aware route request.
         val farFromRoute = distanceFromRoute > 45.0

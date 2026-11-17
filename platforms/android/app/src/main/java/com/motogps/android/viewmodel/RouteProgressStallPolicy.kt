@@ -6,136 +6,148 @@ import kotlin.math.cos
 import kotlin.math.hypot
 
 /**
- * Detects sustained route-progress starvation while good moving GPS fixes
- * remain near SOME leg of the full route. This is a reroute signal only:
- * never jump the matcher to a speculative future leg or skip a waypoint.
+ * Detect a frozen matched corridor, not an arbitrary difference between
+ * GPS travel and route progress.
  *
- * On the 17 Nov replay the rider moved >1 km while progress stayed near 3m.
- * A whole-shape off-route check missed it because the later leg was nearby.
+ * A loop can place a *future* leg close to GPS while the old progress anchor
+ * remains hundreds of metres away. Global route proximity says "on route";
+ * meanwhile the matcher refuses to jump, so guidance gets stuck.
+ *
+ * A confirmed mismatch permits a normal Valhalla reroute. It never advances
+ * the matcher or skips mandatory waypoints, and has NO 120-second lockout:
+ * standard GPS/off-route reroute cooldowns remain in the caller.
  */
 internal class RouteProgressStallPolicy {
     private data class Fix(
-        val timeMs: Long, val lat: Double, val lon: Double,
+        val atMs: Long, val lat: Double, val lon: Double,
         val progressM: Double, val courseDeg: Float
     )
     private val fixes = ArrayDeque<Fix>()
-    private var token: Long? = null
-    private var confirmedAtMs = -1L
+    private var routeToken: Long? = null
     private var confirmedUntilMs = -1L
     private var confirmedProgressM = Double.NaN
 
     private companion object {
         const val MIN_SPEED_MPS = 4f
         const val MAX_ACCURACY_M = 20f
-        const val MAX_CROSS_TRACK_M = 25.0
+        const val MAX_GLOBAL_CROSS_TRACK_M = 25.0
+        const val MIN_CORRIDOR_CROSS_TRACK_M = 65.0
+        const val MIN_CROSS_TRACK_DIFFERENCE_M = 40.0
         const val MAX_COURSE_CHANGE_DEG = 45.0
+        const val MAX_FIX_INTERVAL_MS = 3_500L
         const val MAX_FIX_STEP_M = 55.0
-        const val WINDOW_MS = 30_000L
-        const val MIN_SAMPLE_COUNT = 8
-        const val MIN_DURATION_MS = 8_000L
-        const val MIN_GPS_TRAVEL_M = 180.0
-        const val MIN_DISPLACEMENT_M = 130.0
-        const val MAX_PROGRESS_ADVANCE_M = 25.0
+        const val MIN_STEP_M = 2.0
+        const val MIN_FIX_COUNT = 4
+        const val MIN_DURATION_MS = 2_500L
+        const val MIN_TRAVELLED_M = 30.0
+        const val MIN_DISPLACEMENT_M = 25.0
+        const val MAX_PROGRESS_GAIN_M = 12.0
         const val LATCH_MS = 15_000L
-        const val COOLDOWN_MS = 120_000L
     }
 
-    /** Explicit new user navigation (not an automatic reroute). */
-    fun reset() {
-        onRouteChanged()
-        confirmedAtMs = -1L
-    }
+    fun reset() = onRouteChanged()
 
-    /** Retain anti-loop cooldown when adopting an automatic reroute. */
     fun onRouteChanged() {
         fixes.clear()
-        token = null
+        routeToken = null
         confirmedUntilMs = -1L
         confirmedProgressM = Double.NaN
     }
 
-    /** Call once for each accepted GPS fix, not for each BLE snapshot. */
+    /**
+     * Invoke once per accepted GPS fix, not each BLE/snapshot refresh.
+     * The matched corridor distance comes from the FIRST ~100m ahead of the
+     * matched progress, with 30m allowance behind it. Global cross-track
+     * uses the complete Valhalla route, as before.
+     */
     fun observe(
-        routeToken: Long, nowMs: Long,
-        latitude: Double, longitude: Double,
+        token: Long, nowMs: Long, lat: Double, lon: Double,
         matchedProgressM: Double?, speedMps: Float,
-        courseDegrees: Float?, accuracyMeters: Float,
-        crossTrackMeters: Double
+        courseDeg: Float?, accuracyM: Float,
+        globalCrossTrackM: Double, matchedCorridorCrossTrackM: Double
     ): Boolean {
-        if (token != routeToken) {
+        if (routeToken != token) {
             onRouteChanged()
-            token = routeToken
+            routeToken = token
         }
-        val valid = nowMs >= 0L && latitude.isFinite() &&
-            longitude.isFinite() && matchedProgressM?.isFinite() == true &&
+        val good = nowMs >= 0L && lat.isFinite() && lon.isFinite() &&
+            matchedProgressM?.isFinite() == true &&
             speedMps.isFinite() && speedMps >= MIN_SPEED_MPS &&
-            courseDegrees != null && courseDegrees.isFinite() &&
-            courseDegrees in 0f..359.999f &&
-            accuracyMeters.isFinite() && accuracyMeters in 0f..MAX_ACCURACY_M &&
-            crossTrackMeters.isFinite() && crossTrackMeters <= MAX_CROSS_TRACK_M
-        if (!valid) {
+            courseDeg != null && courseDeg.isFinite() &&
+            courseDeg >= 0f && courseDeg < 360f &&
+            accuracyM.isFinite() && accuracyM in 0f..MAX_ACCURACY_M &&
+            globalCrossTrackM.isFinite() &&
+            globalCrossTrackM <= MAX_GLOBAL_CROSS_TRACK_M &&
+            matchedCorridorCrossTrackM.isFinite() &&
+            matchedCorridorCrossTrackM >= MIN_CORRIDOR_CROSS_TRACK_M &&
+            matchedCorridorCrossTrackM - globalCrossTrackM >= MIN_CROSS_TRACK_DIFFERENCE_M
+        if (!good) {
             fixes.clear()
             confirmedUntilMs = -1L
             return false
         }
         val progress = matchedProgressM!!
-        val course = courseDegrees!!
+        val heading = courseDeg!!
         if (confirmedUntilMs >= nowMs) {
-            // A legitimate recovery before the reroute debounce completes
-            // must cancel the pending request.
-            if (progress > confirmedProgressM + 70.0) {
+            // If the matcher catches up on its own, cancel the reroute signal.
+            if (progress > confirmedProgressM + 50.0) {
                 confirmedUntilMs = -1L
+                fixes.clear()
                 return false
             }
             return true
         }
-        if (confirmedAtMs >= 0L &&
-            nowMs - confirmedAtMs in 0L until COOLDOWN_MS) return false
 
         val previous = fixes.peekLast()
         if (previous != null) {
-            val interval = nowMs - previous.timeMs
-            val step = metres(previous.lat, previous.lon, latitude, longitude)
-            val headingChange = abs(
-                (course - previous.courseDeg + 540.0) % 360.0 - 180.0)
-            val windowHeadingChange = abs(
-                (course - fixes.peekFirst().courseDeg + 540.0) % 360.0 - 180.0)
-            if (interval <= 0L || interval > 3_500L ||
-                step > MAX_FIX_STEP_M || headingChange > MAX_COURSE_CHANGE_DEG ||
-                windowHeadingChange > MAX_COURSE_CHANGE_DEG) {
+            val elapsed = nowMs - previous.atMs
+            val travelled = metres(previous.lat, previous.lon, lat, lon)
+            val courseChange = degreesApart(heading, previous.courseDeg)
+            val windowChange = degreesApart(heading, fixes.peekFirst().courseDeg)
+            if (elapsed <= 0L || elapsed > MAX_FIX_INTERVAL_MS ||
+                travelled > MAX_FIX_STEP_M ||
+                courseChange > MAX_COURSE_CHANGE_DEG ||
+                windowChange > MAX_COURSE_CHANGE_DEG) {
                 fixes.clear()
-            } else if (step < 1.5) {
-                return false // GPS noise / duplicate accepted fix
+            } else if (travelled < MIN_STEP_M) {
+                return false
             }
         }
-        fixes.addLast(Fix(nowMs, latitude, longitude, progress, course))
+        fixes.addLast(Fix(nowMs, lat, lon, progress, heading))
+        // Keep state bounded if a noisy receiver never accumulates a
+        // sufficient net displacement despite reporting moving speed.
         while (!fixes.isEmpty() &&
-            nowMs - fixes.peekFirst().timeMs > WINDOW_MS) fixes.removeFirst()
-        if (fixes.size < MIN_SAMPLE_COUNT) return false
+            (fixes.size > 20 ||
+                nowMs - fixes.peekFirst().atMs > 15_000L)) fixes.removeFirst()
+        if (fixes.size < MIN_FIX_COUNT) return false
+
         val first = fixes.peekFirst()
-        if (nowMs - first.timeMs < MIN_DURATION_MS) return false
-        if (progress - first.progressM > MAX_PROGRESS_ADVANCE_M) {
+        if (nowMs - first.atMs < MIN_DURATION_MS) return false
+        if (progress - first.progressM > MAX_PROGRESS_GAIN_M) {
+            // The matcher is moving: this is not the frozen-anchor defect.
             fixes.clear()
-            fixes.addLast(Fix(nowMs, latitude, longitude, progress, course))
+            fixes.addLast(Fix(nowMs, lat, lon, progress, heading))
             return false
         }
         var travelled = 0.0
-        var last: Fix? = null
+        var prior: Fix? = null
         for (fix in fixes) {
-            if (last != null)
-                travelled += metres(last.lat, last.lon, fix.lat, fix.lon)
-            last = fix
+            if (prior != null)
+                travelled += metres(prior.lat, prior.lon, fix.lat, fix.lon)
+            prior = fix
         }
-        val net = metres(first.lat, first.lon, latitude, longitude)
-        if (travelled < MIN_GPS_TRAVEL_M || net < MIN_DISPLACEMENT_M)
-            return false
+        val displacement = metres(first.lat, first.lon, lat, lon)
+        if (travelled < MIN_TRAVELLED_M ||
+            displacement < MIN_DISPLACEMENT_M) return false
 
-        confirmedAtMs = nowMs
-        confirmedUntilMs = nowMs + LATCH_MS
         confirmedProgressM = progress
+        confirmedUntilMs = nowMs + LATCH_MS
         fixes.clear()
         return true
     }
+
+    private fun degreesApart(a: Float, b: Float) =
+        abs((a - b + 540.0) % 360.0 - 180.0)
 
     private fun metres(lat1: Double, lon1: Double, lat2: Double, lon2: Double) =
         hypot((lat2 - lat1) * 111_195.0,
