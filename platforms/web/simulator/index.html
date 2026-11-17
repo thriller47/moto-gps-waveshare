@@ -63,6 +63,7 @@ code{background:#0b151a;padding:2px 4px;border-radius:3px}a{color:#90d8ff}
 <p id="status" role="status" aria-live="polite">Preparazione del riproduttore…</p>
 <div class="separator"><h2>Riproduzione</h2>
 <label class="curve-control"><input id="curve-zoom" type="checkbox" disabled> Zoom tornanti sperimentale (renderer LVGL)</label>
+<label class="curve-control"><input id="geometry-zoom" type="checkbox" disabled> Zoom geometrico 17/11 · A/B (non consigliato)</label>
 <label class="curve-control"><input id="predictor-ab" type="checkbox" disabled> Predittore ESP32 sperimentale · confronto A/B</label>
 <label class="curve-control">Heading del replay
 <select id="heading-mode" aria-label="Modalità heading del replay">
@@ -76,6 +77,7 @@ code{background:#0b151a;padding:2px 4px;border-radius:3px}a{color:#90d8ff}
 <details><summary>Come funzionano i confronti A/B</summary>
 <p class="hint">Predittore OFF: posizione registrata/interpolata dal player. ON: stesso <code>MapOriginPredictor</code> C++ del firmware con finestre del replay come ancore; non include IMU reale, offset BLE o fusione heading. Confrontare a 1× dall'inizio.</p>
 <p class="hint">Zoom tornanti OFF: zoom originale. ON: curve della linea verde fino a 3×; rotatorie fino a 4×. Le modifiche C++ richiedono la ricompilazione WASM.</p>
+<p class="hint">Zoom geometrico 17/11 OFF (predefinito): zoom rotonde già collaudato, come sul firmware sperimentale aggiornato. ON: riproduce il rilevatore che ha generato zoom falsi e oscillanti nei video del 17/11. Questo confronto non elimina eventuali vertici OSM errati dalla linea verde.</p>
 <p class="hint">Heading bloccato: orientamento fisso. Stabilizzato: filtro sui rettilinei. GPS verificato: direzioni tra fix. Course multifix: almeno 4 fix distinti e 16 m di avanzamento su traiettoria coerente; se manca distanza sufficiente mantiene la direzione, e riconosce le curve su spostamenti GPS consecutivi. Tutte sono modalità sperimentali solo del replay.</p>
 </details>
 <input id="timeline" aria-label="Posizione nel tracciato" type="range" min="0" max="0" value="0" disabled>

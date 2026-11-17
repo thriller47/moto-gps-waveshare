@@ -518,6 +518,8 @@ Il separatore `|` mantiene gli spazi nel nome rete: ad esempio `wifi set Hotspot
 
 ## 9. Simulatore browser e replay GPS
 
+**Confronto A/B del problema zoom 17/11 (branch test):** dopo `./scripts/build_web.sh`, il controllo **Zoom geometrico 17/11 · A/B** è OFF per default come nel firmware ESP32 di test aggiornato. In ON riproduce l'algoritmo che nei video 19:14:25 e 19:15:20 ha ingrandito una piega inesistente e oscillato 1× → ~3,5× → 1× fra 17:45:43 e 17:46:07. Usare OFF per il replay di riferimento, lasciare separatamente **Zoom tornanti sperimentale** OFF e poi provare ON per diagnosi. Richiede ricompilazione WASM: CI native/Android/ESP32 non compila Emscripten. Lo switch non rimuove i vertici del percorso problematico, già presenti nelle route windows Android.
+
 ### Avvio del simulatore LVGL in WSL Ubuntu
 
 

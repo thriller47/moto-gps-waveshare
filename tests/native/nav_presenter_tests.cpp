@@ -668,6 +668,45 @@ void test_experimental_curve_zoom_does_not_change_default_or_roundabouts() {
 }
 
 
+
+void test_nov17_geometry_zoom_is_off_unless_explicitly_enabled() {
+  NavPresenter p;
+  NavSnapshot s;
+  s.state=NavState::Navigating;
+  s.route_id="replay1711";
+  s.route_generation=1;
+  s.has_route_view=true;
+  s.route_view_origin={44.4036699,7.8299015};
+  s.has_next_maneuver=true;
+  s.next_maneuver.type=ManeuverType::Roundabout;
+  s.distance_to_next_maneuver_m=652.0;
+  // Raw 17:44:35 route vertices include a false bend on a straight road.
+  constexpr std::array<CurveZoomPoint,15> points{{
+    {44.403753,7.829907},{44.403377,7.829516},
+    {44.403329,7.829428},{44.403320,7.829348},
+    {44.403335,7.829270},{44.403309,7.829205},
+    {44.403259,7.829180},{44.403140,7.829232},
+    {44.403088,7.829213},{44.402928,7.829073},
+    {44.402137,7.828264},{44.400634,7.826783},
+    {44.400456,7.826649},{44.399951,7.826462},
+    {44.399723,7.826301}
+  }};
+  s.route_view_point_count=static_cast<std::uint8_t>(points.size());
+  for(std::size_t i=0;i<points.size();++i)
+    s.route_view_points[i]={points[i].latitude_deg,points[i].longitude_deg};
+  p.update(s);
+  CHECK(std::abs(p.applied_zoom_factor()-1.0)<0.001);
+  p.set_geometry_aware_zoom_enabled(true);
+  p.update(s);
+  CHECK(p.applied_zoom_factor()>1.1);
+  p.set_geometry_aware_zoom_enabled(false);
+  p.update(s);
+  CHECK(std::abs(p.applied_zoom_factor()-1.0)<0.001);
+  s.distance_to_next_maneuver_m=25.0;
+  p.update(s);
+  CHECK(p.applied_zoom_factor()>3.0); // legacy roundabout zoom remains
+}
+
 void test_nov17_replay_zoom_uses_nearby_route_not_stale_maneuver() {
   // Recorded Android->BLE route windows, 17 Nov 2026.
   const auto zoom=[](const auto& pts,double lat,double lon,double turn_m){
@@ -857,6 +896,7 @@ int main() {
   test_near_turn_zooms_route_and_roads_together_and_restores_scale();
   test_roundabout_dropout_holds_zoom_between_nearby_circuits();
   test_experimental_curve_zoom_does_not_change_default_or_roundabouts();
+  test_nov17_geometry_zoom_is_off_unless_explicitly_enabled();
   test_nov17_replay_zoom_uses_nearby_route_not_stale_maneuver();
   test_missing_or_incomplete_geometry_stays_empty();
   test_presenter_owns_road_name_storage();
