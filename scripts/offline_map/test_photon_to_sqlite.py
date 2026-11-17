@@ -147,7 +147,7 @@ class TestZstdPipes(unittest.TestCase):
             return real_popen([sys.executable, "-c", script], **kwargs)
         with patch.object(subprocess, "Popen", side_effect=fake_zstd):
             with open_lines("virtual.jsonl.zst") as source:
-                self.assertEqual(list(source), ["one\\n", "two\\n"])
+                self.assertEqual(list(source), ["one\n", "two\n"])
 
     def test_graph_decoder_verbose_stderr_does_not_deadlock(self):
         script = """
