@@ -50,6 +50,17 @@ class WaypointSkipPlanTest {
         assertNull(WaypointSkipPlan.create(listOf(stop), 1))
     }
 
+    @Test fun skipOrdinaryRouteAfterFirstStopKeepsCompletedHistory() {
+        val visited = PlaceSearchResult("Lavoro", "", "Indirizzo", 45.00, 9.00)
+        val blocked = PlaceSearchResult("Strada chiusa", "", "Indirizzo", 45.01, 9.01)
+        val pending = PlaceSearchResult("Passo", "", "Indirizzo", 45.02, 9.02)
+        val plan = requireNotNull(
+            WaypointSkipPlan.create(listOf(visited, blocked, pending), 1))
+        assertEquals(blocked, plan.skipped)
+        assertEquals(listOf(pending), plan.pending)
+        assertEquals(listOf(visited, pending), plan.revised)
+    }
+
     @Test fun finalDestinationCannotBeSkipped() {
         assertNull(WaypointSkipPlan.create(emptyList(), 0))
         assertNull(WaypointSkipPlan.create(listOf(stop("Lavoro", 0.01)), 1))
