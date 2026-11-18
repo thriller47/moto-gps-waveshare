@@ -76,6 +76,7 @@ jobs:
               - 'tests/native/**'
               - 'platforms/web/**'
               - 'scripts/offline_map/**'
+              - 'scripts/diagnostics/**'
               - 'third_party/**'
             android:
               - 'platforms/android/**'
@@ -134,6 +135,11 @@ jobs:
           node --check platforms/web/simulator/heading_stability.js
           node --test platforms/web/simulator/trace_model.test.cjs platforms/web/simulator/fallback_map.test.cjs platforms/web/simulator/ring_alignment.test.cjs platforms/web/simulator/heading_stability.test.cjs platforms/web/simulator/wasm_exports.test.cjs
 
+      - name: Validate replay diagnostic scripts and deterministic offline analyzer
+        run: |
+          bash -n scripts/diagnostics/prepare_20261115_replay_ab.sh
+          python3 -m unittest discover -s scripts/diagnostics -p 'test_*.py'
+
       - name: Verify MotoMap v3 converter contract
         run: python3 -m unittest discover -s scripts/offline_map -p 'test_motomap_v4.py'
 
@@ -143,8 +149,10 @@ jobs:
       - name: Verify unified Moto Chat GPS offline bundle
         run: python3 -m unittest discover -s scripts/offline_map -p 'test_motopack.py'
 
-      - name: Smoke-test WSL unified map builder CLI
-        run: python3 -m unittest discover -s scripts/offline_map -p 'test_build_motopack_wsl.py'
+      - name: Smoke-test WSL unified map builder and safe replacement CLI
+        run: |
+          python3 -m unittest discover -s scripts/offline_map -p 'test_build_motopack_wsl.py'
+          python3 -m unittest discover -s scripts/offline_map -p 'test_rebuild_motopack_wsl.py'
 
       - name: Verify Valhalla V5 motorcycle-only filter script
         run: python3 -m unittest discover -s scripts/offline_map -p 'test_valhalla_moto_v5.py'
