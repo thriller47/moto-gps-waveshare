@@ -61,12 +61,51 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     private var diagnosticMode by mutableStateOf(0)
     private var replayRecording by mutableStateOf(ReplayTraceRecorder.isRecording())
     private val diagnosticTimeoutHandler = Handler(Looper.getMainLooper())
-    private val diagnosticTimeout = Runnable { diagnosticMode = 0 }
+    private val diagnosticTimeout = Runnable {
+        // Stop the complete session together, rather than silently losing ESP logs.
+        setCompleteDiagnosticMode(0)
+    }
+
+    /** Start/stop GPS replay and ESP32 BLE events as one explicit session. */
+    private fun setCompleteDiagnosticMode(mode: Int) {
+        if (mode == 0) {
+            ReplayTraceRecorder.stop()
+            replayRecording = false
+            bleManager.setDiagnosticMode(0)
+            diagnosticMode = 0
+            diagnosticTimeoutHandler.removeCallbacks(diagnosticTimeout)
+            DiagnosticLog.event("FULL_DIAGNOSTICS", "stopped")
+            return
+        }
+        if (mode !in 1..2) return
+        if (!bleManager.setDiagnosticMode(mode)) {
+            Toast.makeText(this, "Connetti l’ESP32 per registrare GPS e BLE insieme",
+                Toast.LENGTH_LONG).show()
+            return
+        }
+        try {
+            ReplayTraceRecorder.start(this)
+            replayRecording = ReplayTraceRecorder.isRecording()
+            diagnosticMode = mode
+            diagnosticTimeoutHandler.removeCallbacks(diagnosticTimeout)
+            diagnosticTimeoutHandler.postDelayed(diagnosticTimeout, 60L * 60L * 1000L)
+            DiagnosticLog.event("FULL_DIAGNOSTICS", "started mode=$mode")
+        } catch (e: Exception) {
+            bleManager.setDiagnosticMode(0)
+            ReplayTraceRecorder.stop()
+            replayRecording = false
+            diagnosticMode = 0
+            Toast.makeText(this, "Diagnostica non avviata: ${e.message}",
+                Toast.LENGTH_LONG).show()
+        }
+    }
 
     private fun exportDiagnostics() {
         lifecycleScope.launch(Dispatchers.IO) {
             try {
-                val file = DiagnosticLog.exportZip()
+                // Freeze both streams before exporting a consistent, single snapshot.
+                withContext(Dispatchers.Main) { setCompleteDiagnosticMode(0) }
+                val file = DiagnosticLog.exportCompleteZip(this@MainActivity)
                 val uri = FileProvider.getUriForFile(this@MainActivity, "$packageName.diagnostics", file)
                 withContext(Dispatchers.Main) {
                     if (!isFinishing && !isDestroyed) {
@@ -82,33 +121,6 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 withContext(Dispatchers.Main) {
                     if (!isFinishing && !isDestroyed) {
                         Toast.makeText(this@MainActivity, "Esportazione non riuscita: ${e.message}",
-                            Toast.LENGTH_LONG).show()
-                    }
-                }
-            }
-        }
-    }
-
-    private fun exportReplay() {
-        lifecycleScope.launch(Dispatchers.IO) {
-            try {
-                val file = ReplayTraceRecorder.export(this@MainActivity)
-                val uri = FileProvider.getUriForFile(this@MainActivity, "$packageName.diagnostics", file)
-                withContext(Dispatchers.Main) {
-                    if (!isFinishing && !isDestroyed) {
-                        val send = Intent(Intent.ACTION_SEND).apply {
-                            type = if (file.extension.equals("zip", ignoreCase = true))
-                                "application/zip" else "application/x-ndjson"
-                            putExtra(Intent.EXTRA_STREAM, uri)
-                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        }
-                        startActivity(Intent.createChooser(send, "Esporta tracciato GPS privato"))
-                    }
-                }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    if (!isFinishing && !isDestroyed) {
-                        Toast.makeText(this@MainActivity, "Esportazione GPS non riuscita: ${e.message}",
                             Toast.LENGTH_LONG).show()
                     }
                 }
@@ -263,36 +275,8 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 NavigationScreen(
                     onExportDiagnostics = { exportDiagnostics() },
                     replayRecording = replayRecording,
-                    onReplayRecordingChange = { shouldRecord ->
-                        try {
-                            if (shouldRecord) ReplayTraceRecorder.start(this@MainActivity)
-                            else ReplayTraceRecorder.stop()
-                            replayRecording = ReplayTraceRecorder.isRecording()
-                        } catch (e: Exception) {
-                            Toast.makeText(this@MainActivity,
-                                "Registratore GPS: ${e.message}", Toast.LENGTH_LONG).show()
-                        }
-                    },
-                    onExportReplay = { exportReplay() },
-                    onCorridorTileCount = { viewModel.corridorTileCount(this@MainActivity) },
-                    onDownloadCorridor = { viewModel.downloadOpenFreeMapCorridor(this@MainActivity) },
                     diagnosticMode = diagnosticMode,
-                    onDiagnosticModeChange = { mode ->
-                        if (bleManager.setDiagnosticMode(mode)) {
-                            diagnosticMode = mode
-                            diagnosticTimeoutHandler.removeCallbacks(diagnosticTimeout)
-                            if (mode != 0) {
-                                diagnosticTimeoutHandler.postDelayed(
-                                    diagnosticTimeout, 60L * 60L * 1000L
-                                )
-                            }
-                            DiagnosticLog.event("ESP32_DIAG_MODE", "mode=$mode")
-                        } else {
-                            Toast.makeText(this@MainActivity,
-                                "Connetti l'ESP32 prima di attivare il log",
-                                Toast.LENGTH_SHORT).show()
-                        }
-                    },
+                    onUnifiedDiagnosticModeChange = { mode -> setCompleteDiagnosticMode(mode) },
                     onSearch = { query ->
                         viewModel.searchDestination(query)
                     },
