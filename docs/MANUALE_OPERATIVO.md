@@ -1,6 +1,6 @@
 # Moto Chat GPS — Manuale operativo
 
-**Aggiornato:** 18 novembre 2026 · **Repository:** `thriller47/moto-gps-waveshare` · **Integrazione stabile:** `valhalla` · **Sviluppo sperimentale corrente:** `test/unified-offline-map-20261115`.
+**Aggiornato:** 18 novembre 2026 (fusione sperimentale Gemini + MotoPack) · **Repository:** `thriller47/moto-gps-waveshare` · **Integrazione stabile:** `valhalla` · **Sviluppo sperimentale corrente:** `test/merge-gps-20261118`.
 
 Queste sono le **procedure operative correnti**, per Waveshare ESP32-S3-Touch-AMOLED-1.75C e app Android. Le istruzioni distinguono **Windows PowerShell**, **CMD ESP-IDF** e **WSL Ubuntu-24.04**: i rispettivi comandi non sono intercambiabili. La porta USB `COM3` è un esempio da verificare sul PC.
 
@@ -16,8 +16,8 @@ Per **lavorare nel branch sperimentale in WSL**:
 cd ~/MotoGPS/moto-gps-waveshare
 git status --short
 git fetch origin --prune
-git switch test/unified-offline-map-20261115
-git pull --ff-only origin test/unified-offline-map-20261115
+git switch test/merge-gps-20261118
+git pull --ff-only origin test/merge-gps-20261118
 git branch --show-current
 ```
 
@@ -121,7 +121,7 @@ Gli artifact della run corretta possono includere il firmware `ESP32-Firmware` (
 **Da PowerShell Windows, con GitHub CLI configurata** (esempio per il branch test, cambiare `-b` quando si usa `valhalla`):
 
 ```powershell
-gh run list -R thriller47/moto-gps-waveshare -b test/unified-offline-map-20261115 -w project-build.yml -L 10
+gh run list -R thriller47/moto-gps-waveshare -b test/merge-gps-20261118 -w project-build.yml -L 10
 gh run download ID_RUN -R thriller47/moto-gps-waveshare -n ESP32-Firmware -D C:\MotoGPS\ESP32-Firmware
 ```
 
@@ -413,7 +413,7 @@ Il separatore `|` mantiene gli spazi nel nome rete: ad esempio `wifi set Hotspot
 
 ## 10. Funzioni Android sperimentali (branch test)
 
-Le funzioni qui sotto sono nel branch `test/unified-offline-map-20261115` e **non vanno attribuite automaticamente alla versione stabile** `valhalla`. La disponibilità effettiva dipende dall'APK installato.
+Le funzioni qui sotto sono nel branch `test/merge-gps-20261118` e **non vanno attribuite automaticamente alla versione stabile** `valhalla`. La disponibilità effettiva dipende dall'APK installato.
 
 - **Panoramico / Touring moto:** in **Opzioni percorso** scegliere il profilo; Panoramico preferisce un itinerario relativamente più tortuoso, ma non certifica il paesaggio né garantisce una distanza precisa.
 - **Tour circolare:** dalla ricerca aprire **Crea tour circolare**, impostare circa **30–300 km** e N/E/S/O, aggiungere eventuali luoghi obbligatori trovati con Photon (massimo otto), quindi **Calcola tour**. Con zero punti obbligatori il pianificatore propone tappe automatiche; con uno può aggiungere un punto laterale, con più punti rispetta il loro ordine. Verificare sempre la preview di Valhalla, il ritorno e le tappe prima di partire.
@@ -437,7 +437,7 @@ Le prove di routing, checkpoint e BLE/IMU non coincidono con un collaudo dell'in
 
 | Operazione frequente | Dove | Comando o percorso |
 | --- | --- | --- |
-| Aggiornare branch test | WSL | `git pull --ff-only origin test/unified-offline-map-20261115` |
+| Aggiornare branch test | WSL | `git pull --ff-only origin test/merge-gps-20261118` |
 | Ricostruire tutto il MotoPack | WSL | `bash scripts/offline_map/rebuild_motopack_wsl.sh --threads 2` |
 | Aprire risultati da Windows | Win + R | `\\wsl.localhost\Ubuntu-24.04\home\mod\motogps-build\ItaliaUnificata-20261118` |
 | Compilare ESP32 | CMD attivato con `moto` | `idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.perf.defaults" build` |
