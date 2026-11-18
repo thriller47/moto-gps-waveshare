@@ -6,7 +6,7 @@ Se il ricalcolo o il salvataggio del checkpoint falliscono, la tappa resta nell'
 
 # Moto Chat GPS — Manuale operativo
 
-**Aggiornato:** 15 novembre 2026. Repository `thriller47/moto-gps-waveshare`, branch stabile **`valhalla`**. Scheda Waveshare ESP32-S3-Touch-AMOLED-1.75C (466×466, 8 MB PSRAM, 32 MB flash). Nei comandi Windows la porta **COM3 è un esempio**, sostituirla con quella effettiva. Usare **PowerShell**, **CMD** o **WSL Ubuntu** come indicato.
+**Aggiornato:** 18 novembre 2026 (script WSL di rigenerazione; ultimo collaudo del MotoPack del 15 novembre). Repository `thriller47/moto-gps-waveshare`, branch stabile **`valhalla`**. Scheda Waveshare ESP32-S3-Touch-AMOLED-1.75C (466×466, 8 MB PSRAM, 32 MB flash). Nei comandi Windows la porta **COM3 è un esempio**, sostituirla con quella effettiva. Usare **PowerShell**, **CMD** o **WSL Ubuntu** come indicato.
 
 **Questa è la procedura corrente.** Il manuale precedente, con vecchi branch, Photon v1, MotoMap v2/v3, proposte non ancora implementate e note di debug ripetute, è conservato in [archive/MANUALE_OPERATIVO_PRE_CLEANUP_2026-11-15.md](archive/MANUALE_OPERATIVO_PRE_CLEANUP_2026-11-15.md) **solo per riferimento storico**. Lo stato del progetto e le prove ancora aperte sono in [../PROJECT_STATE.md](../PROJECT_STATE.md). Non usare i comandi di checkout dei rami di test dell'archivio.
 
@@ -378,6 +378,27 @@ ls -lh ~/motogps-build/ValhallaItaliaV4/valhalla_tiles.tar* \
 **Valori effettivamente riferiti dall'utente il 14/11/2026:** V4 `886M` ZST e `2.3G` TAR, V5 `661M` ZST e `1.7G` TAR; nodi 11.457.028 → 8.757.819 e archi orientati 26.093.538 → 18.799.618. Versione tile 3.9.1 per entrambi; nessun header non verificato. I valori di `ls -lh` sono arrotondati. La prova Android di V5 è stata riportata come positiva; non dimostra però ogni possibile strada secondaria.
 
 
+
+### Rigenerazione completa e sostituzione dei vecchi file (WSL, 18 novembre 2026)
+
+**Sperimentale — branch `test/unified-offline-map-20261115`.** Il comando seguente rigenera **MotoMap v4, Valhalla V5 e Photon SQLite v2**, partendo dai sorgenti in `C:\MotoGPS\PBF`, poi assembla e verifica il `.motopack`. Usa **lo stesso `italy-latest.osm.pbf`** per MotoMap e Valhalla; l'archivio preesistente `valhalla_italia_v5.tar.zst` è lasciato intatto, **non riutilizzato**.
+
+Da **WSL Ubuntu**, nel repository con le dipendenze Valhalla 3.9.1 e Python `osmium`/`shapely` disponibili:
+
+```bash
+cd ~/MotoGPS/moto-gps-waveshare
+git fetch origin
+git switch test/unified-offline-map-20261115
+git pull --ff-only origin test/unified-offline-map-20261115
+source ~/valhalla-env/bin/activate
+bash scripts/offline_map/rebuild_motopack_wsl.sh
+```
+
+**Percorsi predefiniti:** input `/mnt/c/MotoGPS/PBF/{italy-latest.osm.pbf,italy.poly,photon-italy.jsonl.zst}`; output `~/motogps-build/ItaliaUnificata-20261118/MotoChatGPS-Italia.motopack`. Non servono variabili `$SRC`/`$OUT` definite manualmente. Per sostituire invece la precedente cartella stabile: `bash scripts/offline_map/rebuild_motopack_wsl.sh --out "$HOME/motogps-build/ItaliaUnificata" --threads 2`.
+
+**Sovrascrittura sicura:** il vecchio output rimane invariato durante tutte le conversioni. Il nuovo viene generato su filesystem WSL in una cartella temporanea separata e verificato con SHA-256; **solo dopo** la verifica la directory di output viene sostituita e il backup temporaneo della versione precedente eliminato. Se la generazione fallisce, lo script pulisce il temporaneo e lascia intatta la vecchia directory. **Non tocca mai i quattro file di input** in `C:\MotoGPS\PBF`, non modifica le mappe già installate sul telefono e non scrive in GitHub.
+
+**Cautele:** occorre spazio su disco per **vecchia + nuova build simultaneamente** (oltre ai grafi Valhalla non compressi nella nuova build). Per evitare perdite di dati, se la cartella di output contiene file o directory non appartenenti ai quattro componenti attesi, lo script si ferma senza cancellare nulla: spostarli altrove oppure indicare un altro `--out`. Non usare `sudo`. Il cambio fra backup e nuova directory è un passaggio locale rapido, ma un'interruzione brusca esattamente durante la sostituzione può lasciare una directory `.old.*` da ripristinare manualmente: controllare prima di cancellarla. Alla fine importare il nuovo MotoPack nell'APK sperimentale, quando si decide di aggiornare le mappe offline.
 
 ### Produzione completa in WSL da PBF + POLY + Photon (procedura integrata)
 
