@@ -7,7 +7,7 @@
   const $ = id => document.getElementById(id);
   const names = ["trace-file","sample","snapshot","status","play","previous","next",
     "prev-event","next-event","speed","timeline","time","frame","maneuver",
-    "roads","ring-alignment","zoom","speed-kph","gps-position","gps-heading","heading-mode","heading-mode-note","map-origin","prediction-offset","heading-chart","offset-chart","diagnostic-summary","export-heading","performance","lvgl-performance","map-motion","events","profile","canvas","preview","summary","curve-zoom","predictor-ab"];
+    "roads","ring-alignment","zoom","speed-kph","gps-position","gps-heading","heading-mode","heading-mode-note","map-origin","prediction-offset","heading-chart","offset-chart","diagnostic-summary","export-heading","performance","lvgl-performance","map-motion","events","profile","canvas","preview","summary","curve-zoom","geometry-zoom","predictor-ab"];
   const ui = Object.fromEntries(names.map(id=>[id,$(id)]));
   const required = names.filter(id=>!ui[id]);
   if (required.length) throw Error("Controlli simulator mancanti: " + required.join(", "));
@@ -111,7 +111,11 @@
     ui.play.textContent = "▶ Riproduci";
   }
   function resetRenderer() {
-    if (api) { api.reset(); api.predictor(ui['predictor-ab'].checked ? 1 : 0); }
+    if (api) {
+      api.reset();
+      api.predictor(ui["predictor-ab"].checked ? 1 : 0);
+      api.geometryZoom?.(ui["geometry-zoom"].checked ? 1 : 0);
+    }
     rendered = -1;
     appliedRoute = null;
     appliedScene = null;
@@ -551,6 +555,7 @@
           originLat:optional("moto_web_replay_origin_lat","number",[]),
           originLon:optional("moto_web_replay_origin_lon","number",[]),
           curveZoom:fn("set_curve_zoom_enabled",["number"]),
+          geometryZoom:optional("moto_web_replay_set_geometry_zoom_enabled",null,["number"]),
           zoomFactor:mod.cwrap("moto_web_replay_zoom_factor","number",[]),
           lvglRender:mod.cwrap("moto_web_lvgl_render_hz","number",[]),
           lvglFlush:mod.cwrap("moto_web_lvgl_flush_hz","number",[]),
@@ -563,6 +568,7 @@
           lvglMax:mod.cwrap("moto_web_lvgl_handler_max_ms","number",[])};
         ui.preview.hidden=true;ui.canvas.hidden=false;
         ui["curve-zoom"].disabled=false;
+        ui["geometry-zoom"].disabled=!api.geometryZoom;
         ui["predictor-ab"].disabled=false;
         api.curveZoom(ui["curve-zoom"].checked?1:0);
         resetRenderer();
@@ -589,6 +595,11 @@
   });
   ui["predictor-ab"].addEventListener("change",()=>{
     if (!api) return;
+    pause();resetRenderer();
+    if(frames.length)display(index);
+  });
+  ui["geometry-zoom"].addEventListener("change",()=>{
+    if (!api?.geometryZoom) return;
     pause();resetRenderer();
     if(frames.length)display(index);
   });
