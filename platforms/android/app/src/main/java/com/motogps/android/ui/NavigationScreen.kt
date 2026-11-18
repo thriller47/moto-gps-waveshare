@@ -656,10 +656,8 @@ fun NavigationScreen(
     onRefreshMaps: () -> Unit = {},
     onExportDiagnostics: () -> Unit = {},
     replayRecording: Boolean = false,
-    onReplayRecordingChange: (Boolean) -> Unit = {},
-    onExportReplay: () -> Unit = {},
     diagnosticMode: Int = 0,
-    onDiagnosticModeChange: (Int) -> Unit = {}
+    onUnifiedDiagnosticModeChange: (Int) -> Unit = {}
 ) {
     var showCircularTourDialog by remember { mutableStateOf(false) }
     var circularDistanceKm by remember { mutableFloatStateOf(100f) }
@@ -956,41 +954,76 @@ fun NavigationScreen(
     }
 
     if (showDiagnosticsDialog) {
+        var selectedDiagnosticLevel by remember { mutableIntStateOf(1) }
         AlertDialog(
             onDismissRequest = { showDiagnosticsDialog = false },
-            title = { Text("Diagnostica ESP32") },
+            title = { Text("Diagnostica completa") },
             text = {
                 Column(
                     modifier = Modifier.verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text("Diagnostica ESP32: OFF per l'uso normale, BASE per eventi critici, DEBUG per rendering e BLE. Solo PSRAM, disattivazione automatica dopo 60 minuti.")
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        for ((mode, label) in listOf(0 to "OFF", 1 to "BASE", 2 to "DEBUG")) {
-                            OutlinedButton(
-                                onClick = {
-                                    onDiagnosticModeChange(mode)
-                                    showDiagnosticsDialog = false
-                                },
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text((if (diagnosticMode == mode) "✓ " else "") + label, maxLines = 1)
+                    Text(
+                        "Una sessione registra insieme il GPS Android e gli eventi ESP32 " +
+                            "ricevuti via Bluetooth. Collega l'ESP32 prima di avviare.",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Text(
+                        when {
+                            replayRecording && diagnosticMode != 0 ->
+                                "Registrazione attiva: GPS + ESP32 (" +
+                                    (if (diagnosticMode == 2) "DEBUG" else "BASE") + ")"
+                            replayRecording -> "GPS attivo · ESP32 disconnesso o log non disponibile"
+                            else -> "Registrazione disattivata"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (!replayRecording) {
+                        Text("Dettaglio eventi ESP32", style = MaterialTheme.typography.labelLarge)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            for ((mode, label) in listOf(1 to "BASE", 2 to "DEBUG")) {
+                                OutlinedButton(
+                                    onClick = { selectedDiagnosticLevel = mode },
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text((if (selectedDiagnosticLevel == mode) "✓ " else "") + label)
+                                }
                             }
                         }
+                        Text(
+                            "Una nuova sessione sostituisce il precedente replay GPS non esportato.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
                     }
-                    Text("Registrazione GPS privata per simulatore: continua finché non la fermi, suddividendo automaticamente il tracciato in file ogni 30 minuti o circa 12 MB. Esporta un .jsonl singolo o uno ZIP con tutte le parti. La memoria del telefono deve essere sufficiente; il registratore è disattivato per impostazione predefinita.")
-                    OutlinedButton(onClick = { onReplayRecordingChange(!replayRecording) },
-                        modifier = Modifier.fillMaxWidth()) {
-                        Text(if (replayRecording) "■ Ferma registrazione GPS"
-                            else "● Avvia registrazione GPS")
+                    Button(
+                        onClick = {
+                            onUnifiedDiagnosticModeChange(
+                                if (replayRecording) 0 else selectedDiagnosticLevel
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
+                    ) {
+                        Text(if (replayRecording) "Ferma diagnostica completa"
+                            else "Avvia diagnostica completa")
                     }
-                    OutlinedButton(onClick = { onExportReplay() },
-                        modifier = Modifier.fillMaxWidth()) {
-                        Text("Esporta tracciato simulatore (.jsonl / ZIP)")
+                    OutlinedButton(
+                        onClick = {
+                            showDiagnosticsDialog = false
+                            onExportDiagnostics()
+                        },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                        enabled = replayRecording || diagnosticMode == 0
+                    ) {
+                        Text("Ferma ed esporta tutto (ZIP)")
                     }
+                    Text(
+                        "Lo ZIP contiene log Android, eventi ESP32 e tutte le parti GPS " +
+                            "JSONL, utilizzabili nel simulatore. Include coordinate e percorsi: " +
+                            "condividilo solo volontariamente.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             },
             confirmButton = {
