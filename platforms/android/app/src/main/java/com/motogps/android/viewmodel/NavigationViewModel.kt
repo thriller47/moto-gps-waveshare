@@ -1119,7 +1119,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         val displacementM = if (prevLat != null && prevLon != null)
             calculateDistanceMeters(prevLat!!, prevLon!!, latitude, longitude)
         else 0.0
-        val displacementCourse = if (displacementM >= 6.0)
+        val displacementCourse = if (displacementM >= 9.0)
             calculateBearingDeg(prevLat!!, prevLon!!, latitude, longitude)
         else null
         val travelCourse = NavigationHeadingPolicy.movingHeading(

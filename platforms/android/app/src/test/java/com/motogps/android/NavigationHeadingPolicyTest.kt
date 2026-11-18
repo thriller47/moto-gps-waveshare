@@ -28,6 +28,7 @@ class NavigationHeadingPolicyTest {
 
     @Test fun lowSpeedAndInvalidHeadingCannotRotateTheMap() {
         assertNull(NavigationHeadingPolicy.movingHeading(1.49f, 180f, 10.0, 180f))
+        assertNull(NavigationHeadingPolicy.movingHeading(1.99f, 180f, 10.0, 180f))
         assertNull(NavigationHeadingPolicy.movingHeading(Float.NaN, 90f, 10.0, 90f))
         assertNull(NavigationHeadingPolicy.movingHeading(4f, Float.NaN, 3.9, 120f))
         assertEquals(270f,
@@ -39,16 +40,20 @@ class NavigationHeadingPolicyTest {
         assertEquals(270f,
             NavigationHeadingPolicy.movingHeading(4f, 90f, 15.0, 270f, 50f)!!, 0.001f)
         assertNull(NavigationHeadingPolicy.movingHeading(1.5f, 90f, 15.0, 270f, 1f))
+        assertNull(NavigationHeadingPolicy.movingHeading(1.8f, 90f, 2.0, 270f, 15f))
         assertEquals(90f,
-            NavigationHeadingPolicy.movingHeading(1.8f, 90f, 2.0, 270f, 15f)!!, 0.001f)
+            NavigationHeadingPolicy.movingHeading(2.0f, 90f, 2.0, 270f, 15f)!!, 0.001f)
+        assertNull(NavigationHeadingPolicy.movingHeading(1.8f, null, 9.5, -90f, null, 2f))
+        assertNull(NavigationHeadingPolicy.movingHeading(2.0f, null, 8.5, -90f, null, 2f))
         assertEquals(270f,
-            NavigationHeadingPolicy.movingHeading(1.8f, null, 6.5, -90f, null, 2f)!!, 0.001f)
+            NavigationHeadingPolicy.movingHeading(2.0f, null, 9.5, -90f, null, 2f)!!, 0.001f)
         assertNull(NavigationHeadingPolicy.movingHeading(5f, -1f, 8.0, 10f))
     }
 
     @Test fun stopHoldsLastCourseInsteadOfFollowingPhoneMagnetometer() {
         assertNull(NavigationHeadingPolicy.movingHeading(0f, 270f, 30.0, 270f))
         assertNull(NavigationHeadingPolicy.movingHeading(1.0f, 90f, 30.0, 90f))
+        assertNull(NavigationHeadingPolicy.movingHeading(1.9f, 90f, 30.0, 90f))
     }
 }
 

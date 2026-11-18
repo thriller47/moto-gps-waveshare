@@ -2,27 +2,58 @@
 
 ## STATO ATTUALE — RIPARTIRE DA QUI
 
-**Aggiornato:** 18 novembre 2026 (prevenzione taglio corda in rotonde lente/strette: anticipo turn_scale a 4°, disattivazione compensazione retrograda in curva e cadenza BLE continua a 900 ms su Android sul branch `gemini_test`). **Repository:** [thriller47/moto-gps-waveshare](https://github.com/thriller47/moto-gps-waveshare). **Branch di integrazione stabile:** `valhalla` (non toccato, nessun merge eseguito). **Branch sperimentale attivo:** `gemini_test`.
+**Aggiornato:** 18 novembre 2026 (calibrazione automatica asse gravità montaggio IMU, filtro di Kalman adattivo a 2 stati senza blackout GPS in curva, stabilità traffico lento e allineamento soglie Android sul branch `gemini_test`). **Repository:** [thriller47/moto-gps-waveshare](https://github.com/thriller47/moto-gps-waveshare). **Branch di integrazione stabile:** `valhalla` (non toccato, nessun merge eseguito). **Branch sperimentale attivo:** `gemini_test`.
 
 **Ultimo sviluppo effettivamente implementato:**
-1. **Predittore mappa (`map_origin_predictor.hpp`):**
-   - **Attenuazione anticipata del taglio corda (`turn_scale`)**: anticipato l'intervento da 10.0° a 4.0° e ridotto il floor da 0.20 a 0.10 su una finestra di 32.0° (`turn_scale = std::clamp(1.0 - 0.90 * ((anchor_turn_deg - 4.0) / 32.0), 0.10, 1.0)`); alle basse velocità (`speed < 7.0`), riscalato ulteriormente il passo in curva moltiplicando per `speed / 7.0` per compensare il ritardo di decelerazione del Doppler GPS.
-   - **Disattivazione della compensazione retrograda in curva**: ristretto `turn_weight` da 70.0° a 30.0° (`std::clamp((30.0 - turn_delta) / 22.0, 0.0, 1.0)`) e ridotta la soglia laterale `lateral_m` da 14.0 a 4.0 metri, impedendo che nelle rotonde la posizione GPS venga spinta lungo la tangente interna.
-2. **Loop navigazione Android (`NavigationViewModel.kt`):** mantenuta sempre attiva la cadenza rapida (`900L` ms) quando `activeSnap.maneuverName == "roundabout"` indipendentemente da `distanceToManeuverM <= 100L`, garantendo all'ESP32 ancore BLE ad alta frequenza per tutta la percorrenza dell'anello.
-3. **Test di regressione nativi (`map_origin_predictor_tests.cpp`):** allineate le asserzioni di `test_turning_continues_with_attenuated_step_along_live_heading`, `test_curve_compensation_tapers_instead_of_switching_off`, `test_roundabout_exit_three_second_geometry_gap` e `test_turn_scale_threshold_and_floor` ai nuovi parametri di attenuazione a 4°, floor 0.10, taper a 30° e compensazione a bassa velocità.
-4. **Precedenti sviluppi consolidati su `gemini_test`:** calibrazione heading/gyro `kGyroSigmaDeg = 14.0F`, smoothing 0.15F, finestra DR a 1,8 s e cadenza BLE 1,5 s; rimozione `WakeLock` in `LocationForegroundService.kt`; simulatore e fixture normalizzate.
+1. **Calibrazione automatica asse gravità montaggio IMU (`motion_heading_sensor.cpp`):**
+   - Stima persistente del vettore di gravità di montaggio `(cal_ax, cal_ay, cal_az)` inizializzata ai primi campioni validi.
+   - Aggiornamento lento (`alpha = 0.02F`) abilitato esclusivamente in assenza di accelerazioni dinamiche: norma accelerazione in `[9.36, 10.26]` m/s² (`9.81F +/- 0.45F`) e rateo giroscopico `< 4.0F` dps.
+   - Durante frenate, accelerazioni o forza centrifuga in rotonda/curva (fuori finestra), il vettore `(cal_ax, cal_ay, cal_az)` viene congelato e passato direttamente a `clockwise_gravity_heading_rate(...)`, garantendo corretta proiezione yaw sia per montaggio verticale in auto sia inclinato su moto.
+2. **Filtro di Kalman adattivo a 2 stati (`motion_heading_fusion.hpp`):**
+   - Propagazione varianza angolare `heading_var_deg2_` in `integrate()` con rumore di processo `(0.08F * |active_rate| * dt_s)^2 + 0.5F * dt_s`.
+   - Guadagno di Kalman adattivo `gain = heading_var_deg2_ / (heading_var_deg2_ + sigma^2)` limitato in `[0.08F, 0.65F]`, senza bloccare le ancore GPS durante le curve (blocco riservato a ratei estremi `> 90.0F` dps).
+   - Riduzione varianza `heading_var_deg2_ *= (1.0F - gain)` e stima continua residuo di bias su ratei `< 3.0F` dps.
+   - Gate anti-spike adattivo: doppia conferma outlier (> 35°) applicata solo quando `heading_var_deg2_ < 144.0F` (rettilineo stabile); in curva/rotonda (`heading_var_deg2_ >= 144.0F`) riallineamento immediato senza ritardo.
+   - Stabilità traffico lento: `kDeadbandDps = 1.1F`, `kStationaryReleaseSpeedMps = 1.5F`, `kCourseAnchorSpeedMps = 2.0F` e azzeramento `has_moving_course_` quando `speed_mps < 0.6F`.
+3. **Android Policy & ViewModel (`NavigationHeadingPolicy.kt`, `NavigationViewModel.kt`):**
+   - Allineate soglie traffico lento: `speedMs >= 2.0f` per `gpsBearingDeg` e `displacementMeters >= 9.0` (`speedMs >= 2.0f`) per fallback da coordinate.
+   - Test unitari Android (`NavigationHeadingPolicyTest.kt`) aggiornati per le nuove soglie.
+4. **Test nativi C++ (`motion_heading_fusion_tests.cpp`):**
+   - Copertura test per micro-oscillazioni nel traffico lento (< 1.1 dps ignorate), rotonda completa a 25 dps per 8 s con errore scala gyro 15% e ancoraggio GPS attivo, e ripartenza da fermo prima di rotonda.
 
-**Verifiche eseguite localmente (100% superate):**
-- **Test nativi C++/CMake/CTest (WSL Ubuntu 24.04):** 15/15 test superati (100%), inclusi `map_origin_predictor_tests`, `motion_heading_fusion_tests`, `nav_presenter_tests`, `ble_protocol_tests`, `connection_epoch_gate_tests`, `phone_nav_bridge_tests`.
-- **Test Python (`scripts/offline_map`):** 27 test superati in WSL; 10/10 test `test_motomap_v4.py` superati con `py -3` su Windows (inclusa la nuova verifica del file `.poly` con righe vuote e Shapely).
-- **Test Node.js simulatore:** superati i check sintattici e i test unitari `trace_model`, `fallback_map`, `ring_alignment`, `heading_stability`, `wasm_exports`.
-- **Line ending fix:** normalizzati i terminatori CRLF nel parser fixture golden di `ble_protocol_tests.cpp`.
+**Verifiche eseguite:**
+- Singolo commit consolidato su branch `gemini_test`.
+- Avvio CI consolidata GitHub Actions `project-build.yml` via `workflow_dispatch` con `build_native=true`, `build_android=true`, `build_esp32=true`.
 
 **Ancora da verificare:**
-- Build remota consolidata GitHub Actions CI sul branch `gemini_test` (`build_native=true`, `build_android=true`, `build_esp32=true`).
-- Collaudo finale su strada con hardware Waveshare ESP32.
+- Monitoraggio della run remota GitHub Actions CI (`project-build.yml`) fino a completamento verde (`native`, `android`, `esp32`).
+- Collaudo su strada con hardware Waveshare ESP32 montato in auto e su moto.
 
-**Prossima azione:** eseguire un'unica commit e push sul branch `gemini_test`, avviare `workflow_dispatch` per la run CI completa e verificare il superamento di tutti i job. Nessun merge su `valhalla`.
+**Prossima azione:** monitorare la run CI consolidata GitHub Actions su `gemini_test` fino ad esito verde su tutti i job. Nessun merge su `valhalla`.
+
+## Calibrazione IMU e Kalman adattivo per traffico lento e rotonde — 18 novembre 2026 (branch gemini_test)
+
+**Motivazione:** risoluzione congiunta dell'eccessiva sensibilità del display nel traffico lento e della deriva angolare causata dall'accelerazione centrifuga durante la percorrenza prolungata delle rotonde, valida per orientamento sia verticale (auto) sia inclinato (manubrio moto).
+
+**Implementato sul branch gemini_test:**
+1. `platforms/esp32/main/motion_heading_sensor.cpp`:
+   - Calibrazione automatica del vettore di gravità di montaggio `(cal_ax, cal_ay, cal_az)`.
+   - Congelamento del vettore di gravità durante accelerazioni dinamiche (norma accel fuori da `[9.36, 10.26]` m/s² o gyro `>= 4.0` dps), evitando distorsioni causate da frenate o forza centrifuga in rotonda.
+   - Proiezione dell'imbardata gyro sempre sul vettore di gravità calibrato.
+2. `platforms/esp32/main/motion_heading_fusion.hpp`:
+   - Sostituzione del guadagno fisso e rimozione del blocco delle ancore GPS a >5°/s con filtro di Kalman adattivo a 2 stati.
+   - Propagazione varianza angolare in `integrate()`: `(0.08F * |active_rate| * dt_s)^2 + 0.5F * dt_s`.
+   - Guadagno di Kalman adattivo in `anchor()` in `[0.08F, 0.65F]`, con blocco limitato solo a ratei estremi `> 90.0F` dps.
+   - Gate anti-spike con doppia conferma outlier solo su rettilineo (`heading_var_deg2_ < 144.0F`); correzione immediata in curva/rotonda.
+   - Regolazione traffico lento: `kDeadbandDps = 1.1F`, `kStationaryReleaseSpeedMps = 1.5F`, `kCourseAnchorSpeedMps = 2.0F`, azzeramento `has_moving_course_` sotto 0.6 m/s.
+3. `tests/native/motion_heading_fusion_tests.cpp`:
+   - Aggiunti test per micro-oscillazioni nel traffico lento, rotonda 25 dps per 8s con 15% errore scala e ancore GPS attive, e ripartenza da fermo.
+4. `platforms/android/app/src/main/java/com/motogps/android/viewmodel/NavigationHeadingPolicy.kt` e `NavigationViewModel.kt`:
+   - Soglia `speedMs >= 2.0f` per bearing GNSS e `displacementMeters >= 9.0` (con `speedMs >= 2.0f`) per coordinate fallback.
+5. `platforms/android/app/src/test/java/com/motogps/android/NavigationHeadingPolicyTest.kt`:
+   - Allineamento test unitari alle nuove soglie Android.
+
+**Verifiche:** delega compilazione e test ad un'unica run GitHub Actions (`project-build.yml`) su `gemini_test`. Nessun merge su `valhalla`.
 
 **Aggiornato:** 17 novembre 2026 (fix Python di copertura MotoMap z15, tag maxspeed e pipe zstd; formato v4 invariato). **Integrazione stabile:** `valhalla` (non modificata in questa sessione). **Branch sperimentale attivo:** `test/unified-offline-map-20261115`; non eseguire merge senza approvazione dell'utente. Al controllo GitHub del 16/11: branch test 51 commit avanti e 3 indietro rispetto a `valhalla` (rivalutare divergenza prima del merge).
 

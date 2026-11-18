@@ -24,18 +24,18 @@ internal object NavigationHeadingPolicy {
         bearingAccuracyDeg: Float? = null,
         horizontalAccuracyMeters: Float? = null
     ): Float? {
-        if (!speedMs.isFinite() || speedMs < 1.6f) return null
+        if (!speedMs.isFinite() || speedMs < 2.0f) return null
         val maxBearingAcc = if (speedMs < 3.0f) 18f else 25f
         val gps = if (gpsBearingDeg != null && gpsBearingDeg >= 0f &&
             gpsBearingDeg < 360f && (bearingAccuracyDeg == null ||
             (bearingAccuracyDeg.isFinite() && bearingAccuracyDeg <= maxBearingAcc)))
             normalized(gpsBearingDeg) else null
         if (gps != null) return gps
-        val minDisplacement = if (speedMs < 3.0f) 6.0 else 12.0
+        val minDisplacement = if (speedMs < 3.0f) 9.0 else 12.0
         val horizontalReliable = horizontalAccuracyMeters == null ||
             (horizontalAccuracyMeters.isFinite() && horizontalAccuracyMeters >= 0f &&
                 horizontalAccuracyMeters.toDouble() * 2.5 <= displacementMeters)
-        return if (speedMs >= 1.8f && displacementMeters.isFinite() &&
+        return if (displacementMeters.isFinite() &&
             displacementMeters >= minDisplacement && horizontalReliable)
             normalized(displacementBearingDeg)
         else null

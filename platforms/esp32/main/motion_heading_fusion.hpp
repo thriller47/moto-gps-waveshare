@@ -20,6 +20,7 @@ class MotionHeadingFusion {
     stationary_ = false;
     heading_deg_ = 0.0F;
     filtered_rate_dps_ = 0.0F;
+    heading_var_deg2_ = kInitialHeadingVarDeg2;
     last_sample_ms_ = 0;
     large_error_count_ = 0;
     pending_large_course_deg_ = 0.0F;
@@ -48,14 +49,13 @@ class MotionHeadingFusion {
       }
     }
     const float phone = normalize(phone_heading_deg);
-    // Match Android's >=1.6-1.8m/s fresh-course policy; below that the phone
-    // may transmit a previously held bearing, not a new measured course.
     const bool moving_course =
         std::isfinite(speed_mps) && speed_mps >= kCourseAnchorSpeedMps;
     if (!has_phone_reference_ && !moving_course) {
       heading_deg_ = phone;  // stationary reference, not moving-course trust
       initialized_ = true;
       has_phone_reference_ = true;
+      heading_var_deg2_ = kInitialHeadingVarDeg2;
       return;
     }
     if (!moving_course) {
@@ -63,9 +63,7 @@ class MotionHeadingFusion {
       pending_large_course_ms_ = 0;
       return;
     }
-    // Without true bearing accuracy over BLE, estimate angular sigma from
-    // speed: <=30 deg at >=1.8 m/s for restart/startup lock, floored at 20 deg
-    // at cruising speed to avoid over-reacting to straight-line GNSS spikes.
+
     const float sigma = std::isfinite(course_accuracy_deg) &&
                             course_accuracy_deg > 0.0F
         ? course_accuracy_deg
@@ -81,19 +79,22 @@ class MotionHeadingFusion {
       initialized_ = true;
       has_phone_reference_ = true;
       has_moving_course_ = true;
+      heading_var_deg2_ = 100.0F;
       large_error_count_ = 0;
       pending_large_course_ms_ = 0;
       return;
     }
-    // The phone course lags rapid gyro turns. Do not correct during yaw.
-    if (std::abs(filtered_rate_dps_) > 5.0F) return;
+
+    // Only block extreme angular rates (> 90.0 dps) during active maneuvers.
+    if (std::abs(filtered_rate_dps_) > 90.0F) return;
+
     const float error = shortest_delta(phone, heading_deg_);
-    // A single large jump must never rotate the map. Require two mutually
-    // consistent phone courses (no fast 0.82 branch exists in current code).
-    // Threshold set to 35 deg so 40 deg GNSS spikes on straight roads are confirmed
-    // rather than accepted immediately without gyro confirmation.
-    // The confirmation candidate expires if not corroborated within 2,500 ms.
-    if (std::abs(error) > 35.0F && sigma > 12.0F) {
+
+    // Adaptive outlier gate: require confirmation only when heading uncertainty
+    // is low (stable straight line: heading_var_deg2_ < 144.0F). During curves or
+    // roundabouts (heading_var_deg2_ >= 144.0F), accumulated gyro uncertainty allows
+    // the GPS anchor to correct the heading immediately without delays.
+    if (heading_var_deg2_ < 144.0F && std::abs(error) > 35.0F && sigma > 12.0F) {
       const bool expired = now_ms != 0U && pending_large_course_ms_ != 0U &&
           (now_ms < pending_large_course_ms_ ||
            now_ms - pending_large_course_ms_ > kLargeErrorConfirmationTimeoutMs);
@@ -110,11 +111,18 @@ class MotionHeadingFusion {
       large_error_count_ = 0;
       pending_large_course_ms_ = 0;
     }
-    // Scalar complementary/Kalman-like observation weight; not a full
-    // covariance-propagating Kalman filter.
-    const float gain = kGyroSigmaDeg * kGyroSigmaDeg /
-                       (kGyroSigmaDeg * kGyroSigmaDeg + sigma * sigma);
+
+    // 2-state adaptive Kalman gain:
+    const float gain = std::clamp(
+        heading_var_deg2_ / (heading_var_deg2_ + sigma * sigma),
+        0.08F, 0.65F);
     heading_deg_ = normalize(heading_deg_ + error * gain);
+    heading_var_deg2_ *= (1.0F - gain);
+
+    if (std::abs(filtered_rate_dps_) < 3.0F) {
+      bias_dps_ -= error * 0.002F;
+      bias_dps_ = std::clamp(bias_dps_, -10.0F, 10.0F);
+    }
   }
 
   // yaw_rate_dps is positive for increasing compass heading (clockwise).
@@ -140,6 +148,7 @@ class MotionHeadingFusion {
       // zero degrees is explicitly just a temporary local reference.
       initialized_ = true;
       heading_deg_ = 0.0F;
+      heading_var_deg2_ = kInitialHeadingVarDeg2;
     }
     if (last_sample_ms_ == 0) {
       last_sample_ms_ = sample_ms;
@@ -156,6 +165,7 @@ class MotionHeadingFusion {
       return false;
     }
 
+    const float dt_s = static_cast<float>(elapsed_ms) / 1'000.0F;
     const float bounded =
         std::clamp(yaw_rate_dps - bias_dps_, -500.0F, 500.0F);
     // About 20 ms of smoothing at the 125 Hz sensor rate: vibration is
@@ -164,23 +174,29 @@ class MotionHeadingFusion {
     const float active_rate = std::abs(filtered_rate_dps_) < kDeadbandDps
                                   ? 0.0F
                                   : filtered_rate_dps_;
+
+    // Propagate angular variance:
+    const float rate_noise = 0.08F * std::abs(active_rate) * dt_s;
+    heading_var_deg2_ += (rate_noise * rate_noise) + 0.5F * dt_s;
+
     if (active_rate == 0.0F) {
       return false;
     }
     heading_deg_ = normalize(
-        heading_deg_ + active_rate * static_cast<float>(elapsed_ms) / 1'000.0F);
+        heading_deg_ + active_rate * dt_s);
     return true;
   }
 
   [[nodiscard]] bool initialized() const noexcept { return initialized_; }
   [[nodiscard]] float heading_deg() const noexcept { return heading_deg_; }
+  [[nodiscard]] float heading_var_deg2() const noexcept { return heading_var_deg2_; }
 
  private:
-  static constexpr float kCourseAnchorSpeedMps = 1.8F;
+  static constexpr float kCourseAnchorSpeedMps = 2.0F;
   static constexpr float kStationarySpeedMps = 0.6F;
-  static constexpr float kStationaryReleaseSpeedMps = 1.0F;
-  static constexpr float kDeadbandDps = 0.3F;
-  static constexpr float kGyroSigmaDeg = 14.0F;
+  static constexpr float kStationaryReleaseSpeedMps = 1.5F;
+  static constexpr float kDeadbandDps = 1.1F;
+  static constexpr float kInitialHeadingVarDeg2 = 196.0F;
   static constexpr std::uint64_t kMaximumIntegrationGapMs = 160;
   static constexpr std::uint64_t kLargeErrorConfirmationTimeoutMs = 2'500;
 
@@ -203,6 +219,7 @@ class MotionHeadingFusion {
   bool stationary_ = false;
   float heading_deg_ = 0.0F;
   float filtered_rate_dps_ = 0.0F;
+  float heading_var_deg2_ = kInitialHeadingVarDeg2;
   std::uint64_t last_sample_ms_ = 0;
   float bias_dps_ = 0.0F;
   float pending_large_course_deg_ = 0.0F;
