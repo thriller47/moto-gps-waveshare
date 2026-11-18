@@ -440,9 +440,10 @@ fun OfflineMapsDialog(
     onCancelDownload: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
+    var showAdvancedImports by remember { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Gestione mappe") },
+        title = { Text("Mappe offline") },
         text = {
             Column(
                 modifier = Modifier.fillMaxWidth().heightIn(max = 560.dp)
@@ -459,27 +460,22 @@ fun OfflineMapsDialog(
                         modifier = Modifier.fillMaxWidth().padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Text("Mappe stradali", style = MaterialTheme.typography.titleMedium)
-                        Text(
-                            "Importa un pacchetto .motomap.zip preparato sul PC. Le strade saranno disponibili sul display ESP32.",
+                        Text("MotoPack Italia", style = MaterialTheme.typography.titleMedium)
+                        Text("Un unico file .motopack installa MotoMap, Valhalla e Photon.",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("MotoMap: " + if (savedMaps.isNotEmpty()) "installata" else "assente",
+                            style = MaterialTheme.typography.labelMedium)
+                        Text("Valhalla: " + if (valhallaInstalledBytes > 0L) "installato" else "assente",
+                            style = MaterialTheme.typography.labelMedium)
+                        Text("Photon: " + if (photonInstalledBytes > 0L) "installato" else "assente",
+                            style = MaterialTheme.typography.labelMedium)
                         FilledTonalButton(
                             onClick = onImportUnifiedPack,
                             modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
                             enabled = !isDownloadingMap && !photonImporting && !valhallaImporting && !isNavigating
                         ) {
-                            Text("Importa pacchetto unico Moto Chat GPS")
-                        }
-                        FilledTonalButton(
-                            onClick = onImportOsmPack,
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
-                            enabled = !isDownloadingMap && !valhallaImporting && !isNavigating
-                        ) {
-                            Icon(Icons.Default.Place, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Importa mappa ZIP")
+                            Text("Importa MotoPack (.motopack)")
                         }
                         if (isDownloadingMap) {
                             MapDownloadProgressBox(
@@ -493,6 +489,19 @@ fun OfflineMapsDialog(
                     }
                 }
 
+                OutlinedButton(
+                    onClick = { showAdvancedImports = !showAdvancedImports },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(if (showAdvancedImports) "Nascondi opzioni avanzate"
+                        else "Opzioni avanzate · componenti separati")
+                }
+                if (showAdvancedImports) {
+                    OutlinedButton(onClick = onImportOsmPack,
+                        enabled = !isDownloadingMap && !valhallaImporting && !isNavigating,
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                        Text("Importa solo MotoMap ZIP")
+                    }
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(
                         modifier = Modifier.fillMaxWidth().padding(16.dp),
@@ -567,6 +576,7 @@ fun OfflineMapsDialog(
                         HorizontalDivider()
                     }
                 }
+                } // Advanced per-component controls
             }
         },
         confirmButton = {
