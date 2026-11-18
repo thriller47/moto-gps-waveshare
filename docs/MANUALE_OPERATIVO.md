@@ -381,26 +381,63 @@ ls -lh ~/motogps-build/ValhallaItaliaV4/valhalla_tiles.tar* \
 
 ### Rigenerazione completa e sostituzione dei vecchi file (WSL, 18 novembre 2026)
 
-**Sperimentale — branch `test/unified-offline-map-20261115`.** Il comando seguente rigenera **MotoMap v4, Valhalla V5 e Photon SQLite v2**, partendo dai sorgenti in `C:\MotoGPS\PBF`, poi assembla e verifica il `.motopack`. Usa **lo stesso `italy-latest.osm.pbf`** per MotoMap e Valhalla; l'archivio preesistente `valhalla_italia_v5.tar.zst` è lasciato intatto, **non riutilizzato**.
+**Procedura consigliata (sperimentale, branch `test/unified-offline-map-20261115`).** Usare **un solo script**, `scripts/offline_map/rebuild_motopack_wsl.sh`, per ricreare da zero MotoMap v4, Photon SQLite v2 e Valhalla V5 dallo stesso PBF; al termine assembla e verifica `MotoChatGPS-Italia.motopack`. Non lanciare prima `pbf_to_motomap.py`, `photon_to_sqlite.py` o `build_valhalla_moto_v5.sh` a mano: sono già richiamati dal generatore. L'archivio sorgente precedente `valhalla_italia_v5.tar.zst` **non viene riutilizzato né modificato**.
 
-Da **WSL Ubuntu**, nel repository con le dipendenze Valhalla 3.9.1 e Python `osmium`/`shapely` disponibili:
+**1. Aggiornare il branch e lanciare lo script da WSL Ubuntu** (non PowerShell). Questo esempio usa il checkout Linux realmente impiegato per il progetto; se il repository è altrove, partire dalla sua cartella effettiva. Richiede `valhalla-env` con Valhalla 3.9.1, `osmium`, `shapely` e `zstd`:
 
 ```bash
 cd ~/MotoGPS/moto-gps-waveshare
+git status --short
 git fetch origin
 git switch test/unified-offline-map-20261115
 git pull --ff-only origin test/unified-offline-map-20261115
+ls scripts/offline_map/rebuild_motopack_wsl.sh
 source ~/valhalla-env/bin/activate
-bash scripts/offline_map/rebuild_motopack_wsl.sh
+bash scripts/offline_map/rebuild_motopack_wsl.sh --threads 2
 ```
 
-**Percorsi predefiniti:** input `/mnt/c/MotoGPS/PBF/{italy-latest.osm.pbf,italy.poly,photon-italy.jsonl.zst}`; output `~/motogps-build/ItaliaUnificata-20261118/MotoChatGPS-Italia.motopack`. Non servono variabili `$SRC`/`$OUT` definite manualmente. Per sostituire invece la precedente cartella stabile: `bash scripts/offline_map/rebuild_motopack_wsl.sh --out "$HOME/motogps-build/ItaliaUnificata" --threads 2`.
+Se `git switch` dice «Already on» ma `ls` non trova lo script, la copia locale potrebbe essere indietro rispetto a `origin`: eseguire `git pull --ff-only origin test/unified-offline-map-20261115` e ripetere `ls`. Prima di cambiare branch o fare pull, se `git status --short` segnala modifiche locali, valutarle: **non** usare `reset --hard` o `clean` per forzare la procedura. Se `ls` continua a fallire, verificare `pwd` e branch corrente con `git branch --show-current`.
 
-**Sovrascrittura sicura:** il vecchio output rimane invariato durante tutte le conversioni. Il nuovo viene generato su filesystem WSL in una cartella temporanea separata e verificato con SHA-256; **solo dopo** la verifica la directory di output viene sostituita e il backup temporaneo della versione precedente eliminato. Se la generazione fallisce, lo script pulisce il temporaneo e lascia intatta la vecchia directory. **Non tocca mai i quattro file di input** in `C:\MotoGPS\PBF`, non modifica le mappe già installate sul telefono e non scrive in GitHub.
+**2. Sorgenti e risultato.** Lo script cerca automaticamente in **Windows** `C:\MotoGPS\PBF` (in WSL: `/mnt/c/MotoGPS/PBF`) questi tre input: `italy-latest.osm.pbf`, `italy.poly`, `photon-italy.jsonl.zst`. La quarta sorgente eventualmente presente, `valhalla_italia_v5.tar.zst`, è un archivio storico che questa procedura **non usa**. Non occorre definire `$SRC` o `$OUT`. La cartella risultato predefinita si trova nel **filesystem Linux WSL**, non in `C:\MotoGPS`:
 
-**Cautele:** occorre spazio su disco per **vecchia + nuova build simultaneamente** (oltre ai grafi Valhalla non compressi nella nuova build). Per evitare perdite di dati, se la cartella di output contiene file o directory non appartenenti ai quattro componenti attesi, lo script si ferma senza cancellare nulla: spostarli altrove oppure indicare un altro `--out`. Non usare `sudo`. Il cambio fra backup e nuova directory è un passaggio locale rapido, ma un'interruzione brusca esattamente durante la sostituzione può lasciare una directory `.old.*` da ripristinare manualmente: controllare prima di cancellarla. Alla fine importare il nuovo MotoPack nell'APK sperimentale, quando si decide di aggiornare le mappe offline.
+```text
+/home/mod/motogps-build/ItaliaUnificata-20261118/
+├── italy-v4.motomap.zip
+├── photon-italy-v2.sqlite
+├── ValhallaItaliaV5/
+│   └── valhalla_tiles.tar.zst
+└── MotoChatGPS-Italia.motopack
+```
+
+Per scegliere una destinazione diversa, usare `--out "/percorso/nuova-cartella" --threads 2`. Il pacchetto finale sarà sempre `MotoChatGPS-Italia.motopack` sotto la cartella scelta. **La rigenerazione completa dal nuovo PBF sul PC non è ancora dichiarata collaudata** finché lo script non restituisce `PRONTO` e il pacchetto non supera la verifica sul dataset reale.
+
+**3. Aprire la cartella WSL da Esplora file di Windows.** Dopo la build, eseguire **nel terminale WSL**:
+
+```bash
+explorer.exe "$(wslpath -w "$HOME/motogps-build/ItaliaUnificata-20261118")"
+```
+
+In alternativa, su Windows premere **Win + R** e incollare questo percorso UNC (esempio per distribuzione `Ubuntu` e utente Linux `mod`):
+
+```text
+\\wsl.localhost\Ubuntu\home\mod\motogps-build\ItaliaUnificata-20261118
+```
+
+Funziona anche `\\wsl$\Ubuntu\home\mod\motogps-build\ItaliaUnificata-20261118`. Se il nome della distribuzione è diverso, controllarlo **da PowerShell Windows** con `wsl -l -v`; se l'utente Linux è diverso da `mod`, sostituire `home\mod` con la propria home. Non spostare la cartella di lavoro in `/mnt/c` durante la conversione: mantenere la build su disco Linux WSL.
+
+**4. Copiare solo il pacchetto finale su Windows, se necessario** (da WSL, dopo la verifica):
+
+```bash
+cp "$HOME/motogps-build/ItaliaUnificata-20261118/MotoChatGPS-Italia.motopack" /mnt/c/MotoGPS/
+```
+
+Su Windows il file sarà `C:\MotoGPS\MotoChatGPS-Italia.motopack`. Copiarlo sul telefono e importarlo dall'app Android **Gestione mappe → Importa pacchetto unico Moto Chat GPS**, senza disinstallare l'APK per aggiornare le mappe. Verificare poi che MotoMap, Valhalla e Photon risultino installati.
+
+**Sostituzione sicura e spazio necessario.** L'output precedente resta intatto mentre lo script costruisce tutto in una cartella WSL temporanea; il nuovo output viene pubblicato solo dopo la verifica SHA-256 e il vecchio viene rimosso. In caso di errore ordinario la directory precedente resta disponibile. Sono necessari spazio per **vecchia + nuova build contemporaneamente** e altro spazio per i grafi temporanei di Valhalla (controllare `df -h ~`). Se l'output contiene file estranei rispetto ai quattro artefatti generati, lo script **si ferma senza cancellarli**: spostarli altrove o scegliere `--out`. Non usare `sudo`; non eliminare manualmente cartelle `.old.*` o `.build.*` senza accertarne il ruolo, soprattutto dopo un'interruzione brusca.
 
 ### Produzione completa in WSL da PBF + POLY + Photon (procedura integrata)
+
+**Alternativa avanzata:** usare `build_motopack_wsl.sh` solo quando si vuole scegliere manualmente ogni input e creare una **cartella di output nuova**. Per l'aggiornamento ordinario che sostituisce in sicurezza la generazione precedente, preferire `rebuild_motopack_wsl.sh` descritto sopra.
 
 **Procedura eseguita con successo dall'utente sull'Italia completa il 15 novembre 2026.** Il generatore `scripts/offline_map/build_motopack_wsl.sh` svolge tutte le fasi in WSL Ubuntu: PBF+POLY → MotoMap v4; dump Photon JSONL (anche Zstandard) → Photon SQLite v2; PBF → grafo Valhalla moto V5; quindi assemblaggio e verifica SHA-256 del `.motopack`. Non è richiesto PowerShell per nessuna conversione.
 
@@ -676,6 +713,8 @@ Per installarlo: copiare il database `.sqlite` (non lo `.zst` dump) in **Downloa
 | Compilare firmware ESP32 locale | PowerShell `moto` → CMD `idf.py … build` |
 | Flash app ESP32 | offset **`0x20000`**, non `0x10000` |
 | Installare APK | Artifact Android del branch `valhalla` o `gradlew.bat assembleDebug`; controllare firma |
+| **Rigenerare tutto il MotoPack** (branch test) | WSL `git pull --ff-only origin test/unified-offline-map-20261115`, poi `bash scripts/offline_map/rebuild_motopack_wsl.sh --threads 2` |
+| Aprire il risultato su Windows | WSL `explorer.exe "$(wslpath -w "$HOME/motogps-build/ItaliaUnificata-20261118")"` | 
 | Rigenerare strade grigie | `pbf_to_motomap.py` → **MotoMap v4 ZIP** |
 | Rigenerare indirizzi offline | Windows **`py`** + `photon_to_sqlite.py` → **Photon v2 SQLite** |
 | Rigenerare grafi moto | WSL `build_valhalla_moto_v5.sh --zstd --threads 2` |
