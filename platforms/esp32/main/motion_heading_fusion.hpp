@@ -35,13 +35,21 @@ class MotionHeadingFusion {
     if (!usable_fix || !std::isfinite(phone_heading_deg)) return;
 
     // Starting to move releases the gyro before GNSS course is trustworthy.
+    // Coming to a stop resets moving-course lock so restarting at an
+    // intersection or roundabout aligns promptly on the first moving fix.
     if (std::isfinite(speed_mps)) {
-      if (speed_mps >= kStationaryReleaseSpeedMps) stationary_ = false;
-      else if (speed_mps < kStationarySpeedMps) stationary_ = true;
+      if (speed_mps >= kStationaryReleaseSpeedMps) {
+        stationary_ = false;
+      } else if (speed_mps < kStationarySpeedMps) {
+        stationary_ = true;
+        has_moving_course_ = false;
+        large_error_count_ = 0;
+        pending_large_course_ms_ = 0;
+      }
     }
     const float phone = normalize(phone_heading_deg);
-    // Match Android's >=3m/s fresh-course policy; below that the phone may
-    // transmit a previously held bearing, not a new measured course.
+    // Match Android's >=1.6-1.8m/s fresh-course policy; below that the phone
+    // may transmit a previously held bearing, not a new measured course.
     const bool moving_course =
         std::isfinite(speed_mps) && speed_mps >= kCourseAnchorSpeedMps;
     if (!has_phone_reference_ && !moving_course) {
@@ -55,12 +63,12 @@ class MotionHeadingFusion {
       pending_large_course_ms_ = 0;
       return;
     }
-    // The 07:49:53 replay shows ~40deg bearing error near 8m/s.
-    // Without true bearing accuracy, speed alone cannot imply sigma=8deg.
+    // Without true bearing accuracy over BLE, estimate angular sigma from
+    // speed while keeping <=30 deg at >=1.8 m/s for restart/startup lock.
     const float sigma = std::isfinite(course_accuracy_deg) &&
                             course_accuracy_deg > 0.0F
         ? course_accuracy_deg
-        : std::clamp(45.0F - (speed_mps - 1.5F) * 5.5F, 20.0F, 45.0F);
+        : std::clamp(32.0F - (speed_mps - 1.5F) * 8.0F, 18.0F, 32.0F);
     if (sigma > 60.0F) {
       large_error_count_ = 0;
       pending_large_course_ms_ = 0;
@@ -167,7 +175,7 @@ class MotionHeadingFusion {
   [[nodiscard]] float heading_deg() const noexcept { return heading_deg_; }
 
  private:
-  static constexpr float kCourseAnchorSpeedMps = 3.0F;
+  static constexpr float kCourseAnchorSpeedMps = 1.8F;
   static constexpr float kStationarySpeedMps = 0.6F;
   static constexpr float kStationaryReleaseSpeedMps = 1.0F;
   static constexpr float kDeadbandDps = 0.3F;
