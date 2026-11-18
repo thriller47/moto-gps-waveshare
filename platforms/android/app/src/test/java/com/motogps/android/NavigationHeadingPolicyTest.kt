@@ -38,7 +38,11 @@ class NavigationHeadingPolicyTest {
         assertNull(NavigationHeadingPolicy.movingHeading(4f, 90f, 3.0, 270f, 50f))
         assertEquals(270f,
             NavigationHeadingPolicy.movingHeading(4f, 90f, 15.0, 270f, 50f)!!, 0.001f)
-        assertNull(NavigationHeadingPolicy.movingHeading(2.9f, 90f, 15.0, 270f, 1f))
+        assertNull(NavigationHeadingPolicy.movingHeading(1.5f, 90f, 15.0, 270f, 1f))
+        assertEquals(90f,
+            NavigationHeadingPolicy.movingHeading(1.8f, 90f, 2.0, 270f, 15f)!!, 0.001f)
+        assertEquals(270f,
+            NavigationHeadingPolicy.movingHeading(1.8f, null, 6.5, -90f, null, 2f)!!, 0.001f)
         assertNull(NavigationHeadingPolicy.movingHeading(5f, -1f, 8.0, 10f))
     }
 
