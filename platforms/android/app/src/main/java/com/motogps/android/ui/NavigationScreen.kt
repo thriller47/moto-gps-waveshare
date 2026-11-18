@@ -907,6 +907,7 @@ fun NavigationScreen(
         )
     }
 
+    var showMoreMenu by remember { mutableStateOf(false) }
     var showDiagnosticsDialog by remember { mutableStateOf(false) }
     var showInfoDialog by remember { mutableStateOf(false) }
     var showRoutePreferencesDialog by remember { mutableStateOf(false) }
@@ -1050,17 +1051,21 @@ fun NavigationScreen(
                                 }
                             )
                         }
-                        IconButton(onClick = { showInfoDialog = true }) {
-                            Icon(Icons.Default.Info, contentDescription = "Informazioni e licenze")
-                        }
-                        TextButton(onClick = { showDiagnosticsDialog = true }) {
-                            Text("LOG")
-                        }
-                        IconButton(onClick = onExportDiagnostics) {
-                            Icon(Icons.Default.Share, contentDescription = "Esporta diagnostica")
-                        }
-                        TextButton(onClick = onBackToSearch) {
-                            Text("Cambia", color = MaterialTheme.colorScheme.onSurface)
+                        Box {
+                            IconButton(onClick = { showMoreMenu = true }) {
+                                Icon(Icons.Default.MoreVert, contentDescription = "Altre opzioni")
+                            }
+                            DropdownMenu(expanded = showMoreMenu,
+                                onDismissRequest = { showMoreMenu = false }) {
+                                DropdownMenuItem(text = { Text("Mappe offline") },
+                                    onClick = { showMoreMenu = false; showOfflineDialog = true })
+                                DropdownMenuItem(text = { Text("Diagnostica e replay GPS") },
+                                    onClick = { showMoreMenu = false; showDiagnosticsDialog = true })
+                                DropdownMenuItem(text = { Text("Esporta diagnostica") },
+                                    onClick = { showMoreMenu = false; onExportDiagnostics() })
+                                DropdownMenuItem(text = { Text("Informazioni e licenze") },
+                                    onClick = { showMoreMenu = false; showInfoDialog = true })
+                            }
                         }
                     }
                 )
@@ -1082,14 +1087,21 @@ fun NavigationScreen(
                             )
                         }
 
-                        TextButton(onClick = { showDiagnosticsDialog = true }) {
-                            Text("LOG")
-                        }
-                        IconButton(onClick = onExportDiagnostics) {
-                            Icon(Icons.Default.Share, contentDescription = "Esporta diagnostica")
-                        }
-                        IconButton(onClick = { showOfflineDialog = true }) {
-                            Icon(Icons.Default.Place, contentDescription = "Gestione mappe")
+                        Box {
+                            IconButton(onClick = { showMoreMenu = true }) {
+                                Icon(Icons.Default.MoreVert, contentDescription = "Altre opzioni")
+                            }
+                            DropdownMenu(expanded = showMoreMenu,
+                                onDismissRequest = { showMoreMenu = false }) {
+                                DropdownMenuItem(text = { Text("Mappe offline") },
+                                    onClick = { showMoreMenu = false; showOfflineDialog = true })
+                                DropdownMenuItem(text = { Text("Diagnostica e replay GPS") },
+                                    onClick = { showMoreMenu = false; showDiagnosticsDialog = true })
+                                DropdownMenuItem(text = { Text("Esporta diagnostica") },
+                                    onClick = { showMoreMenu = false; onExportDiagnostics() })
+                                DropdownMenuItem(text = { Text("Informazioni e licenze") },
+                                    onClick = { showMoreMenu = false; showInfoDialog = true })
+                            }
                         }
                     }
                 )
@@ -1277,9 +1289,10 @@ fun NavigationScreen(
                                     onDismissRequest = { confirmSkip = false },
                                     title = { Text("Saltare questa tappa?") },
                                     text = {
-                                        Text("Escludere \"${nextWaypointToSkip.name}\" dal tour? " +
+                                        Text("Saltare \"${nextWaypointToSkip.name}\"? " +
                                             "Valhalla ricalcolerà il percorso verso la tappa " +
-                                            "successiva o l'arrivo. Le altre tappe resteranno.")
+                                            "successiva o la destinazione finale. " +
+                                            "Le altre tappe resteranno anche nei percorsi non circolari.")
                                     },
                                     confirmButton = {
                                         TextButton(onClick = {
@@ -1411,30 +1424,28 @@ fun NavigationScreen(
                     }
                 }
 
-                OutlinedButton(
-                    onClick = { showSavedToursDialog = true },
+                Row(
                     modifier = Modifier.fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Icon(Icons.Default.Place, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text("I miei tour salvati (${savedCircularTours.size})")
-                }
-
-                OutlinedButton(
-                    onClick = { showCircularTourDialog = true },
-                    enabled = !isLoading && !isNavigating &&
-                        currentLocation != null,
-                    modifier = Modifier.fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp)
-                ) {
-                    Icon(Icons.Default.Refresh, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Crea tour circolare")
+                    Button(
+                        onClick = { showCircularTourDialog = true },
+                        enabled = !isLoading && !isNavigating && currentLocation != null,
+                        modifier = Modifier.weight(1f).heightIn(min = 54.dp)
+                    ) {
+                        Text("Crea tour")
+                    }
+                    OutlinedButton(
+                        onClick = { showSavedToursDialog = true },
+                        modifier = Modifier.weight(1f).heightIn(min = 54.dp)
+                    ) {
+                        Text("Tour salvati (${savedCircularTours.size})")
+                    }
                 }
 
                 Text(
-                    "Cerca un indirizzo oppure tieni premuto sulla mappa. Puoi anche inserire coordinate GPS, ad esempio 45.4642, 9.1900.",
+                    "Cerca una destinazione, crea un tour o tieni premuto sulla mappa.",
                     style = MaterialTheme.typography.labelSmall,
                     modifier = Modifier.padding(horizontal = 16.dp)
                 )
@@ -1463,7 +1474,7 @@ fun NavigationScreen(
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Mostra Mappa / Mia Posizione", style = MaterialTheme.typography.labelSmall)
+                        Text("La mia posizione", style = MaterialTheme.typography.labelSmall)
                     }
 
                     Button(
@@ -1476,7 +1487,7 @@ fun NavigationScreen(
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Gestione mappe", style = MaterialTheme.typography.labelSmall)
+                        Text("Mappe offline", style = MaterialTheme.typography.labelSmall)
                     }
                 }
 
