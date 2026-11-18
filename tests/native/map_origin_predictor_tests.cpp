@@ -137,9 +137,9 @@ void test_curve_compensation_tapers_instead_of_switching_off() {
                              new_speed, new_heading, true);
   };
   const auto straight = after_anchor(90, 20);
-  const auto gentle = after_anchor(70, 20);  // 20-degree curve: partial.
-  const auto bend = after_anchor(45, 20);    // 45-degree curve: less.
-  const auto sharp = after_anchor(0, 20);    // 90-degree turn: no boost.
+  const auto gentle = after_anchor(75, 20);  // 15-degree curve: partial (turn_weight ~0.68).
+  const auto bend = after_anchor(68, 20);    // 22-degree curve: less (turn_weight ~0.36).
+  const auto sharp = after_anchor(0, 20);    // 90-degree turn: no boost (turn_weight = 0.0).
   const auto stopped = after_anchor(90, 0);  // stop: no boost.
   const double straight_e = east_metres(straight, start.longitude_deg);
   const double gentle_e = east_metres(gentle, start.longitude_deg);
@@ -169,13 +169,13 @@ void test_turning_continues_with_attenuated_step_along_live_heading() {
   predictor.advance(start, 1'000, 1, "route", 1, 15, 90, true);
   const auto straight = predictor.advance(start, 2'000, 1, "route", 1, 15, 90, true);
   const auto corner = predictor.advance(start, 2'400, 1, "route", 1, 15, 40, true);
-  // Dead reckoning advances along the live fused heading with gradual turn
-  // attenuation (turn_scale ~0.47 at 50 deg) instead of freezing completely.
+  // Dead reckoning advances along the live fused heading with early turn
+  // attenuation (turn_scale = 0.10 at 50 deg) instead of freezing completely.
   const double corner_north = north_metres(corner, start.latitude_deg);
   const double corner_east = east_metres(corner, start.longitude_deg);
-  CHECK(corner_north > 1.9 && corner_north < 2.4);
-  CHECK(corner_east > east_metres(straight, start.longitude_deg) + 1.5);
-  CHECK(corner_east < east_metres(straight, start.longitude_deg) + 2.1);
+  CHECK(corner_north > 0.40 && corner_north < 0.55);
+  CHECK(corner_east > east_metres(straight, start.longitude_deg) + 0.30);
+  CHECK(corner_east < east_metres(straight, start.longitude_deg) + 0.50);
 }
 
 void test_turn_scale_threshold_and_floor() {
@@ -186,25 +186,36 @@ void test_turn_scale_threshold_and_floor() {
     return predictor.advance(start, 1'400, 1, "test-route", 1, 15, new_heading, true);
   };
   const auto straight = step_with_heading(90);       // delta = 0 deg -> turn_scale = 1.0
-  const auto at_threshold = step_with_heading(80);   // delta = 10 deg -> turn_scale = 1.0
-  const auto past_threshold = step_with_heading(75); // delta = 15 deg -> turn_scale < 1.0
-  const auto sharp70 = step_with_heading(20);        // delta = 70 deg -> turn_scale = floor 0.20
-  const auto sharp90 = step_with_heading(0);         // delta = 90 deg -> turn_scale = floor 0.20
+  const auto at_threshold = step_with_heading(86);   // delta = 4 deg -> turn_scale = 1.0
+  const auto past_threshold = step_with_heading(80); // delta = 10 deg -> turn_scale < 1.0
+  const auto sharp36 = step_with_heading(54);        // delta = 36 deg -> turn_scale = floor 0.10
+  const auto sharp70 = step_with_heading(20);        // delta = 70 deg -> turn_scale = floor 0.10
+  const auto sharp90 = step_with_heading(0);         // delta = 90 deg -> turn_scale = floor 0.10
 
   const double straight_dist = distance_metres(straight, start);
   const double thresh_dist = distance_metres(at_threshold, start);
   const double past_dist = distance_metres(past_threshold, start);
+  const double sharp36_dist = distance_metres(sharp36, start);
   const double sharp70_dist = distance_metres(sharp70, start);
   const double sharp90_dist = distance_metres(sharp90, start);
 
-  // <= 10 deg maintains full scale (15 m/s * 0.4s * 1.0 = 6.0 m)
+  // <= 4 deg maintains full scale (15 m/s * 0.4s * 1.0 = 6.0 m)
   CHECK(std::abs(straight_dist - 6.0) < 0.05);
   CHECK(std::abs(thresh_dist - 6.0) < 0.05);
-  // > 10 deg attenuates step distance
+  // > 4 deg attenuates step distance
   CHECK(past_dist < 6.0 && past_dist > 4.5);
-  // >= 70 deg reaches floor 0.20 (15 m/s * 0.4s * 0.20 = 1.2 m)
-  CHECK(std::abs(sharp70_dist - 1.2) < 0.05);
-  CHECK(std::abs(sharp90_dist - 1.2) < 0.05);
+  // >= 36 deg reaches floor 0.10 (15 m/s * 0.4s * 0.10 = 0.6 m)
+  CHECK(std::abs(sharp36_dist - 0.6) < 0.05);
+  CHECK(std::abs(sharp70_dist - 0.6) < 0.05);
+  CHECK(std::abs(sharp90_dist - 0.6) < 0.05);
+
+  // Low speed in curve (< 7.0 m/s) scales step further for Doppler lag compensation:
+  // 5 m/s * 0.4s * 0.10 * (5/7) = ~0.143 m
+  MapOriginPredictor predictor_slow;
+  predictor_slow.advance(start, 1'000, 1, "test-route", 1, 5, 90, true);
+  const auto slow_turn = predictor_slow.advance(start, 1'400, 1, "test-route", 1, 5, 20, true);
+  const double slow_dist = distance_metres(slow_turn, start);
+  CHECK(std::abs(slow_dist - (5.0 * 0.4 * 0.10 * (5.0 / 7.0))) < 0.02);
 }
 
 void test_roundabout_exit_three_second_geometry_gap() {
@@ -238,8 +249,8 @@ void test_roundabout_exit_three_second_geometry_gap() {
       entry.longitude_deg + 2.0 / lon_scale};
   const double before_distance = distance_metres(before_new_window, exit_anchor);
   // Dead reckoning pauses after 1,800 ms of missing geometry anchors, keeping
-  // before_distance bounded (~13.5 m) during a 3 s gap until the new anchor arrives.
-  CHECK(before_distance < 15.0);
+  // before_distance bounded (~17.7 m) during a 3 s gap until the new anchor arrives.
+  CHECK(before_distance < 19.0);
 
   // New geometry window arrives at t = 1,121,859 ms without snapping.
   const auto at_new_window =
@@ -254,7 +265,7 @@ void test_roundabout_exit_three_second_geometry_gap() {
   const MapOriginPredictor::Position moving_exit{
       entry.latitude_deg + expected_north / lat_scale,
       entry.longitude_deg + expected_east / lon_scale};
-  CHECK(distance_metres(after_easing, moving_exit) < 6.0);
+  CHECK(distance_metres(after_easing, moving_exit) < 8.0);
 }
 
 }  // namespace

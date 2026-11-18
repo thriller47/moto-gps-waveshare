@@ -838,9 +838,10 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                         val now = SystemClock.elapsedRealtime()
                         val elapsed = now - lastGeometryTransmissionMs
                         if (activeGeom != null && elapsed >= 900L) {
-                            val nearTurn = activeSnap.maneuverName !in
-                                setOf("continue", "none", "arrive") &&
-                                activeSnap.distanceToManeuverM <= 100L
+                            val nearTurn = activeSnap.maneuverName == "roundabout" ||
+                                (activeSnap.maneuverName !in
+                                    setOf("continue", "none", "arrive") &&
+                                    activeSnap.distanceToManeuverM <= 100L)
                             val winding = !nearTurn && elapsed >= 1_400L &&
                                 RouteGeometryWindow.isWinding(
                                     RouteGeometryWindow.around(activeGeom, lat, lon)

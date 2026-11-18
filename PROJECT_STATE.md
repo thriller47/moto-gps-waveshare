@@ -2,14 +2,15 @@
 
 ## STATO ATTUALE — RIPARTIRE DA QUI
 
-**Aggiornato:** 18 novembre 2026 (eliminazione deriva laterale residua 2–3 m: calibrazione kGyroSigmaDeg a 14.0, finestra predittore 1.8s e cadenza BLE 1.5s sul branch `gemini_test`). **Repository:** [thriller47/moto-gps-waveshare](https://github.com/thriller47/moto-gps-waveshare). **Branch di integrazione stabile:** `valhalla` (non toccato, nessun merge eseguito). **Branch sperimentale attivo:** `gemini_test`.
+**Aggiornato:** 18 novembre 2026 (prevenzione taglio corda in rotonde lente/strette: anticipo turn_scale a 4°, disattivazione compensazione retrograda in curva e cadenza BLE continua a 900 ms su Android sul branch `gemini_test`). **Repository:** [thriller47/moto-gps-waveshare](https://github.com/thriller47/moto-gps-waveshare). **Branch di integrazione stabile:** `valhalla` (non toccato, nessun merge eseguito). **Branch sperimentale attivo:** `gemini_test`.
 
 **Ultimo sviluppo effettivamente implementato:**
-1. **Fusione heading e IMU (`motion_heading_fusion.hpp`):** aumentato `kGyroSigmaDeg` da `6.0F` a `14.0F` nel filtro complementare (`gain = kGyroSigmaDeg^2 / (kGyroSigmaDeg^2 + sigma^2)`), aumentando il peso correttivo del course GPS dal ~8% al ~33% per fix per eliminare il trascinamento residuo del giroscopio responsabile della deriva laterale (effetto corsia adiacente).
-2. **Predittore mappa (`map_origin_predictor.hpp`):** ridotta la finestra massima di dead-reckoning continuo tra ancore `RouteGeometry` da `3'400U` ms a `1'800U` ms (mantenendo invariato il reset per gap >1 s tra tick); ridotti `kMaxAgeCompensationSeconds` da `0.70` a `0.35` e `kMaxAgeCompensationMeters` da `14.0` a `7.0` per evitare sovra-estrapolazione longitudinale/laterale.
-3. **Loop navigazione Android (`NavigationViewModel.kt`):** ridotto l'intervallo ordinario di trasmissione di `sendNearbyRouteGeometry(activeGeom)` da `3_000L` ms a `1_500L` ms (1,5 s) per mantenere l'ancora BLE costantemente aderente alla traiettoria reale anche su strade scorrevoli.
-4. **Test di regressione nativi (`motion_heading_fusion_tests.cpp`, `map_origin_predictor_tests.cpp`):** allineate tutte le asserzioni numeriche e di timing/distanza ai nuovi parametri di guadagno, finestra DR a 1,8 s e cadenza BLE a 1,5 s.
-5. **Precedenti sviluppi consolidati su `gemini_test`:** calibrazione smoothing giroscopio (0.15F) e scaling progressivo `turn_scale` (floor 0.20 a 70°); rimozione `WakeLock` in `LocationForegroundService.kt`; estensione mappa manovre BLE v1 nel simulatore; normalizzazione terminatori CRLF nei golden vector test nativi.
+1. **Predittore mappa (`map_origin_predictor.hpp`):**
+   - **Attenuazione anticipata del taglio corda (`turn_scale`)**: anticipato l'intervento da 10.0° a 4.0° e ridotto il floor da 0.20 a 0.10 su una finestra di 32.0° (`turn_scale = std::clamp(1.0 - 0.90 * ((anchor_turn_deg - 4.0) / 32.0), 0.10, 1.0)`); alle basse velocità (`speed < 7.0`), riscalato ulteriormente il passo in curva moltiplicando per `speed / 7.0` per compensare il ritardo di decelerazione del Doppler GPS.
+   - **Disattivazione della compensazione retrograda in curva**: ristretto `turn_weight` da 70.0° a 30.0° (`std::clamp((30.0 - turn_delta) / 22.0, 0.0, 1.0)`) e ridotta la soglia laterale `lateral_m` da 14.0 a 4.0 metri, impedendo che nelle rotonde la posizione GPS venga spinta lungo la tangente interna.
+2. **Loop navigazione Android (`NavigationViewModel.kt`):** mantenuta sempre attiva la cadenza rapida (`900L` ms) quando `activeSnap.maneuverName == "roundabout"` indipendentemente da `distanceToManeuverM <= 100L`, garantendo all'ESP32 ancore BLE ad alta frequenza per tutta la percorrenza dell'anello.
+3. **Test di regressione nativi (`map_origin_predictor_tests.cpp`):** allineate le asserzioni di `test_turning_continues_with_attenuated_step_along_live_heading`, `test_curve_compensation_tapers_instead_of_switching_off`, `test_roundabout_exit_three_second_geometry_gap` e `test_turn_scale_threshold_and_floor` ai nuovi parametri di attenuazione a 4°, floor 0.10, taper a 30° e compensazione a bassa velocità.
+4. **Precedenti sviluppi consolidati su `gemini_test`:** calibrazione heading/gyro `kGyroSigmaDeg = 14.0F`, smoothing 0.15F, finestra DR a 1,8 s e cadenza BLE 1,5 s; rimozione `WakeLock` in `LocationForegroundService.kt`; simulatore e fixture normalizzate.
 
 **Verifiche eseguite localmente (100% superate):**
 - **Test nativi C++/CMake/CTest (WSL Ubuntu 24.04):** 15/15 test superati (100%), inclusi `map_origin_predictor_tests`, `motion_heading_fusion_tests`, `nav_presenter_tests`, `ble_protocol_tests`, `connection_epoch_gate_tests`, `phone_nav_bridge_tests`.
@@ -420,6 +421,21 @@ Su richiesta utente, corretti `scripts/offline_map/pbf_to_motomap.py`: supercove
   2. `platforms/android/app/build.gradle.kts`: aggiunto `testOptions { unitTests.isReturnDefaultValues = true }` per consentire l'esecuzione affidabile dei test unitari sui componenti Android Service.
   3. `platforms/android/app/src/test/java/com/motogps/android/location/LocationForegroundServiceTest.kt`: aggiunti test unitari JUnit di regressione che simulano l'assenza del permesso `WAKE_LOCK` e verificano che `onCreate`, `onStartCommand` e `onDestroy` completino senza sollevare `SecurityException`.
 - **Verifica:** delegata alla run consolidata GitHub Actions CI (`project-build.yml` su branch `gemini_test`).
+
+### 18 novembre 2026 — prevenzione taglio corda in rotonda (turn_scale a 4°, soglia laterale 4m, cadenza BLE 900ms)
+
+- **Branch:** `gemini_test` (`valhalla` non modificato).
+- **Problema riscontrato nel test su strada:** nelle rotonde lente e strette la freccia/mappa tendeva a tagliare verso l'interno dell'anello a causa del ritardo di stima della decelerazione da parte del Doppler GPS dello smartphone, dell'intervento tardivo dell'attenuazione passo (a 10° invece che a 4°) e dell'age compensation retrograda che spingeva la posizione della nuova finestra BLE lungo la tangente interna.
+- **Causa e risoluzione chirurgica:**
+  1. `platforms/esp32/main/map_origin_predictor.hpp`:
+     - Anticipato l'intervento di `turn_scale` da 10.0° a 4.0° e ridotto il floor da 0.20 a 0.10 su una finestra di 32.0° (`turn_scale = std::clamp(1.0 - 0.90 * ((anchor_turn_deg - 4.0) / 32.0), 0.10, 1.0)`).
+     - Alle basse velocità tipiche da rotonda (`speed < 7.0`), riscalato ulteriormente il passo in curva moltiplicando `turn_scale *= (speed / 7.0)` per assorbire l'eccesso di velocità estrapolata dovuto al ritardo Doppler GPS.
+     - Ristretta la finestra `turn_weight` dell'age compensation retrograda da 70.0° a 30.0° (`std::clamp((30.0 - turn_delta) / 22.0, 0.0, 1.0)`) e ridotta la soglia laterale `lateral_m` da 14.0 m a 4.0 m, disattivando l'estrapolazione tangenziale interna lungo le curve della rotonda.
+  2. `platforms/android/app/src/main/java/com/motogps/android/viewmodel/NavigationViewModel.kt`:
+     - Nel loop di navigazione attiva, impostata la cadenza rapida di invio geometria (`900L` ms) sempre attiva quando `activeSnap.maneuverName == "roundabout"`, indipendentemente dalla condizione `distanceToManeuverM <= 100L`, affinché l'ESP32 riceva ancore fresche continuativamente lungo tutto l'anello.
+  3. `tests/native/map_origin_predictor_tests.cpp`:
+     - Aggiornate le asserzioni di `test_turning_continues_with_attenuated_step_along_live_heading` (spostamento attenuato a 50° con floor 0.10), `test_curve_compensation_tapers_instead_of_switching_off` (tapering della curva su angoli 15° e 22° coerentemente con la finestra a 30°), `test_roundabout_exit_three_second_geometry_gap` (gap DR a 17,7 m e convergenza a 7,1 m) e `test_turn_scale_threshold_and_floor` (soglia a 4.0°, floor a 0.10 a >=36° e verifica passo riscalato a velocità < 7.0 m/s).
+- **Verifica:** delegata a un'unica run consolidata di GitHub Actions (`project-build.yml` su branch `gemini_test` con `build_native=true`, `build_android=true`, `build_esp32=true`).
 
 ### 18 novembre 2026 — eliminazione deriva laterale residua (calibrazione kGyroSigmaDeg, finestra predittore 1.8s e cadenza BLE 1.5s)
 

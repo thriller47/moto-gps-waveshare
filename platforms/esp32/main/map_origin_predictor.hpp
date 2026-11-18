@@ -52,10 +52,10 @@ class MapOriginPredictor {
     const double dt = static_cast<double>(elapsed_ms) / 1'000.0;
     const double speed = static_cast<double>(speed_mps);
 
-    // Normal BLE route windows arrive ~1.5s apart.
+    // Normal BLE route windows arrive ~1.5s apart (900 ms in roundabouts).
     // Bound prediction at 1.8s, still freezing during a genuine outage.
-    // Attenuate step length gradually during sustained turns relative to
-    // the last geometry anchor instead of freezing the pose completely.
+    // Attenuate step length early during sustained turns relative to
+    // the last geometry anchor to prevent chord-cutting inside roundabouts.
     if (std::isfinite(speed) && speed >= 1.5 && speed <= 35.0 &&
         std::isfinite(heading_deg) && heading_deg >= 0.0F &&
         heading_deg < 360.0F &&
@@ -66,7 +66,10 @@ class MapOriginPredictor {
             static_cast<double>(heading_deg - last_anchor_heading_deg_),
             360.0));
         turn_scale = std::clamp(
-            1.0 - 0.80 * ((anchor_turn_deg - 10.0) / 60.0), 0.20, 1.0);
+            1.0 - 0.90 * ((anchor_turn_deg - 4.0) / 32.0), 0.10, 1.0);
+        if (speed < 7.0 && turn_scale < 1.0) {
+          turn_scale *= (speed / 7.0);
+        }
       }
       const double heading = static_cast<double>(heading_deg) *
                              3.14159265358979323846 / 180.0;
@@ -108,13 +111,13 @@ class MapOriginPredictor {
                                           east * north_unit);
         // The heading change between BLE geometry anchors is a conservative
         // proxy for road curvature. Smoothly fade a backward-only correction
-        // from full effect at <=12 deg to zero at >=70 deg. At a hairpin or
-        // roundabout exit do not extrapolate through the next road.
+        // from full effect at <=8 deg to zero at >=30 deg. At a hairpin or
+        // roundabout do not push along the inner tangent.
         const double turn_delta = std::abs(std::remainder(
             static_cast<double>(heading_deg - last_anchor_heading_deg_),
             360.0));
         const double turn_weight = std::clamp(
-            (70.0 - turn_delta) / 58.0, 0.0, 1.0);
+            (30.0 - turn_delta) / 22.0, 0.0, 1.0);
         const double speed_tolerance = std::max(
             2.0, static_cast<double>(speed_mps) * 0.25);
         const double speed_delta = std::abs(
@@ -124,7 +127,7 @@ class MapOriginPredictor {
             0.0, 1.0);
         // Reject large lateral offsets: they could be an actual lane change,
         // missed turn or GPS jump rather than delayed BLE delivery.
-        if (behind_m > 0.0 && lateral_m <= 14.0) {
+        if (behind_m > 0.0 && lateral_m <= 4.0) {
           // Fade age compensation continuously between 25 and 45 m;
           // previously 35.0 -> 35.1 m caused up to a 14 m jump.
           const double gap_weight = std::clamp(
