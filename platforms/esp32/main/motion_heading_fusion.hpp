@@ -64,11 +64,12 @@ class MotionHeadingFusion {
       return;
     }
     // Without true bearing accuracy over BLE, estimate angular sigma from
-    // speed while keeping <=30 deg at >=1.8 m/s for restart/startup lock.
+    // speed: <=30 deg at >=1.8 m/s for restart/startup lock, floored at 20 deg
+    // at cruising speed to avoid over-reacting to straight-line GNSS spikes.
     const float sigma = std::isfinite(course_accuracy_deg) &&
                             course_accuracy_deg > 0.0F
         ? course_accuracy_deg
-        : std::clamp(32.0F - (speed_mps - 1.5F) * 8.0F, 18.0F, 32.0F);
+        : std::clamp(31.5F - (speed_mps - 1.5F) * 6.5F, 20.0F, 31.5F);
     if (sigma > 60.0F) {
       large_error_count_ = 0;
       pending_large_course_ms_ = 0;
