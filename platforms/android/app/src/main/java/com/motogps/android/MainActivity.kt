@@ -61,9 +61,22 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     private var diagnosticMode by mutableStateOf(0)
     private var replayRecording by mutableStateOf(ReplayTraceRecorder.isRecording())
     private val diagnosticTimeoutHandler = Handler(Looper.getMainLooper())
-    private val diagnosticTimeout = Runnable {
-        // Stop the complete session together, rather than silently losing ESP logs.
-        setCompleteDiagnosticMode(0)
+    private var requestedDiagnosticMode = 0
+    private val diagnosticRefresh = object : Runnable {
+        override fun run() {
+            if (!replayRecording || requestedDiagnosticMode == 0) return
+            if (bleManager.setDiagnosticMode(requestedDiagnosticMode)) {
+                diagnosticMode = requestedDiagnosticMode
+                DiagnosticLog.event("ESP32_DIAG_REFRESH",
+                    "mode=$requestedDiagnosticMode")
+                // Firmware logging is capped at ~60 minutes. Renew it early.
+                diagnosticTimeoutHandler.postDelayed(this, 45L * 60L * 1000L)
+            } else {
+                diagnosticMode = 0
+                // The GPS trace continues. Try again when BLE comes back.
+                diagnosticTimeoutHandler.postDelayed(this, 60_000L)
+            }
+        }
     }
 
     /** Start/stop GPS replay and ESP32 BLE events as one explicit session. */
@@ -73,7 +86,8 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             replayRecording = false
             bleManager.setDiagnosticMode(0)
             diagnosticMode = 0
-            diagnosticTimeoutHandler.removeCallbacks(diagnosticTimeout)
+            requestedDiagnosticMode = 0
+            diagnosticTimeoutHandler.removeCallbacks(diagnosticRefresh)
             DiagnosticLog.event("FULL_DIAGNOSTICS", "stopped")
             return
         }
@@ -87,14 +101,16 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             ReplayTraceRecorder.start(this)
             replayRecording = ReplayTraceRecorder.isRecording()
             diagnosticMode = mode
-            diagnosticTimeoutHandler.removeCallbacks(diagnosticTimeout)
-            diagnosticTimeoutHandler.postDelayed(diagnosticTimeout, 60L * 60L * 1000L)
+            requestedDiagnosticMode = mode
+            diagnosticTimeoutHandler.removeCallbacks(diagnosticRefresh)
+            diagnosticTimeoutHandler.postDelayed(diagnosticRefresh, 45L * 60L * 1000L)
             DiagnosticLog.event("FULL_DIAGNOSTICS", "started mode=$mode")
         } catch (e: Exception) {
             bleManager.setDiagnosticMode(0)
             ReplayTraceRecorder.stop()
             replayRecording = false
             diagnosticMode = 0
+            requestedDiagnosticMode = 0
             Toast.makeText(this, "Diagnostica non avviata: ${e.message}",
                 Toast.LENGTH_LONG).show()
         }
@@ -184,8 +200,11 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 DiagnosticLog.event("BLE_LINK", state)
                 viewModel.setConnectionState(state)
                 if (!NavigationReconnectPolicy.isReady(state)) {
-                    diagnosticTimeoutHandler.removeCallbacks(diagnosticTimeout)
+                    diagnosticTimeoutHandler.removeCallbacks(diagnosticRefresh)
                     diagnosticMode = 0
+                } else if (replayRecording && requestedDiagnosticMode != 0) {
+                    diagnosticTimeoutHandler.removeCallbacks(diagnosticRefresh)
+                    diagnosticTimeoutHandler.post(diagnosticRefresh)
                 }
             }
             onDiagnosticBatchReceived = { records ->
@@ -422,7 +441,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             LocationForegroundService.onLocationUpdate = null
         }
         foregroundLocationCallback = null
-        diagnosticTimeoutHandler.removeCallbacks(diagnosticTimeout)
+        diagnosticTimeoutHandler.removeCallbacks(diagnosticRefresh)
         // The retained ViewModel owns GATT and releases it from onCleared().
         // A display rotation destroys the Activity, not the navigation session.
         if (isFinishing) {
