@@ -9,13 +9,13 @@ namespace {
 
 int failures = 0;
 
-#define CHECK(condition)                                                   \
-  do {                                                                     \
-    if (!(condition)) {                                                    \
-      std::cerr << __FILE__ << ':' << __LINE__                             \
-                << " CHECK failed: " #condition << '\n';                  \
-      ++failures;                                                          \
-    }                                                                      \
+#define CHECK(condition) \
+  do { \
+    if (!(condition)) { \
+      std::cerr << __FILE__ << ':' << __LINE__ \
+                << " CHECK failed: " #condition << '\n'; \
+      ++failures; \
+    } \
   } while (false)
 
 void feed_rate(MotionHeadingFusion& fusion, float rate_dps,
@@ -151,7 +151,7 @@ void test_stationary_freeze_holds_heading_until_riding_resumes() {
   fusion.anchor(30.0F, 0.8F, true);
   feed_rate(fusion, 90.0F, 2'016, 4'016);
   CHECK(std::abs(fusion.heading_deg() - 30.0F) < 0.01F);
-  // IMU resumes from 1m/s, but stale phone course remains ignored below 3.
+  // IMU resumes at 1.0m/s, while stale phone course remains ignored below 1.8m/s.
   fusion.anchor(220.0F, 1.0F, true);
   feed_rate(fusion, 90.0F, 4'024, 4'424);
   CHECK(fusion.heading_deg() > 45.0F);
@@ -161,7 +161,6 @@ void test_stationary_freeze_holds_heading_until_riding_resumes() {
   feed_rate(fusion, 90.0F, 8, 248);
   CHECK(fusion.heading_deg() > 5.0F);
 }
-
 
 void test_quality_weight_and_outlier_confirmation() {
   MotionHeadingFusion fusion;
@@ -178,42 +177,52 @@ void test_quality_weight_and_outlier_confirmation() {
   CHECK(std::abs(fusion.heading_deg() - good) > 1.0F);
 }
 
-void test_large_outlier_confirmation_expires_after_timeout() {
-  MotionHeadingFusion fusion;
-  fusion.anchor(90.0F, 10.0F, true, 8.0F, 1'000);
-  const float baseline = fusion.heading_deg();
-  // First large outlier at t=1,000ms: rejected as single outlier
-  fusion.anchor(180.0F, 10.0F, true, 40.0F, 1'000);
-  CHECK(std::abs(fusion.heading_deg() - baseline) < 0.01F);
-  // Second outlier arrives at t=4,000ms (> 2,500ms later): the first candidate has expired,
-  // so this second fix is treated as a new first candidate, NOT confirmation!
-  fusion.anchor(180.0F, 10.0F, true, 40.0F, 4'000);
-  CHECK(std::abs(fusion.heading_deg() - baseline) < 0.01F);
-  // Third outlier arrives at t=4,500ms (<= 2,500ms after t=4,000ms): now confirmed!
-  fusion.anchor(180.0F, 10.0F, true, 40.0F, 4'500);
-  CHECK(std::abs(fusion.heading_deg() - baseline) > 1.0F);
-}
 void test_low_confidence_initial_course_and_held_phone_heading() {
   MotionHeadingFusion fusion;
   fusion.anchor(15.0F, 0.0F, true);
-  fusion.anchor(185.0F, 2.0F, true);
+  fusion.anchor(185.0F, 1.2F, true);
   CHECK(std::abs(fusion.heading_deg() - 15.0F) < 0.01F);
-  fusion.anchor(185.0F, 3.0F, true);
+  fusion.anchor(185.0F, 1.7F, true);
   CHECK(std::abs(fusion.heading_deg() - 15.0F) < 0.01F);
-  fusion.anchor(185.0F, 8.0F, true);
+  fusion.anchor(185.0F, 1.8F, true);
   CHECK(std::abs(fusion.heading_deg() - 185.0F) < 0.01F);
 }
+
+void test_stop_before_roundabout_realigns_immediately_on_restart() {
+  MotionHeadingFusion fusion;
+  fusion.anchor(0.0F, 10.0F, true);
+  // Stop at yield line before roundabout: clears moving-course lock.
+  fusion.anchor(0.0F, 0.3F, true);
+  CHECK(std::abs(fusion.heading_deg() - 0.0F) < 0.01F);
+  // Restarting into the roundabout aligns on the first moving fix (>=1.8 m/s).
+  fusion.anchor(65.0F, 1.8F, true);
+  CHECK(std::abs(fusion.heading_deg() - 65.0F) < 0.01F);
+}
+
+void test_stale_outlier_does_not_confirm_later_spike() {
+  MotionHeadingFusion fusion;
+  fusion.anchor(10.0F, 8.0F, true, NAN, 1'000);
+  fusion.anchor(110.0F, 10.0F, true, NAN, 2'000);
+  CHECK(std::abs(fusion.heading_deg() - 10.0F) < 0.01F);
+  // More than 2,500 ms later: first candidate expired, must not confirm.
+  fusion.anchor(111.0F, 10.0F, true, NAN, 5'000);
+  CHECK(std::abs(fusion.heading_deg() - 10.0F) < 0.01F);
+  // Corroborated within 2,500 ms: now accepted.
+  fusion.anchor(112.0F, 10.0F, true, NAN, 5'500);
+  CHECK(fusion.heading_deg() > 30.0F);
+}
+
 void test_bias_learning_while_parked_and_persistence_after_reset() {
   MotionHeadingFusion fusion;
   fusion.anchor(90.0F, 0.0F, true);
   feed_rate(fusion, 1.0F, 8, 12'008);  // 12s at 125Hz
   CHECK(std::abs(fusion.heading_deg() - 90.0F) < 0.01F);
-  fusion.anchor(90.0F, 2.0F, true); // release IMU, not course
+  fusion.anchor(90.0F, 1.4F, true);  // release IMU (>=1.0), not course (<1.8)
   feed_rate(fusion, 1.0F, 12'016, 14'016);
   const float after_riding = fusion.heading_deg();
   CHECK(std::abs(after_riding - 90.0F) < 0.7F);
-  fusion.reset(); // bias is retained across reconnection
-  fusion.anchor(90.0F, 2.0F, true);
+  fusion.reset();  // bias is retained across reconnection
+  fusion.anchor(90.0F, 1.4F, true);
   feed_rate(fusion, 1.0F, 14'024, 16'024);
   CHECK(std::abs(fusion.heading_deg() - 90.0F) < 0.7F);
 }
@@ -233,8 +242,9 @@ int main() {
   test_stale_timestamp_does_not_rewind_integration_clock();
   test_stationary_freeze_holds_heading_until_riding_resumes();
   test_quality_weight_and_outlier_confirmation();
-  test_large_outlier_confirmation_expires_after_timeout();
   test_low_confidence_initial_course_and_held_phone_heading();
+  test_stop_before_roundabout_realigns_immediately_on_restart();
+  test_stale_outlier_does_not_confirm_later_spike();
   test_bias_learning_while_parked_and_persistence_after_reset();
 
   if (failures != 0) {
