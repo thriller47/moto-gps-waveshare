@@ -2,20 +2,14 @@
 
 ## STATO ATTUALE — RIPARTIRE DA QUI
 
-**Aggiornato:** 18 novembre 2026 (calibrazione reattività heading/gyro ed eliminazione deriva laterale predittore mappa sul branch `gemini_test`). **Repository:** [thriller47/moto-gps-waveshare](https://github.com/thriller47/moto-gps-waveshare). **Branch di integrazione stabile:** `valhalla` (non toccato, nessun merge eseguito). **Branch sperimentale attivo:** `gemini_test`.
+**Aggiornato:** 18 novembre 2026 (eliminazione deriva laterale residua 2–3 m: calibrazione kGyroSigmaDeg a 14.0, finestra predittore 1.8s e cadenza BLE 1.5s sul branch `gemini_test`). **Repository:** [thriller47/moto-gps-waveshare](https://github.com/thriller47/moto-gps-waveshare). **Branch di integrazione stabile:** `valhalla` (non toccato, nessun merge eseguito). **Branch sperimentale attivo:** `gemini_test`.
 
 **Ultimo sviluppo effettivamente implementato:**
-1. **Predittore mappa (`map_origin_predictor.hpp`):** ripristinata e validata l'inibizione dell'estrapolazione dead-reckoning (`move(...)`) quando lo scostamento angolare breve tra `heading_deg` e `last_anchor_heading_deg_` supera 15,0° oppure quando la velocità scende sotto il 75% di `last_anchor_speed_mps_`, mantenendo sempre attiva la correzione progressiva all'ancora.
-2. **Fusione heading e IMU (`motion_heading_fusion.hpp` & `phone_nav_bridge.cpp`):** introdotta scadenza temporale a 2.500 ms per la conferma del doppio outlier GNSS con propagazione del timestamp da `PhoneNavBridge`.
-3. **Policy ricalcolo Android (`RerouteStabilityPolicy.kt`):** semplificati i rami di `shouldDefer()` eliminando condizioni ombreggiate/morte; azzerato `turnGuardUntilMs = -1L` in `accepted()` per sbloccare tempestivamente la navigazione dopo l'accettazione di una nuova rotta.
-4. **Mappa manovre simulatore (`player.js`):** aggiunte tutte le varianti BLE v1 (`slight_left: 2`, `u_turn_left: 5`, `slight_right: 6`, `u_turn_right: 9`) preservando retrocompatibilità.
-5. **Runtime Web/WASM (`map-scene-overlay.js`, `wasm-loader.js`, `CMakeLists.txt`):** rimossi i fetch HTTP a fixture Jinan cancellate con degradazione pulita; allineati simboli esportati (`_moto_web_preview_phone_lifecycle`, `_moto_web_set_phone_connection`) e introdotto helper `safeCwrap`.
-6. **Tool offline (`pbf_to_motomap.py`):** gestione difensiva delle righe vuote nei file `.poly` prima del parsing coordinate.
-7. **Workflow CI (`project-build.yml`):** corretta eccezione `'LICENSE.md'` sotto `paths-ignore`; aggiunti controlli `node --check` e test unitari `node --test` per diagnostica heading, stabilità e binding WASM.
-8. **Fix crash Android all'avvio (`LocationForegroundService.kt`):** rimossa l'acquisizione di `PowerManager.WakeLock` che causava `SecurityException` (`android.permission.WAKE_LOCK` non dichiarato nel manifest); la navigazione in background è protetta in modo efficiente dal ciclo di vita `ForegroundService` con tipi `location|connectedDevice`. Aggiunta suite di regressione JUnit (`LocationForegroundServiceTest.kt`) e abilitato `unitTests.isReturnDefaultValues = true` in Gradle.
-9. **Calibrazione reattività heading/gyro ed eliminazione deriva laterale (`motion_heading_fusion.hpp`, `map_origin_predictor.hpp`):**
-   - In `motion_heading_fusion.hpp`: ridotto `kGyroSigmaDeg` da `10.0F` a `6.0F` (aumentando il peso correttivo del course GPS rispetto all'inerzia del gyro) e abbassato il fattore di smoothing in `integrate()` da `0.24F` a `0.15F` per far terminare più rapidamente la rotazione del giroscopio all'uscita delle curve. Test aggiornati in `tests/native/motion_heading_fusion_tests.cpp`.
-   - In `map_origin_predictor.hpp`: anticipata la soglia di intervento di `turn_scale` a 10.0° con floor a 0.20 tramite `turn_scale = std::clamp(1.0 - 0.80 * ((anchor_turn_deg - 10.0) / 60.0), 0.20, 1.0)`, azzerando la deriva laterale della mappa subito dopo rotatorie e bivi. Aggiunto test di regressione in `tests/native/map_origin_predictor_tests.cpp`.
+1. **Fusione heading e IMU (`motion_heading_fusion.hpp`):** aumentato `kGyroSigmaDeg` da `6.0F` a `14.0F` nel filtro complementare (`gain = kGyroSigmaDeg^2 / (kGyroSigmaDeg^2 + sigma^2)`), aumentando il peso correttivo del course GPS dal ~8% al ~33% per fix per eliminare il trascinamento residuo del giroscopio responsabile della deriva laterale (effetto corsia adiacente).
+2. **Predittore mappa (`map_origin_predictor.hpp`):** ridotta la finestra massima di dead-reckoning continuo tra ancore `RouteGeometry` da `3'400U` ms a `1'800U` ms (mantenendo invariato il reset per gap >1 s tra tick); ridotti `kMaxAgeCompensationSeconds` da `0.70` a `0.35` e `kMaxAgeCompensationMeters` da `14.0` a `7.0` per evitare sovra-estrapolazione longitudinale/laterale.
+3. **Loop navigazione Android (`NavigationViewModel.kt`):** ridotto l'intervallo ordinario di trasmissione di `sendNearbyRouteGeometry(activeGeom)` da `3_000L` ms a `1_500L` ms (1,5 s) per mantenere l'ancora BLE costantemente aderente alla traiettoria reale anche su strade scorrevoli.
+4. **Test di regressione nativi (`motion_heading_fusion_tests.cpp`, `map_origin_predictor_tests.cpp`):** allineate tutte le asserzioni numeriche e di timing/distanza ai nuovi parametri di guadagno, finestra DR a 1,8 s e cadenza BLE a 1,5 s.
+5. **Precedenti sviluppi consolidati su `gemini_test`:** calibrazione smoothing giroscopio (0.15F) e scaling progressivo `turn_scale` (floor 0.20 a 70°); rimozione `WakeLock` in `LocationForegroundService.kt`; estensione mappa manovre BLE v1 nel simulatore; normalizzazione terminatori CRLF nei golden vector test nativi.
 
 **Verifiche eseguite localmente (100% superate):**
 - **Test nativi C++/CMake/CTest (WSL Ubuntu 24.04):** 15/15 test superati (100%), inclusi `map_origin_predictor_tests`, `motion_heading_fusion_tests`, `nav_presenter_tests`, `ble_protocol_tests`, `connection_epoch_gate_tests`, `phone_nav_bridge_tests`.
@@ -426,6 +420,24 @@ Su richiesta utente, corretti `scripts/offline_map/pbf_to_motomap.py`: supercove
   2. `platforms/android/app/build.gradle.kts`: aggiunto `testOptions { unitTests.isReturnDefaultValues = true }` per consentire l'esecuzione affidabile dei test unitari sui componenti Android Service.
   3. `platforms/android/app/src/test/java/com/motogps/android/location/LocationForegroundServiceTest.kt`: aggiunti test unitari JUnit di regressione che simulano l'assenza del permesso `WAKE_LOCK` e verificano che `onCreate`, `onStartCommand` e `onDestroy` completino senza sollevare `SecurityException`.
 - **Verifica:** delegata alla run consolidata GitHub Actions CI (`project-build.yml` su branch `gemini_test`).
+
+### 18 novembre 2026 — eliminazione deriva laterale residua (calibrazione kGyroSigmaDeg, finestra predittore 1.8s e cadenza BLE 1.5s)
+
+- **Branch:** `gemini_test` (`valhalla` non modificato).
+- **Problema riscontrato nel test su strada:** permaneva una deriva laterale residua di 2–3 metri (effetto corsia adiacente) causata dal guadagno correttivo insufficiente del course GPS rispetto all'inerzia del giroscopio (~8% per fix con `kGyroSigmaDeg = 6.0F`) e dall'estrapolazione longitudinale/laterale eccessiva del predittore durante finestre geometriche BLE distanziate di 3,0 s.
+- **Causa e risoluzione chirurgica:**
+  1. `platforms/esp32/main/motion_heading_fusion.hpp`:
+     - Aumentato `kGyroSigmaDeg` da `6.0F` a `14.0F` nella formula `gain = kGyroSigmaDeg^2 / (kGyroSigmaDeg^2 + sigma^2)`, aumentando il peso correttivo del course GPS dal ~8% al ~33% per fix ed eliminando il trascinamento inerziale residuo del giroscopio.
+  2. `platforms/esp32/main/map_origin_predictor.hpp`:
+     - Ridotta la finestra massima di dead-reckoning continuo tra due ancore `RouteGeometry` da `3'400U` ms a `1'800U` ms (mantenendo invariato il reset per gap >1 s tra tick).
+     - Ridotti `kMaxAgeCompensationSeconds` da `0.70` a `0.35` e `kMaxAgeCompensationMeters` da `14.0` a `7.0` per evitare sovra-estrapolazione longitudinale/laterale.
+  3. `platforms/android/app/src/main/java/com/motogps/android/viewmodel/NavigationViewModel.kt`:
+     - Nel loop di navigazione attiva, ridotto l'intervallo ordinario di invio di `sendNearbyRouteGeometry(activeGeom)` da `3_000L` ms a `1_500L` ms (1,5 s) per mantenere l'ancora BLE aderente alla traiettoria reale anche su strade scorrevoli.
+  4. `tests/native/motion_heading_fusion_tests.cpp`:
+     - Allineate le attese numeriche dei test `test_moving_phone_course_corrects_gyro_drift_progressively`, `test_startup_heading_fast_and_stationary_hold` e `test_stale_outlier_does_not_confirm_later_spike` ai valori teorici derivanti dal nuovo guadagno ~0.33.
+  5. `tests/native/map_origin_predictor_tests.cpp`:
+     - Aggiornate le asserzioni di tempo e distanza nei test `test_prediction_freezes_after_missing_geometry_anchor`, `test_three_second_ble_geometry_cadence_stays_in_motion`, `test_cruising_speed_reduces_only_backward_anchor_correction`, `test_turning_and_stopping_do_not_hide_backward_corrections`, `test_curve_compensation_tapers_instead_of_switching_off` e `test_roundabout_exit_three_second_geometry_gap` coerentemente con la finestra di 1,8 s e la cadenza geometrica di 1,5 s.
+- **Verifica:** delegata a un'unica run consolidata di GitHub Actions (`project-build.yml` su branch `gemini_test` con `build_native=true`, `build_android=true`, `build_esp32=true`).
 
 ### 18 novembre 2026 — calibrazione reattività heading/gyro ed eliminazione deriva laterale predittore mappa
 

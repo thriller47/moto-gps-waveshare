@@ -47,8 +47,8 @@ void test_moving_phone_course_corrects_gyro_drift_progressively() {
   fusion.anchor(110.0F, 10.0F, true);
   CHECK(std::abs(fusion.heading_deg() - 10.0F) < 0.01F);
   fusion.anchor(111.0F, 10.0F, true);
-  CHECK(fusion.heading_deg() > 17.5F);
-  CHECK(fusion.heading_deg() < 19.5F);
+  CHECK(fusion.heading_deg() > 42.0F);
+  CHECK(fusion.heading_deg() < 44.5F);
 }
 
 void test_active_turn_does_not_snap_toward_delayed_phone_course() {
@@ -85,8 +85,8 @@ void test_startup_heading_fast_and_stationary_hold() {
   fusion.anchor(110.0F, 8.0F, true);
   CHECK(std::abs(fusion.heading_deg() - 110.0F) < 0.01F);
   fusion.anchor(120.0F, 8.0F, true);
-  CHECK(fusion.heading_deg() > 110.5F);
-  CHECK(fusion.heading_deg() < 111.5F);
+  CHECK(fusion.heading_deg() > 112.5F);
+  CHECK(fusion.heading_deg() < 114.0F);
   const float corrected = fusion.heading_deg();
   fusion.anchor(250.0F, 0.0F, true);
   CHECK(std::abs(fusion.heading_deg() - corrected) < 0.01F);
@@ -210,8 +210,8 @@ void test_stale_outlier_does_not_confirm_later_spike() {
   CHECK(std::abs(fusion.heading_deg() - 10.0F) < 0.01F);
   // Corroborated within 2,500 ms: now accepted.
   fusion.anchor(112.0F, 10.0F, true, NAN, 5'500);
-  CHECK(fusion.heading_deg() > 17.5F);
-  CHECK(fusion.heading_deg() < 19.5F);
+  CHECK(fusion.heading_deg() > 42.0F);
+  CHECK(fusion.heading_deg() < 44.5F);
 }
 
 void test_bias_learning_while_parked_and_persistence_after_reset() {

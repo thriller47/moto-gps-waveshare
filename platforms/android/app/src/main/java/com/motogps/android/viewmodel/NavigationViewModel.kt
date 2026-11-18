@@ -845,7 +845,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                                 RouteGeometryWindow.isWinding(
                                     RouteGeometryWindow.around(activeGeom, lat, lon)
                                 )
-                            if (nearTurn || winding || elapsed >= 3_000L) {
+                            if (nearTurn || winding || elapsed >= 1_500L) {
                                 sendNearbyRouteGeometry(activeGeom)
                                 lastGeometryTransmissionMs = now
                             }

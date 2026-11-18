@@ -52,15 +52,14 @@ class MapOriginPredictor {
     const double dt = static_cast<double>(elapsed_ms) / 1'000.0;
     const double speed = static_cast<double>(speed_mps);
 
-    // Normal BLE route windows can arrive 3.1s apart. The old 1.5s cap
-    // froze the moving map until the next window, causing 30m catch-ups.
-    // Bound prediction at 3.4s, still freezing during a genuine outage.
+    // Normal BLE route windows arrive ~1.5s apart.
+    // Bound prediction at 1.8s, still freezing during a genuine outage.
     // Attenuate step length gradually during sustained turns relative to
     // the last geometry anchor instead of freezing the pose completely.
     if (std::isfinite(speed) && speed >= 1.5 && speed <= 35.0 &&
         std::isfinite(heading_deg) && heading_deg >= 0.0F &&
         heading_deg < 360.0F &&
-        now_ms - last_geometry_seen_ms_ <= 3'400U) {
+        now_ms - last_geometry_seen_ms_ <= 1'800U) {
       double turn_scale = 1.0;
       if (std::isfinite(last_anchor_heading_deg_)) {
         const double anchor_turn_deg = std::abs(std::remainder(
@@ -98,8 +97,8 @@ class MapOriginPredictor {
           std::isfinite(last_anchor_heading_deg_) &&
           std::isfinite(last_anchor_speed_mps_);
       if (moving && raw_gap_m <= 45.0 && raw_gap_m > 0.5) {
-        constexpr double kMaxAgeCompensationSeconds = 0.70;
-        constexpr double kMaxAgeCompensationMeters = 14.0;
+        constexpr double kMaxAgeCompensationSeconds = 0.35;
+        constexpr double kMaxAgeCompensationMeters = 7.0;
         const double heading = static_cast<double>(heading_deg) *
                                3.14159265358979323846 / 180.0;
         const double north_unit = std::cos(heading);

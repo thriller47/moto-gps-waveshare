@@ -180,7 +180,7 @@ class MotionHeadingFusion {
   static constexpr float kStationarySpeedMps = 0.6F;
   static constexpr float kStationaryReleaseSpeedMps = 1.0F;
   static constexpr float kDeadbandDps = 0.3F;
-  static constexpr float kGyroSigmaDeg = 6.0F;
+  static constexpr float kGyroSigmaDeg = 14.0F;
   static constexpr std::uint64_t kMaximumIntegrationGapMs = 160;
   static constexpr std::uint64_t kLargeErrorConfirmationTimeoutMs = 2'500;
 

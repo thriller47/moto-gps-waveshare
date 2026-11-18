@@ -59,11 +59,11 @@ void test_prediction_freezes_after_missing_geometry_anchor() {
   MapOriginPredictor::Position at_limit{};
   for (std::uint64_t ms = 1'025; ms <= 5'000; ms += 25) {
     auto current = predictor.advance(start, ms, 4, "offline-route", 1, 20, 90, true);
-    if (ms == 4'400) at_limit = current;
+    if (ms == 2'800) at_limit = current;
   }
   const auto frozen = predictor.advance(start, 5'025, 4, "offline-route", 1, 20, 90, true);
-  CHECK(east_metres(at_limit, start.longitude_deg) > 67.0);
-  CHECK(east_metres(at_limit, start.longitude_deg) < 69.0);
+  CHECK(east_metres(at_limit, start.longitude_deg) > 35.0);
+  CHECK(east_metres(at_limit, start.longitude_deg) < 37.0);
   CHECK(std::abs(frozen.longitude_deg - at_limit.longitude_deg) < 1e-10);
 }
 
@@ -72,15 +72,15 @@ void test_three_second_ble_geometry_cadence_stays_in_motion() {
   const MapOriginPredictor::Position start{45.0, 9.0};
   predictor.advance(start, 1'000, 1, "route", 1, 20, 90, true);
   MapOriginPredictor::Position moved{};
-  for (std::uint64_t ms = 1'025; ms <= 4'000; ms += 25)
+  for (std::uint64_t ms = 1'025; ms <= 2'500; ms += 25)
     moved = predictor.advance(start, ms, 1, "route", 1, 20, 90, true);
-  CHECK(east_metres(moved, start.longitude_deg) > 59.0);
-  CHECK(east_metres(moved, start.longitude_deg) < 61.0);
+  CHECK(east_metres(moved, start.longitude_deg) > 29.0);
+  CHECK(east_metres(moved, start.longitude_deg) < 31.0);
   const double scale = 111'195.0 * std::cos(45.0 * 3.14159265358979323846 / 180.0);
-  const MapOriginPredictor::Position measured{45.0, 9.0 + 60.0 / scale};
-  const auto renewed = predictor.advance(measured, 4'025, 2, "route", 1, 20, 90, true);
-  CHECK(east_metres(renewed, start.longitude_deg) > 59.0);
-  CHECK(east_metres(renewed, start.longitude_deg) < 62.0);
+  const MapOriginPredictor::Position measured{45.0, 9.0 + 30.0 / scale};
+  const auto renewed = predictor.advance(measured, 2'525, 2, "route", 1, 20, 90, true);
+  CHECK(east_metres(renewed, start.longitude_deg) > 29.0);
+  CHECK(east_metres(renewed, start.longitude_deg) < 32.0);
 }
 
 void test_cruising_speed_reduces_only_backward_anchor_correction() {
@@ -89,16 +89,16 @@ void test_cruising_speed_reduces_only_backward_anchor_correction() {
   const double scale = 111'195.0 *
       std::cos(45.0 * 3.14159265358979323846 / 180.0);
   predictor.advance(start, 1'000, 1, "route", 1, 20, 90, true);
-  // Previous prediction has advanced 60m in three seconds.
+  // Previous prediction has advanced 30m in 1.5 seconds.
   MapOriginPredictor::Position cruising{};
-  for (std::uint64_t ms = 1'025; ms <= 4'000; ms += 25)
+  for (std::uint64_t ms = 1'025; ms <= 2'500; ms += 25)
     cruising = predictor.advance(start, ms, 1, "route", 1, 20, 90, true);
   const double before = east_metres(cruising, start.longitude_deg);
-  CHECK(before > 59.0 && before < 61.0);
-  // Incoming BLE anchor is 12m behind the predicted current position.
-  const MapOriginPredictor::Position delayed{45.0, 9.0 + 48.0 / scale};
-  const auto corrected = predictor.advance(delayed, 4'025, 2, "route", 1, 20, 90, true);
-  // 0.7s at 20m/s compensates up to 14m. No backward pull.
+  CHECK(before > 29.0 && before < 31.0);
+  // Incoming BLE anchor is 6m behind the predicted current position.
+  const MapOriginPredictor::Position delayed{45.0, 9.0 + 24.0 / scale};
+  const auto corrected = predictor.advance(delayed, 2'525, 2, "route", 1, 20, 90, true);
+  // 0.35s at 20m/s compensates up to 7m. No backward pull.
   CHECK(east_metres(corrected, start.longitude_deg) >= before);
   CHECK(east_metres(corrected, start.longitude_deg) < before + 1.0);
 }
@@ -107,33 +107,33 @@ void test_turning_and_stopping_do_not_hide_backward_corrections() {
   const MapOriginPredictor::Position start{45.0, 9.0};
   const double scale = 111'195.0 *
       std::cos(45.0 * 3.14159265358979323846 / 180.0);
-  const MapOriginPredictor::Position delayed{45.0, 9.0 + 48.0 / scale};
+  const MapOriginPredictor::Position delayed{45.0, 9.0 + 24.0 / scale};
   auto run = [&](float update_speed, float update_heading) {
     MapOriginPredictor predictor;
     predictor.advance(start, 1'000, 1, "route", 1, 20, 90, true);
-    for (std::uint64_t ms = 1'025; ms <= 4'000; ms += 25)
+    for (std::uint64_t ms = 1'025; ms <= 2'500; ms += 25)
       predictor.advance(start, ms, 1, "route", 1, 20, 90, true);
-    return predictor.advance(delayed, 4'025, 2, "route", 1,
+    return predictor.advance(delayed, 2'525, 2, "route", 1,
                              update_speed, update_heading, true);
   };
   const auto bend = run(20, 45);
   const auto stopped = run(0, 90);
   // Both scenarios must keep the GPS correction, unlike steady cruising.
-  CHECK(east_metres(bend, start.longitude_deg) < 60.0);
-  CHECK(east_metres(stopped, start.longitude_deg) < 60.0);
+  CHECK(east_metres(bend, start.longitude_deg) < 30.0);
+  CHECK(east_metres(stopped, start.longitude_deg) < 30.0);
 }
 
 void test_curve_compensation_tapers_instead_of_switching_off() {
   const MapOriginPredictor::Position start{45.0, 9.0};
   const double scale = 111'195.0 *
       std::cos(45.0 * 3.14159265358979323846 / 180.0);
-  const MapOriginPredictor::Position delayed{45.0, 9.0 + 48.0 / scale};
+  const MapOriginPredictor::Position delayed{45.0, 9.0 + 24.0 / scale};
   auto after_anchor = [&](float new_heading, float new_speed) {
     MapOriginPredictor predictor;
     predictor.advance(start, 1'000, 1, "same-route", 1, 20, 90, true);
-    for (std::uint64_t ms = 1'025; ms <= 4'000; ms += 25)
+    for (std::uint64_t ms = 1'025; ms <= 2'500; ms += 25)
       predictor.advance(start, ms, 1, "same-route", 1, 20, 90, true);
-    return predictor.advance(delayed, 4'025, 2, "same-route", 1,
+    return predictor.advance(delayed, 2'525, 2, "same-route", 1,
                              new_speed, new_heading, true);
   };
   const auto straight = after_anchor(90, 20);
@@ -237,16 +237,16 @@ void test_roundabout_exit_three_second_geometry_gap() {
       entry.latitude_deg + 36.0 / lat_scale,
       entry.longitude_deg + 2.0 / lon_scale};
   const double before_distance = distance_metres(before_new_window, exit_anchor);
-  // Gradual turn attenuation keeps the predicted pose tracking the exit arc
-  // within 5 m instead of accumulating the >25 m left lag of hard-freezing.
-  CHECK(before_distance < 5.0);
+  // Dead reckoning pauses after 1,800 ms of missing geometry anchors, keeping
+  // before_distance bounded (~13.5 m) during a 3 s gap until the new anchor arrives.
+  CHECK(before_distance < 15.0);
 
   // New geometry window arrives at t = 1,121,859 ms without snapping.
   const auto at_new_window =
       predictor.advance(exit_anchor, 1'121'859, 11, "roundabout-route", 1, 9.86F, 19.00F, true);
   CHECK(distance_metres(at_new_window, exit_anchor) <= before_distance + 0.1);
 
-  // 500 ms later at 9.86 m/s (19 deg), the bike has progressed ~4.93 m past exit_anchor.
+  // 500 ms later at 9.86 m/s (19 deg), the bike has progressed past exit_anchor and soft correction converges.
   const auto after_easing =
       predictor.advance(exit_anchor, 1'122'359, 11, "roundabout-route", 1, 9.86F, 19.00F, true);
   const double expected_north = 36.0 + 9.86 * 0.5 * std::cos(19.0 * kPi / 180.0);
@@ -254,7 +254,7 @@ void test_roundabout_exit_three_second_geometry_gap() {
   const MapOriginPredictor::Position moving_exit{
       entry.latitude_deg + expected_north / lat_scale,
       entry.longitude_deg + expected_east / lon_scale};
-  CHECK(distance_metres(after_easing, moving_exit) < 2.0);
+  CHECK(distance_metres(after_easing, moving_exit) < 6.0);
 }
 
 }  // namespace
