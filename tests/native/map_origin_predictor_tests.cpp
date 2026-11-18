@@ -181,9 +181,9 @@ void test_turning_continues_with_attenuated_step_along_live_heading() {
 void test_roundabout_exit_three_second_geometry_gap() {
   MapOriginPredictor predictor;
   const MapOriginPredictor::Position entry{45.0, 9.0};
+  constexpr double kPi = 3.14159265358979323846;
   const double lat_scale = 111'195.0;
-  const double lon_scale =
-      lat_scale * std::cos(45.0 * 3.14159265358979323846 / 180.0);
+  const double lon_scale = lat_scale * std::cos(45.0 * kPi / 180.0);
 
   // Entry window at t = 1,118,784 ms (heading 340.59 deg, speed 17.67 m/s).
   predictor.advance(entry, 1'118'784, 10, "roundabout-route", 1, 17.67F, 340.59F, true);
@@ -209,17 +209,23 @@ void test_roundabout_exit_three_second_geometry_gap() {
       entry.longitude_deg + 2.0 / lon_scale};
   const double before_distance = distance_metres(before_new_window, exit_anchor);
   // Gradual turn attenuation keeps the predicted pose tracking the exit arc
-  // without accumulating the >25 m lag caused by hard-freezing in curves.
-  CHECK(before_distance < 20.0);
+  // within 5 m instead of accumulating the >25 m left lag of hard-freezing.
+  CHECK(before_distance < 5.0);
 
-  // New geometry window arrives at t = 1,121,859 ms and eases in smoothly.
+  // New geometry window arrives at t = 1,121,859 ms without snapping.
   const auto at_new_window =
       predictor.advance(exit_anchor, 1'121'859, 11, "roundabout-route", 1, 9.86F, 19.00F, true);
+  CHECK(distance_metres(at_new_window, exit_anchor) <= before_distance + 0.1);
+
+  // 500 ms later at 9.86 m/s (19 deg), the bike has progressed ~4.93 m past exit_anchor.
   const auto after_easing =
       predictor.advance(exit_anchor, 1'122'359, 11, "roundabout-route", 1, 9.86F, 19.00F, true);
-  CHECK(distance_metres(at_new_window, exit_anchor) <= before_distance + 0.1);
-  CHECK(distance_metres(after_easing, exit_anchor) <
-        distance_metres(at_new_window, exit_anchor));
+  const double expected_north = 36.0 + 9.86 * 0.5 * std::cos(19.0 * kPi / 180.0);
+  const double expected_east = 2.0 + 9.86 * 0.5 * std::sin(19.0 * kPi / 180.0);
+  const MapOriginPredictor::Position moving_exit{
+      entry.latitude_deg + expected_north / lat_scale,
+      entry.longitude_deg + expected_east / lon_scale};
+  CHECK(distance_metres(after_easing, moving_exit) < 1.5);
 }
 
 }  // namespace
