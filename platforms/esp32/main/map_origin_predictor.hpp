@@ -67,7 +67,7 @@ class MapOriginPredictor {
             static_cast<double>(heading_deg - last_anchor_heading_deg_),
             360.0));
         turn_scale = std::clamp(
-            1.0 - 0.65 * ((anchor_turn_deg - 15.0) / 60.0), 0.35, 1.0);
+            1.0 - 0.80 * ((anchor_turn_deg - 10.0) / 60.0), 0.20, 1.0);
       }
       const double heading = static_cast<double>(heading_deg) *
                              3.14159265358979323846 / 180.0;

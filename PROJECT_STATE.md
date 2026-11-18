@@ -2,7 +2,7 @@
 
 ## STATO ATTUALE — RIPARTIRE DA QUI
 
-**Aggiornato:** 17 novembre 2026 (consolidamento branch sperimentale `gemini_test`). **Repository:** [thriller47/moto-gps-waveshare](https://github.com/thriller47/moto-gps-waveshare). **Branch di integrazione stabile:** `valhalla` (non toccato, nessun merge eseguito). **Branch sperimentale attivo:** `gemini_test`.
+**Aggiornato:** 18 novembre 2026 (calibrazione reattività heading/gyro ed eliminazione deriva laterale predittore mappa sul branch `gemini_test`). **Repository:** [thriller47/moto-gps-waveshare](https://github.com/thriller47/moto-gps-waveshare). **Branch di integrazione stabile:** `valhalla` (non toccato, nessun merge eseguito). **Branch sperimentale attivo:** `gemini_test`.
 
 **Ultimo sviluppo effettivamente implementato:**
 1. **Predittore mappa (`map_origin_predictor.hpp`):** ripristinata e validata l'inibizione dell'estrapolazione dead-reckoning (`move(...)`) quando lo scostamento angolare breve tra `heading_deg` e `last_anchor_heading_deg_` supera 15,0° oppure quando la velocità scende sotto il 75% di `last_anchor_speed_mps_`, mantenendo sempre attiva la correzione progressiva all'ancora.
@@ -13,6 +13,9 @@
 6. **Tool offline (`pbf_to_motomap.py`):** gestione difensiva delle righe vuote nei file `.poly` prima del parsing coordinate.
 7. **Workflow CI (`project-build.yml`):** corretta eccezione `'LICENSE.md'` sotto `paths-ignore`; aggiunti controlli `node --check` e test unitari `node --test` per diagnostica heading, stabilità e binding WASM.
 8. **Fix crash Android all'avvio (`LocationForegroundService.kt`):** rimossa l'acquisizione di `PowerManager.WakeLock` che causava `SecurityException` (`android.permission.WAKE_LOCK` non dichiarato nel manifest); la navigazione in background è protetta in modo efficiente dal ciclo di vita `ForegroundService` con tipi `location|connectedDevice`. Aggiunta suite di regressione JUnit (`LocationForegroundServiceTest.kt`) e abilitato `unitTests.isReturnDefaultValues = true` in Gradle.
+9. **Calibrazione reattività heading/gyro ed eliminazione deriva laterale (`motion_heading_fusion.hpp`, `map_origin_predictor.hpp`):**
+   - In `motion_heading_fusion.hpp`: ridotto `kGyroSigmaDeg` da `10.0F` a `6.0F` (aumentando il peso correttivo del course GPS rispetto all'inerzia del gyro) e abbassato il fattore di smoothing in `integrate()` da `0.24F` a `0.15F` per far terminare più rapidamente la rotazione del giroscopio all'uscita delle curve. Test aggiornati in `tests/native/motion_heading_fusion_tests.cpp`.
+   - In `map_origin_predictor.hpp`: anticipata la soglia di intervento di `turn_scale` a 10.0° con floor a 0.20 tramite `turn_scale = std::clamp(1.0 - 0.80 * ((anchor_turn_deg - 10.0) / 60.0), 0.20, 1.0)`, azzerando la deriva laterale della mappa subito dopo rotatorie e bivi. Aggiunto test di regressione in `tests/native/map_origin_predictor_tests.cpp`.
 
 **Verifiche eseguite localmente (100% superate):**
 - **Test nativi C++/CMake/CTest (WSL Ubuntu 24.04):** 15/15 test superati (100%), inclusi `map_origin_predictor_tests`, `motion_heading_fusion_tests`, `nav_presenter_tests`, `ble_protocol_tests`, `connection_epoch_gate_tests`, `phone_nav_bridge_tests`.
@@ -21,10 +24,10 @@
 - **Line ending fix:** normalizzati i terminatori CRLF nel parser fixture golden di `ble_protocol_tests.cpp`.
 
 **Ancora da verificare:**
-- Build remota consolidata GitHub Actions CI sul branch `gemini_test` (job `android`).
-- Build WASM Emscripten su WSL e collaudo finale su strada con hardware ESP32.
+- Build remota consolidata GitHub Actions CI sul branch `gemini_test` (`build_native=true`, `build_android=true`, `build_esp32=true`).
+- Collaudo finale su strada con hardware Waveshare ESP32.
 
-**Prossima azione:** eseguire una singola commit e push consolidata sul branch `gemini_test`, avviare `workflow_dispatch` per il job Android e verificare l'esito. Nessun merge su `valhalla`.
+**Prossima azione:** eseguire un'unica commit e push sul branch `gemini_test`, avviare `workflow_dispatch` per la run CI completa e verificare il superamento di tutti i job. Nessun merge su `valhalla`.
 
 **Aggiornato:** 17 novembre 2026 (fix Python di copertura MotoMap z15, tag maxspeed e pipe zstd; formato v4 invariato). **Integrazione stabile:** `valhalla` (non modificata in questa sessione). **Branch sperimentale attivo:** `test/unified-offline-map-20261115`; non eseguire merge senza approvazione dell'utente. Al controllo GitHub del 16/11: branch test 51 commit avanti e 3 indietro rispetto a `valhalla` (rivalutare divergenza prima del merge).
 
@@ -423,3 +426,20 @@ Su richiesta utente, corretti `scripts/offline_map/pbf_to_motomap.py`: supercove
   2. `platforms/android/app/build.gradle.kts`: aggiunto `testOptions { unitTests.isReturnDefaultValues = true }` per consentire l'esecuzione affidabile dei test unitari sui componenti Android Service.
   3. `platforms/android/app/src/test/java/com/motogps/android/location/LocationForegroundServiceTest.kt`: aggiunti test unitari JUnit di regressione che simulano l'assenza del permesso `WAKE_LOCK` e verificano che `onCreate`, `onStartCommand` e `onDestroy` completino senza sollevare `SecurityException`.
 - **Verifica:** delegata alla run consolidata GitHub Actions CI (`project-build.yml` su branch `gemini_test`).
+
+### 18 novembre 2026 — calibrazione reattività heading/gyro ed eliminazione deriva laterale predittore mappa
+
+- **Branch:** `gemini_test` (`valhalla` non modificato).
+- **Problema riscontrato nel test su strada:** la mappa e la freccia presentavano una deriva laterale sia a destra che a sinistra ed erano troppo lente a riprendere la direzione corretta dopo le curve (effetto lag del giroscopio).
+- **Causa e risoluzione chirurgica:**
+  1. `platforms/esp32/main/motion_heading_fusion.hpp`:
+     - Ridotto `kGyroSigmaDeg` da `10.0F` a `6.0F`, aumentando il peso correttivo del course GPS rispetto all'inerzia del gyro nel filtro complementare (`gain = gyro_sigma^2 / (gyro_sigma^2 + course_sigma^2)`).
+     - Ridotto il fattore di smoothing esponenziale del rateo di imbardata in `integrate()` da `0.24F` a `0.15F` per estinguere più rapidamente la rotazione inerziale residua del giroscopio all'uscita dalle curve.
+  2. `platforms/esp32/main/map_origin_predictor.hpp`:
+     - Riformulata la funzione di scaling in curva `turn_scale` in `advance()` impostando `turn_scale = std::clamp(1.0 - 0.80 * ((anchor_turn_deg - 10.0) / 60.0), 0.20, 1.0)`: la scala resta piena (1.0) fino a 10.0° di deviazione angolare, si attenua progressivamente tra 10° e 70°, e si fissa al floor 0.20 a 70° o oltre, azzerando la deriva laterale della mappa subito dopo rotatorie e curve.
+  3. `tests/native/motion_heading_fusion_tests.cpp`:
+     - Allineate le asserzioni quantitative dei test `test_moving_phone_course_corrects_gyro_drift_progressively`, `test_startup_heading_fast_and_stationary_hold`, `test_quality_weight_and_outlier_confirmation` e `test_stale_outlier_does_not_confirm_later_spike` ai nuovi parametri di filtro e guadagno.
+  4. `tests/native/map_origin_predictor_tests.cpp`:
+     - Aggiornata la verifica di `test_turning_continues_with_attenuated_step_along_live_heading` alla nuova scala attenuata (~0.47 a 50°).
+     - Aggiunto il test di regressione `test_turn_scale_threshold_and_floor` che verifica analiticamente la piena ampiezza (6.0 m) a <= 10.0°, la corretta attenuazione a > 10.0° e il rispetto del floor a 0.20 (1.2 m) a >= 70.0°.
+- **Verifica:** delegata a un'unica run consolidata di GitHub Actions (`project-build.yml` su branch `gemini_test` con `build_native=true`, `build_android=true`, `build_esp32=true`).

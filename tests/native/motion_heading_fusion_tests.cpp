@@ -47,8 +47,8 @@ void test_moving_phone_course_corrects_gyro_drift_progressively() {
   fusion.anchor(110.0F, 10.0F, true);
   CHECK(std::abs(fusion.heading_deg() - 10.0F) < 0.01F);
   fusion.anchor(111.0F, 10.0F, true);
-  CHECK(fusion.heading_deg() > 30.0F);
-  CHECK(fusion.heading_deg() < 32.0F);
+  CHECK(fusion.heading_deg() > 17.5F);
+  CHECK(fusion.heading_deg() < 19.5F);
 }
 
 void test_active_turn_does_not_snap_toward_delayed_phone_course() {
@@ -59,8 +59,9 @@ void test_active_turn_does_not_snap_toward_delayed_phone_course() {
   fusion.anchor(90.0F, 15.0F, true);  // delayed course, still 90
   CHECK(std::abs(fusion.heading_deg() - during_turn) < 0.01F);
   feed_rate(fusion, 0.0F, 256, 856);
+  const float settled = fusion.heading_deg();
   fusion.anchor(90.0F, 15.0F, true);
-  CHECK(fusion.heading_deg() < during_turn);
+  CHECK(fusion.heading_deg() < settled);
 }
 
 void test_first_phone_course_replaces_gyro_local_zero() {
@@ -84,8 +85,8 @@ void test_startup_heading_fast_and_stationary_hold() {
   fusion.anchor(110.0F, 8.0F, true);
   CHECK(std::abs(fusion.heading_deg() - 110.0F) < 0.01F);
   fusion.anchor(120.0F, 8.0F, true);
-  CHECK(fusion.heading_deg() > 111.0F);
-  CHECK(fusion.heading_deg() < 113.0F);
+  CHECK(fusion.heading_deg() > 110.5F);
+  CHECK(fusion.heading_deg() < 111.5F);
   const float corrected = fusion.heading_deg();
   fusion.anchor(250.0F, 0.0F, true);
   CHECK(std::abs(fusion.heading_deg() - corrected) < 0.01F);
@@ -169,7 +170,7 @@ void test_quality_weight_and_outlier_confirmation() {
   const float uncertain = fusion.heading_deg();
   CHECK(uncertain > 90.0F && uncertain < 92.0F);
   fusion.anchor(120.0F, 10.0F, true, 8.0F);
-  CHECK(fusion.heading_deg() > uncertain + 12.0F);
+  CHECK(fusion.heading_deg() > uncertain + 10.0F);
   const float good = fusion.heading_deg();
   fusion.anchor(260.0F, 6.0F, true, 40.0F);
   CHECK(std::abs(fusion.heading_deg() - good) < 0.01F);
@@ -209,7 +210,8 @@ void test_stale_outlier_does_not_confirm_later_spike() {
   CHECK(std::abs(fusion.heading_deg() - 10.0F) < 0.01F);
   // Corroborated within 2,500 ms: now accepted.
   fusion.anchor(112.0F, 10.0F, true, NAN, 5'500);
-  CHECK(fusion.heading_deg() > 30.0F);
+  CHECK(fusion.heading_deg() > 17.5F);
+  CHECK(fusion.heading_deg() < 19.5F);
 }
 
 void test_bias_learning_while_parked_and_persistence_after_reset() {

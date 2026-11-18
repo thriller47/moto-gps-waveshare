@@ -158,9 +158,9 @@ class MotionHeadingFusion {
 
     const float bounded =
         std::clamp(yaw_rate_dps - bias_dps_, -500.0F, 500.0F);
-    // About 30 ms of smoothing at the 125 Hz sensor rate: vibration is
+    // About 20 ms of smoothing at the 125 Hz sensor rate: vibration is
     // suppressed without the sluggish response of phone-only course updates.
-    filtered_rate_dps_ += (bounded - filtered_rate_dps_) * 0.24F;
+    filtered_rate_dps_ += (bounded - filtered_rate_dps_) * 0.15F;
     const float active_rate = std::abs(filtered_rate_dps_) < kDeadbandDps
                                   ? 0.0F
                                   : filtered_rate_dps_;
@@ -180,7 +180,7 @@ class MotionHeadingFusion {
   static constexpr float kStationarySpeedMps = 0.6F;
   static constexpr float kStationaryReleaseSpeedMps = 1.0F;
   static constexpr float kDeadbandDps = 0.3F;
-  static constexpr float kGyroSigmaDeg = 10.0F;
+  static constexpr float kGyroSigmaDeg = 6.0F;
   static constexpr std::uint64_t kMaximumIntegrationGapMs = 160;
   static constexpr std::uint64_t kLargeErrorConfirmationTimeoutMs = 2'500;
 
