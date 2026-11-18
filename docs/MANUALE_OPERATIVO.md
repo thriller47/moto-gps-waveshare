@@ -301,8 +301,24 @@ Indirizzi di questo progetto (confermati in platforms/esp32/partitions.csv):
 
 ## 6. Diagnostica Android e monitor seriale ESP32
 
-**Android:** collegare ESP32 via BLE e aprire **LOG**; scegliere `BASE` per eventi essenziali o `DEBUG` per dettagli (default `OFF`). Sessione DEBUG fino a circa 60 minuti, interrotta da disconnessione/riavvio o da `LOG → OFF`. **Prima di staccare il BLE**, usare **Condividi / Esporta diagnostica**: si genera `motogps-android-diagnostics.zip` con log Android e, quando presenti, eventi ESP32 ricevuti via BLE. La diagnostica Android usa file a rotazione; il pacchetto ZIP **non** equivale al replay GPS separato.
+**Android — diagnostica unificata:** connettere ESP32 via BLE, aprire **Altre opzioni → Diagnostica e replay GPS**, scegliere **BASE** oppure **DEBUG** e toccare **Avvia diagnostica completa**. La stessa sessione acquisisce il replay GPS Android e gli eventi ESP32 via BLE. Senza ESP32 collegato la registrazione completa non parte. Se il BLE si interrompe, il GPS prosegue; l'app tenta di ripristinare i log ESP32 dopo la riconnessione, ma non può recuperare gli eventi persi durante la disconnessione. Ogni 45 minuti rinnova il livello ESP32, perché il firmware lo disabilita automaticamente dopo circa un'ora.
 
+Al termine scegliere **Ferma diagnostica completa** oppure **Ferma ed esporta tutto (ZIP)**. L'unico file esportato è `motogps-diagnostica-completa.zip`, con le sottocartelle `logs/` e `gps/`:
+
+```text
+motogps-diagnostica-completa.zip
+├── README.txt
+├── logs/
+│   ├── current.log              (Android, se presente)
+│   ├── previous.log             (Android, se presente)
+│   ├── esp32-current.log        (BLE, se presente)
+│   └── esp32-previous.log       (BLE, se presente)
+└── gps/
+    ├── motogps-replay-part-00001.jsonl
+    └── ...                     (oppure motogps-replay.jsonl)
+```
+
+**Privacy:** contiene coordinate, velocità, percorso e telemetria; condividere solo esplicitamente e non caricarlo su GitHub. I file GPS sono segmentati per sessioni lunghe: estrarre lo ZIP e riprodurre i `.jsonl` in ordine. Un nuovo **Avvia** sovrascrive la precedente sessione GPS non esportata; salvare lo ZIP prima del giro successivo. I log Android/ESP32 ruotano per limitare lo spazio. I vecchi replay individuali restano compatibili con gli strumenti di analisi.
 **ESP32 sul PC:** per vedere la telemetria `LVGL_ROADS`, `display perf` e le statistiche di frame è utile il **log seriale USB**; il precedente logger nella partizione flash `diag` non è la fonte attuale. Con scheda collegata a COM3, **finestra CMD del comando `moto` / ESP-IDF attivo**:
 
 ```cmd
@@ -340,16 +356,15 @@ python3 -m http.server 4173 --directory .
 
 Aprire **http://127.0.0.1:4173/platforms/web/simulator/index.html** da Chrome/Edge Windows. Dopo modifica e ricompilazione premere **Ctrl+F5**. Per riavviare il server fermarlo nel suo terminale con **Ctrl+C** e ripetere il comando: **non** lanciare un secondo server sulla stessa porta. Se sono cambiati solo HTML/JS, non serve ricompilare il WASM; dopo modifiche C++/LVGL/Navigator sì.
 
-**Replay GPS:** selezionare un file `.jsonl` esportato dall'app. Un archivio `motogps-replay-parts.zip` va estratto: caricare i JSONL nell'ordine delle parti, non direttamente lo ZIP. Il browser non emula l'intera catena Android/GNSS/BLE/QMI8658; i numeri RAF/WASM/flush non sono misure dirette degli FPS fisici dell'ESP32.
+**Replay GPS:** estrarre `gps/` da `motogps-diagnostica-completa.zip` e caricare i JSONL singoli in ordine cronologico; non caricare direttamente lo ZIP. Il browser non emula l'intera catena Android/GNSS/BLE/QMI8658; i numeri RAF/WASM/flush non sono misure dirette degli FPS fisici dell'ESP32.
 
 **Confronto di regressione A/B (solo se serve diagnosi):** `bash scripts/diagnostics/prepare_20261115_replay_ab.sh` prepara due simulatori isolati, baseline del 15/11 e branch test, su porte `4174` e `4175`. I dettagli delle scene e dei singoli bug sono in [diagnostica regressione](diagnostics/REGRESSION_BASELINE_20261115_VS_20261117.md), non in questa procedura quotidiana. Per verificare lo zoom sperimentale riprodurre lo stesso JSONL nelle due versioni e controllare gli interruttori A/B, normalmente OFF. Non confondere i due server A/B con quello quotidiano in porta 4173.
 
 ## 8. Registrazione GPS e analisi della progressione
 
-**App Android (branch test):** aprire **LOG → Avvia registrazione GPS** prima del giro. La registrazione è OFF per impostazione predefinita e conserva informazioni private (coordinate, intera rotta, manovre). Non usare il telefono durante la guida. Al termine premere **Ferma registrazione GPS → Esporta tracciato simulatore**.
+**App Android, branch `test/merge-gps-20261118`:** seguire **Altre opzioni → Diagnostica e replay GPS → BASE/DEBUG → Avvia diagnostica completa** prima del giro. Il comando unifica registrazione GPS e diagnostica ESP32; l'esportazione è unica, come nella sezione 6. Non si avvia automaticamente e richiede il BLE connesso. Non maneggiare il telefono durante la guida.
 
-Una sessione può avere una parte `motogps-replay.jsonl` oppure più file in `motogps-replay-parts.zip` (rotazione ogni 30 minuti o circa 12 MiB). Il nuovo avvio può sostituire il replay locale precedente: esportare prima quello che si vuole conservare. Lo ZIP ordinario di diagnostica Android non contiene il replay GPS.
-
+I replay sono estratti dalla sottocartella `gps/` dello ZIP completo. Se vengono registrate più parti, caricarle in ordine numerico. Una nuova sessione sostituisce le vecchie parti GPS locali: **esportare prima di ripartire**.
 **Per verificare blocchi della progressione e manovre**, l'APK test recente può includere eventi `route_full` e `progress_debug`. I replay vecchi privi di tali eventi non si possono completare retroattivamente. In WSL, dopo aver copiato il proprio JSONL o ZIP in un percorso privato:
 
 ```bash
@@ -453,7 +468,7 @@ Le prove di routing, checkpoint e BLE/IMU non coincidono con un collaudo dell'in
 | Compilare Android | PowerShell | `.\gradlew.bat testDebugUnitTest assembleDebug` |
 | Ricompilare simulatore | WSL + emsdk | `./scripts/build_web.sh` |
 | Avviare / riavviare server | WSL | `python3 -m http.server 4173 --directory .` (fermare il precedente con Ctrl+C) |
-| Esportare diagnostica | Android | LOG → Condividi / Esporta diagnostica |
-| Esportare replay GPS | Android | LOG → Ferma registrazione GPS → Esporta tracciato simulatore |
+| Avviare diagnostica unificata | Android | Altre opzioni → Diagnostica e replay GPS → BASE/DEBUG → Avvia diagnostica completa |
+| Esportare GPS + ESP32 + Android | Android | Ferma ed esporta tutto (ZIP): `motogps-diagnostica-completa.zip` |
 
 **Conservare come storico**, non come procedura corrente: [vecchio manuale](archive/MANUALE_OPERATIVO_PRE_CLEANUP_2026-11-15.md), [stato del progetto e diagnosi dettagliate](../PROJECT_STATE.md). Non cancellare source PBF o archivi validi per fare spazio senza averne un backup.
