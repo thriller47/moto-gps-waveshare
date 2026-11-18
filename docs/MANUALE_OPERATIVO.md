@@ -138,7 +138,7 @@ adb install -r "C:\MotoGPS\moto-gps-waveshare\platforms\android\app\build\output
 
 
 
-## 3. Ambiente ESP-IDF Windows, comando `moto`, compilazione locale
+## 4. Ambiente ESP-IDF Windows, comando `moto`, compilazione locale
 
 **Configurazione di riferimento del PC Windows:**
 - Framework: `C:\Espressif\frameworks\esp-idf-v5.5.6`
@@ -259,7 +259,7 @@ La riuscita del comando `moto` **non dimostra da sola** che compilazione, flash 
 
 ---
 
-## 4. Flash ESP32 — COM3 d'esempio
+## 5. Flash ESP32 — COM3 d'esempio
 
 Scollegare monitor seriali/Arduino IDE prima di usare esptool: COM3 deve essere libera. Installare esptool, se necessario, oppure usare l'esptool.exe già disponibile.
 
@@ -449,45 +449,3 @@ Le prove di routing, checkpoint e BLE/IMU non coincidono con un collaudo dell'in
 | Esportare replay GPS | Android | LOG → Ferma registrazione GPS → Esporta tracciato simulatore |
 
 **Conservare come storico**, non come procedura corrente: [vecchio manuale](archive/MANUALE_OPERATIVO_PRE_CLEANUP_2026-11-15.md), [stato del progetto e diagnosi dettagliate](../PROJECT_STATE.md). Non cancellare source PBF o archivi validi per fare spazio senza averne un backup.
-
-
-
-## 10. Funzioni Android sperimentali (branch test)
-
-Le funzioni qui sotto sono nel branch `test/unified-offline-map-20261115` e **non vanno attribuite automaticamente alla versione stabile** `valhalla`. La disponibilità effettiva dipende dall'APK installato.
-
-- **Panoramico / Touring moto:** in **Opzioni percorso** scegliere il profilo; Panoramico preferisce un itinerario relativamente più tortuoso, ma non certifica il paesaggio né garantisce una distanza precisa.
-- **Tour circolare:** dalla ricerca aprire **Crea tour circolare**, impostare circa **30–300 km** e N/E/S/O, aggiungere eventuali luoghi obbligatori trovati con Photon (massimo otto), quindi **Calcola tour**. Con zero punti obbligatori il pianificatore propone tappe automatiche; con uno può aggiungere un punto laterale, con più punti rispetta il loro ordine. Verificare sempre la preview di Valhalla, il ritorno e le tappe prima di partire.
-- **Salvare un tour:** nell'anteprima usare **Salva questo tour**. L'archivio locale **I miei tour salvati** permette **Partenza salvata** (pianificazione dall'origine originale) oppure **Da qui** (origine GPS attuale). La geometria viene ricalcolata, non conservata immutabile; i tour non sono sincronizzati sul cloud.
-- **Pausa/ripresa:** durante un tour avviato usare **Pausa tour (riprendi più tardi)**, non **Termina navigazione**. Al ritorno aprire **Tour in pausa → Riprendi da qui**, verificare l'anteprima della tratta residua e avviare manualmente. L'app salva checkpoint locali; eliminarne i dati può farli perdere.
-- **Salta prossima tappa:** nell'app, durante una navigazione con waypoint intermedi, scegliere **Salta prossima tappa** e confermare **solo da fermi e in sicurezza**. Ricalcola verso le tappe residue; non consente di saltare la destinazione finale. Il comando touch da ESP32 non è implementato.
-
-Le prove di routing, checkpoint e BLE/IMU non coincidono con un collaudo dell'intero nuovo script MotoPack del 18/11. Evitare di trasformare richieste future o esperimenti A/B in istruzioni della versione stabile; consultare `PROJECT_STATE.md` per test e limiti aperti.
-
-## 11. Operazioni manuali eccezionali e riferimento rapido
-
-**La rigenerazione ordinaria è quella unica della sezione 2.** Le utility separate servono solo per una riparazione mirata o per assemblare **componenti già pronti**, senza ricostruire i tre dataset. Non usare file MotoMap v2/v3, Photon v1 o grafi Valhalla di generazioni non coerenti.
-
-- `scripts/offline_map/pbf_to_motomap.py`: converte `italy-latest.osm.pbf` + `italy.poly` in MotoMap v4; usare un nome output nuovo per evitare di sostituire un file valido.
-- `scripts/offline_map/photon_to_sqlite.py`: converte il dump `photon-italy.jsonl.zst` in database SQLite v2; **non** usare il vecchio indice Photon/Lucene al posto del dump JSONL.
-- `scripts/offline_map/build_valhalla_moto_v5.sh`: ricostruisce solo il grafo V5 da PBF; la directory destinazione deve essere nuova.
-- `scripts/offline_map/build_motopack_wsl.sh`: builder integrale per una cartella **nuova**, con input e output espliciti; `--resume` riusa intermedi completi e quindi **non** è adatto a forzare un aggiornamento degli stessi componenti.
-- `scripts/offline_map/motopack.py build/verify`: assembla e verifica un pacchetto con MotoMap, Photon e Valhalla già generati.
-
-**Stato del pacchetto:** il `.motopack` ZIP64 contiene i tre archivi e `manifest.json` con dimensioni e SHA-256. Il collaudo del pacchetto precedente del 15/11 è positivo secondo i test riportati; ciò non certifica ancora la nuova rigenerazione del 18/11.
-
-| Operazione frequente | Dove | Comando o percorso |
-| --- | --- | --- |
-| Aggiornare branch test | WSL | `git pull --ff-only origin test/unified-offline-map-20261115` |
-| Ricostruire tutto il MotoPack | WSL | `bash scripts/offline_map/rebuild_motopack_wsl.sh --threads 2` |
-| Aprire risultati da Windows | Win + R | `\\wsl.localhost\Ubuntu-24.04\home\mod\motogps-build\ItaliaUnificata-20261118` |
-| Compilare ESP32 | CMD attivato con `moto` | `idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.perf.defaults" build` |
-| Flash sola app ESP32 | CMD/esptool | offset `0x20000` (non `0x10000`) |
-| Compilare Android | PowerShell | `.\gradlew.bat testDebugUnitTest assembleDebug` |
-| Ricompilare simulatore | WSL + emsdk | `./scripts/build_web.sh` |
-| Avviare / riavviare server | WSL | `python3 -m http.server 4173 --directory .` (fermare il precedente con Ctrl+C) |
-| Esportare diagnostica | Android | LOG → Condividi / Esporta diagnostica |
-| Esportare replay GPS | Android | LOG → Ferma registrazione GPS → Esporta tracciato simulatore |
-
-**Conservare come storico**, non come procedura corrente: [vecchio manuale](archive/MANUALE_OPERATIVO_PRE_CLEANUP_2026-11-15.md), [stato del progetto e diagnosi dettagliate](../PROJECT_STATE.md). Non cancellare source PBF o archivi validi per fare spazio senza averne un backup.
-
