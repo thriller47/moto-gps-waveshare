@@ -112,6 +112,14 @@ In Windows sarà `C:\MotoGPS\MotoChatGPS-Italia.motopack`. Per aggiornare il tel
 
 
 
+### Interfaccia Android riorganizzata (branch di integrazione)
+
+Nella schermata iniziale la ricerca destinazione è l'azione principale, seguita da **Crea tour**, **Tour salvati**, collegamento ESP32 e **Mappe offline**. Il tema giorno/notte resta nella barra superiore; **Altre opzioni** ospita diagnostica e registrazione replay GPS, esportazione log e informazioni/licenze. Non sono cambiati algoritmi GNSS/IMU, routing, BLE né firmware.
+
+**Mappe offline:** il pulsante principale **Importa MotoPack (.motopack)** aggiorna MotoMap v4, Valhalla V5 e Photon v2 insieme. Le importazioni singole MotoMap ZIP, indice Photon SQLite e grafo Valhalla, oltre alle opzioni di eliminazione, restano disponibili tramite **Opzioni avanzate · componenti separati**. Controllare lo stato dei tre componenti prima di navigare; non disinstallare l'app per aggiornare le mappe.
+
+**Salta prossima tappa:** disponibile durante **qualsiasi** navigazione con almeno una tappa intermedia ancora pendente, non soltanto nei tour circolari. Toccare il pulsante e confermare da fermi: la tappa corrente viene esclusa solo dopo che Valhalla ha restituito una nuova rotta valida; tappe successive e **destinazione finale** vengono conservate. Sui tour circolari si aggiorna anche il checkpoint di ripresa. Sui percorsi ordinari non si crea un checkpoint circolare. Se ci si dirige direttamente all'arrivo senza tappe intermedie, il pulsante non compare. Il corrispondente comando ESP32 resta non implementato.
+
 ## 3. GitHub Actions e Android
 
 [GitHub Actions — Project Build](https://github.com/thriller47/moto-gps-waveshare/actions/workflows/project-build.yml). Le job `native`, `android` ed `esp32` sono selettive; `skipped` non è equivalente a un test superato. Per il codice avviare **una sola CI consolidata alla fine**; una modifica al solo manuale non richiede build.
