@@ -126,12 +126,12 @@ internal object OfflinePhotonPlaceSearch {
               JOIN cities c ON c.id=p.city_id
               JOIN regions r ON r.id=p.region_id
              WHERE places_fts MATCH ?
-             ORDER BY CASE WHEN ? = 1 AND lower(?) = lower(p.name||' '||c.name)
-                           THEN 0 WHEN ? = 1 THEN 1 ELSE 0 END,
+             ORDER BY CASE WHEN ? = '1' AND lower(?) = lower(p.name||' '||c.name)
+                           THEN 0 WHEN ? = '1' THEN 1 ELSE 0 END,
                       CASE WHEN lower(p.name)=lower(?)
                                  OR lower(p.name) LIKE lower(?||' %')
                            THEN 0 ELSE 1 END,
-                      CASE WHEN ? = 1 THEN
+                      CASE WHEN ? = '1' THEN
                           (p.lat - ?) * (p.lat - ?) +
                           (p.lon - ?) * (p.lon - ?) * ? * ?
                       ELSE 0 END,
