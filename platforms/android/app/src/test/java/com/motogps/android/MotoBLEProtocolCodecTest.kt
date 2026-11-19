@@ -337,7 +337,7 @@ class MotoBLEProtocolCodecTest {
                 try {
                     for (i in 0 until iterations) {
                         if (t % 2 == 0) {
-                            codec.nativeEncodeHeartbeat(handle, 1000L)
+                            codec.nativeEncodeHeartbeat(handle, 12345678L, 1000L + i)
                         } else {
                             codec.nativePushDeviceFrame(handle, frame, 1000L + i)
                         }

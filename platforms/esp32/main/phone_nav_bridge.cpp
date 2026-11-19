@@ -322,7 +322,7 @@ void PhoneNavBridge::service_diagnostics(std::uint64_t now_ms) {
   if (pending_diagnostic_batch_.records.empty() &&
       !moto_diag_take_batch(pending_diagnostic_batch_)) return;
 
-  SendMessageCallback sender = nullptr;
+  SendCallback sender = nullptr;
   void* sender_context = nullptr;
   {
     const std::lock_guard<std::mutex> lock(state_mutex_);
