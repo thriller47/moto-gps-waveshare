@@ -136,4 +136,5 @@ class BleNavTransport {
   std::atomic<bool> host_ready_{false};
   std::atomic<bool> advertising_enabled_{false};
   bool started_ = false;
+  RxPacket rx_packet_buffer_{};
 };

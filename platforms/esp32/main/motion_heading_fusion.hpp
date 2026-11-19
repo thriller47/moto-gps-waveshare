@@ -138,6 +138,7 @@ class MotionHeadingFusion {
         last_sample_ms_ = sample_ms;
         if (std::abs(yaw_rate_dps) < 3.0F) {
           bias_dps_ += (yaw_rate_dps - bias_dps_) * 0.002F;
+          bias_dps_ = std::clamp(bias_dps_, -10.0F, 10.0F);
         }
       }
       filtered_rate_dps_ = 0.0F;

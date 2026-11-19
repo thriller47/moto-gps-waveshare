@@ -78,6 +78,7 @@ void update_motion_heading(float heading_rate_dps, std::uint64_t sample_ms,
 
 void motion_tick_task(void* context) {
   auto* bridge = static_cast<PhoneNavBridge*>(context);
+  TickType_t last_wake_time = xTaskGetTickCount();
   while (true) {
     const auto now_ms = static_cast<std::uint64_t>(esp_timer_get_time()) /
                         1'000U;
@@ -87,12 +88,13 @@ void motion_tick_task(void* context) {
     bridge->service_diagnostics(now_ms);
     // Match the display and route interpolation at 40 Hz. Keeping all three
     // clocks phase-compatible avoids periodic long frame gaps.
-    vTaskDelay(pdMS_TO_TICKS(25));
+    vTaskDelayUntil(&last_wake_time, pdMS_TO_TICKS(25));
   }
 }
 
+static std::atomic<bool> s_radio_restart_requested{false};
 void enter_radio(lv_event_t*) {
-  signal_request_mode(1);
+  s_radio_restart_requested.store(true);
 }
 void add_radio_entry() {
   lv_obj_t* btn = lv_button_create(lv_screen_active());
@@ -111,6 +113,12 @@ void add_radio_entry() {
 }
 // Identical power path for manual and automatic shutdown.
 void power_down(const char* reason) {
+  static std::atomic<bool> s_powering_down{false};
+  bool expected = false;
+  if (!s_powering_down.compare_exchange_strong(expected, true)) {
+    ESP_LOGW(kTag, "Power down already in progress; ignoring duplicate request: %s", reason);
+    return;
+  }
   ESP_LOGI(kTag, "Power off requested: %s", reason);
   if (board_port_lock(500)) {
     moto_nav_ui_show_power_off_screen();
@@ -123,7 +131,15 @@ void power_down(const char* reason) {
              esp_err_to_name(result));
   }
   vTaskDelay(pdMS_TO_TICKS(500));
-  while (board_port_power_button_pressed()) vTaskDelay(pdMS_TO_TICKS(20));
+  const auto wait_start_ms = static_cast<std::uint64_t>(esp_timer_get_time()) / 1'000U;
+  while (board_port_power_button_pressed()) {
+    const auto now = static_cast<std::uint64_t>(esp_timer_get_time()) / 1'000U;
+    if (now - wait_start_ms >= 5'000U) {
+      ESP_LOGW(kTag, "PWR button release timeout exceeded (5s); proceeding with deep sleep");
+      break;
+    }
+    vTaskDelay(pdMS_TO_TICKS(20));
+  }
   rtc_gpio_pulldown_en(GPIO_NUM_3);
   rtc_gpio_pullup_dis(GPIO_NUM_3);
   ESP_ERROR_CHECK(esp_sleep_enable_ext1_wakeup_io(
@@ -137,6 +153,10 @@ void power_monitor_task(void* context) {
   bool pending = false;
   std::uint64_t last_battery_poll = 0;
   while (true) {
+    if (s_radio_restart_requested.load()) {
+      ESP_LOGI(kTag, "Radio mode requested from UI; restarting outside LVGL lock");
+      signal_request_mode(1);
+    }
     const auto now = static_cast<std::uint64_t>(esp_timer_get_time()) / 1000U;
     const bool connected = bridge->phone_connected();
     const bool should_shutdown = bridge->has_ever_connected() &&
@@ -164,7 +184,7 @@ void power_monitor_task(void* context) {
         board_port_unlock();
       }
     }
-    vTaskDelay(pdMS_TO_TICKS(1000));
+    vTaskDelay(pdMS_TO_TICKS(100));
   }
 }
 
