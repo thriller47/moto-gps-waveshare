@@ -19,7 +19,7 @@ internal object PhotonPlaceSearch {
             // The public photon.komoot.io instance does not guarantee Italian
             // as a response language and rejects unsupported values with HTTP 400.
             // Without lang Photon uses its default/local OSM place names.
-            .append("&limit=8")
+            .append("&limit=30")
         if (gpsLocation != null) {
             val (lat, lon) = gpsLocation
             if (lat.isFinite() && lon.isFinite() &&
@@ -65,6 +65,58 @@ internal object PhotonPlaceSearch {
         return output
     }
 
+    /** Re-rank the larger online candidate set with the same geographical
+     * policy used by offline Photon. No GPS keeps Photon relevance as supplied. */
+    fun rank(response: JSONObject, query: String,
+             gpsLocation: Pair<Double, Double>?): List<PlaceSearchResult> {
+        val parsed = parse(response)
+        if (parsed.isEmpty()) return emptyList()
+        val features = response.optJSONArray("features")
+        val mapped = parsed.map { place ->
+            var city = ""
+            var street = ""
+            var kind = "other"
+            if (features != null) {
+                for (i in 0 until features.length()) {
+                    val feature = features.optJSONObject(i) ?: continue
+                    val coords = feature.optJSONObject("geometry")?.optJSONArray("coordinates")
+                        ?: continue
+                    if (coords.length() < 2 ||
+                        coords.optDouble(0, Double.NaN) != place.longitude ||
+                        coords.optDouble(1, Double.NaN) != place.latitude) continue
+                    val props = feature.optJSONObject("properties") ?: continue
+                    city = listOf("city", "town", "village").map {
+                        props.optString(it, "").trim()
+                    }.firstOrNull { it.isNotBlank() } ?: ""
+                    street = props.optString("street", "").trim()
+                    val osmValue = props.optString("osm_value", "")
+                    kind = when {
+                        props.optString("type") == "street" || osmValue == "residential" ||
+                            osmValue == "pedestrian" || osmValue == "tertiary" ||
+                            osmValue == "secondary" -> "street"
+                        props.optString("housenumber", "").isNotBlank() -> "house"
+                        props.optString("type") in listOf("city", "town", "village") -> "city"
+                        else -> "other"
+                    }
+                    break
+                }
+            }
+            PhotonOfflineRanking.Candidate(place.name, street, "", city, "", "",
+                kind, 0.0, place.latitude, place.longitude) to place
+        }
+        // With no valid fix we should preserve Photon’s original relevance
+        // rather than ranking unknown places by arbitrary geography.
+        val validGps = gpsLocation?.takeIf {
+            it.first.isFinite() && it.second.isFinite() &&
+                it.first in -90.0..90.0 && it.second in -180.0..180.0
+        }
+        if (validGps == null) return parsed.take(8)
+        val ranked = PhotonOfflineRanking.rank(mapped.map { it.first }, query, validGps, 8)
+        return ranked.mapNotNull { candidate ->
+            mapped.firstOrNull { it.first === candidate }?.second
+        }
+    }
+
     fun search(query: String, gpsLocation: Pair<Double, Double>?): List<PlaceSearchResult> {
         require(query.isNotBlank()) { "Inserisci una destinazione" }
         val conn = (URL(endpoint(query, gpsLocation)).openConnection() as HttpURLConnection).apply {
@@ -88,7 +140,7 @@ internal object PhotonPlaceSearch {
                 throw IOException(message)
             }
             val response = conn.inputStream.bufferedReader().use { it.readText() }
-            parse(JSONObject(response))
+            rank(JSONObject(response), query, gpsLocation)
         } finally {
             conn.disconnect()
         }
