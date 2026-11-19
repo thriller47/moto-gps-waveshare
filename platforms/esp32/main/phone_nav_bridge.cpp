@@ -613,6 +613,7 @@ moto::ble::AckStatus PhoneNavBridge::consume_geometry(
           static_cast<double>(input.view_origin.latitude_e6) / 1'000'000.0,
           static_cast<double>(input.view_origin.longitude_e6) / 1'000'000.0,
       };
+      // Marker metadata belongs to exactly this validated BLE geometry window.
       geometry_.waypoint_marker_count = static_cast<std::uint8_t>(
           std::min(input.waypoint_markers.size(), moto::nav::kWaypointMarkerCapacity));
       for (std::size_t i = 0; i < geometry_.waypoint_marker_count; ++i) {

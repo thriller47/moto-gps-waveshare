@@ -472,6 +472,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         // the BLE payload remains the same 24-point moving window.
         ReplayTraceRecorder.fullRoute(route, turnPlan)
         ReplayTraceRecorder.route(window)
+        // Route-window markers are display-only, snapped to the green path.
         // Only intermediate stops still ahead; final arrival remains separate.
         val markers = WaypointMarkerWindow.visible(
             window, activeWaypoints.drop(nextWaypointIndex))
