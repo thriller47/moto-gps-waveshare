@@ -30,10 +30,15 @@ constexpr std::uint64_t kCalibrationDeadlineMs = 4'000;
 constexpr float kMinimumGravity = 6.8F;
 constexpr float kMaximumGravity = 12.8F;
 
+constexpr float kGravityMinNorm = 9.36F;   // 9.81F - 0.45F
+constexpr float kGravityMaxNorm = 10.26F;  // 9.81F + 0.45F
+constexpr float kMaxDynamicGyroRateDps = 4.0F;
+constexpr float kGravityAlpha = 0.02F;
+
 struct GravityEstimate {
-  float x = 0.0F;
-  float y = 0.0F;
-  float z = 1.0F;
+  float cal_ax = 0.0F;
+  float cal_ay = 0.0F;
+  float cal_az = 1.0F;
   bool initialized = false;
 };
 
@@ -47,31 +52,38 @@ float magnitude(float x, float y, float z) {
 
 bool update_gravity(GravityEstimate& gravity, const qmi8658_data_t& sample,
                     float blend) {
-  const float length = magnitude(sample.accelX, sample.accelY, sample.accelZ);
-  if (!std::isfinite(length) || length < kMinimumGravity ||
-      length > kMaximumGravity) {
+  const float accel_norm = magnitude(sample.accelX, sample.accelY, sample.accelZ);
+  const float gyro_norm = magnitude(sample.gyroX, sample.gyroY, sample.gyroZ);
+  if (!std::isfinite(accel_norm) || !std::isfinite(gyro_norm)) {
     return gravity.initialized;
   }
   if (!gravity.initialized) {
-    gravity.x = sample.accelX;
-    gravity.y = sample.accelY;
-    gravity.z = sample.accelZ;
-    gravity.initialized = true;
-  } else {
-    gravity.x += (sample.accelX - gravity.x) * blend;
-    gravity.y += (sample.accelY - gravity.y) * blend;
-    gravity.z += (sample.accelZ - gravity.z) * blend;
+    if (accel_norm >= kMinimumGravity && accel_norm <= kMaximumGravity) {
+      gravity.cal_ax = sample.accelX;
+      gravity.cal_ay = sample.accelY;
+      gravity.cal_az = sample.accelZ;
+      gravity.initialized = true;
+    }
+    return gravity.initialized;
+  }
+  // Update calibrated mounting gravity only when the vehicle is not subject to
+  // dynamic accelerations (braking, accelerating in traffic, or centrifugal forces).
+  if (accel_norm >= kGravityMinNorm && accel_norm <= kGravityMaxNorm &&
+      gyro_norm < kMaxDynamicGyroRateDps) {
+    gravity.cal_ax += (sample.accelX - gravity.cal_ax) * blend;
+    gravity.cal_ay += (sample.accelY - gravity.cal_ay) * blend;
+    gravity.cal_az += (sample.accelZ - gravity.cal_az) * blend;
   }
   return true;
 }
 
-// Project angular velocity onto the board's gravity axis so a moderately
+// Project angular velocity onto the board's calibrated gravity axis so a moderately
 // tilted or forward-facing mount still responds to a turn around vertical.
 float clockwise_heading_rate(const GravityEstimate& gravity,
                              const qmi8658_data_t& sample) {
   if (!gravity.initialized) return 0.0F;
   return clockwise_gravity_heading_rate(
-      gravity.x, gravity.y, gravity.z,
+      gravity.cal_ax, gravity.cal_ay, gravity.cal_az,
       sample.gyroX, sample.gyroY, sample.gyroZ);
 }
 }  // namespace
@@ -162,7 +174,7 @@ esp_err_t MotionHeadingSensor::run() {
       result = qmi8658_read_sensor_data(&device, &data);
       if (result == ESP_OK) {
         consecutive_failures = 0;
-        update_gravity(gravity, data, 0.025F);
+        update_gravity(gravity, data, kGravityAlpha);
         const float raw_rate = clockwise_heading_rate(gravity, data);
         const float corrected_rate = raw_rate - bias_dps;
         const float angular = magnitude(data.gyroX, data.gyroY, data.gyroZ);

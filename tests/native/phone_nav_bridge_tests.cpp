@@ -1,6 +1,5 @@
 #include "phone_nav_bridge.h"
 #include "phone_nav_bridge_test_probe.hpp"
-#include "demo_fixture/jinan_big_data_demo.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -372,103 +371,19 @@ void test_music_capability_state_and_touch_commands() {
   }
 }
 
-void test_demo_uses_the_production_presenter_path() {
+void test_legacy_demo_route_token_does_not_inject_fake_roads() {
   moto::test::reset_phone_nav_bridge_probe();
   moto::nav::NavPresenter presenter;
   PhoneNavBridge bridge(presenter);
-  bridge.install_ui_callbacks();
-
-  moto::test::emit_demo_change(true);
-  pump(bridge);
-  const auto now_ms = static_cast<std::uint64_t>(
-      std::chrono::duration_cast<std::chrono::milliseconds>(
-          std::chrono::steady_clock::now().time_since_epoch()).count());
-
-  // Approach and cross the first junction in the real OSM route. The symbol
-  // and distance switch together: right into 新泺大街, then left into 崇华路.
-  // Distances come from cumulative route geometry, not UI timer thresholds.
-  bridge.update_demo(now_ms + 6'200);
-  pump(bridge);
-  CHECK(moto::test::phone_nav_bridge_last_maneuver() ==
-        MOTO_MANEUVER_RIGHT);
-  CHECK(moto::test::phone_nav_bridge_last_distance_to_maneuver_m() > 3);
-  CHECK(moto::test::phone_nav_bridge_last_distance_to_maneuver_m() < 8);
-  bridge.update_demo(now_ms + 7'000);
-  pump(bridge);
-  CHECK(moto::test::phone_nav_bridge_last_maneuver() ==
-        MOTO_MANEUVER_LEFT);
-  CHECK(moto::test::phone_nav_bridge_last_distance_to_maneuver_m() > 135);
-  CHECK(moto::test::phone_nav_bridge_last_distance_to_maneuver_m() < 141);
-
-  bridge.update_demo(now_ms + 12'000);
-  pump(bridge);
-
-  CHECK(moto::test::phone_nav_bridge_last_demo_active());
-  CHECK(moto::test::phone_nav_bridge_last_route_point_count() >= 2);
-  CHECK(moto::test::phone_nav_bridge_last_road_point_count() ==
-        moto::demo::jinan_big_data::kRoadPoints.size());
-  CHECK(moto::test::phone_nav_bridge_last_road_polyline_count() ==
-        moto::demo::jinan_big_data::kRoads.size());
-  CHECK(moto::test::phone_nav_bridge_apply_count() >= 2);
-
-  bridge.update_demo(now_ms + 6'200);
-  pump(bridge);
-  const uint16_t heading_before =
-      moto::test::phone_nav_bridge_last_heading_deg();
-  bridge.update_demo(now_ms + 8'500);
-  pump(bridge);
-  const uint16_t heading_after =
-      moto::test::phone_nav_bridge_last_heading_deg();
-  CHECK(heading_before != heading_after);
-
-  moto::test::emit_demo_change(false);
-  pump(bridge);
-  CHECK(!moto::test::phone_nav_bridge_last_demo_active());
-}
-
-void test_ios_demo_token_attaches_context_and_live_route_clears_it() {
-  moto::test::reset_phone_nav_bridge_probe();
-  moto::nav::NavPresenter presenter;
-  PhoneNavBridge bridge(presenter);
-
-  const std::uint32_t demo_token =
-      moto::ble::route_token(moto::demo::jinan_big_data::kRouteId);
+  // Even an old iOS demo token must be treated as an ordinary phone route,
+  // never as permission to generate Jinan geometry in production firmware.
   moto::ble::NavigationSnapshot snapshot;
   snapshot.state = moto::ble::NavigationState::Navigating;
   snapshot.network = moto::ble::NetworkState::Online;
-  snapshot.flags = moto::ble::NavigationHasRouteView;
-  snapshot.route_token = demo_token;
+  snapshot.route_token =
+      moto::ble::route_token("demo-jinan-big-data-d-to-inspur-v2");
   snapshot.route_generation = 1;
-  moto::ble::RouteGeometry geometry;
-  geometry.route_token = demo_token;
-  geometry.route_generation = 1;
-  geometry.total_point_count = 2;
-  geometry.view_origin = {36'674'773, 117'128'056};
-  geometry.points = {
-      {36'674'773, 117'128'056},
-      {36'674'145, 117'128'489},
-  };
-  // The phone queues changed geometry before the snapshot that references it.
-  // Geometry updates state only; the following snapshot is the single LVGL
-  // presentation boundary for the pair.
-  const int before_pair = moto::test::phone_nav_bridge_apply_count();
-  CHECK(bridge.on_message(make_message(geometry, 40)) ==
-        moto::ble::AckStatus::Ok);
-  CHECK(moto::test::phone_nav_bridge_apply_count() == before_pair);
-  CHECK(bridge.on_message(make_message(snapshot, 41)) ==
-        moto::ble::AckStatus::Ok);
-  CHECK(moto::test::phone_nav_bridge_apply_count() == before_pair);
-  pump(bridge);
-  CHECK(moto::test::phone_nav_bridge_apply_count() == before_pair + 1);
-  CHECK(moto::test::phone_nav_bridge_last_road_point_count() ==
-        moto::demo::jinan_big_data::kRoadPoints.size());
-  CHECK(moto::test::phone_nav_bridge_last_road_polyline_count() ==
-        moto::demo::jinan_big_data::kRoads.size());
-
-  snapshot.flags = 0;
-  snapshot.route_token = moto::ble::route_token("amap-live-route");
-  snapshot.route_generation = 2;
-  CHECK(bridge.on_message(make_message(snapshot, 42)) ==
+  CHECK(bridge.on_message(make_message(snapshot, 45)) ==
         moto::ble::AckStatus::Ok);
   pump(bridge);
   CHECK(moto::test::phone_nav_bridge_last_road_point_count() == 0);
@@ -665,8 +580,7 @@ int main() {
   test_ble_submission_never_waits_for_lvgl_and_retries_latest_state();
   test_phone_connection_lifecycle_reaches_the_ui();
   test_music_capability_state_and_touch_commands();
-  test_demo_uses_the_production_presenter_path();
-  test_ios_demo_token_attaches_context_and_live_route_clears_it();
+  test_legacy_demo_route_token_does_not_inject_fake_roads();
   test_map_scene_atomically_replaces_roads_at_capacity();
   test_imu_presentation_preserves_40hz_phase_and_stale_course_is_ignored();
 

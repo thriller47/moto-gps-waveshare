@@ -48,6 +48,13 @@ class MotoBLEManager(private val context: Context) {
     private var writeCharacteristic: BluetoothGattCharacteristic? = null
     private var readCharacteristic: BluetoothGattCharacteristic? = null
     private val mainHandler = Handler(Looper.getMainLooper())
+    private var pendingDisconnectGatt: BluetoothGatt? = null
+    private val gattCloseFallbackRunnable = Runnable {
+        pendingDisconnectGatt?.let {
+            try { it.close() } catch (_: Exception) {}
+            pendingDisconnectGatt = null
+        }
+    }
 
     private var heartbeatScheduler: ScheduledExecutorService? = null
 
@@ -285,6 +292,12 @@ class MotoBLEManager(private val context: Context) {
 
     private val gattCallback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
+            if (pendingDisconnectGatt === gatt) {
+                mainHandler.removeCallbacks(gattCloseFallbackRunnable)
+                pendingDisconnectGatt = null
+                try { gatt.close() } catch (_: Exception) {}
+                return
+            }
             if (bluetoothGatt !== gatt) {
                 // A closed/stale GATT callback must never overwrite the new
                 // session or re-enter discovery after the app has exited.
@@ -428,9 +441,9 @@ class MotoBLEManager(private val context: Context) {
                         "phase=callback status=$status type=${failed[2].toInt() and 0xff} seq=$failedSeq")
                 }
             }
-            mainHandler.postDelayed({
+            mainHandler.post {
                 processNextWrite()
-            }, 18)
+            }
         }
 
         @Deprecated("Deprecated in API 33")
@@ -659,8 +672,9 @@ class MotoBLEManager(private val context: Context) {
             bleCodec.nativeSetMaximumFrameSize(codecPtr, 20)
         }
         gatt?.let {
+            pendingDisconnectGatt = it
             try { it.disconnect() } catch (_: Exception) {}
-            try { it.close() } catch (_: Exception) {}
+            mainHandler.postDelayed(gattCloseFallbackRunnable, 1000L)
         }
         onConnectionStateChange?.invoke("Non connesso")
     }
@@ -668,6 +682,11 @@ class MotoBLEManager(private val context: Context) {
     fun close() {
         closed = true
         disconnect()
+        mainHandler.removeCallbacks(gattCloseFallbackRunnable)
+        pendingDisconnectGatt?.let {
+            try { it.close() } catch (_: Exception) {}
+            pendingDisconnectGatt = null
+        }
         onConnectionStateChange = null
         onConnectionError = null
         onDeviceCommandReceived = null

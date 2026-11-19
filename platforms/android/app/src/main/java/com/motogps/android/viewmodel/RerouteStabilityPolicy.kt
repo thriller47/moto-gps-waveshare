@@ -12,17 +12,92 @@ internal class RerouteStabilityPolicy {
     private var acceptedAtMs = -1L
     private var acceptedLat = Double.NaN
     private var acceptedLon = Double.NaN
+    private var previousCourseDeg: Float? = null
+    private var previousCourseMs = -1L
+    private var turnGuardUntilMs = -1L
+    private var credibleDepartureSinceMs = -1L
+    private var lastCredibleDepartureMs = -1L
+
+    private companion object {
+        // A 45 m threshold can still be a false junction snap. At 60+ metres
+        // with accurate GNSS, however, sustained off-route travel must not be
+        // blocked indefinitely by repeated heading changes in a roundabout.
+        const val CONFIRMED_DEPARTURE_METRES = 60.0
+        const val MAX_FIX_ACCURACY_METRES = 12.0F
+        const val CONFIRMATION_MS = 2_000L
+        const val MAX_FIX_GAP_MS = 2_500L
+    }
+
+    /** Only accepted moving GNSS courses, not stale BLE/compass headings. */
+    fun observeCourse(nowMs: Long, courseDeg: Float?, speedMps: Float) {
+        if (courseDeg == null || !courseDeg.isFinite() ||
+            courseDeg < 0f || courseDeg >= 360f ||
+            !speedMps.isFinite() || speedMps < 3f) return
+        val previous = previousCourseDeg
+        if (previous != null && previousCourseMs >= 0L &&
+            nowMs >= previousCourseMs && nowMs - previousCourseMs <= 2_500L) {
+            val delta = kotlin.math.abs(
+                ((courseDeg - previous + 540f) % 360f) - 180f)
+            if (delta >= 14f) turnGuardUntilMs = nowMs + 6_000L
+        }
+        previousCourseDeg = courseDeg
+        previousCourseMs = nowMs
+    }
+
+    /**
+     * Preserve the turn guard for ambiguous junctions, but release it when
+     * accurate fixes sustain a substantial departure for >=2 seconds.
+     * Repeated GNSS course changes cannot restart this independent clock.
+     * This is only a guard bypass: NavigationViewModel still enforces its
+     * consecutive-fix debounce, route-acceptance hold and reroute cooldown.
+     */
+    fun shouldDeferWhileTurning(
+        nowMs: Long, distanceFromRouteM: Double,
+        accuracyM: Float = Float.POSITIVE_INFINITY
+    ): Boolean {
+        val credibleDeparture = nowMs >= 0L &&
+            distanceFromRouteM.isFinite() &&
+            distanceFromRouteM >= CONFIRMED_DEPARTURE_METRES &&
+            accuracyM.isFinite() && accuracyM in 0.0F..MAX_FIX_ACCURACY_METRES
+        if (!credibleDeparture) {
+            credibleDepartureSinceMs = -1L
+            lastCredibleDepartureMs = -1L
+        } else {
+            if (credibleDepartureSinceMs < 0L ||
+                lastCredibleDepartureMs < 0L ||
+                nowMs < lastCredibleDepartureMs ||
+                nowMs - lastCredibleDepartureMs > MAX_FIX_GAP_MS) {
+                credibleDepartureSinceMs = nowMs
+            }
+            lastCredibleDepartureMs = nowMs
+        }
+
+        if (nowMs < 0L || turnGuardUntilMs < nowMs ||
+            distanceFromRouteM >= 100.0) return false
+
+        val confirmedDeparture = credibleDeparture &&
+            nowMs - credibleDepartureSinceMs >= CONFIRMATION_MS
+        return !confirmedDeparture
+    }
 
     fun reset() {
         acceptedAtMs = -1L
         acceptedLat = Double.NaN
         acceptedLon = Double.NaN
+        previousCourseDeg = null
+        previousCourseMs = -1L
+        turnGuardUntilMs = -1L
+        credibleDepartureSinceMs = -1L
+        lastCredibleDepartureMs = -1L
     }
 
     fun accepted(nowMs: Long, lat: Double, lon: Double) {
         acceptedAtMs = nowMs
         acceptedLat = lat
         acceptedLon = lon
+        turnGuardUntilMs = -1L
+        credibleDepartureSinceMs = -1L
+        lastCredibleDepartureMs = -1L
     }
 
     fun shouldDefer(
@@ -33,8 +108,14 @@ internal class RerouteStabilityPolicy {
         // A major, real departure always remains eligible for fast rerouting.
         if (distanceFromRouteM >= 100.0) return false
         val age = nowMs - acceptedAtMs
-        if (age < 12_000L) return true
-        if (!reverseOnly || age >= 45_000L) return false
+
+        if (!reverseOnly) {
+            // 17:37:01 -> 17:37:19 were two false, near-junction reroutes.
+            return age < 25_000L
+        }
+
+        // reverseOnly = true
+        if (age >= 45_000L) return false
         if (age < 20_000L) return true
 
         // Do not recalculate for a transient opposite edge at the same

@@ -31,6 +31,7 @@ import com.motogps.android.routing.RoutePreferences
 import com.motogps.android.routing.RouteStyle
 import com.motogps.android.routing.ValhallaTurnGuidance
 import com.motogps.android.routing.ValhallaRouteLocations
+import com.motogps.android.routing.CircularTourPlanner
 import com.motogps.android.routing.RerouteDepartureDirection
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
@@ -77,8 +78,194 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     private val _routePreview = MutableStateFlow<PlaceSearchResult?>(null)
     val routePreview: StateFlow<PlaceSearchResult?> = _routePreview
 
+    private val _savedCircularTours = MutableStateFlow<List<SavedCircularTour>>(emptyList())
+    val savedCircularTours: StateFlow<List<SavedCircularTour>> = _savedCircularTours
+    private var circularRequestedKm = 100
+    private var circularOrientationDegrees = 0
+    private var previewOriginOverride: Pair<Double, Double>? = null
+
+    fun loadSavedCircularTours(context: Context) {
+        _savedCircularTours.value = SavedCircularTourStore.read(context.applicationContext)
+    }
+
+    fun saveCurrentCircularTour(context: Context, title: String) {
+        val preview = _routePreview.value
+        if (_isNavigating.value || preview?.displayArea != "Tour circolare") {
+            _errorMessage.value = "Apri un tour circolare prima di salvarlo"
+            return
+        }
+        if (title.isBlank()) {
+            _errorMessage.value = "Inserisci un nome per il tour"
+            return
+        }
+        try {
+            val via = _routeWaypoints.value.toList()
+            // The preview editor can remove or reorder stops. Save the actual
+            // route plan; only surviving user points remain compulsory.
+            val mandatory = via.filter { waypoint ->
+                _circularMandatoryStops.value.any { chosen ->
+                    calculateDistanceMeters(waypoint.latitude, waypoint.longitude,
+                        chosen.latitude, chosen.longitude) < 60.0
+                }
+            }
+            val tour = SavedCircularTour(
+                java.util.UUID.randomUUID().toString(), title.trim().take(80),
+                previewOriginOverride ?: (preview.latitude to preview.longitude),
+                circularRequestedKm, circularOrientationDegrees,
+                mandatory, via, _routePreferences.value
+            )
+            _savedCircularTours.value =
+                SavedCircularTourStore.save(context.applicationContext, tour)
+            DiagnosticLog.event("CIRCULAR_TOUR_SAVED",
+                "stops=${tour.via.size} mandatory=${tour.mandatory.size}")
+        } catch (e: Exception) {
+            _errorMessage.value = "Impossibile salvare il tour: ${e.message}"
+        }
+    }
+
+    fun removeSavedCircularTour(context: Context, id: String) {
+        try {
+            _savedCircularTours.value =
+                SavedCircularTourStore.remove(context.applicationContext, id)
+        } catch (e: Exception) {
+            _errorMessage.value = "Impossibile eliminare il tour: ${e.message}"
+        }
+    }
+
+    fun openSavedCircularTour(tour: SavedCircularTour, fromCurrentPosition: Boolean) {
+        if (_isNavigating.value) return
+        if (fromCurrentPosition && !hasFirstFix) {
+            _errorMessage.value = "Attendi un fix GPS per partire dalla posizione attuale"
+            return
+        }
+        circularRequestedKm = tour.desiredKm
+        circularOrientationDegrees = tour.orientationDegrees
+        _circularMandatoryStops.value = tour.mandatory.toList()
+        resumeOriginSession = null
+        _routeWaypoints.value = tour.via.toList()
+        _routePreferences.value = tour.preferences
+        previewOriginOverride = if (fromCurrentPosition) null else tour.departure
+        val destination = if (fromCurrentPosition) currentLocation.value else tour.departure
+        DiagnosticLog.event("CIRCULAR_TOUR_LOADED",
+            "mandatory=${tour.mandatory.size} stops=${tour.via.size} " +
+                "origin=${if (fromCurrentPosition) "current" else "saved"}")
+        previewRoute(PlaceSearchResult("Ritorno al punto di partenza", "",
+            "Tour circolare", destination.first, destination.second))
+    }
+
+    private val _pausedTour = MutableStateFlow<TourSession?>(null)
+    val pausedTour: StateFlow<TourSession?> = _pausedTour
+    private var lastTourCheckpointMillis = 0L
+    private var resumeOriginSession: TourSession? = null
+
+    fun loadTourSession(context: Context) {
+        // An active session from a previous process is resumable, but NEVER
+        // auto-resume its BLE navigation or overwrite its completed stops.
+        _pausedTour.value = TourSessionStore.read(context.applicationContext)
+    }
+
+    private fun saveTourCheckpoint(paused: Boolean) {
+        val context = appContext ?: navigationMapsContext
+            ?: throw IllegalStateException("Contesto Android non disponibile")
+        val destination = activeDestination ?: return
+        if (destination.displayArea != "Tour circolare") return
+        val (lat, lon) = _currentLocation.value
+        val checkpoint = TourSession(destination, activeWaypoints.toList(),
+            nextWaypointIndex.coerceIn(0, activeWaypoints.size),
+            _routePreferences.value, lat, lon,
+            System.currentTimeMillis(), paused)
+        TourSessionStore.write(context.applicationContext, checkpoint)
+        _pausedTour.value = checkpoint
+        lastTourCheckpointMillis = SystemClock.elapsedRealtime()
+    }
+
+    private fun discardTourCheckpoint() {
+        val context = appContext ?: navigationMapsContext
+        if (context != null) {
+            TourSessionStore.clear(context.applicationContext)
+        }
+        _pausedTour.value = null
+    }
+
+    fun pauseTour() {
+        if (!_isNavigating.value || activeDestination?.displayArea != "Tour circolare") return
+        try {
+            saveTourCheckpoint(paused = true)
+        } catch (e: Exception) {
+            _errorMessage.value = "Pausa non salvata: ${e.message}"
+            return // Never terminate navigation if persistence failed.
+        }
+        DiagnosticLog.event("TOUR_PAUSED",
+            "completed=$nextWaypointIndex total=${activeWaypoints.size}")
+        stopNavigationInternal(preserveTourCheckpoint = true)
+    }
+
+    fun previewResumeTour() {
+        if (_isNavigating.value || _isLoading.value) return
+        val checkpoint = _pausedTour.value ?: return
+        if (!hasFirstFix) {
+            _errorMessage.value = "Attendi un fix GPS valido per riprendere il tour"
+            return
+        }
+        _routePreferences.value = checkpoint.preferences
+        resumeOriginSession = checkpoint
+        _routeWaypoints.value = checkpoint.pendingStops
+        previewOriginOverride = null
+        DiagnosticLog.event("TOUR_RESUME_PREVIEW",
+            "completed=${checkpoint.completedStops} pending=${checkpoint.pendingStops.size}")
+        previewRoute(checkpoint.destination)
+        // Do not start navigation without user confirmation.
+    }
+
+    fun discardPausedTour() {
+        if (_isNavigating.value) return
+        try {
+            discardTourCheckpoint()
+        } catch (e: Exception) {
+            _errorMessage.value = "Impossibile eliminare il tour sospeso: ${e.message}"
+        }
+    }
+
     private val _routeWaypoints = MutableStateFlow<List<PlaceSearchResult>>(emptyList())
     val routeWaypoints: StateFlow<List<PlaceSearchResult>> = _routeWaypoints
+    private val _circularMandatoryStops = MutableStateFlow<List<PlaceSearchResult>>(emptyList())
+    val circularMandatoryStops: StateFlow<List<PlaceSearchResult>> = _circularMandatoryStops
+
+    fun addCircularMandatoryStop(place: PlaceSearchResult) {
+        if (_isNavigating.value || _circularMandatoryStops.value.size >= ValhallaRouteLocations.MAX_STOPS) return
+        if (!place.latitude.isFinite() || !place.longitude.isFinite() ||
+            place.latitude !in -90.0..90.0 || place.longitude !in -180.0..180.0) {
+            _errorMessage.value = "Coordinate tappa non valide"
+            return
+        }
+        val duplicate = _circularMandatoryStops.value.any {
+            calculateDistanceMeters(it.latitude, it.longitude,
+                place.latitude, place.longitude) < 60.0
+        }
+        if (duplicate) {
+            _errorMessage.value = "Questo luogo è già fra le tappe obbligatorie"
+            return
+        }
+        _circularMandatoryStops.value = _circularMandatoryStops.value + place
+        _waypointSearchResults.value = emptyList()
+        DiagnosticLog.event("CIRCULAR_POI", "action=add count=${_circularMandatoryStops.value.size}")
+    }
+
+    fun removeCircularMandatoryStop(index: Int) {
+        if (_isNavigating.value || index !in _circularMandatoryStops.value.indices) return
+        _circularMandatoryStops.value =
+            _circularMandatoryStops.value.filterIndexed { i, _ -> i != index }
+        DiagnosticLog.event("CIRCULAR_POI", "action=remove count=${_circularMandatoryStops.value.size}")
+    }
+
+    fun moveCircularMandatoryStop(index: Int, direction: Int) {
+        if (_isNavigating.value || direction !in listOf(-1, 1)) return
+        val updated = _circularMandatoryStops.value.toMutableList()
+        if (index !in updated.indices || index + direction !in updated.indices) return
+        java.util.Collections.swap(updated, index, index + direction)
+        _circularMandatoryStops.value = updated
+    }
+
     private val _waypointSearchResults = MutableStateFlow<List<PlaceSearchResult>>(emptyList())
     val waypointSearchResults: StateFlow<List<PlaceSearchResult>> = _waypointSearchResults
     private val _waypointSearching = MutableStateFlow(false)
@@ -88,6 +275,12 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     private var waypointSearchJob: Job? = null
     private var activeWaypoints: List<PlaceSearchResult> = emptyList()
     private var nextWaypointIndex = 0
+    private val _nextWaypointToSkip = MutableStateFlow<PlaceSearchResult?>(null)
+    val nextWaypointToSkip: StateFlow<PlaceSearchResult?> = _nextWaypointToSkip
+
+    private fun publishPendingWaypoint() {
+        _nextWaypointToSkip.value = activeWaypoints.getOrNull(nextWaypointIndex)
+    }
     // Short-lived display-only notice; does not change route progress or maneuvers.
     private var waypointNoticeIndex = 0
     private var waypointNoticeTotal = 0
@@ -275,6 +468,9 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                         "route_token=${route.routeToken}")
             }
         }
+        // Emit the full private route only once per recorded navigation;
+        // the BLE payload remains the same 24-point moving window.
+        ReplayTraceRecorder.fullRoute(route, turnPlan)
         ReplayTraceRecorder.route(window)
         bleManager.sendRouteGeometry(window)
         val endpoint = route.points.lastOrNull()
@@ -289,6 +485,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     private val locationFixFilter = LocationFixFilter()
     private val routeDistanceGuard = RouteDistanceGuard()
     private val routeProgressMatcher = RouteProgressMatcher()
+    private val routeProgressStallPolicy = RouteProgressStallPolicy()
     private val rerouteStability = RerouteStabilityPolicy()
     private var lastLocationTimeMs: Long = 0L
     private var lastFixElapsedMs: Long = 0L
@@ -363,6 +560,53 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         }
     }
 
+    /** Plan a circular tour while preserving all user-selected obligatory POIs.
+     * Valhalla still calculates the real road route and can reject impossible legs.
+     */
+    fun previewCircularTour(distanceKm: Int, orientationDegrees: Int = 0) {
+        if (_isNavigating.value || _isLoading.value) return
+        if (!hasFirstFix) {
+            _errorMessage.value = "Attendi un fix GPS valido per creare il tour circolare"
+            return
+        }
+        try {
+            previewOriginOverride = null
+            circularRequestedKm = distanceKm
+            circularOrientationDegrees = orientationDegrees
+            val (lat, lon) = currentLocation.value
+            val mandatory = _circularMandatoryStops.value.toList()
+            val coordinates = mandatory.map { it.latitude to it.longitude }
+            val lowerBoundKm = CircularTourPlanner.straightLineMinimumKm(lat, lon, coordinates)
+            // If even straight-line travel exceeds the requested budget, don't
+            // silently generate a much longer loop. The user can raise the target.
+            if (lowerBoundKm > distanceKm) {
+                _errorMessage.value = "Le tappe obbligatorie richiedono almeno " +
+                    "${kotlin.math.ceil(lowerBoundKm).toInt()} km in linea d'aria " +
+                    "(su strada saranno di più). Aumenta la distanza del tour."
+                return
+            }
+            val stops = CircularTourPlanner.planStops(
+                lat, lon, distanceKm, orientationDegrees, coordinates)
+            _routeWaypoints.value = stops.mapIndexed { index, point ->
+                mandatory.getOrNull(index) ?: PlaceSearchResult(
+                    "Tappa automatica ${index + 1}", "", "Tour automatico",
+                    point.first, point.second)
+            }
+            val start = PlaceSearchResult("Ritorno al punto di partenza", "",
+                "Tour circolare", lat, lon)
+            if (_routePreferences.value.style == RouteStyle.FASTEST) {
+                _routePreferences.value = _routePreferences.value.copy(
+                    style = RouteStyle.PANORAMIC)
+            }
+            DiagnosticLog.event("CIRCULAR_TOUR",
+                "requested_km=$distanceKm orientation=$orientationDegrees " +
+                    "mandatory=${mandatory.size} automatic=${stops.size - mandatory.size}")
+            previewRoute(start)
+        } catch (e: IllegalArgumentException) {
+            _errorMessage.value = "Tour circolare non valido: ${e.message}"
+        }
+    }
+
     fun previewRoute(place: PlaceSearchResult) {
         routePreviewJob?.cancel()
         DiagnosticLog.event("ROUTE_PREVIEW", "begin stops=${_routeWaypoints.value.size}")
@@ -403,10 +647,12 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     }
 
     fun clearRoutePreview() {
+        resumeOriginSession = null
         _hasArrived.value = false
         arrivalDetector.reset()
         routePreviewJob?.cancel()
         waypointSearchJob?.cancel()
+        previewOriginOverride = null
         _routeWaypoints.value = emptyList()
         _waypointSearchResults.value = emptyList()
         _waypointSearching.value = false
@@ -440,6 +686,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         _hasArrived.value = false
         arrivalDetector.reset()
         rerouteStability.reset()
+        routeProgressStallPolicy.reset()
         lastRecalculationTime = 0L
         offRouteFixCount = 0
         offRouteFirstFixMs = 0L
@@ -456,8 +703,26 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                 }
 
                 activeDestination = place
-                activeWaypoints = _routeWaypoints.value.toList()
-                nextWaypointIndex = 0
+                val resumed = resumeOriginSession
+                activeWaypoints = if (resumed != null &&
+                    resumed.destination.latitude == place.latitude &&
+                    resumed.destination.longitude == place.longitude) {
+                    resumed.stops.take(resumed.completedStops) + _routeWaypoints.value
+                } else _routeWaypoints.value.toList()
+                nextWaypointIndex = if (resumed != null &&
+                    resumed.destination.latitude == place.latitude &&
+                    resumed.destination.longitude == place.longitude)
+                    resumed.completedStops else 0
+                resumeOriginSession = null
+                publishPendingWaypoint()
+                if (place.displayArea == "Tour circolare") {
+                    // Persist before the first BLE frame, so a sudden app
+                    // termination still leaves a complete resumable itinerary.
+                    saveTourCheckpoint(paused = false)
+                } else if (_pausedTour.value != null) {
+                    // Ordinary navigation must not silently erase a paused tour.
+                    DiagnosticLog.event("TOUR_CHECKPOINT", "preserved_during_other_route")
+                }
                 waypointNoticeIndex = 0
                 waypointNoticeTotal = 0
                 waypointNoticeStartedMs = 0L
@@ -471,6 +736,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                         "points=${geometry?.points?.size ?: 0} provider=${lastRoutingProvider.orEmpty()}")
                 routeDistanceGuard.reset()
                 routeProgressMatcher.reset(geometry?.points.orEmpty())
+                routeProgressStallPolicy.onRouteChanged()
                 val (startLat, startLon) = currentLocation.value
                 currentSnapshot = updateManeuverAndDistance(startLat, startLon)
                     ?: snapshot
@@ -536,6 +802,12 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                         gnssStale = gnssStale
                     )
                     currentSnapshot = activeSnap
+                    if (activeDestination?.displayArea == "Tour circolare" &&
+                        SystemClock.elapsedRealtime() - lastTourCheckpointMillis >= 30_000L) {
+                        try { saveTourCheckpoint(paused = false) } catch (e: Exception) {
+                            DiagnosticLog.event("TOUR_CHECKPOINT_ERROR", e.javaClass.simpleName)
+                        }
+                    }
                     if (loopCount == 1 || loopCount % 4 == 0) {
                         DiagnosticLog.event("NAV_SNAPSHOT",
                             "maneuver=${activeSnap.maneuverName} id=${activeSnap.maneuverID} " +
@@ -572,14 +844,15 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                         val now = SystemClock.elapsedRealtime()
                         val elapsed = now - lastGeometryTransmissionMs
                         if (activeGeom != null && elapsed >= 900L) {
-                            val nearTurn = activeSnap.maneuverName !in
-                                setOf("continue", "none", "arrive") &&
-                                activeSnap.distanceToManeuverM <= 100L
+                            val nearTurn = activeSnap.maneuverName == "roundabout" ||
+                                (activeSnap.maneuverName !in
+                                    setOf("continue", "none", "arrive") &&
+                                    activeSnap.distanceToManeuverM <= 100L)
                             val winding = !nearTurn && elapsed >= 1_400L &&
                                 RouteGeometryWindow.isWinding(
                                     RouteGeometryWindow.around(activeGeom, lat, lon)
                                 )
-                            if (nearTurn || winding || elapsed >= 3_000L) {
+                            if (nearTurn || winding || elapsed >= 1_500L) {
                                 sendNearbyRouteGeometry(activeGeom)
                                 lastGeometryTransmissionMs = now
                             }
@@ -589,6 +862,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                // Keep the previous checkpoint when route calculation fails;
+                // an interrupted multi-day tour must remain recoverable.
                 DiagnosticLog.event("ROUTE_START_ERROR",
                     "stops=${activeWaypoints.size} exception=${e.javaClass.simpleName}")
                 _isNavigating.value = false
@@ -603,7 +878,90 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         }
     }
 
-    fun stopNavigation() {
+    /**
+     * Skip ONLY the next intermediate stop. The return destination is never
+     * skippable. Do not mutate the itinerary or checkpoint until Valhalla
+     * produces a valid replacement geometry.
+     */
+    fun skipNextWaypoint() {
+        if (!_isNavigating.value || _hasArrived.value ||
+            _isLoading.value || rerouteInProgress) return
+        val destination = activeDestination ?: return
+        val index = nextWaypointIndex
+        val skip = WaypointSkipPlan.create(activeWaypoints, index) ?: return
+        val skipped = skip.skipped
+        val remaining = skip.pending
+        rerouteInProgress = true
+        _isLoading.value = true
+        DiagnosticLog.event("WAYPOINT_SKIP", "phase=request remaining=${remaining.size}")
+        viewModelScope.launch {
+            try {
+                val (snapshot, geometry, guidance) = withContext(Dispatchers.IO) {
+                    performRoutingWithGeometry(destination, isReroute = true,
+                        pendingOverride = remaining)
+                }
+                // If the rider reached the stop while Valhalla was working,
+                // or the tour was stopped, the result is stale: discard it.
+                if (!_isNavigating.value || _hasArrived.value ||
+                    activeDestination != destination ||
+                    nextWaypointIndex != index ||
+                    activeWaypoints.getOrNull(index) != skipped) {
+                    DiagnosticLog.event("WAYPOINT_SKIP", "phase=stale")
+                    return@launch
+                }
+                val revised = skip.revised
+                // Commit the new checkpoint before changing the active plan,
+                // so a storage failure never loses the abandoned waypoint.
+                if (destination.displayArea == "Tour circolare") {
+                    val context = appContext ?: navigationMapsContext
+                        ?: throw IllegalStateException("Contesto Android non disponibile")
+                    val (lat, lon) = currentLocation.value
+                    val checkpoint = TourSession(destination, revised, index,
+                        _routePreferences.value, lat, lon,
+                        System.currentTimeMillis(), paused = false)
+                    TourSessionStore.write(context.applicationContext, checkpoint)
+                    _pausedTour.value = checkpoint
+                    lastTourCheckpointMillis = SystemClock.elapsedRealtime()
+                }
+                activeWaypoints = revised
+                publishPendingWaypoint()
+                currentSnapshot = snapshot
+                currentGeometry = geometry
+                turnPlan = guidance
+                routeDistanceGuard.reset()
+                routeProgressMatcher.reset(geometry?.points.orEmpty())
+                routeProgressStallPolicy.onRouteChanged()
+                offRouteFixCount = 0
+                offRouteFirstFixMs = 0L
+                val (lat, lon) = currentLocation.value
+                currentSnapshot = updateManeuverAndDistance(lat, lon) ?: snapshot
+                rerouteStability.accepted(SystemClock.elapsedRealtime(), lat, lon)
+                _routingSource.value = lastRoutingProvider
+                if (geometry != null) sendNearbyRouteGeometry(geometry)
+                bleManager.sendNavigationSnapshot(requireNotNull(currentSnapshot))
+                DiagnosticLog.event("WAYPOINT_SKIP",
+                    "phase=success remaining=${activeWaypoints.size - nextWaypointIndex}")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _errorMessage.value = "Tappa non saltata: ${e.message}"
+                DiagnosticLog.event("WAYPOINT_SKIP",
+                    "phase=failed type=${e.javaClass.simpleName}")
+            } finally {
+                rerouteInProgress = false
+                _isLoading.value = false
+            }
+        }
+    }
+
+    fun stopNavigation() = stopNavigationInternal(preserveTourCheckpoint = false)
+
+    private fun stopNavigationInternal(preserveTourCheckpoint: Boolean) {
+        if (!preserveTourCheckpoint && activeDestination?.displayArea == "Tour circolare") {
+            try { discardTourCheckpoint() } catch (e: Exception) {
+                _errorMessage.value = "Impossibile cancellare lo stato del tour: ${e.message}"
+            }
+        }
         _hasArrived.value = false
         arrivalDetector.reset()
         _isNavigating.value = false
@@ -612,6 +970,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         activeDestination = null
         activeWaypoints = emptyList()
         nextWaypointIndex = 0
+        publishPendingWaypoint()
         waypointNoticeIndex = 0
         waypointNoticeTotal = 0
         waypointNoticeStartedMs = 0L
@@ -622,6 +981,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         turnPlan = ValhallaTurnGuidance.Plan(0.0, emptyList())
         routeDistanceGuard.reset()
         routeProgressMatcher.reset()
+        routeProgressStallPolicy.reset()
         rerouteStability.reset()
         lastRecalculationTime = 0L
         offRouteFixCount = 0
@@ -736,6 +1096,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
             longitude = location.longitude,
             speedMs = fix.speedMetersPerSecond,
             gpsBearingDeg = if (location.hasBearing()) location.bearing else null,
+            bearingAccuracyDeg = if (android.os.Build.VERSION.SDK_INT >= 26 &&
+                location.hasBearingAccuracy()) location.bearingAccuracyDegrees else null,
             context = context
         )
     }
@@ -745,6 +1107,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         longitude: Double,
         speedMs: Float,
         gpsBearingDeg: Float?,
+        bearingAccuracyDeg: Float?,
         context: Context?
     ) {
         if (context != null) navigationMapsContext = context.applicationContext
@@ -754,10 +1117,6 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         lastLocationTimeMs = now
 
         lastGpsSpeedMs = speedMs
-        if (gpsBearingDeg != null && gpsBearingDeg.isFinite() && speedMs >= 3f) {
-            lastReliableGpsBearing = (gpsBearingDeg % 360f + 360f) % 360f
-            lastReliableGpsBearingMs = SystemClock.elapsedRealtime()
-        }
         val speedZero = speedMs < 0.8f
         if (speedZero) {
             currentSpeedDeciKph = 0
@@ -768,20 +1127,23 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         val displacementM = if (prevLat != null && prevLon != null)
             calculateDistanceMeters(prevLat!!, prevLon!!, latitude, longitude)
         else 0.0
-        val displacementCourse = if (displacementM >= 4.0)
+        val displacementCourse = if (displacementM >= 9.0)
             calculateBearingDeg(prevLat!!, prevLon!!, latitude, longitude)
         else null
         val travelCourse = NavigationHeadingPolicy.movingHeading(
-            speedMs, gpsBearingDeg, displacementM, displacementCourse)
+            speedMs, gpsBearingDeg, displacementM, displacementCourse,
+            bearingAccuracyDeg, lastFixAccuracyM)
         if (travelCourse != null) {
             currentHeadingCentiDeg = (travelCourse * 100f).toInt().coerceIn(0, 35999)
             // When the GNSS provider has no bearing, two real fixes still
             // establish a reliable travel direction for the next reroute.
-            if (speedMs >= 3f && displacementM >= 6.0) {
+            if (speedMs >= 3f) {
                 lastReliableGpsBearing = travelCourse
                 lastReliableGpsBearingMs = SystemClock.elapsedRealtime()
             }
         }
+        rerouteStability.observeCourse(
+            SystemClock.elapsedRealtime(), travelCourse, speedMs)
         // Log the course AFTER arbitration, not the previously selected
         // compass heading from before this GPS callback.
         if (now - lastDiagnosticFixMs >= 1000L) {
@@ -822,6 +1184,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                 latitude, longitude)
             if (reachedIndex != nextWaypointIndex) {
                 nextWaypointIndex = reachedIndex
+                publishPendingWaypoint()
                 waypointNoticeIndex = nextWaypointIndex
                 waypointNoticeTotal = activeWaypoints.size
                 waypointNoticeStartedMs = SystemClock.elapsedRealtime()
@@ -829,6 +1192,9 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                 DiagnosticLog.event("WAYPOINT_REACHED",
                     "index=$nextWaypointIndex total=${activeWaypoints.size}")
                 ReplayTraceRecorder.waypointReached(nextWaypointIndex, activeWaypoints.size)
+                try { saveTourCheckpoint(paused = false) } catch (e: Exception) {
+                    DiagnosticLog.event("TOUR_CHECKPOINT_ERROR", e.javaClass.simpleName)
+                }
             }
             val destination = requireNotNull(activeDestination)
             val distanceToEnd = calculateDistanceMeters(
@@ -858,6 +1224,12 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                 if (arrived != null) {
                     currentSnapshot = arrived
                     bleManager.sendNavigationSnapshot(arrived)
+                }
+                if (destination.displayArea == "Tour circolare") {
+                    try { discardTourCheckpoint() } catch (e: Exception) {
+                        DiagnosticLog.event("TOUR_CHECKPOINT_ERROR",
+                            "arrival " + e.javaClass.simpleName)
+                    }
                 }
                 Log.i("NavigationVM", "Final destination reached")
             } else {
@@ -1123,12 +1495,13 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         val travelHeading = if (lastGpsSpeedMs >= 3f &&
             SystemClock.elapsedRealtime() - lastReliableGpsBearingMs in 0L..3_000L)
             lastReliableGpsBearing else null
-        var remainingMeters = routeProgressMatcher.remaining(
+        val rawRemainingMeters = routeProgressMatcher.remaining(
             lat, lon, travelHeading, lastGpsSpeedMs)
             ?: baseSnapshot.remainingDistanceM
         // Do not let a nearest-segment snap at an intersection consume
         // 20-30m instantaneously and make the next turn disappear early.
-        remainingMeters = routeDistanceGuard.stabilize(remainingMeters, lat, lon)
+        val remainingMeters = routeDistanceGuard.stabilize(
+            rawRemainingMeters, lat, lon)
         val snapshot = baseSnapshot.copy(
             remainingDistanceM = remainingMeters,
             routeProgressM = (turnPlan.totalShapeMeters - remainingMeters)
@@ -1140,6 +1513,13 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         // existing destination-distance calculation, never as a straight
         // GPS-to-intersection shortcut.
         val upcoming = turnPlan.next(remainingMeters)
+        // Private replay-only evidence. Same accepted fix, no reroute/
+        // matching/heading change; inert when GPS recording is OFF.
+        ReplayTraceRecorder.progress(
+            lat, lon, baseSnapshot.routeToken, baseSnapshot.routeGeneration,
+            lastGpsSpeedMs, travelHeading, rawRemainingMeters, remainingMeters,
+            routeProgressMatcher.lastMatchEvidence, upcoming,
+            turnPlan.totalShapeMeters)
         if (upcoming != null) {
             val step = upcoming.action
             val instrText = if (step.roadName.isNotBlank())
@@ -1388,11 +1768,26 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
             if (bearingIsFresh) lastReliableGpsBearing else null,
             lastGpsSpeedMs)
         val reverseCourse = reverseCandidate != null
-        // Moving in the opposite direction on the same road is not the same
-        // as following the route. Require repeated fixes before rerouting,
-        // to reject brief compass/GNSS errors on sharp bends.
+        // A rider can follow a later leg of this same route while the
+        // progress matcher stays pinned to its former leg. Whole-route
+        // proximity cannot detect that mismatch; require sustained, good
+        // GNSS motion before considering a new Valhalla route.
+        val stalledOnRoute = routeProgressStallPolicy.observe(
+            currentSnapshot?.routeToken ?: 0L, now,
+            latitude, longitude,
+            routeProgressMatcher.matchedProgressMeters(),
+            lastGpsSpeedMs,
+            if (bearingIsFresh) lastReliableGpsBearing else null,
+            lastFixAccuracyM, distanceFromRoute,
+            routeProgressMatcher.distanceToMatchedCorridorMeters(
+                latitude, longitude))
+        // No arbitrary segment jump: reuse the established de-bounced
+        // reroute path, mandatory stops and heading-aware route request.
         val farFromRoute = distanceFromRoute > 45.0
-        if ((!farFromRoute && !reverseCourse) || lastGpsSpeedMs < 1.5f) {
+        if ((!farFromRoute && !reverseCourse && !stalledOnRoute) ||
+            lastGpsSpeedMs < 1.5f ||
+            rerouteStability.shouldDeferWhileTurning(
+                now, distanceFromRoute, lastFixAccuracyM)) {
             offRouteFixCount = 0
             offRouteFirstFixMs = 0L
             return
@@ -1413,7 +1808,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         // Hold reverse-only triggers briefly after accepting a reroute;
         // substantial (>=100m) departures are never blocked.
         if (rerouteStability.shouldDefer(
-                now, latitude, longitude, distanceFromRoute, !farFromRoute)) {
+                now, latitude, longitude, distanceFromRoute,
+                !farFromRoute && !stalledOnRoute)) {
             offRouteFixCount = 0
             offRouteFirstFixMs = 0L
             return
@@ -1426,7 +1822,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         val cooldownMs = if (usesOnline) 15_000L else 8_000L
         if (now - lastRecalculationTime < cooldownMs) return
         DiagnosticLog.event("REROUTE",
-            "trigger off_route_m=${distanceFromRoute.toInt()} reverse=$reverseCourse speed_mps=$lastGpsSpeedMs " +
+            "trigger off_route_m=${distanceFromRoute.toInt()} reverse=$reverseCourse " +
+                "stalled=$stalledOnRoute speed_mps=$lastGpsSpeedMs " +
                 "match_delta_m=${reverseCandidate?.progressDeltaMeters?.toInt() ?: -999}")
         lastRecalculationTime = now
         offRouteFixCount = 0
@@ -1447,6 +1844,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                     "success provider=${lastRoutingProvider.orEmpty()} route_m=${snapshot.totalDistanceM}")
                 routeDistanceGuard.reset()
                 routeProgressMatcher.reset(geometry?.points.orEmpty())
+                routeProgressStallPolicy.onRouteChanged()
                 // The IO reroute may have taken seconds. Never initialise a
                 // new geometry using the old trigger fix.
                 val (acceptedLat, acceptedLon) = currentLocation.value
@@ -1550,24 +1948,28 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     }
 
     private fun fetchRouteOptions(place: PlaceSearchResult): List<RouteOption> {
-        if (!hasFirstFix)
+        if (!hasFirstFix && previewOriginOverride == null)
             throw IllegalStateException("Attendi un fix GPS valido prima del calcolo")
-        val (lat, lon) = currentLocation.value
+        val (lat, lon) = previewOriginOverride ?: currentLocation.value
         val response = resolveRoute(lat, lon, place)
         val route = response.getJSONObject("route")
         val maneuvers = route.optJSONArray("maneuvers")
         val instructions = (0 until (maneuvers?.length() ?: 0)).map { i ->
             maneuvers!!.getJSONObject(i).optString("instruction", "")
         }.filter { it.isNotBlank() }
+        val displayName = if (_routeWaypoints.value.firstOrNull()?.displayArea == "Tour circolare")
+            "Tour circolare · distanza effettiva"
+        else "Percorso Valhalla"
         return listOf(RouteOption(
             "valhalla-0",
-            "Percorso Valhalla",
+            displayName,
             route.getLong("total_distance_m"), route.getLong("estimated_duration_s"),
             instructions, route))
     }
 
     private fun performRoutingWithGeometry(
-        place: PlaceSearchResult, isReroute: Boolean = false
+        place: PlaceSearchResult, isReroute: Boolean = false,
+        pendingOverride: List<PlaceSearchResult>? = null
     ): PlannedNavigation {
         if (!hasFirstFix)
             throw IllegalStateException("Fix GPS assente: impossibile navigare")
@@ -1577,8 +1979,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         val bearing = if (lastGpsSpeedMs >= 3f &&
             SystemClock.elapsedRealtime() - lastReliableGpsBearingMs in 0L..5_000L)
             lastReliableGpsBearing else null
-        val pending = if (isReroute) activeWaypoints.drop(nextWaypointIndex)
-            else _routeWaypoints.value
+        val pending = pendingOverride ?: if (isReroute)
+            activeWaypoints.drop(nextWaypointIndex) else _routeWaypoints.value
         val initial = resolveRoute(originLat, originLon, place, isReroute, bearing, pending)
         // Only inspect an *actual* moving reroute. Route geometry can legitimately
         // lead backwards when a mandatory stop is behind the rider, so this is

@@ -1,5 +1,37 @@
 # Simulatore Moto Chat GPS per Windows (anteprima 2D + WebAssembly LVGL)
 
+
+## C2 — uscita di rotonda e sosta (19 novembre 2026)
+
+Nuova quarta modalità **C2 — Curva, uscita e arresto (solo WASM)**. Rimangono selezionabili A (originale), B (GPS OFF) e C (prima candidata). C2 riconosce le variazioni di heading su finestre >=100 ms con soglia diagnostica iniziale 6°/s; riduce l'avanzamento predetto durante la curva, mantiene una correzione progressivamente decrescente fino a 1 secondo dopo l'ultima variazione significativa, e a velocità <1,5 m/s ripristina l'origine al GPS dello snapshot e resetta lo stato per la ripartenza. Niente cambia sul firmware ESP32 né sulla fusione IMU. Nel CSV sono aggiunte `predicted_offset_c2_m`, `predicted_c2_along_heading_m` e `predicted_c2_lateral_heading_m`. Per confrontare il replay del 19/11 ricompilare Emscripten (`./scripts/build_web.sh`), fare Ctrl+F5, impostare heading Originale e velocità 1×. Verificare ingresso, uscita e fermi usando le quattro modalità.
+
+L'uso dello snapshot GPS per riallinearsi implica che una riduzione dello scarto sia in parte ottenuta per costruzione, non prova che la traiettoria sul veicolo sia più corretta. Nessun giroscopio fisico o timing BLE è emulato. C2 è **solo un esperimento**, non pronto per il flash.
+
+## Test A/B/C predizione posizione in rotonda — 19 novembre 2026
+
+Nel nuovo menu **Predizione posizione · confronto A/B/C**:
+
+- **A — Predittore ESP32 attuale:** classe C++ `MapOriginPredictor` di produzione, senza modifiche;
+- **B — OFF (GPS snapshot):** nessun avanzamento; l'origine della mappa usa la posizione registrata/interpolata, quindi lo scarto rispetto allo stesso snapshot è 0 m per definizione;
+- **C — Prudente in curva:** prototipo **esclusivo del WASM** che usa il predittore originale ma attenua l'avanzamento quando cambia rapidamente l'heading registrato e riallinea più rapidamente la posizione alla coordinata GPS dello snapshot. Il firmware ESP32 **non** usa C.
+
+Con il replay del giro del 19/11, estrarre i singoli JSONL da `gps/` in `motogps-diagnostica-completa.zip`. Aprire **un file JSONL alla volta**, impostare `Heading del replay → Originale`, velocità **1×**, poi riprodurre dall'inizio il tratto desiderato, cambiando A, B e C. In `Scarto A / B / C dallo snapshot` sono visibili i tre risultati dello stesso frame; `Esporta diagnostica CSV` include anche `predicted_offset_curve_m`, `predicted_curve_along_heading_m` e `predicted_curve_lateral_heading_m`. Scarto laterale positivo = destra, negativo = sinistra **rispetto all'heading dello snapshot**, non necessariamente rispetto al bordo della strada.
+
+**Limiti fondamentali:** il replay non registra i 125 Hz grezzi del QMI8658, l'heading effettivamente fuso a ogni frame o i tempi reali di consegna BLE. C utilizza il GPS dello snapshot come riferimento aggiuntivo, quindi uno scarto inferiore non dimostra da solo che il mezzo fosse sulla carreggiata. La prova confronta ipotesi sulla predizione della posizione, senza risolvere automaticamente la deriva della rotazione. È necessaria una verifica fisica prima di adottare modifiche al firmware.
+
+**Ricompilazione obbligatoria** perché cambiano `replay_web.cpp` e gli export Emscripten:
+
+```bash
+cd ~/MotoGPS/moto-gps-waveshare
+git pull --ff-only origin test/merge-gps-20261118
+source ~/emsdk/emsdk_env.sh
+./scripts/build_web.sh
+python3 -m http.server 4173 --directory .
+```
+
+Se il server è già attivo, non aprirne un secondo sulla porta 4173: fermare il precedente con Ctrl+C o aggiornare la pagina con Ctrl+F5 dopo il rebuild. Se il menu A/B/C rimane disabilitato, il WASM non contiene ancora il nuovo export. Nessun bisogno di compilare APK o flashare ESP32 per questo test.
+
+
 **Stato:** simulatore e replay Android integrati in `valhalla` (PR #73 e #74); matcher dei ricalcoli verificato su strada il 10 novembre 2026. Due modalità separate. **Anteprima geometrica 2D** immediata (JavaScript, non è la grafica LVGL del firmware) e **renderer LVGL + NavPresenter reali** quando si compila il runtime WebAssembly. Non richiede ESP32 né GPS del PC. Nessun tracciato viene caricato su un server. FPS del browser e latenza BLE non rappresentano l'hardware.
 
 ## Aprire subito l'anteprima 2D senza compilatore
@@ -110,3 +142,88 @@ Le coordinate sono [latitudine, longitudine] con i valori presenti nel payload B
 ## Verifiche
 
 Il workflow nativo controlla la sintassi dei tre file JS e lancia i test `node --test platforms/web/simulator/*.test.cjs`. In sviluppo locale, sette test Node (parser/scene/eventi/zoom) e una prova browser headless con tracciato reale hanno superato i controlli; anche un bridge WASM **simulato** ha confermato che il frame successivo non ricopia la geometria. **Non** è una prova del vero binario Emscripten/LVGL: il toolchain non era disponibile nell’ambiente di sviluppo e la compilazione WebAssembly e la verifica visiva del renderer reale restano da svolgere.
+
+## Confronto sperimentale del predittore GPS — 17 novembre 2026
+
+Nel pannello **Riproduzione** del simulatore LVGL appare **Predittore ESP32 sperimentale · confronto A/B**. Resta spento per impostazione predefinita. Dopo `git pull`, attivare Emscripten in WSL e ricompilare con `source ~/emsdk/emsdk_env.sh && ./scripts/build_web.sh`; fare `Ctrl+F5`. Caricare il replay del 17/11 e riprodurre a 1×, comparando OFF e ON sul tratto 07:50–07:56. ON usa la stessa classe `MapOriginPredictor` C++, con gli eventi di geometria registrati come ancore e il tempo del replay; OFF usa la posizione replay originale/interpolata. **Non è l'intera pipeline ESP32**: non viene emulato il QMI8658, `MotionHeadingFusion`, né l'effettiva ricezione BLE. Il confronto aiuta a riconoscere derive laterali dovute alla predizione, ma non prova la stabilizzazione dell'heading su hardware. Non dedurre un miglioramento in auto da un'immagine statica.
+
+**Fix 17/11/2026:** se il build Emscripten precedente falliva per `demo_fixture/jinan_big_data_demo.hpp` o `moto_nav_ui_set_demo_active`, aggiornare il branch test prima di ricompilare: le chiamate sono state rimosse e l'esempio non usa più dati Jinan. I workflow GitHub native/Android/ESP32 non garantiscono la compilazione WASM.
+
+
+## Diagnostica posizione / heading — 17 novembre 2026 (branch test)
+
+Il banco prova mostra coordinate dello **snapshot Android**, heading di ingresso a NavPresenter, origine mappa **effettivamente inviata** al renderer dal WASM e scarto tra le due coordinate in metri. Durante Play l'interpolazione JavaScript è segnalata; con Pausa/Frame si legge il valore dello snapshot registrato. Scarto non significa errore GPS. Heading non è bearing GNSS grezzo, fusione IMU QMI8658 né angolo finale post-filtro grafico. Con predittore OFF la differenza è normalmente 0 m; ON può divergere. Firmware, BLE, Android e Valhalla restano invariati.
+
+In WSL: `git pull --ff-only origin test/unified-offline-map-20261115`; `source ~/emsdk/emsdk_env.sh && ./scripts/build_web.sh`; avviare da root `python3 -m http.server 4174 --directory .`. In Chrome fare **Ctrl+Maiusc+R** con cache disabilitata. Le nuove funzioni C++ richiedono il rebuild WASM.
+
+
+## Layout compatto del banco prova — 17 novembre 2026 (branch test)
+
+Il display resta visibile a sinistra, a dimensione naturale quando la finestra lo permette. Sul desktop il pannello di destra scorre **indipendentemente** dall'ESP32, senza richiedere di ridurre lo zoom del browser. Restano in vista comandi, replay, velocità e letture fondamentali (heading, posizione e offset). «Diagnostica avanzata», «Eventi del giro», «Limiti» e note sono pannelli richiudibili. Su viewport strette si torna alla disposizione verticale. Per aggiornare basta `git pull --ff-only origin test/unified-offline-map-20261115` e ricaricare Chrome con **Ctrl+Maiusc+R**: **nessuna ricompilazione WASM** per questo cambio HTML/CSS. Prima prova: Chrome a 100% di zoom.
+
+
+## Grafici ed esportazione heading — 17 novembre 2026 (branch test)
+
+Il banco prova aggiunge un grafico **heading snapshot Android vs direzione del segmento più vicino della finestra rotta BLE**, un grafico **distanza dalla finestra di rotta e movimento tra fix distinti** e il pulsante **Esporta diagnostica CSV**. Il cursore verticale dei grafici segue il replay; facendo clic su un grafico si raggiunge il frame corrispondente. La differenza angolare usa il cammino breve (359°→0° non significa salto 359°). Le segnalazioni diagnostiche non modificano la navigazione e non dimostrano necessariamente un errore: sulla rotatoria, su rami sovrapposti o con finestra parziale, il segmento più vicino può essere sbagliato.
+
+Il codice condiviso `shared/nav_presenter/src/moto_nav_presenter.cpp` costruisce la trasformazione heading-up da `snapshot.heading_deg` direttamente. **Non viene inventata una terza fonte di heading finale**: il campo di ingresso è quello che guida la rotazione della geometria nel NavPresenter, mentre IMU, bearing GNSS grezzo e eventuale filtraggio precedente al replay restano fuori dal formato. Il CSV include tutti gli snapshot come registrati, indipendentemente dallo scorrimento, ma gli offset predittore ON e OFF **solo per gli snapshot realmente visualizzati** in quella modalità (celle vuote = non osservato). Il tracciato originale rimane sul PC. Cambi solo JS/HTML: basta `git pull` + refresh senza cache, nessun rebuild WASM.
+
+
+## CSV ad alta precisione e confronto predittore automatico (17/11/2026)
+
+L'export include coordinate `snapshot_lat/lon` a **7 decimali**; le misure angolari e metriche rimangono a 2. Su ogni replay caricato il browser invoca `MapOriginPredictor` C++ **in un'istanza separata**, elaborando tutti gli snapshot registrati, con tempi e finestre geometriche originali; il CSV ha OFF=0 e ON=scarto calcolato per tutte le righe con rotta. Celle vuote se rotta mancante o WASM assente. Nessuna necessità di riprodurre tutta la traccia per riempire le colonne. Non sono emulati tempi BLE, fusione IMU o interpolazione in RAF. Necessario **ricompilare WASM** (`source ~/emsdk/emsdk_env.sh && ./scripts/build_web.sh`) dopo il pull e ricaricare Chrome senza cache. Non servono nuove registrazioni GPS.
+
+
+## Telemetria età geometria e componenti vettoriali (17 novembre 2026, branch test)
+
+L'export CSV del banco prova include ora tre ulteriori colonne:
+- `geometry_age_since_distinct_route_ms`: tempo trascorso dal cambio dell'ultima finestra **distinta** di geometria letta dal replay. Il parser unifica eventuali pacchetti ripetuti identici: **non è l'età dell'ultimo pacchetto BLE ricevuto, né il cronometro interno del predittore**. Vale 0 al primo snapshot che vede la nuova geometria; può essere indefinito senza rotta.
+- `predicted_along_heading_m`: proiezione dello scarto ON rispetto alla posizione snapshot nella direzione dell'heading: positivo in avanti, negativo indietro.
+- `predicted_lateral_heading_m`: proiezione sul lato destro della direzione: positivo destra, negativo sinistra.
+
+Le proiezioni utilizzano esattamente la differenza coordinate prodotta dal predictor C++ **di analisi**, nello stesso snapshot del CSV. Non sono coordinate laterali rispetto alla geometria della strada né misure d'errore GNSS. Nella diagnostica sotto i grafici compaiono anche i tre numeri del frame corrente. Per il nuovo codice C++ ricompilare WASM in WSL (`git pull --ff-only origin test/unified-offline-map-20261115`, `source ~/emsdk/emsdk_env.sh`, `./scripts/build_web.sh`), poi ricaricare Chrome senza cache e riesportare il CSV del replay già disponibile.
+
+
+## Confronto heading originale / bloccato / stabilizzato — 17 novembre 2026
+
+Nel simulatore selezionare **Heading del replay**:
+- **Originale:** heading registrato senza cambiamenti, baseline (impostazione predefinita).
+- **Bloccato:** memorizza l'heading dello snapshot attivo quando si sceglie la modalità, e lo mantiene costante mentre la riproduzione avanza; serve solo a isolare se il movimento della mappa è una rotazione. Non adatto alla navigazione in curva.
+- **Stabilizzato:** filtro JavaScript sperimentale, precalcolato su timestamp di tutti gli snapshot, con interpolazione angolare circolare. Su rettilineo applica costante temporale 1,1 s e deadband di 0,7°, nelle rotatorie o variazioni rapide usa 0,12 s senza deadband; reinizializza dopo buchi >3 s, cambi di identità della rotta e fine navigazione. È un esperimento sul replay, **non il filtro IMU QMI8658 del firmware**.
+
+La modalità agisce esclusivamente sull'heading passato al `NavPresenter` e alla preview 2D, mantenendo intatto il tracciato e il CSV diagnostico originale. La telemetria distingue heading snapshot e applicato. La modalità bloccata va scelta mentre si è già sul rettilineo da analizzare. Se il problema persiste con heading bloccato, cercare movimento della geometria/posizione anziché una pura rotazione. Non modificati firmware, BLE, Android, Valhalla, predittore C++ e Douglas–Peucker.
+
+**Aggiornamento:** `git pull --ff-only origin test/unified-offline-map-20261115` e **Ctrl+Maiusc+R** in Chrome. Le modifiche sono JavaScript/HTML: **nessuna ricompilazione WASM**.
+
+
+## Analisi di heading incoerente e confronto con direzione GPS — 17/11/2026
+
+Nel replay del 17/11 ci sono 75 snapshot con velocità >= 8 m/s e heading-rate >15°/s; **non sono tutti falsi**: i rettilinei e le curve vanno classificati con traiettoria e manovra, non con il rate da solo. La vecchia modalità "Stabilizzato" selezionava il filtro rapido (tau 0,12 s) quando il solo heading variava >4°/s, **anche se la moto viaggiava dritta**. Eliminata tale scorciatoia: ora la modalità utilizza filtro rapido solo nelle manovre esplicitamente segnalate come rotonda/inversione.
+
+Aggiunta modalità **GPS verificato (rettilinei, sperimentale)**: confronta vettori di spostamento tra fix *distinti* di almeno 6 m, entro 3 s, controlla plausibilità della velocità, rileva rettilineo con due vettori successivi allineati entro 9°; limita l'influenza di variazioni isolate del bearing registrato mentre non cambia la posizione. Con cambi di traiettoria >=9° lascia recuperare rapidamente l'heading. Serve a distinguere rumore di heading da curve reali: non è map matching né stima di yaw IMU, non è garantito quando GPS saltella, a velocità basse o in tratti senza fix distinti. Regola solo il rendering del simulatore, **non Android/ESP32/BLE**. Dopo `git pull` basta ricaricare il browser senza cache; nessun rebuild WASM.
+
+### Prova suggerita
+Sul medesimo segmento del replay, confrontare `Originale`, `Bloccato`, `Stabilizzato`, `GPS verificato`. Annotare se in `GPS verificato` spariscono rotazioni anomale ma la mappa segue ancora rotonde e tornanti. Il CSV originale resta intatto.
+
+
+## Fix bridge LVGL opzionale e esportazioni WASM — 17 novembre 2026
+
+Il loader del simulatore inizializzava `batch_reset`, `batch_route`, `batch_sample`, `batch_along_m`, `batch_lateral_m`, `origin_lat` e `origin_lon` come se fossero tutte funzioni obbligatorie, ma erano **assenti dall'elenco `EXPORTED_FUNCTIONS` di CMake Emscripten**. Questo provoca il ritorno alla preview 2D quando il binding fallisce, anche se il vero renderer è presente.
+
+Correzione: tutte le funzioni sono ora esportate nella build WASM; inoltre il player tratta i getter e la diagnostica batch come **opzionali**, così un vecchio WASM può ancora fornire LVGL senza abbattere l'intero simulatore. Se manca la diagnostica, il CSV lascia vuoti gli scarti ON e la UI lo segnala. Occorre `git pull`, `source ~/emsdk/emsdk_env.sh`, `./scripts/build_web.sh`, poi aggiornare Chrome con Ctrl+Maiusc+R. Per verificare l'export lanciare `grep -o '_moto_web_replay_batch_sample' platforms/web/shell/runtime/moto-gps-device.js | head`. È una verifica delle stringhe del runtime, non del rendering.
+
+
+## Correzione semantica «prossima rotonda ≠ strada attuale» — 17 novembre 2026
+
+Il replay `motogps-replay(20261117-072914).jsonl` ha 4.894 snapshot; **4.364** riportano `maneuver: roundabout`. In **874** casi la distanza alla prossima rotonda è **maggiore di 1 km** (fino a 4.736 m). Questo è il tipo della **prossima manovra**, non una classificazione dell'andamento della strada attuale.
+
+**Difetto identificato:** la modalità Stabilizzato trattava tutte quelle istanze come «sto percorrendo una rotonda» applicando tau di 0,12 s e nessuna zona morta; la modalità GPS verificato impediva per tutte quelle istanze la classificazione rettilineo anche quando due vettori GPS successivi erano allineati. Ciò spiega la scarsa differenza percepita rispetto a Originale.
+
+**Correzione JS-only:** Stabilizzato usa la risposta rapida da rotonda/inversione solo quando `turn_m` è valido e non superiore a 35 m (soglia diagnostica, non modifica della navigazione). GPS verificato classifica il rettilineo dalla traiettoria GPS indipendentemente dalla manovra futura. Aggiunti test con rotonda lontana e vicino all'uscita. Restano limiti del GPS reale e della direzione fra fix: non è una soluzione verificata in auto, né replica la fusione IMU ESP32.
+
+**Comandi:** aggiornare il branch `test/unified-offline-map-20261115` e usare **Ctrl+Maiusc+R** nel simulatore già attivo con WASM. **Non occorre ricompilare Emscripten** per questa patch JavaScript, se LVGL era già attivo.
+
+
+## Esperimento Course multifix: bassa velocità e distanza percorsa (17/11/2026)
+
+Nuova modalità Course multifix nel selettore heading del simulatore. La bassa velocità non aumenta necessariamente la frequenza dei fix: riduce la loro distanza spaziale, peggiorando la direzione calcolabile tra coordinate affette da rumore. Il prototipo JS usa fino a 6 secondi e minimo 4 posizioni distinte, con avanzamento stimato >=16 m, netto >=14 m e RMS laterale <=4,5 m. Se insufficienti, mantiene l'heading invece di accettare un salto singolo; le curve richiedono variazioni coerenti tra spostamenti GPS consecutivi. Differisce dalla vecchia modalità GPS verificato: non richiede accordo di 22 gradi con il bearing raw quando la traiettoria multifix è affidabile. Solo simulatore, nessun Android/ESP32/IMU/BLE modificato. A 10-20 km/h può ritardare o perdere vere svolte; non è una modifica pronta per strada. Aggiornare git e Ctrl+Maiusc+R: nessun rebuild WASM richiesto.

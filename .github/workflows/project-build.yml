@@ -9,7 +9,7 @@ on:
       - '**.md'
       - 'docs/**'
       - '.gitignore'
-      - 'LICENSE'
+      - 'LICENSE.md'
   pull_request:
     branches:
       - valhalla
@@ -17,7 +17,7 @@ on:
       - '**.md'
       - 'docs/**'
       - '.gitignore'
-      - 'LICENSE'
+      - 'LICENSE.md'
   workflow_dispatch:
     inputs:
       build_native:
@@ -75,9 +75,8 @@ jobs:
               - 'include/**'
               - 'tests/native/**'
               - 'platforms/web/**'
-              - 'scripts/generate_jinan_demo_fixture.mjs'
-              - 'scripts/fixture_coordinates.mjs'
               - 'scripts/offline_map/**'
+              - 'scripts/diagnostics/**'
               - 'third_party/**'
             android:
               - 'platforms/android/**'
@@ -86,11 +85,9 @@ jobs:
               # so a lone negative pattern also matches unrelated files.
               - 'shared/ble_protocol/**'
               - 'shared/coordinates/**'
-              - 'shared/demo_fixture/**'
               - 'shared/nav_app/**'
               - 'shared/nav_core/**'
               - 'shared/nav_presenter/**'
-              - 'shared/offline_map/**'
               - 'shared/port_api/**'
               - 'shared/protocol/**'
               - 'core/**'
@@ -134,10 +131,14 @@ jobs:
           node --check platforms/web/simulator/trace_model.js
           node --check platforms/web/simulator/fallback_map.js
           node --check platforms/web/simulator/ring_alignment.js
-          node --test platforms/web/simulator/trace_model.test.cjs platforms/web/simulator/fallback_map.test.cjs platforms/web/simulator/ring_alignment.test.cjs
+          node --check platforms/web/simulator/heading_diagnostics.js
+          node --check platforms/web/simulator/heading_stability.js
+          node --test platforms/web/simulator/trace_model.test.cjs platforms/web/simulator/fallback_map.test.cjs platforms/web/simulator/ring_alignment.test.cjs platforms/web/simulator/heading_stability.test.cjs platforms/web/simulator/wasm_exports.test.cjs
 
-      - name: Verify public demo map fixture
-        run: node scripts/generate_jinan_demo_fixture.mjs --check
+      - name: Validate replay diagnostic scripts and deterministic offline analyzer
+        run: |
+          bash -n scripts/diagnostics/prepare_20261115_replay_ab.sh
+          python3 -m unittest discover -s scripts/diagnostics -p 'test_*.py'
 
       - name: Verify MotoMap v3 converter contract
         run: python3 -m unittest discover -s scripts/offline_map -p 'test_motomap_v4.py'
@@ -148,8 +149,10 @@ jobs:
       - name: Verify unified Moto Chat GPS offline bundle
         run: python3 -m unittest discover -s scripts/offline_map -p 'test_motopack.py'
 
-      - name: Smoke-test WSL unified map builder CLI
-        run: python3 -m unittest discover -s scripts/offline_map -p 'test_build_motopack_wsl.py'
+      - name: Smoke-test WSL unified map builder and safe replacement CLI
+        run: |
+          python3 -m unittest discover -s scripts/offline_map -p 'test_build_motopack_wsl.py'
+          python3 -m unittest discover -s scripts/offline_map -p 'test_rebuild_motopack_wsl.py'
 
       - name: Verify Valhalla V5 motorcycle-only filter script
         run: python3 -m unittest discover -s scripts/offline_map -p 'test_valhalla_moto_v5.py'
@@ -290,7 +293,8 @@ jobs:
             -DMOTO_ESP_CURVE_ZOOM_EXPERIMENT=ON
             -DMOTO_ESP_SUBPIXEL_EXPERIMENT=ON
             -DMOTO_ESP_MAP_DIRTY_TILES_EXPERIMENT=ON
-            -DMOTO_ESP_PERF_TELEMETRY_EXPERIMENT=ON build
+            -DMOTO_ESP_PERF_TELEMETRY_EXPERIMENT=ON
+            -DMOTO_ESP_TURN_ASSIST_EXPERIMENT=${{ (github.ref == 'refs/heads/valhalla' || github.ref == 'refs/heads/test/merge-gps-20261118' || github.head_ref == 'test/merge-gps-20261118') && 'ON' || 'OFF' }} build
 
       - name: Rename output binary
         run: |
@@ -298,6 +302,14 @@ jobs:
           if [ -f "platforms/esp32/build/moto_gps_esp32.bin" ]; then
             mv "platforms/esp32/build/moto_gps_esp32.bin" "platforms/esp32/build/moto-gps-waveshare.bin"
           fi
+
+      - name: Verify TURN ASSIST enabled in valhalla/test build
+        if: >-
+          ${{ github.ref == 'refs/heads/valhalla' || github.ref == 'refs/heads/test/merge-gps-20261118' || github.head_ref == 'test/merge-gps-20261118' }}
+        run: |
+          grep -Fxq 'MOTO_ESP_TURN_ASSIST_EXPERIMENT:BOOL=ON' platforms/esp32/build/CMakeCache.txt
+          test -s platforms/esp32/build/moto-gps-waveshare.bin
+          printf 'MOTO_ESP_TURN_ASSIST_EXPERIMENT=ON\nCommit: %s\nTurn Assist ON; verify branch/commit before flashing.\n' "$GITHUB_SHA" > platforms/esp32/build/TURN-ASSIST-ON.txt
 
       - name: Upload ESP32 artifacts
         if: >-
@@ -308,9 +320,10 @@ jobs:
           }}
         uses: actions/upload-artifact@v6
         with:
-          name: ${{ startsWith(github.ref, 'refs/heads/test/') && 'ESP32-Firmware-EXPERIMENTAL' || 'ESP32-Firmware' }}
+          name: ${{ (github.ref == 'refs/heads/test/merge-gps-20261118' || github.head_ref == 'test/merge-gps-20261118') && 'ESP32-Firmware-TURN-ASSIST-ON' || (startsWith(github.ref, 'refs/heads/test/') && 'ESP32-Firmware-EXPERIMENTAL' || 'ESP32-Firmware') }}
           path: |
             platforms/esp32/build/bootloader/bootloader.bin
             platforms/esp32/build/partition_table/partition-table.bin
             platforms/esp32/build/moto-gps-waveshare.bin
+            platforms/esp32/build/TURN-ASSIST-ON.txt
           retention-days: 3

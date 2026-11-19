@@ -667,6 +667,103 @@ void test_experimental_curve_zoom_does_not_change_default_or_roundabouts() {
   CHECK(presenter.applied_zoom_factor() == 1.0);
 }
 
+
+
+void test_nov17_geometry_zoom_is_off_unless_explicitly_enabled() {
+  NavPresenter p;
+  NavSnapshot s;
+  s.state=NavState::Navigating;
+  s.route_id="replay1711";
+  s.route_generation=1;
+  s.has_route_view=true;
+  s.route_view_origin={44.4036699,7.8299015};
+  s.has_next_maneuver=true;
+  s.next_maneuver.type=ManeuverType::Roundabout;
+  s.distance_to_next_maneuver_m=652.0;
+  // Raw 17:44:35 route vertices include a false bend on a straight road.
+  constexpr std::array<CurveZoomPoint,15> points{{
+    {44.403753,7.829907},{44.403377,7.829516},
+    {44.403329,7.829428},{44.403320,7.829348},
+    {44.403335,7.829270},{44.403309,7.829205},
+    {44.403259,7.829180},{44.403140,7.829232},
+    {44.403088,7.829213},{44.402928,7.829073},
+    {44.402137,7.828264},{44.400634,7.826783},
+    {44.400456,7.826649},{44.399951,7.826462},
+    {44.399723,7.826301}
+  }};
+  s.route_view_point_count=static_cast<std::uint8_t>(points.size());
+  for(std::size_t i=0;i<points.size();++i)
+    s.route_view_points[i]={points[i].latitude_deg,points[i].longitude_deg};
+  p.update(s);
+  CHECK(std::abs(p.applied_zoom_factor()-1.0)<0.001);
+  p.set_geometry_aware_zoom_enabled(true);
+  p.update(s);
+  CHECK(p.applied_zoom_factor()>1.1);
+  p.set_geometry_aware_zoom_enabled(false);
+  p.update(s);
+  CHECK(std::abs(p.applied_zoom_factor()-1.0)<0.001);
+  s.distance_to_next_maneuver_m=25.0;
+  p.update(s);
+  CHECK(p.applied_zoom_factor()>3.0); // legacy roundabout zoom remains
+}
+
+void test_nov17_replay_zoom_uses_nearby_route_not_stale_maneuver() {
+  // Recorded Android->BLE route windows, 17 Nov 2026.
+  const auto zoom=[](const auto& pts,double lat,double lon,double turn_m){
+    NavPresenter p;
+    p.set_geometry_aware_zoom_enabled(true);
+    NavSnapshot s;
+    s.state=NavState::Navigating;
+    s.has_route_view=true;
+    s.route_id="nov17";
+    s.route_generation=1;
+    s.route_view_origin={lat,lon};
+    s.route_view_point_count=static_cast<std::uint8_t>(pts.size());
+    for(std::size_t i=0;i<pts.size();++i)
+      s.route_view_points[i]={pts[i].latitude_deg,pts[i].longitude_deg};
+    s.has_next_maneuver=true;
+    s.next_maneuver.type=ManeuverType::Roundabout;
+    s.distance_to_next_maneuver_m=turn_m;
+    p.update(s);
+    return p.applied_zoom_factor();
+  };
+  const std::array<CurveZoomPoint,14> missing_174430{{
+    {44.403931,7.830093},{44.403377,7.829516},{44.403329,7.829428},
+    {44.403320,7.829348},{44.403335,7.829270},{44.403309,7.829205},
+    {44.403259,7.829180},{44.403140,7.829232},{44.403088,7.829213},
+    {44.402928,7.829073},{44.402137,7.828264},{44.400565,7.826724},
+    {44.400393,7.826621},{44.399920,7.826445}
+  }};
+  CHECK(zoom(missing_174430,44.403906,7.830140,734.0)>1.40);
+  const std::array<CurveZoomPoint,18> phantom_174520{{
+    {44.400858,7.826997},{44.400634,7.826783},{44.400456,7.826649},
+    {44.399992,7.826481},{44.399753,7.826326},{44.398557,7.825238},
+    {44.398454,7.825071},{44.398410,7.824947},{44.398432,7.824800},
+    {44.398403,7.824708},{44.398351,7.824649},{44.398263,7.824631},
+    {44.398208,7.824660},{44.398166,7.824716},{44.398143,7.824792},
+    {44.397999,7.824814},{44.397565,7.824611},{44.397404,7.824568}
+  }};
+  CHECK(zoom(phantom_174520,44.400842,7.827027,12.0)<1.03);
+  const std::array<CurveZoomPoint,18> phantom_174540{{
+    {44.399478,7.826080},{44.398557,7.825238},{44.398454,7.825071},
+    {44.398410,7.824947},{44.398434,7.824851},{44.398422,7.824751},
+    {44.398378,7.824672},{44.398322,7.824634},{44.398263,7.824631},
+    {44.398208,7.824660},{44.398166,7.824716},{44.398143,7.824792},
+    {44.397999,7.824814},{44.397565,7.824611},{44.397404,7.824568},
+    {44.396563,7.824618},{44.396246,7.824575},{44.396055,7.824521}
+  }};
+  CHECK(zoom(phantom_174540,44.399523,7.825985,74.0)<1.03);
+  const std::array<CurveZoomPoint,18> missing_174600{{
+    {44.398433,7.824859},{44.398403,7.824708},{44.398322,7.824634},
+    {44.398263,7.824631},{44.398208,7.824660},{44.398166,7.824716},
+    {44.398143,7.824792},{44.397999,7.824814},{44.397565,7.824611},
+    {44.397404,7.824568},{44.396563,7.824618},{44.396193,7.824564},
+    {44.395978,7.824491},{44.395633,7.824320},{44.395248,7.824056},
+    {44.395207,7.824010},{44.395183,7.823943},{44.395028,7.823880}
+  }};
+  CHECK(zoom(missing_174600,44.398560,7.824899,508.0)>2.0);
+}
+
 void test_missing_or_incomplete_geometry_stays_empty() {
   NavPresenter presenter;
   NavSnapshot snapshot;
@@ -799,6 +896,8 @@ int main() {
   test_near_turn_zooms_route_and_roads_together_and_restores_scale();
   test_roundabout_dropout_holds_zoom_between_nearby_circuits();
   test_experimental_curve_zoom_does_not_change_default_or_roundabouts();
+  test_nov17_geometry_zoom_is_off_unless_explicitly_enabled();
+  test_nov17_replay_zoom_uses_nearby_route_not_stale_maneuver();
   test_missing_or_incomplete_geometry_stays_empty();
   test_presenter_owns_road_name_storage();
   test_street_arc_rejects_instructions_and_overlong_names();

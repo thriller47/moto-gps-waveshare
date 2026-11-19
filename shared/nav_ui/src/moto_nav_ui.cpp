@@ -193,10 +193,7 @@ struct Ui {
     void *music_callback_context = nullptr;
     moto_page_change_callback_t page_callback = nullptr;
     void *page_callback_context = nullptr;
-    moto_demo_change_callback_t demo_callback = nullptr;
-    void *demo_callback_context = nullptr;
     bool music_page_enabled = true;
-    bool demo_active = false;
     bool reduce_motion = false;
 
 } ui;
@@ -1379,9 +1376,6 @@ void transition_lifecycle(LifecycleVisual next) {
 }
 
 LifecycleVisual desired_lifecycle_visual() {
-    if(ui.demo_active) {
-        return LifecycleVisual::Hidden;
-    }
     if(ui.phone_connection == MOTO_UI_PHONE_OFFLINE) {
         return LifecycleVisual::PhoneOffline;
     }
@@ -1447,11 +1441,6 @@ void set_navigation_guidance_visible(bool visible) {
 void update_nav_status(const moto_ui_state_t *state) {
     const char *text = "";
     lv_color_t color = kQuiet;
-    if(ui.demo_active) {
-        lv_label_set_text(ui.nav_status, "DEMO RIDE");
-        lv_obj_set_style_text_color(ui.nav_status, kWhite, 0);
-        return;
-    }
     if(state->mode != MOTO_UI_ARRIVED && state->route_point_count < 2) {
         // Empty navigation states are rendered by the full lifecycle surface,
         // never by a tiny diagnostic caption floating in a black screen.
@@ -1478,8 +1467,7 @@ void update_navigation(const moto_ui_state_t *state) {
 
     // Never suggest "go straight for 0 m" while there is no route. Waiting is
     // a connection state, not actionable navigation guidance.
-    const bool has_guidance = ui.demo_active ||
-                              state->mode == MOTO_UI_ARRIVED ||
+    const bool has_guidance = state->mode == MOTO_UI_ARRIVED ||
                               state->route_point_count >= 2 ||
                               has_live_road_map(state);
     ui.navigation_has_guidance = has_guidance;
@@ -1659,7 +1647,7 @@ void create_navigation_page() {
     lv_obj_t *page = ui.pages[MOTO_UI_PAGE_NAVIGATION];
     ui.nav_map = make_layer(page);
     // The map is the topmost hit target across most of the navigation page.
-    // Forward swipe gestures to the page/screen. Local demo activation is not
+    // Forward swipe gestures to the page/screen. Local demo mode has been removed;
     // bound to a long press: a glove, mount or palm must never replace active
     // phone guidance with the built-in fixture while riding.
     lv_obj_add_flag(ui.nav_map, LV_OBJ_FLAG_EVENT_BUBBLE);
@@ -2339,18 +2327,6 @@ extern "C" void moto_nav_ui_set_music_command_callback(
     ui.music_callback = callback;
     ui.music_callback_context = context;
 }
-
-extern "C" void moto_nav_ui_set_demo_active(uint8_t enabled) {
-    ui.demo_active = enabled != 0;
-    refresh_lifecycle();
-}
-
-extern "C" void moto_nav_ui_set_demo_change_callback(
-    moto_demo_change_callback_t callback, void *context) {
-    ui.demo_callback = callback;
-    ui.demo_callback_context = context;
-}
-
 
 extern "C" void moto_nav_ui_take_perf_stats(moto_nav_ui_perf_stats_t *out) {
     if(out == nullptr) return;

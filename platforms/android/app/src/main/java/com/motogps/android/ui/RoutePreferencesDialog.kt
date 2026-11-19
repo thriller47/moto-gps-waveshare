@@ -48,7 +48,8 @@ fun RoutePreferencesDialog(
                     RouteStyle.FASTEST to "Rapido",
                     RouteStyle.SHORTEST to "Breve",
                     RouteStyle.SECONDARY to "Secondarie",
-                    RouteStyle.TOURING to "Touring moto"
+                    RouteStyle.TOURING to "Touring moto",
+                    RouteStyle.PANORAMIC to "Panoramico"
                 ).forEach { (style, name) ->
                     FilterChip(
                         selected = preferences.style == style,
@@ -79,6 +80,15 @@ fun RoutePreferencesDialog(
                 )
                 Text(
                     "Valuta fino a due alternative con più curve, senza deviazioni eccessive. Non misura i panorami.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            if (preferences.style == RouteStyle.PANORAMIC) {
+                Text(
+                    "Favorisce strade secondarie e alternative con curve moderate. " +
+                        "Non misura i panorami reali; con tappe Valhalla mantiene " +
+                        "il profilo stradale ma non propone alternative.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

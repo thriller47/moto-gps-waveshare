@@ -20,48 +20,108 @@ class MotionHeadingFusion {
     stationary_ = false;
     heading_deg_ = 0.0F;
     filtered_rate_dps_ = 0.0F;
+    heading_var_deg2_ = kInitialHeadingVarDeg2;
     last_sample_ms_ = 0;
+    large_error_count_ = 0;
+    pending_large_course_deg_ = 0.0F;
+    pending_large_course_ms_ = 0;
+    // Preserve learned gyro bias across a BLE reconnect.
   }
 
-  void anchor(float phone_heading_deg, float speed_mps,
-              bool usable_fix) noexcept {
-    if (!usable_fix || !std::isfinite(phone_heading_deg)) {
-      return;
-    }
-    // Hysteresis on the phone-reported speed decides whether the bike is
-    // parked.  While parked, gyro integration is frozen: the QMI8658 zero
-    // offset (a few dps before calibration, worsened by engine vibration)
-    // otherwise leaks through the deadband and spins the heading in circles.
+  // course_accuracy_deg is optional until the BLE payload negotiates an
+  // angular-accuracy extension. Without it, confidence depends on speed.
+  void anchor(float phone_heading_deg, float speed_mps, bool usable_fix,
+              float course_accuracy_deg = NAN,
+              std::uint64_t now_ms = 0) noexcept {
+    if (!usable_fix || !std::isfinite(phone_heading_deg)) return;
+
+    // Starting to move releases the gyro before GNSS course is trustworthy.
+    // Coming to a stop resets moving-course lock so restarting at an
+    // intersection or roundabout aligns promptly on the first moving fix.
     if (std::isfinite(speed_mps)) {
-      if (speed_mps >= kCourseAnchorSpeedMps) {
+      if (speed_mps >= kStationaryReleaseSpeedMps) {
         stationary_ = false;
       } else if (speed_mps < kStationarySpeedMps) {
         stationary_ = true;
+        has_moving_course_ = false;
+        large_error_count_ = 0;
+        pending_large_course_ms_ = 0;
       }
     }
     const float phone = normalize(phone_heading_deg);
     const bool moving_course =
         std::isfinite(speed_mps) && speed_mps >= kCourseAnchorSpeedMps;
-    // Gyro integration may start seconds before BLE supplies the first fix.
-    // Its local zero must never be mistaken for an absolute phone reference.
-    // Likewise, the first course after pulling away replaces a stationary
-    // placeholder immediately, so an east/west route is not drawn behind us.
-    if (!has_phone_reference_ || (moving_course && !has_moving_course_)) {
-      heading_deg_ = phone;
+    if (!has_phone_reference_ && !moving_course) {
+      heading_deg_ = phone;  // stationary reference, not moving-course trust
       initialized_ = true;
       has_phone_reference_ = true;
-      has_moving_course_ = moving_course;
+      heading_var_deg2_ = kInitialHeadingVarDeg2;
+      return;
+    }
+    if (!moving_course) {
+      large_error_count_ = 0;
+      pending_large_course_ms_ = 0;
       return;
     }
 
-    // A course is trustworthy only once the receiver is actually moving.
-    // Correct drift progressively to avoid a visible snap during a bend.
-    if (moving_course) {
-      const float error = shortest_delta(phone, heading_deg_);
-      // Align faster during initial pull-away without snapping every
-      // subsequent slightly noisy GNSS course.
-      const float correction = std::abs(error) > 80.0F ? 0.82F : 0.48F;
-      heading_deg_ = normalize(heading_deg_ + error * correction);
+    const float sigma = std::isfinite(course_accuracy_deg) &&
+                            course_accuracy_deg > 0.0F
+        ? course_accuracy_deg
+        : std::clamp(31.5F - (speed_mps - 1.5F) * 6.5F, 20.0F, 31.5F);
+    if (sigma > 60.0F) {
+      large_error_count_ = 0;
+      pending_large_course_ms_ = 0;
+      return;  // let the gyro continue without an unusable course
+    }
+    if (!has_phone_reference_ || !has_moving_course_) {
+      if (sigma > 30.0F) return;  // no first snap from noisy startup
+      heading_deg_ = phone;
+      initialized_ = true;
+      has_phone_reference_ = true;
+      has_moving_course_ = true;
+      heading_var_deg2_ = 100.0F;
+      large_error_count_ = 0;
+      pending_large_course_ms_ = 0;
+      return;
+    }
+
+    // Only block extreme angular rates (> 90.0 dps) during active maneuvers.
+    if (std::abs(filtered_rate_dps_) > 90.0F) return;
+
+    const float error = shortest_delta(phone, heading_deg_);
+
+    // Adaptive outlier gate: require confirmation only when heading uncertainty
+    // is low (stable straight line: heading_var_deg2_ < 144.0F). During curves or
+    // roundabouts (heading_var_deg2_ >= 144.0F), accumulated gyro uncertainty allows
+    // the GPS anchor to correct the heading immediately without delays.
+    if (heading_var_deg2_ < 144.0F && std::abs(error) > 35.0F && sigma > 12.0F) {
+      const bool expired = now_ms != 0U && pending_large_course_ms_ != 0U &&
+          (now_ms < pending_large_course_ms_ ||
+           now_ms - pending_large_course_ms_ > kLargeErrorConfirmationTimeoutMs);
+      if (large_error_count_ == 0 || expired ||
+          std::abs(shortest_delta(phone, pending_large_course_deg_)) > 25.0F) {
+        large_error_count_ = 1;
+        pending_large_course_deg_ = phone;
+        pending_large_course_ms_ = now_ms;
+        return;
+      }
+      large_error_count_ = 2;
+      pending_large_course_ms_ = 0;
+    } else {
+      large_error_count_ = 0;
+      pending_large_course_ms_ = 0;
+    }
+
+    // 2-state adaptive Kalman gain:
+    const float gain = std::clamp(
+        heading_var_deg2_ / (heading_var_deg2_ + sigma * sigma),
+        0.08F, 0.65F);
+    heading_deg_ = normalize(heading_deg_ + error * gain);
+    heading_var_deg2_ *= (1.0F - gain);
+
+    if (std::abs(filtered_rate_dps_) < 3.0F) {
+      bias_dps_ -= error * 0.002F;
+      bias_dps_ = std::clamp(bias_dps_, -10.0F, 10.0F);
     }
   }
 
@@ -72,8 +132,15 @@ class MotionHeadingFusion {
       return false;
     }
     if (stationary_) {
-      // Parked: hold the heading exactly. Keep last_sample_ms_ untouched so
-      // the first sample after pulling away only sees a normal-rate gap.
+      // Learn zero-rate gyro bias only from small stationary readings. Keep
+      // the timestamp fresh so resuming does not rely on a huge-gap guard.
+      if (sample_ms > last_sample_ms_) {
+        last_sample_ms_ = sample_ms;
+        if (std::abs(yaw_rate_dps) < 3.0F) {
+          bias_dps_ += (yaw_rate_dps - bias_dps_) * 0.002F;
+        }
+      }
+      filtered_rate_dps_ = 0.0F;
       return false;
     }
     if (!initialized_) {
@@ -81,6 +148,7 @@ class MotionHeadingFusion {
       // zero degrees is explicitly just a temporary local reference.
       initialized_ = true;
       heading_deg_ = 0.0F;
+      heading_var_deg2_ = kInitialHeadingVarDeg2;
     }
     if (last_sample_ms_ == 0) {
       last_sample_ms_ = sample_ms;
@@ -97,29 +165,40 @@ class MotionHeadingFusion {
       return false;
     }
 
-    const float bounded = std::clamp(yaw_rate_dps, -500.0F, 500.0F);
-    // About 30 ms of smoothing at the 125 Hz sensor rate: vibration is
+    const float dt_s = static_cast<float>(elapsed_ms) / 1'000.0F;
+    const float bounded =
+        std::clamp(yaw_rate_dps - bias_dps_, -500.0F, 500.0F);
+    // About 20 ms of smoothing at the 125 Hz sensor rate: vibration is
     // suppressed without the sluggish response of phone-only course updates.
-    filtered_rate_dps_ += (bounded - filtered_rate_dps_) * 0.24F;
+    filtered_rate_dps_ += (bounded - filtered_rate_dps_) * 0.15F;
     const float active_rate = std::abs(filtered_rate_dps_) < kDeadbandDps
                                   ? 0.0F
                                   : filtered_rate_dps_;
+
+    // Propagate angular variance:
+    const float rate_noise = 0.08F * std::abs(active_rate) * dt_s;
+    heading_var_deg2_ += (rate_noise * rate_noise) + 0.5F * dt_s;
+
     if (active_rate == 0.0F) {
       return false;
     }
     heading_deg_ = normalize(
-        heading_deg_ + active_rate * static_cast<float>(elapsed_ms) / 1'000.0F);
+        heading_deg_ + active_rate * dt_s);
     return true;
   }
 
   [[nodiscard]] bool initialized() const noexcept { return initialized_; }
   [[nodiscard]] float heading_deg() const noexcept { return heading_deg_; }
+  [[nodiscard]] float heading_var_deg2() const noexcept { return heading_var_deg2_; }
 
  private:
-  static constexpr float kCourseAnchorSpeedMps = 1.5F;
+  static constexpr float kCourseAnchorSpeedMps = 2.0F;
   static constexpr float kStationarySpeedMps = 0.6F;
-  static constexpr float kDeadbandDps = 0.65F;
+  static constexpr float kStationaryReleaseSpeedMps = 1.5F;
+  static constexpr float kDeadbandDps = 1.1F;
+  static constexpr float kInitialHeadingVarDeg2 = 196.0F;
   static constexpr std::uint64_t kMaximumIntegrationGapMs = 160;
+  static constexpr std::uint64_t kLargeErrorConfirmationTimeoutMs = 2'500;
 
   static float normalize(float value) noexcept {
     float result = std::fmod(value, 360.0F);
@@ -140,5 +219,10 @@ class MotionHeadingFusion {
   bool stationary_ = false;
   float heading_deg_ = 0.0F;
   float filtered_rate_dps_ = 0.0F;
+  float heading_var_deg2_ = kInitialHeadingVarDeg2;
   std::uint64_t last_sample_ms_ = 0;
+  float bias_dps_ = 0.0F;
+  float pending_large_course_deg_ = 0.0F;
+  std::uint64_t pending_large_course_ms_ = 0;
+  std::uint8_t large_error_count_ = 0;
 };

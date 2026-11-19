@@ -22,6 +22,9 @@ class NavPresenter {
   void update(const NavSnapshot& snapshot);
   // Simulator-only A/B experiment; default OFF on every target (including ESP32).
   void set_experimental_curve_zoom_enabled(bool enabled) noexcept;
+  void set_geometry_aware_zoom_enabled(bool enabled) noexcept {
+    geometry_aware_zoom_enabled_ = enabled;
+  }
   [[nodiscard]] double applied_zoom_factor() const noexcept;
   [[nodiscard]] const moto_ui_state_t& ui_state() const;
 
@@ -34,6 +37,7 @@ class NavPresenter {
   std::string next_road_name_;
   moto_ui_state_t ui_state_{};
   bool experimental_curve_zoom_enabled_ = false;
+  bool geometry_aware_zoom_enabled_ = false;
   double applied_zoom_factor_ = 1.0;
   // Simulator-only spatial hysteresis. Distance, not snapshot count, prevents
   // an irregular GPS cadence from releasing a hairpin in its middle.

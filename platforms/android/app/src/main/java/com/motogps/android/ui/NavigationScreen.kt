@@ -31,6 +31,11 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.viewinterop.AndroidView
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.drawable.BitmapDrawable
 import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
 import com.motogps.android.R
@@ -38,6 +43,8 @@ import androidx.core.content.ContextCompat
 import com.motogps.android.map.SavedMapInfo
 import com.motogps.android.routing.RoutePreferences
 import com.motogps.android.viewmodel.PlaceSearchResult
+import com.motogps.android.viewmodel.SavedCircularTour
+import com.motogps.android.viewmodel.TourSession
 import com.motogps.android.viewmodel.RouteOption
 import org.json.JSONArray
 import org.osmdroid.config.Configuration
@@ -49,6 +56,31 @@ import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.MapEventsOverlay
 import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polyline
+
+// Keep action icons within the configured material-icons-core set (Check/Place).
+// Numbered stop markers are drawn separately from the route geometry.
+// They do not affect Valhalla waypoints or the ESP32 BLE payload.
+private fun waypointMarkerIcon(map: MapView, number: Int): BitmapDrawable {
+    val diameter = 58
+    val bitmap = Bitmap.createBitmap(diameter, diameter, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.rgb(24, 102, 73)
+        style = Paint.Style.FILL
+    }
+    canvas.drawCircle(29f, 29f, 24f, paint)
+    paint.color = Color.WHITE
+    paint.style = Paint.Style.STROKE
+    paint.strokeWidth = 3f
+    canvas.drawCircle(29f, 29f, 24f, paint)
+    paint.style = Paint.Style.FILL
+    paint.textAlign = Paint.Align.CENTER
+    paint.typeface = android.graphics.Typeface.create(
+        android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+    paint.textSize = 26f
+    canvas.drawText(number.toString(), 29f, 38f, paint)
+    return BitmapDrawable(map.resources, bitmap)
+}
 
 // Recolor only the osmdroid base tiles (day/night toggle): overlays, route lines and markers stay
 // untouched. The same cached MAPNIK tiles are reused in both modes.
@@ -88,6 +120,7 @@ private fun MotoChatAppBarTitle() {
 @Composable
 fun RouteMapView(
     geoPoints: List<GeoPoint>,
+    routeFitKey: String,
     nightMode: Boolean = true,
     currentLocation: Pair<Double, Double>? = null,
     destinationLocation: Pair<Double, Double>? = null,
@@ -95,6 +128,10 @@ fun RouteMapView(
     onWaypointLongPress: ((Double, Double) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
+    // Route-fitting is deliberately one-shot per route ID, not per recomposition.\n    // The AndroidView.update callback runs on unrelated Compose changes (GPS,
+    // dialog state, theme). Fit the whole route only when its identity changes.
+    // A plain remembered cell avoids recomposition just to record the fitted key.
+    val lastFitKey = remember { arrayOfNulls<String>(1) }
     AndroidView(
         factory = { context ->
             Configuration.getInstance().userAgentValue = context.packageName
@@ -141,7 +178,8 @@ fun RouteMapView(
                 mapView.overlays.add(Marker(mapView).apply {
                     position = via
                     title = "Tappa ${index + 1}: ${stop.name}"
-                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                    icon = waypointMarkerIcon(mapView, index + 1)
+                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
                 })
                 if (geoPoints.size < 2) viewPoints.add(via)
             }
@@ -156,12 +194,21 @@ fun RouteMapView(
                 })
                 if (geoPoints.size < 2) viewPoints.add(target)
             }
-            if (viewPoints.size >= 2) {
-                val bounds = BoundingBox.fromGeoPoints(viewPoints)
-                mapView.post { mapView.zoomToBoundingBox(bounds, true, 64) }
-            } else if (viewPoints.size == 1) {
-                mapView.controller.setCenter(viewPoints.first())
-                mapView.controller.setZoom(15.0)
+            if (lastFitKey[0] != routeFitKey) {
+                lastFitKey[0] = routeFitKey
+                if (viewPoints.size >= 2) {
+                    val bounds = BoundingBox.fromGeoPoints(viewPoints)
+                    mapView.post {
+                        // If a newer preview replaced this one before the UI
+                        // callback runs, never refit an obsolete route.
+                        if (lastFitKey[0] == routeFitKey) {
+                            mapView.zoomToBoundingBox(bounds, true, 64)
+                        }
+                    }
+                } else if (viewPoints.size == 1) {
+                    mapView.controller.setCenter(viewPoints.first())
+                    mapView.controller.setZoom(15.0)
+                }
             }
             mapView.invalidate()
         },
@@ -393,9 +440,10 @@ fun OfflineMapsDialog(
     onCancelDownload: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
+    var showAdvancedImports by remember { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Gestione mappe") },
+        title = { Text("Mappe offline") },
         text = {
             Column(
                 modifier = Modifier.fillMaxWidth().heightIn(max = 560.dp)
@@ -412,27 +460,22 @@ fun OfflineMapsDialog(
                         modifier = Modifier.fillMaxWidth().padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Text("Mappe stradali", style = MaterialTheme.typography.titleMedium)
-                        Text(
-                            "Importa un pacchetto .motomap.zip preparato sul PC. Le strade saranno disponibili sul display ESP32.",
+                        Text("MotoPack Italia", style = MaterialTheme.typography.titleMedium)
+                        Text("Un unico file .motopack installa MotoMap, Valhalla e Photon.",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("MotoMap: " + if (savedMaps.isNotEmpty()) "installata" else "assente",
+                            style = MaterialTheme.typography.labelMedium)
+                        Text("Valhalla: " + if (valhallaInstalledBytes > 0L) "installato" else "assente",
+                            style = MaterialTheme.typography.labelMedium)
+                        Text("Photon: " + if (photonInstalledBytes > 0L) "installato" else "assente",
+                            style = MaterialTheme.typography.labelMedium)
                         FilledTonalButton(
                             onClick = onImportUnifiedPack,
                             modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
                             enabled = !isDownloadingMap && !photonImporting && !valhallaImporting && !isNavigating
                         ) {
-                            Text("Importa pacchetto unico Moto Chat GPS")
-                        }
-                        FilledTonalButton(
-                            onClick = onImportOsmPack,
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
-                            enabled = !isDownloadingMap && !valhallaImporting && !isNavigating
-                        ) {
-                            Icon(Icons.Default.Place, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Importa mappa ZIP")
+                            Text("Importa MotoPack (.motopack)")
                         }
                         if (isDownloadingMap) {
                             MapDownloadProgressBox(
@@ -446,6 +489,19 @@ fun OfflineMapsDialog(
                     }
                 }
 
+                OutlinedButton(
+                    onClick = { showAdvancedImports = !showAdvancedImports },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(if (showAdvancedImports) "Nascondi opzioni avanzate"
+                        else "Opzioni avanzate · componenti separati")
+                }
+                if (showAdvancedImports) {
+                    OutlinedButton(onClick = onImportOsmPack,
+                        enabled = !isDownloadingMap && !valhallaImporting && !isNavigating,
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                        Text("Importa solo MotoMap ZIP")
+                    }
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(
                         modifier = Modifier.fillMaxWidth().padding(16.dp),
@@ -520,6 +576,7 @@ fun OfflineMapsDialog(
                         HorizontalDivider()
                     }
                 }
+                } // Advanced per-component controls
             }
         },
         confirmButton = {
@@ -533,6 +590,7 @@ fun OfflineMapsDialog(
 @Composable
 fun NavigationScreen(
     onSearch: (String) -> Unit,
+    onCircularTour: (Int, Int) -> Unit = { _, _ -> },
     onConnectRequest: () -> Unit,
     connectionState: String,
     isLoading: Boolean,
@@ -540,6 +598,20 @@ fun NavigationScreen(
     routePreview: PlaceSearchResult?,
     routeOptions: List<RouteOption>,
     routeWaypoints: List<PlaceSearchResult> = emptyList(),
+    pausedTour: TourSession? = null,
+    onPauseTour: () -> Unit = {},
+    nextWaypointToSkip: PlaceSearchResult? = null,
+    onSkipNextWaypoint: () -> Unit = {},
+    onPreviewResumeTour: () -> Unit = {},
+    onDiscardPausedTour: () -> Unit = {},
+    circularMandatoryStops: List<PlaceSearchResult> = emptyList(),
+    savedCircularTours: List<SavedCircularTour> = emptyList(),
+    onSaveCircularTour: (String) -> Unit = {},
+    onOpenSavedCircularTour: (SavedCircularTour, Boolean) -> Unit = { _, _ -> },
+    onDeleteSavedCircularTour: (String) -> Unit = {},
+    onAddCircularMandatoryStop: (PlaceSearchResult) -> Unit = {},
+    onRemoveCircularMandatoryStop: (Int) -> Unit = {},
+    onMoveCircularMandatoryStop: (Int, Int) -> Unit = { _, _ -> },
     waypointSearchResults: List<PlaceSearchResult> = emptyList(),
     waypointSearching: Boolean = false,
     waypointSearchError: String? = null,
@@ -584,11 +656,218 @@ fun NavigationScreen(
     onRefreshMaps: () -> Unit = {},
     onExportDiagnostics: () -> Unit = {},
     replayRecording: Boolean = false,
-    onReplayRecordingChange: (Boolean) -> Unit = {},
-    onExportReplay: () -> Unit = {},
     diagnosticMode: Int = 0,
-    onDiagnosticModeChange: (Int) -> Unit = {}
+    onUnifiedDiagnosticModeChange: (Int) -> Unit = {}
 ) {
+    var showCircularTourDialog by remember { mutableStateOf(false) }
+    var circularDistanceKm by remember { mutableFloatStateOf(100f) }
+    var circularOrientation by remember { mutableIntStateOf(0) }
+    var showSaveCircularDialog by remember { mutableStateOf(false) }
+    var savedTourName by remember { mutableStateOf("") }
+    var showSavedToursDialog by remember { mutableStateOf(false) }
+    if (showSaveCircularDialog) {
+        AlertDialog(
+            onDismissRequest = { showSaveCircularDialog = false },
+            title = { Text("Salva tour per un altro giorno") },
+            text = {
+                OutlinedTextField(
+                    value = savedTourName,
+                    onValueChange = { savedTourName = it.take(80) },
+                    singleLine = true,
+                    label = { Text("Nome del tour") }
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    onSaveCircularTour(savedTourName.trim())
+                    showSaveCircularDialog = false
+                }, enabled = savedTourName.isNotBlank()) { Text("Salva") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSaveCircularDialog = false }) {
+                    Text("Annulla")
+                }
+            }
+        )
+    }
+    if (showSavedToursDialog) {
+        AlertDialog(
+            onDismissRequest = { showSavedToursDialog = false },
+            title = { Text("I miei tour salvati") },
+            text = {
+                Column(
+                    modifier = Modifier.heightIn(max = 480.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (savedCircularTours.isEmpty()) {
+                        Text("Nessun tour salvato.")
+                    }
+                    savedCircularTours.forEach { tour ->
+                        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text(tour.title, style = MaterialTheme.typography.titleSmall)
+                            Text("${tour.desiredKm} km richiesti · " +
+                                "${tour.mandatory.size} luoghi obbligatori · " +
+                                "${tour.via.size} tappe",
+                                style = MaterialTheme.typography.bodySmall)
+                            Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                                TextButton(onClick = {
+                                    showSavedToursDialog = false
+                                    onOpenSavedCircularTour(tour, false)
+                                }) { Text("Partenza salvata") }
+                                TextButton(onClick = {
+                                    showSavedToursDialog = false
+                                    onOpenSavedCircularTour(tour, true)
+                                }, enabled = currentLocation != null) {
+                                    Text("Da qui")
+                                }
+                                IconButton(onClick = { onDeleteSavedCircularTour(tour.id) }) {
+                                    Icon(Icons.Default.Delete,
+                                        contentDescription = "Elimina ${tour.title}")
+                                }
+                            }
+                            HorizontalDivider()
+                        }
+                    }
+                    Text("La rotta viene ricalcolata da Valhalla all'apertura. " +
+                        "Partenza salvata mostra il progetto originale; " +
+                        "Da qui chiude il giro alla posizione GPS attuale.",
+                        style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showSavedToursDialog = false }) {
+                    Text("Chiudi")
+                }
+            }
+        )
+    }
+    var circularPoiQuery by remember { mutableStateOf("") }
+    if (showCircularTourDialog) {
+        AlertDialog(
+            onDismissRequest = { showCircularTourDialog = false },
+            title = { Text("Tour circolare con tappe") },
+            text = {
+                Column(
+                    modifier = Modifier.heightIn(max = 440.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("Partenza e arrivo dalla posizione GPS. " +
+                        "Le tappe scelte da te hanno sempre priorità.")
+                    Text("Distanza indicativa: ${circularDistanceKm.toInt()} km")
+                    Slider(
+                        value = circularDistanceKm,
+                        onValueChange = { circularDistanceKm = it },
+                        valueRange = 30f..300f, steps = 26
+                    )
+                    Text("Direzione prevalente")
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        listOf(0 to "N", 90 to "E", 180 to "S", 270 to "O")
+                            .forEach { (degrees, label) ->
+                                FilterChip(
+                                    selected = circularOrientation == degrees,
+                                    onClick = { circularOrientation = degrees },
+                                    label = { Text(label) }
+                                )
+                            }
+                    }
+                    Text("Luoghi da visitare (${circularMandatoryStops.size}/8)",
+                        style = MaterialTheme.typography.titleSmall)
+                    circularMandatoryStops.forEachIndexed { index, stop ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("${index + 1}. ${stop.name}",
+                                modifier = Modifier.weight(1f), maxLines = 2)
+                            IconButton(
+                                onClick = { onMoveCircularMandatoryStop(index, -1) },
+                                enabled = index > 0
+                            ) {
+                                Icon(Icons.Default.KeyboardArrowUp,
+                                    contentDescription = "Sposta tappa su")
+                            }
+                            IconButton(
+                                onClick = { onMoveCircularMandatoryStop(index, 1) },
+                                enabled = index < circularMandatoryStops.lastIndex
+                            ) {
+                                Icon(Icons.Default.KeyboardArrowDown,
+                                    contentDescription = "Sposta tappa giù")
+                            }
+                            IconButton(onClick = { onRemoveCircularMandatoryStop(index) }) {
+                                Icon(Icons.Default.Delete,
+                                    contentDescription = "Rimuovi tappa obbligatoria")
+                            }
+                        }
+                    }
+                    if (circularMandatoryStops.size < 8) {
+                        OutlinedTextField(
+                            value = circularPoiQuery,
+                            onValueChange = { circularPoiQuery = it },
+                            label = { Text("Cerca passo, lago, paese o coordinate") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            trailingIcon = {
+                                IconButton(
+                                    onClick = { onSearchWaypoint(circularPoiQuery) },
+                                    enabled = circularPoiQuery.isNotBlank()
+                                ) {
+                                    Icon(Icons.Default.Search, contentDescription = "Cerca luogo")
+                                }
+                            },
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                            keyboardActions = KeyboardActions(
+                                onSearch = { onSearchWaypoint(circularPoiQuery) })
+                        )
+                        if (waypointSearching) LinearProgressIndicator(
+                            modifier = Modifier.fillMaxWidth())
+                        if (waypointSearchError != null) Text(
+                            waypointSearchError,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                        waypointSearchResults.take(5).forEach { place ->
+                            ListItem(
+                                headlineContent = { Text(place.name) },
+                                supportingContent = {
+                                    Text(place.displayArea.ifBlank { place.address },
+                                        maxLines = 1)
+                                },
+                                leadingContent = {
+                                    Icon(Icons.Default.Add, contentDescription = null)
+                                },
+                                modifier = Modifier.clickable {
+                                    onAddCircularMandatoryStop(place)
+                                    circularPoiQuery = ""
+                                }
+                            )
+                        }
+                    }
+                    Text(
+                        "Seleziona i luoghi nell'ordine di visita. " +
+                            "Con una sola tappa si aggiunge un punto automatico; " +
+                            "con più tappe non vengono aggiunte deviazioni artificiali. " +
+                            "La lunghezza reale dipenderà da Valhalla.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showCircularTourDialog = false
+                    onCircularTour(circularDistanceKm.toInt(), circularOrientation)
+                }, enabled = !isNavigating && !isLoading) {
+                    Text("Calcola tour")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCircularTourDialog = false }) {
+                    Text("Annulla")
+                }
+            }
+        )
+    }
     var searchQuery by remember { mutableStateOf("") }
     var showOfflineDialog by remember { mutableStateOf(false) }
     var corridorConfirmation by remember { mutableStateOf<Int?>(null) }
@@ -626,6 +905,7 @@ fun NavigationScreen(
         )
     }
 
+    var showMoreMenu by remember { mutableStateOf(false) }
     var showDiagnosticsDialog by remember { mutableStateOf(false) }
     var showInfoDialog by remember { mutableStateOf(false) }
     var showRoutePreferencesDialog by remember { mutableStateOf(false) }
@@ -674,41 +954,76 @@ fun NavigationScreen(
     }
 
     if (showDiagnosticsDialog) {
+        var selectedDiagnosticLevel by remember { mutableIntStateOf(1) }
         AlertDialog(
             onDismissRequest = { showDiagnosticsDialog = false },
-            title = { Text("Diagnostica ESP32") },
+            title = { Text("Diagnostica completa") },
             text = {
                 Column(
                     modifier = Modifier.verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text("Diagnostica ESP32: OFF per l'uso normale, BASE per eventi critici, DEBUG per rendering e BLE. Solo PSRAM, disattivazione automatica dopo 60 minuti.")
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        for ((mode, label) in listOf(0 to "OFF", 1 to "BASE", 2 to "DEBUG")) {
-                            OutlinedButton(
-                                onClick = {
-                                    onDiagnosticModeChange(mode)
-                                    showDiagnosticsDialog = false
-                                },
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text((if (diagnosticMode == mode) "✓ " else "") + label, maxLines = 1)
+                    Text(
+                        "Una sessione registra insieme il GPS Android e gli eventi ESP32 " +
+                            "ricevuti via Bluetooth. Collega l'ESP32 prima di avviare.",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Text(
+                        when {
+                            replayRecording && diagnosticMode != 0 ->
+                                "Registrazione attiva: GPS + ESP32 (" +
+                                    (if (diagnosticMode == 2) "DEBUG" else "BASE") + ")"
+                            replayRecording -> "GPS attivo · ESP32 disconnesso o log non disponibile"
+                            else -> "Registrazione disattivata"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (!replayRecording) {
+                        Text("Dettaglio eventi ESP32", style = MaterialTheme.typography.labelLarge)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            for ((mode, label) in listOf(1 to "BASE", 2 to "DEBUG")) {
+                                OutlinedButton(
+                                    onClick = { selectedDiagnosticLevel = mode },
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text((if (selectedDiagnosticLevel == mode) "✓ " else "") + label)
+                                }
                             }
                         }
+                        Text(
+                            "Una nuova sessione sostituisce il precedente replay GPS non esportato.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
                     }
-                    Text("Registrazione GPS privata per simulatore: continua finché non la fermi, suddividendo automaticamente il tracciato in file ogni 30 minuti o circa 12 MB. Esporta un .jsonl singolo o uno ZIP con tutte le parti. La memoria del telefono deve essere sufficiente; il registratore è disattivato per impostazione predefinita.")
-                    OutlinedButton(onClick = { onReplayRecordingChange(!replayRecording) },
-                        modifier = Modifier.fillMaxWidth()) {
-                        Text(if (replayRecording) "■ Ferma registrazione GPS"
-                            else "● Avvia registrazione GPS")
+                    Button(
+                        onClick = {
+                            onUnifiedDiagnosticModeChange(
+                                if (replayRecording) 0 else selectedDiagnosticLevel
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
+                    ) {
+                        Text(if (replayRecording) "Ferma diagnostica completa"
+                            else "Avvia diagnostica completa")
                     }
-                    OutlinedButton(onClick = { onExportReplay() },
-                        modifier = Modifier.fillMaxWidth()) {
-                        Text("Esporta tracciato simulatore (.jsonl / ZIP)")
+                    OutlinedButton(
+                        onClick = {
+                            showDiagnosticsDialog = false
+                            onExportDiagnostics()
+                        },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                        enabled = replayRecording || diagnosticMode == 0
+                    ) {
+                        Text("Ferma ed esporta tutto (ZIP)")
                     }
+                    Text(
+                        "Lo ZIP contiene log Android, eventi ESP32 e tutte le parti GPS " +
+                            "JSONL, utilizzabili nel simulatore. Include coordinate e percorsi: " +
+                            "condividilo solo volontariamente.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             },
             confirmButton = {
@@ -769,17 +1084,21 @@ fun NavigationScreen(
                                 }
                             )
                         }
-                        IconButton(onClick = { showInfoDialog = true }) {
-                            Icon(Icons.Default.Info, contentDescription = "Informazioni e licenze")
-                        }
-                        TextButton(onClick = { showDiagnosticsDialog = true }) {
-                            Text("LOG")
-                        }
-                        IconButton(onClick = onExportDiagnostics) {
-                            Icon(Icons.Default.Share, contentDescription = "Esporta diagnostica")
-                        }
-                        TextButton(onClick = onBackToSearch) {
-                            Text("Cambia", color = MaterialTheme.colorScheme.onSurface)
+                        Box {
+                            IconButton(onClick = { showMoreMenu = true }) {
+                                Icon(Icons.Default.MoreVert, contentDescription = "Altre opzioni")
+                            }
+                            DropdownMenu(expanded = showMoreMenu,
+                                onDismissRequest = { showMoreMenu = false }) {
+                                DropdownMenuItem(text = { Text("Mappe offline") },
+                                    onClick = { showMoreMenu = false; showOfflineDialog = true })
+                                DropdownMenuItem(text = { Text("Diagnostica e replay GPS") },
+                                    onClick = { showMoreMenu = false; showDiagnosticsDialog = true })
+                                DropdownMenuItem(text = { Text("Esporta diagnostica") },
+                                    onClick = { showMoreMenu = false; onExportDiagnostics() })
+                                DropdownMenuItem(text = { Text("Informazioni e licenze") },
+                                    onClick = { showMoreMenu = false; showInfoDialog = true })
+                            }
                         }
                     }
                 )
@@ -801,14 +1120,21 @@ fun NavigationScreen(
                             )
                         }
 
-                        TextButton(onClick = { showDiagnosticsDialog = true }) {
-                            Text("LOG")
-                        }
-                        IconButton(onClick = onExportDiagnostics) {
-                            Icon(Icons.Default.Share, contentDescription = "Esporta diagnostica")
-                        }
-                        IconButton(onClick = { showOfflineDialog = true }) {
-                            Icon(Icons.Default.Place, contentDescription = "Gestione mappe")
+                        Box {
+                            IconButton(onClick = { showMoreMenu = true }) {
+                                Icon(Icons.Default.MoreVert, contentDescription = "Altre opzioni")
+                            }
+                            DropdownMenu(expanded = showMoreMenu,
+                                onDismissRequest = { showMoreMenu = false }) {
+                                DropdownMenuItem(text = { Text("Mappe offline") },
+                                    onClick = { showMoreMenu = false; showOfflineDialog = true })
+                                DropdownMenuItem(text = { Text("Diagnostica e replay GPS") },
+                                    onClick = { showMoreMenu = false; showDiagnosticsDialog = true })
+                                DropdownMenuItem(text = { Text("Esporta diagnostica") },
+                                    onClick = { showMoreMenu = false; onExportDiagnostics() })
+                                DropdownMenuItem(text = { Text("Informazioni e licenze") },
+                                    onClick = { showMoreMenu = false; showInfoDialog = true })
+                            }
                         }
                     }
                 )
@@ -834,6 +1160,8 @@ fun NavigationScreen(
                     RouteMapView(
                         nightMode = nightMapEnabled,
                         geoPoints = geoPoints,
+                        routeFitKey = selectedRoute?.rawRouteJson?.optString("route_id")
+                            ?: "preview-without-route",
                         currentLocation = currentLocation,
                         destinationLocation = Pair(routePreview.latitude, routePreview.longitude),
                         waypoints = routeWaypoints,
@@ -873,6 +1201,21 @@ fun NavigationScreen(
                             downloadProgress = downloadProgress,
                             onCancelDownload = onCancelDownload
                         )
+                    }
+
+                    if (routePreview.displayArea == "Tour circolare" && !isNavigating) {
+                        OutlinedButton(
+                            onClick = {
+                                savedTourName = ""
+                                showSaveCircularDialog = true
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 4.dp)
+                        ) {
+                            Icon(Icons.Default.Check, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Salva questo tour")
+                        }
                     }
 
                     OutlinedButton(
@@ -961,6 +1304,56 @@ fun NavigationScreen(
                     }
 
                     if (isNavigating) {
+                        if (!hasArrived && nextWaypointToSkip != null) {
+                            var confirmSkip by remember(nextWaypointToSkip) {
+                                mutableStateOf(false)
+                            }
+                            OutlinedButton(
+                                onClick = { confirmSkip = true },
+                                enabled = !isLoading,
+                                modifier = Modifier.fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 4.dp)
+                                    .heightIn(min = 48.dp)
+                            ) {
+                                Text("Salta prossima tappa")
+                            }
+                            if (confirmSkip) {
+                                AlertDialog(
+                                    onDismissRequest = { confirmSkip = false },
+                                    title = { Text("Saltare questa tappa?") },
+                                    text = {
+                                        Text("Saltare \"${nextWaypointToSkip.name}\"? " +
+                                            "Valhalla ricalcolerà il percorso verso la tappa " +
+                                            "successiva o la destinazione finale. " +
+                                            "Le altre tappe resteranno anche nei percorsi non circolari.")
+                                    },
+                                    confirmButton = {
+                                        TextButton(onClick = {
+                                            confirmSkip = false
+                                            onSkipNextWaypoint()
+                                        }) { Text("Salta tappa") }
+                                    },
+                                    dismissButton = {
+                                        TextButton(onClick = { confirmSkip = false }) {
+                                            Text("Annulla")
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                        if (routePreview.displayArea == "Tour circolare" && !hasArrived) {
+                            OutlinedButton(
+                                onClick = onPauseTour,
+                                enabled = !isLoading,
+                                modifier = Modifier.fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 4.dp)
+                                    .heightIn(min = 48.dp)
+                            ) {
+                                Icon(Icons.Default.Check, contentDescription = null)
+                                Spacer(Modifier.width(8.dp))
+                                Text("Pausa tour (riprendi più tardi)")
+                            }
+                        }
                         Button(
                             onClick = onStopNavigation,
                             colors = ButtonDefaults.buttonColors(
@@ -1030,8 +1423,62 @@ fun NavigationScreen(
                     })
                 )
 
+                if (pausedTour != null) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                if (pausedTour.paused) "Tour in pausa"
+                                else "Tour interrotto: ripristino disponibile",
+                                style = MaterialTheme.typography.titleSmall
+                            )
+                            Text(
+                                "${pausedTour.completedStops}/${pausedTour.stops.size} tappe completate. " +
+                                    "La rotta restante verrà ricalcolata con Valhalla.",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                TextButton(
+                                    onClick = onPreviewResumeTour,
+                                    enabled = currentLocation != null && !isLoading
+                                ) {
+                                    Text("Riprendi da qui")
+                                }
+                                TextButton(onClick = onDiscardPausedTour) {
+                                    Text("Abbandona tour")
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = { showCircularTourDialog = true },
+                        enabled = !isLoading && !isNavigating && currentLocation != null,
+                        modifier = Modifier.weight(1f).heightIn(min = 54.dp)
+                    ) {
+                        Text("Crea tour")
+                    }
+                    OutlinedButton(
+                        onClick = { showSavedToursDialog = true },
+                        modifier = Modifier.weight(1f).heightIn(min = 54.dp)
+                    ) {
+                        Text("Tour salvati (${savedCircularTours.size})")
+                    }
+                }
+
                 Text(
-                    "Cerca un indirizzo oppure tieni premuto sulla mappa. Puoi anche inserire coordinate GPS, ad esempio 45.4642, 9.1900.",
+                    "Cerca una destinazione, crea un tour o tieni premuto sulla mappa.",
                     style = MaterialTheme.typography.labelSmall,
                     modifier = Modifier.padding(horizontal = 16.dp)
                 )
@@ -1060,7 +1507,7 @@ fun NavigationScreen(
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Mostra Mappa / Mia Posizione", style = MaterialTheme.typography.labelSmall)
+                        Text("La mia posizione", style = MaterialTheme.typography.labelSmall)
                     }
 
                     Button(
@@ -1073,7 +1520,7 @@ fun NavigationScreen(
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Gestione mappe", style = MaterialTheme.typography.labelSmall)
+                        Text("Mappe offline", style = MaterialTheme.typography.labelSmall)
                     }
                 }
 

@@ -1,18 +1,29 @@
 # Moto Chat GPS — Manuale operativo
 
-**Aggiornato:** 15 novembre 2026. Repository `thriller47/moto-gps-waveshare`, branch stabile **`valhalla`**. Scheda Waveshare ESP32-S3-Touch-AMOLED-1.75C (466×466, 8 MB PSRAM, 32 MB flash). Nei comandi Windows la porta **COM3 è un esempio**, sostituirla con quella effettiva. Usare **PowerShell**, **CMD** o **WSL Ubuntu** come indicato.
+**Aggiornato:** 19 novembre 2026 (integrazione GPS/IMU, MotoPack e Turn Assist) · **Repository:** `thriller47/moto-gps-waveshare` · **Branch stabile di riferimento:** `valhalla`.
 
-**Questa è la procedura corrente.** Il manuale precedente, con vecchi branch, Photon v1, MotoMap v2/v3, proposte non ancora implementate e note di debug ripetute, è conservato in [archive/MANUALE_OPERATIVO_PRE_CLEANUP_2026-11-15.md](archive/MANUALE_OPERATIVO_PRE_CLEANUP_2026-11-15.md) **solo per riferimento storico**. Lo stato del progetto e le prove ancora aperte sono in [../PROJECT_STATE.md](../PROJECT_STATE.md). Non usare i comandi di checkout dei rami di test dell'archivio.
+Queste sono le **procedure operative correnti**, per Waveshare ESP32-S3-Touch-AMOLED-1.75C e app Android. Le istruzioni distinguono **Windows PowerShell**, **CMD ESP-IDF** e **WSL Ubuntu-24.04**: i rispettivi comandi non sono intercambiabili. La porta USB `COM3` è un esempio da verificare sul PC.
 
-**Stato delle prove:** Photon SQLite v2 e grafo Valhalla Italia V5 sono stati **collaudati dall'utente sul telefono**. Il **clipping LVGL per singoli segmenti grigi** è già in `valhalla`, ma la prova stradale prevista il 14 novembre è stata rinviata per maltempo; non dichiararlo ancora validato.
+**Dove cercare il resto:** [PROJECT_STATE.md](../PROJECT_STATE.md) registra decisioni, regressioni e prove; [archivio del manuale precedente](archive/MANUALE_OPERATIVO_PRE_CLEANUP_2026-11-15.md) conserva i vecchi passaggi senza renderli procedure attive. Il MotoPack v4/V5/v2 installato il **15/11** è stato collaudato; la **nuova rigenerazione completa del 18/11** con lo script di sostituzione è ancora da confermare su dataset reale e su Android.
 
-## Esperimento di robustezza BLE/IMU — 15 novembre 2026
+## 1. Repository e ambienti
 
-**Non ancora validato sull'hardware.** Sul branch `test/unified-offline-map-20261115` sono state recuperate selettivamente alcune migliorie individuate su `gemini_review`, **senza importare o mergiare quel branch divergente**. Il decoder BLE Android ora rifiuta frammenti fuori sequenza, offset non contigui, CRC errati, messaggi incompleti e interruzioni di oltre 1,5 secondi tra frammenti; mantiene il ritardo di 18 ms fra scritture GATT già collaudato. Le esportazioni dei log Android usano coroutine di Activity senza cambiare il formato dei file. Il firmware ESP32 esegue una verifica difensiva dell'inizializzazione I²C prima di aprire l'IMU QMI8658; fusione heading, UI e protocollo BLE rimangono invariati.
+**Sorgenti originali delle mappe (Windows):** `C:\MotoGPS\PBF`. **Repository usato in WSL:** `/home/mod/MotoGPS/moto-gps-waveshare`, ossia `~/MotoGPS/moto-gps-waveshare`. **Distribuzione WSL verificata sul PC:** `Ubuntu-24.04` (versione WSL 2). Il checkout Windows `C:\MotoGPS\moto-gps-waveshare`, quando presente, è una **copia distinta**: aggiornare e compilare dalla copia che si sta realmente usando.
 
-**Prova dopo la build del branch test:** aggiornare l'APK Android e il firmware ESP32 solo dopo CI verde. Eseguire connessione iniziale, chiusura/riapertura app, allontanamento e ritorno nel raggio BLE, navigazione con rotonde e ricalcolo, export diagnostica e replay, oltre al controllo log IMU `motion_heading` durante l'avvio. Conservare i log in caso di disconnessione o perdita messaggi e confrontarli con una build stabile `valhalla`. **Non** aggiornare il branch `valhalla` prima della prova. Non sono stati adottati WakeLock di 12 ore, cambi GPIO3, nuova pipeline GPS `SharedFlow` o eliminazione del pacing GATT.
+Per **lavorare nel branch sperimentale in WSL**:
 
-## 1. Aggiornare il repository (Windows PowerShell)
+```bash
+cd ~/MotoGPS/moto-gps-waveshare
+git status --short
+git fetch origin --prune
+git switch test/merge-gps-20261118
+git pull --ff-only origin test/merge-gps-20261118
+git branch --show-current
+```
+
+Se `git switch` indica che si è già sul branch ma un nuovo script non esiste, fare `git pull --ff-only`: il branch locale può essere indietro rispetto a GitHub. Controllare `pwd` e `git branch --show-current`. Se `git status --short` mostra modifiche locali, valutarle prima del cambio branch; **non usare `reset --hard` o `git clean` per forzare l'aggiornamento**.
+
+Per aggiornare invece la **versione integrata stabile** in **PowerShell Windows**:
 
 ```powershell
 Set-Location "C:\MotoGPS\moto-gps-waveshare"
@@ -21,60 +32,130 @@ git fetch origin --prune
 git switch valhalla
 git pull --ff-only origin valhalla
 git submodule update --init --recursive
-git status --short
-git log -1 --oneline
 ```
 
-Se il primo `git status --short` mostra modifiche locali, **fermarsi e valutarle** prima di `switch/pull`: non eseguire `reset --hard` o `clean` senza sapere cosa si perderebbe. Se non esiste ancora il repository: `git clone --branch valhalla --recurse-submodules https://github.com/thriller47/moto-gps-waveshare.git` da `C:\MotoGPS`. Il comando `git pull` aggiorna i sorgenti, **non** reinstalla app, firmware o mappe già presenti sul telefono.
+Il repository non usa più `main`. Il branch `test/*` resta separato da `valhalla` fino a collaudo e approvazione del merge. Un `git pull` non aggiorna automaticamente l'APK, il firmware o le mappe sul telefono.
 
-**Regola del progetto:** lavorare su `valhalla` per le versioni integrate; `main` è stato eliminato. Il ramo `test/lvgl-single-road-renderer-20261113` è conservato temporaneamente per la verifica del clipping, **non** come branch principale.
+## 2. Rigenerazione completa MotoPack — procedura consigliata
 
-## 2. CI, artifact e APK Android
+**Un unico comando in WSL** ricrea **MotoMap v4** (strade e copertura), **Photon SQLite v2** (ricerca indirizzi), **Valhalla V5** (grafo moto dal PBF aggiornato), quindi assembla e verifica il pacchetto `MotoChatGPS-Italia.motopack`. Usa lo script `scripts/offline_map/rebuild_motopack_wsl.sh`, presente nel branch sperimentale.
 
-Pagina [GitHub Actions — Project Build](https://github.com/thriller47/moto-gps-waveshare/actions/workflows/project-build.yml). Le job `native`, `android` ed `esp32` sono **selettive in base ai file modificati**: `skipped` non significa test verde. Non riavviare build per sole modifiche al manuale. Rispettare una **CI consolidata** alla fine di un lavoro sul codice.
+**Sorgenti attuali in `C:\MotoGPS\PBF`:**
 
-- Artifact **ESP32-Firmware** (se job ESP32 eseguita, conservazione 3 giorni): applicazione `moto-gps-waveshare.bin`, `bootloader/bootloader.bin`, `partition_table/partition-table.bin`.
-- Artifact **Glimpse-MOTO-GPS-Android-Final.apk** (se job Android eseguita, conservazione 7 giorni): contiene `app-debug.apk`. L'artifact può essere un file ZIP da estrarre; controllare contenuti e commit della run.
-- La firma dell'APK è importante. **Non disinstallare l'app per tentativi**: potrebbero andare perse le mappe, il grafo Valhalla, Photon e altri dati privati. Vedi `docs/android-apk-signing.md`.
+- `italy-latest.osm.pbf`
+- `italy.poly` (deve corrispondere all'estratto PBF)
+- `photon-italy.jsonl.zst`
 
-Da PowerShell, con `gh` già configurato:
+Il file sorgente eventualmente presente `valhalla_italia_v5.tar.zst` **non è usato dalla rigenerazione completa**: il grafo viene ricostruito dal PBF. I file di input non vengono sovrascritti.
+
+**Da WSL Ubuntu-24.04** (ambiente `valhalla-env` già configurato; richiesti `pyvalhalla==3.9.1`, `osmium`, `shapely`, `zstd`):
+
+```bash
+cd ~/MotoGPS/moto-gps-waveshare
+source ~/valhalla-env/bin/activate
+ls scripts/offline_map/rebuild_motopack_wsl.sh
+df -h ~
+bash scripts/offline_map/rebuild_motopack_wsl.sh --threads 2
+```
+
+Se `ls` non trova lo script, aggiornare il branch come nella sezione 1. Per il builder servono `valhalla_build_config`, `valhalla_build_tiles`, `valhalla_build_extract`; verificare con `command -v`. **Non lanciare separatamente i tre convertitori**: lo script li esegue già. Il PC Ryzen ha usato normalmente **due thread**, per evitare di saturare RAM e swap.
+
+**Cartella di output predefinita:**
+
+```text
+/home/mod/motogps-build/ItaliaUnificata-20261118/
+├── italy-v4.motomap.zip
+├── photon-italy-v2.sqlite
+├── ValhallaItaliaV5/
+│   └── valhalla_tiles.tar.zst
+└── MotoChatGPS-Italia.motopack
+```
+
+Lo script scrive prima su filesystem **Linux WSL**, in una cartella temporanea; **solo dopo verifica SHA-256** sostituisce la cartella finale esistente. In caso di errore ordinario preserva quella precedente; se trova file estranei fra gli output, si ferma senza cancellarli. Richiede spazio per vecchia e nuova generazione contemporaneamente, oltre ai grafi Valhalla temporanei. Non usare `sudo`, `rm -rf` o `--resume` al posto di questa procedura. Per un'altra destinazione: `--out "$HOME/motogps-build/ItaliaUnificata-Nuova" --threads 2`.
+
+**Verifica al termine** (non affermare che la nuova generazione sia valida solo perché MotoMap ha stampato il numero di tile):
+
+```bash
+python3 scripts/offline_map/motopack.py verify \
+  "$HOME/motogps-build/ItaliaUnificata-20261118/MotoChatGPS-Italia.motopack"
+ls -lh "$HOME/motogps-build/ItaliaUnificata-20261118/"
+```
+
+La verifica attesa è `OK: MotoMap v4 + Valhalla V5 + Photon v2`, accompagnata dall'esito finale `PRONTO` dello script.
+
+### Accedere alla cartella WSL da Windows
+
+**Metodo immediato dal terminale WSL:**
+
+```bash
+explorer.exe "$(wslpath -w "$HOME/motogps-build/ItaliaUnificata-20261118")"
+```
+
+**Metodo diretto da Windows:** premere **Win+R** e incollare il percorso della tua distribuzione (non `Ubuntu` generico):
+
+```text
+\\wsl.localhost\Ubuntu-24.04\home\mod\motogps-build\ItaliaUnificata-20261118
+```
+
+Anche `\\wsl$\Ubuntu-24.04\home\mod\motogps-build\ItaliaUnificata-20261118` è utilizzabile. Se la distribuzione cambia, verificare con `wsl -l -v` da PowerShell. Non spostare la build su `/mnt/c` durante la compilazione.
+
+**Copiare il pacchetto finale in Windows** (da WSL, una volta verificato):
+
+```bash
+cp "$HOME/motogps-build/ItaliaUnificata-20261118/MotoChatGPS-Italia.motopack" \
+   /mnt/c/MotoGPS/MotoChatGPS-Italia.motopack
+```
+
+In Windows sarà `C:\MotoGPS\MotoChatGPS-Italia.motopack`. Per aggiornare il telefono copiare il file in Download, interrompere la navigazione, quindi aprire **Moto Chat GPS → Gestione mappe → Importa pacchetto unico Moto Chat GPS**. Non disinstallare l'app per importare le mappe; servono spazio e alimentazione sufficienti durante l'operazione.
+
+**Limite di atomicità:** Android verifica i tre hash prima dell'importazione, ma installa i tre componenti in fasi successive. Dopo l'import controllare separatamente MotoMap v4, Photon v2 e Valhalla V5 e tenere il vecchio pacchetto come backup.
+
+
+
+### Interfaccia Android riorganizzata (branch di integrazione)
+
+Nella schermata iniziale la ricerca destinazione è l'azione principale, seguita da **Crea tour**, **Tour salvati**, collegamento ESP32 e **Mappe offline**. Il tema giorno/notte resta nella barra superiore; **Altre opzioni** ospita diagnostica e registrazione replay GPS, esportazione log e informazioni/licenze. Non sono cambiati algoritmi GNSS/IMU, routing, BLE né firmware.
+
+**Mappe offline:** il pulsante principale **Importa MotoPack (.motopack)** aggiorna MotoMap v4, Valhalla V5 e Photon v2 insieme. Le importazioni singole MotoMap ZIP, indice Photon SQLite e grafo Valhalla, oltre alle opzioni di eliminazione, restano disponibili tramite **Opzioni avanzate · componenti separati**. Controllare lo stato dei tre componenti prima di navigare; non disinstallare l'app per aggiornare le mappe.
+
+**Salta prossima tappa:** disponibile durante **qualsiasi** navigazione con almeno una tappa intermedia ancora pendente, non soltanto nei tour circolari. Toccare il pulsante e confermare da fermi: la tappa corrente viene esclusa solo dopo che Valhalla ha restituito una nuova rotta valida; tappe successive e **destinazione finale** vengono conservate. Sui tour circolari si aggiorna anche il checkpoint di ripresa. Sui percorsi ordinari non si crea un checkpoint circolare. Se ci si dirige direttamente all'arrivo senza tappe intermedie, il pulsante non compare. Il corrispondente comando ESP32 resta non implementato.
+
+## 3. GitHub Actions e Android
+
+[GitHub Actions — Project Build](https://github.com/thriller47/moto-gps-waveshare/actions/workflows/project-build.yml). Le job `native`, `android` ed `esp32` sono selettive; `skipped` non è equivalente a un test superato. Per il codice avviare **una sola CI consolidata alla fine**; una modifica al solo manuale non richiede build.
+
+Gli artifact della run corretta possono includere il firmware `ESP32-Firmware` (`moto-gps-waveshare.bin`, bootloader e partizioni) e l'APK `Glimpse-MOTO-GPS-Android-Final.apk` (in alcuni casi dentro un archivio da estrarre). Controllare sempre **branch, commit e firma**: non installare a caso un APK di un branch diverso.
+
+**Da PowerShell Windows, con GitHub CLI configurata** (esempio per il branch test, cambiare `-b` quando si usa `valhalla`):
 
 ```powershell
-gh run list -R thriller47/moto-gps-waveshare -b valhalla -w project-build.yml -L 10
+gh run list -R thriller47/moto-gps-waveshare -b test/merge-gps-20261118 -w project-build.yml -L 10
 gh run download ID_RUN -R thriller47/moto-gps-waveshare -n ESP32-Firmware -D C:\MotoGPS\ESP32-Firmware
 ```
 
-Sostituire `ID_RUN`; scegliere **la run giusta del branch valhalla** e verificare che contenga il relativo artifact.
-
-### Compilare Android in locale (Windows PowerShell)
-
-Aprire **Android Studio → Open** su `C:\MotoGPS\moto-gps-waveshare\platforms\android`, non sulla root del repository. Usare il Gradle Wrapper del progetto, JDK 21/JBR 21, SDK Platform 36, NDK 27 e CMake 3.22.1 se richiesti dalla sincronizzazione. Per verificare versioni effettive consultare i Gradle del checkout.
+**Build Android locale (PowerShell):** in Android Studio aprire `C:\MotoGPS\moto-gps-waveshare\platforms\android` (non la root). Versioni di riferimento: JDK/JBR 21, Android SDK Platform 36, NDK 27 e CMake 3.22.1 quando richiesti dal Gradle presente nel checkout.
 
 ```powershell
 Set-Location "C:\MotoGPS\moto-gps-waveshare\platforms\android"
 .\gradlew.bat testDebugUnitTest assembleDebug
-```
-
-APK locale: `platforms\android\app\build\outputs\apk\debug\app-debug.apk`. Per installare con ADB, dopo `adb devices`:
-
-```powershell
+adb devices
 adb install -r "C:\MotoGPS\moto-gps-waveshare\platforms\android\app\build\outputs\apk\debug\app-debug.apk"
 ```
 
-`-r` funziona solo se **firma e versionCode** sono compatibili; non forzare disinstallazioni. Per un APK GitHub preferire l'artifact con la firma già utilizzata dall'app installata. Successivamente controllare in Gestione mappe MotoMap v4, Photon v2 e Valhalla V5: aggiornare il codice non rigenera quei file.
+`adb install -r` aggiorna l'app soltanto con firma e versionCode compatibili. **Non disinstallare l'app per tentativi:** rischi di perdere mappe, database e checkpoint dei tour. Vedi [guida alla firma APK](android-apk-signing.md). Dopo un aggiornamento APK, ricontrollare lo stato delle tre mappe: installare codice nuovo non equivale a rigenerarle.
 
 
 
-## 3. Ambiente ESP-IDF Windows, comando `moto`, compilazione locale
+## 4. Ambiente ESP-IDF Windows, comando `moto`, compilazione locale
 
-**Configurazione attualmente funzionante (31/10/2026):**
+**Configurazione di riferimento del PC Windows:**
 - Framework: `C:\Espressif\frameworks\esp-idf-v5.5.6`
 - Strumenti e virtualenv: `C:\Espressif`
 - Python usato da IDF: `C:\Espressif\python_env\idf5.5_py3.11_env\Scripts\python.exe` (Python 3.11.2)
 - Repository: `C:\MotoGPS\moto-gps-waveshare`
 - Firmware: `C:\MotoGPS\moto-gps-waveshare\platforms\esp32`
 
-**Attenzione:** sul vecchio Windows Python era 3.10 e il repository era in `C:\moto-gps-waveshare`. Quei percorsi sono **storici**, non usarli nella nuova installazione. Per le istruzioni di seguito usare **PowerShell** salvo dove indicato CMD. La presenza degli eseguibili dipende dai percorsi scelti nell'installer: adattarli se diversi.
+Usare **PowerShell** salvo dove indicato CMD. I percorsi degli strumenti possono variare se l'installer è stato configurato diversamente.
 
 ### A. Installazione e recupero degli strumenti
 
@@ -86,7 +167,7 @@ Test-Path "C:\Espressif\python_env\idf5.5_py3.11_env\Scripts\python.exe"
 & "C:\Espressif\python_env\idf5.5_py3.11_env\Scripts\python.exe" --version
 ~~~
 
-**Problema incontrato dopo la reinstallazione:** `.\install.bat esp32s3` rispondeva `The following tools are not installed in your environment: python`, anche se Python 3.11 esisteva. La **soluzione verificata** è aggiungere la cartella dell'ambiente virtuale al PATH **della stessa sessione PowerShell** e impostare `IDF_TOOLS_PATH`:
+**Se `install.bat` non trova Python:** `.\install.bat esp32s3` rispondeva `The following tools are not installed in your environment: python`, anche se Python 3.11 esisteva. La **soluzione verificata** è aggiungere la cartella dell'ambiente virtuale al PATH **della stessa sessione PowerShell** e impostare `IDF_TOOLS_PATH`:
 
 ~~~powershell
 $env:IDF_TOOLS_PATH = "C:\Espressif"
@@ -142,7 +223,7 @@ function moto {
 '@ | Add-Content -Path $PROFILE -Encoding UTF8
 ~~~
 
-**Altro errore reale dopo la reinstallazione:** `. $PROFILE` restituiva `PSSecurityException: L'esecuzione di script è disabilitata`. Per consentire l'esecuzione degli script locali **solo per l'utente corrente**:
+**Se PowerShell blocca il profilo:** `. $PROFILE` restituiva `PSSecurityException: L'esecuzione di script è disabilitata`. Per consentire l'esecuzione degli script locali **solo per l'utente corrente**:
 
 ~~~powershell
 Get-ExecutionPolicy -List
@@ -154,7 +235,7 @@ moto
 
 Confermare con `S` quando richiesto. La policy `RemoteSigned` consente gli script locali; quelli scaricati da Internet contrassegnati come remoti devono essere firmati o esplicitamente sbloccati dopo verifica. Se una policy aziendale o di gruppo prevale, **non forzarla**: usare l'attivazione manuale della sezione B.
 
-Ora `moto` va digitato **in PowerShell** e apre CMD con IDF attivo nella cartella ESP32. Verificare con `idf.py --version`. **La sessione confermata dall'utente è funzionante**; compilazione e flash dopo la reinstallazione restano controlli separati.
+Ora `moto` va digitato **in PowerShell** e apre CMD con IDF attivo nella cartella ESP32. Verificare con `idf.py --version`. L'attivazione dell'ambiente non equivale a un flash o a un test del dispositivo.
 
 ### D. Compilazione e flash solo dopo l'attivazione
 
@@ -178,7 +259,7 @@ Con scheda Waveshare connessa a COM3 e monitor seriale chiuso:
 idf.py -p COM3 flash monitor
 ~~~
 
-**Su valhalla sono abilitate di default le opzioni ESP32 CURVE_ZOOM, SUBPIXEL, MAP_DIRTY_TILES e PERF_TELEMETRY.** Anche le build CI di valhalla usano questi quattro flag e `sdkconfig.perf.defaults`. Per una build locale precedentemente configurata senza statistiche FreeRTOS, verificare le righe `CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS` in `platforms\\esp32\\sdkconfig`: i nuovi defaults non sovrascrivono un sdkconfig già esistente. Se la configurazione rimane precedente, rigenerarla con cura (salvando eventuali impostazioni personalizzate), senza cancellare partizioni flash, mappe o NVS. La telemetria periodica aiuta la diagnosi LVGL ma non è di per sé una garanzia di fluidità.
+**Nel firmware di riferimento sono abilitate le opzioni ESP32 CURVE_ZOOM, SUBPIXEL, MAP_DIRTY_TILES e PERF_TELEMETRY.** Anche le build CI di valhalla usano questi quattro flag e `sdkconfig.perf.defaults`. Per una build locale precedentemente configurata senza statistiche FreeRTOS, verificare le righe `CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS` in `platforms\\esp32\\sdkconfig`: i nuovi defaults non sovrascrivono un sdkconfig già esistente. Se la configurazione rimane precedente, rigenerarla con cura (salvando eventuali impostazioni personalizzate), senza cancellare partizioni flash, mappe o NVS. La telemetria periodica aiuta la diagnosi LVGL ma non è di per sé una garanzia di fluidità.
 
 **Versioni da non confondere:** il PC Windows usa ESP-IDF **5.5.6**; la job ESP32 GitHub Actions del repository utilizza l'immagine **5.5.5**. Non modificare il progetto per far coincidere automaticamente i due ambienti.
 
@@ -186,7 +267,11 @@ La riuscita del comando `moto` **non dimostra da sola** che compilazione, flash 
 
 ---
 
-## 4. Flash ESP32 — COM3 d'esempio
+**Test sperimentale predizione curva ESP32 (19/11/2026, branch di test):** l'opzione CMake `MOTO_ESP_TURN_ASSIST_EXPERIMENT` è **ON per default** dopo il collaudo e l'integrazione in `valhalla`. La versione precedente A resta ottenibile esplicitamente con `OFF`. Per provare l'assistenza hardware curva mantenendo inalterato Android e il filtro IMU, da **PowerShell con ESP-IDF già attivo** e cartella `platforms\\esp32` lanciare `idf.py -DMOTO_ESP_TURN_ASSIST_EXPERIMENT=ON -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.perf.defaults" build`, verificando che la configurazione CMake utilizzi realmente `ON`. Per tornare al firmware A, eseguire `idf.py -DMOTO_ESP_TURN_ASSIST_EXPERIMENT=OFF -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.perf.defaults" build` e flashare la build precedente o la nuova build OFF. Nella CI standard di `valhalla` il flag è ON; per il rollback usare `-DMOTO_ESP_TURN_ASSIST_EXPERIMENT=OFF`. Non fare flash prima che il build ON sia verde. La modifica non replica C2 identico: non ricevendo nuovi fix GPS ad ogni render, corregge solo con nuovi ancoraggi BLE reali e mantiene uno scostamento eventualmente residuo durante la sosta fino al successivo anchor. Raccogliere il log diagnostico completo nel giro di prova, e confrontare il comportamento rispetto al firmware A precedente.
+
+**Firmware sperimentale Turn Assist da GitHub (19/11/2026, branch `test/merge-gps-20261118`):** la run `Project Build` di questo branch produce il firmware ESP32 con `MOTO_ESP_TURN_ASSIST_EXPERIMENT=ON`, dopo controllo esplicito del flag. Aprire la run, confermare `esp32 = success`, scaricare l'artifact `ESP32-Firmware-TURN-ASSIST-ON` e controllare il file `TURN-ASSIST-ON.txt` (flag e commit); nello ZIP sono inclusi binario applicazione, bootloader e partizioni. Eseguire il flash seguendo la sezione 5. Conservare il firmware precedente OFF per ripristino. Dopo il merge la funzione è presente anche negli artifact standard di `valhalla`; l'APK non richiede ulteriori aggiornamenti rispetto alla versione già collaudata. Dopo prova rotonde/rettilinei/ricalcoli condividere la diagnostica completa.
+
+## 5. Flash ESP32 — COM3 d'esempio
 
 Scollegare monitor seriali/Arduino IDE prima di usare esptool: COM3 deve essere libera. Installare esptool, se necessario, oppure usare l'esptool.exe già disponibile.
 
@@ -218,183 +303,26 @@ Indirizzi di questo progetto (confermati in platforms/esp32/partitions.csv):
 
 **Mai usare erase-flash per un aggiornamento normale.** Cancellerebbe anche dati e configurazioni. In caso di difficoltà nel flash, verificare porta COM, cavo dati e modalità download/BOOT della scheda. Non modificare gli offset.
 
-## 5. Generare MotoMap **v4** (strade grigie ESP32)
+## 6. Diagnostica Android e monitor seriale ESP32
 
-MotoMap e Valhalla **non sono intercambiabili**. MotoMap v4 include ID dei nodi OSM e tag `junction=roundabout/circular`; i vecchi pacchetti v2/v3 non sono supportati dall'app attuale. Sorgenti PBF Geofabrik in `C:\MotoGPS\PBF`. Non caricare il PBF o lo ZIP generato nel repository.
+**Android — diagnostica unificata:** connettere ESP32 via BLE, aprire **Altre opzioni → Diagnostica e replay GPS**, scegliere **BASE** oppure **DEBUG** e toccare **Avvia diagnostica completa**. La stessa sessione acquisisce il replay GPS Android e gli eventi ESP32 via BLE. Senza ESP32 collegato la registrazione completa non parte. Se il BLE si interrompe, il GPS prosegue; l'app tenta di ripristinare i log ESP32 dopo la riconnessione, ma non può recuperare gli eventi persi durante la disconnessione. Ogni 45 minuti rinnova il livello ESP32, perché il firmware lo disabilita automaticamente dopo circa un'ora.
 
-Da **PowerShell Windows** con `py` funzionante e dipendenze Python `osmium` (e `shapely` per `--coverage-poly`):
-
-```powershell
-Set-Location "C:\MotoGPS\moto-gps-waveshare"
-py -m pip install osmium shapely
-py .\scripts\offline_map\pbf_to_motomap.py "C:\MotoGPS\PBF\italy-261101.osm.pbf" -o "C:\MotoGPS\PBF\italy-v4.motomap.zip" --coverage-poly "C:\MotoGPS\PBF\italy.poly"
-```
-
-**Adattare il nome del PBF al file effettivo**. Il `.poly` deve riferirsi allo **stesso estratto geografico**; se non disponibile, omettere `--coverage-poly`, ma la copertura certificata potrebbe mancare. Importare lo ZIP in **Moto Chat GPS → Gestione mappe → Importa mappa ZIP**. Non decomprimere: viene letto direttamente come archivio. La generazione Italia richiede diversi GB di RAM. Non confondere con i file `.tar.zst` di Valhalla.
-
-Confermare il formato v4 (Windows PowerShell):
-
-```powershell
-py -c "import zipfile,json; z=zipfile.ZipFile(r'C:\MotoGPS\PBF\italy-v4.motomap.zip'); print(json.loads(z.read('motomap_v4.json')))"
-```
-
-Fuori dalla copertura, la funzione **Scarica strade del percorso** può usare OpenFreeMap su richiesta esplicita. I vecchi comandi di download per regione/8 km e le istruzioni Overpass non sono procedure attive.
-
-## 6. Valhalla Italia **V5** — grafo offline moto in WSL Ubuntu
-
-**Procedura V5 già eseguita dall'utente su Ryzen/WSL, grafo testato positivamente su Android.** Compilatore Valhalla via `pyvalhalla==3.9.1`, script `scripts/offline_map/build_valhalla_moto_v5.sh`, impostazioni Mjolnir:
-`include_driving=true`, `include_bicycle=false`, `include_pedestrian=false`. Filtra i percorsi esclusivamente pedonali/ciclabili, **non elimina a priori ogni `highway=track` o `highway=path`**. Conservare V4 come backup.
-
-### Ambiente WSL (Ubuntu 24.04)
-
-Da **WSL Ubuntu** (non PowerShell), se l'ambiente virtuale esiste già, **non reinstallarlo**:
-
-```bash
-source ~/valhalla-env/bin/activate
-command -v valhalla_build_config
-command -v valhalla_build_tiles
-command -v valhalla_build_extract
-zstd --version
-```
-
-Se l'ambiente ancora non esiste, configurarlo **una sola volta** in WSL Ubuntu (non PowerShell):
-
-```bash
-sudo apt update
-sudo apt install -y python3 python3-venv python3-pip zstd git build-essential
-python3 -m venv ~/valhalla-env
-source ~/valhalla-env/bin/activate
-python -m pip install --upgrade pip
-python -m pip install pyvalhalla==3.9.1
-command -v valhalla_build_tiles
-```
-
-Per Italia, usare **due thread** ed eseguire i lavori nel filesystem Linux, non direttamente sotto `/mnt/c`. Il PBF di riferimento V4/V5 è `~/motogps-build/italy-261101.osm.pbf` (sostituire se diverso). Se manca in Linux ma è già su Windows, da WSL:
-
-```bash
-mkdir -p ~/motogps-build
-cp /mnt/c/MotoGPS/PBF/italy-261101.osm.pbf ~/motogps-build/
-sha256sum /mnt/c/MotoGPS/PBF/italy-261101.osm.pbf ~/motogps-build/italy-261101.osm.pbf
-df -h ~
-free -h
-```
-
-I due hash SHA-256 devono essere uguali. Per una nuova build Italia prevedere **diverse decine di GB** temporanei. Sul PC Ryzen la configurazione WSL usata nei collaudi è 12 GB RAM massimi, 4 processori, 8 GB swap in `%USERPROFILE%\.wslconfig` (Windows PowerShell) e `wsl --shutdown` dopo eventuali modifiche. Non cambiare questi limiti se la build locale è già funzionante.
-
-### Build V5 senza sovrascrivere V4
-
-Da **WSL Ubuntu**, il checkout Windows aggiornato può essere aperto in `/mnt/c/MotoGPS/moto-gps-waveshare`:
-
-```bash
-source ~/valhalla-env/bin/activate
-cd /mnt/c/MotoGPS/moto-gps-waveshare
-git switch valhalla
-git pull --ff-only origin valhalla
-
-# Opzionale: preview config in cartella DISTINTA, senza build.
-bash scripts/offline_map/build_valhalla_moto_v5.sh \
-  ~/motogps-build/italy-261101.osm.pbf \
-  ~/motogps-build/ValhallaItaliaV5-preview --config-only --threads 2
-
-# Build vera: crea una NUOVA cartella di output.
-bash scripts/offline_map/build_valhalla_moto_v5.sh \
-  ~/motogps-build/italy-261101.osm.pbf \
-  ~/motogps-build/ValhallaItaliaV5 --zstd --threads 2
-```
-
-**Attenzione:** lo script si ferma se la directory output **esiste già**, anche se generata solo per la preview. La cartella V5 attuale è già stata usata con successo: **non rilanciare su di essa**. Per una ricostruzione scegliere per esempio `ValhallaItaliaV5b` e relativo nome di preview. Non cancellare V4 per liberare spazio senza backup.
-
-**File V5 risultato:**
+Al termine scegliere **Ferma diagnostica completa** oppure **Ferma ed esporta tutto (ZIP)**. L'unico file esportato è `motogps-diagnostica-completa.zip`, con le sottocartelle `logs/` e `gps/`:
 
 ```text
-/home/mod/motogps-build/ValhallaItaliaV5/valhalla_tiles.tar.zst
+motogps-diagnostica-completa.zip
+├── README.txt
+├── logs/
+│   ├── current.log              (Android, se presente)
+│   ├── previous.log             (Android, se presente)
+│   ├── esp32-current.log        (BLE, se presente)
+│   └── esp32-previous.log       (BLE, se presente)
+└── gps/
+    ├── motogps-replay-part-00001.jsonl
+    └── ...                     (oppure motogps-replay.jsonl)
 ```
 
-Per portarlo su Windows, da **WSL Ubuntu**:
-
-```bash
-cp ~/motogps-build/ValhallaItaliaV5/valhalla_tiles.tar.zst \
-   /mnt/c/MotoGPS/valhalla_italia_v5.tar.zst
-```
-
-Su Windows sarà `C:\MotoGPS\valhalla_italia_v5.tar.zst`. Copiare il file in **Download** sul telefono e importare da **Moto Chat GPS → Gestione mappe → Importa grafo Valhalla TAR / ZST**. L'app decomprime il file; non farlo manualmente. La sostituzione conserva un solo grafo attivo sul telefono, quindi conservare V4 sul PC.
-
-**Confronto V4/V5** (WSL Ubuntu, dallo stesso checkout):
-
-```bash
-python3 scripts/offline_map/analyze_valhalla_graph.py \
-  ~/motogps-build/ValhallaItaliaV4/valhalla_tiles.tar.zst \
-  ~/motogps-build/ValhallaItaliaV5/valhalla_tiles.tar.zst
-ls -lh ~/motogps-build/ValhallaItaliaV4/valhalla_tiles.tar* \
-       ~/motogps-build/ValhallaItaliaV5/valhalla_tiles.tar*
-```
-
-**Valori effettivamente riferiti dall'utente il 14/11/2026:** V4 `886M` ZST e `2.3G` TAR, V5 `661M` ZST e `1.7G` TAR; nodi 11.457.028 → 8.757.819 e archi orientati 26.093.538 → 18.799.618. Versione tile 3.9.1 per entrambi; nessun header non verificato. I valori di `ls -lh` sono arrotondati. La prova Android di V5 è stata riportata come positiva; non dimostra però ogni possibile strada secondaria.
-
-
-
-### Produzione completa in WSL da PBF + POLY + Photon (procedura integrata)
-
-**Procedura eseguita con successo dall'utente sull'Italia completa il 15 novembre 2026.** Il generatore `scripts/offline_map/build_motopack_wsl.sh` svolge tutte le fasi in WSL Ubuntu: PBF+POLY → MotoMap v4; dump Photon JSONL (anche Zstandard) → Photon SQLite v2; PBF → grafo Valhalla moto V5; quindi assemblaggio e verifica SHA-256 del `.motopack`. Non è richiesto PowerShell per nessuna conversione.
-
-**Prerequisiti WSL**: ambiente Valhalla 3.9.1 attivato con `valhalla_build_config`, `valhalla_build_tiles` e `valhalla_build_extract` nel PATH; `zstd` installato; Python 3 con `osmium` e `shapely` (`python3 -m pip install osmium shapely` nell'ambiente virtuale appropriato). Il dump Photon deve essere **JSONL/Nominatim 0.1.x** (`.jsonl` o `.jsonl.zst`), non un ZIP indice Photon/Lucene o il vecchio SQLite. Il file `.poly` deve corrispondere allo stesso estratto geografico del PBF. Usare preferibilmente una cartella di output nel filesystem Linux WSL, non in `/mnt/c`, per le conversioni pesanti.
-
-**Da terminale WSL Ubuntu** (sostituire i nomi sorgente con quelli effettivamente presenti in `C:\MotoGPS\PBF`):
-
-```bash
-cd ~/MotoGPS/moto-gps-waveshare
-source ~/valhalla-env/bin/activate
-bash scripts/offline_map/build_motopack_wsl.sh \
-  --pbf /mnt/c/MotoGPS/PBF/italy-latest.osm.pbf \
-  --poly /mnt/c/MotoGPS/PBF/italy.poly \
-  --photon /mnt/c/MotoGPS/PBF/photon-italy.jsonl.zst \
-  --out ~/motogps-build/ItaliaUnificata \
-  --threads 2
-```
-
-Il risultato atteso è `~/motogps-build/ItaliaUnificata/MotoChatGPS-Italia.motopack`. Gli intermedi restano nella stessa directory. I comandi rifiutano di sovrascrivere una directory o un pacchetto già esistente. In caso di conversione interrotta, verificare i file presenti; **`--resume`** riutilizza i componenti già completi, ma non sovrascrive un grafo incompleto. Non eliminare cartelle o vecchi grafi automaticamente.
-
-Per trasferire **solo il pacchetto verificato** in Windows, da WSL:
-
-```bash
-cp ~/motogps-build/ItaliaUnificata/MotoChatGPS-Italia.motopack /mnt/c/MotoGPS/PBF/
-```
-
-**Attenzione:** l'Italia completa richiede molto spazio libero **su disco WSL**, oltre a quello del telefono. Anche i file ZIP intermedi e il TAR Valhalla non compresso occupano spazio; la stima del requisito non è ancora misurata in questa pipeline. Prima di avviare, controllare `df -h ~`. Evitare di ricostruire i dataset finché il pacchetto attuale funziona, salvo voler riprodurre tutta la filiera da nuove sorgenti OSM.
-
-
-**Confronto della generazione completa (collaudo utente, 15 novembre 2026):** `italy-v4.motomap.zip` 739 MiB, `photon-italy-v2.sqlite` ~1,1 GiB, `valhalla_tiles.tar.zst` 661 MiB, `MotoChatGPS-Italia.motopack` ~2,5 GiB. Verifica `motopack.py verify` positiva, import Android e prova di ricerca/Valhalla/MotoMap offline positivi. Valhalla occupa circa 1.766 MB una volta espanso su Android. Si tratta di una conferma funzionale dell'utente, non di un benchmark automatizzato di integrità geografica o di test di interruzione durante l'installazione.
-
-### Pacchetto offline unificato (.motopack)
-
-**Collaudato sul telefono dall'utente il 15 novembre 2026.** L'app aggiunge **Gestione mappe → Importa pacchetto unico Moto Chat GPS**. Il generatore WSL completo è stato eseguito con successo: MotoMap ZIP 739 MiB, Photon SQLite circa 1,1 GiB, Valhalla V5 TAR.ZST 661 MiB, MotoPack circa 2,5 GiB. La verifica SHA-256 ha restituito `OK: MotoMap v4 + Valhalla V5 + Photon v2`. Il pacchetto rigenerato è stato importato e la navigazione offline confermata dall'utente. Conservare i file sorgente e il pacchetto precedente come backup.
-
-Il contenitore ZIP64 `.motopack` comprende tre componenti e un `manifest.json` con le versioni, le dimensioni e gli SHA-256 dei file. Contiene **MotoMap v4 ZIP**, **Valhalla Italia V5 TAR.ZST** e **Photon SQLite v2** senza convertirne ulteriormente i dati. È possibile usare gli artefatti già generati e collaudati, senza rifare l'importazione PBF.
-
-**Da Windows PowerShell**, adattare i tre percorsi ai file effettivamente presenti:
-
-```powershell
-Set-Location "C:\MotoGPS\moto-gps-waveshare"
-py scripts/offline_map/motopack.py build `
-  --motomap "C:\MotoGPS\italy-v4.motomap.zip" `
-  --valhalla "C:\MotoGPS\valhalla_italia_v5.tar.zst" `
-  --photon "C:\MotoGPS\photon-italy-v2.sqlite" `
-  -o "C:\MotoGPS\MotoChatGPS-Italia.motopack"
-py scripts/offline_map/motopack.py verify "C:\MotoGPS\MotoChatGPS-Italia.motopack"
-```
-
-**Nota:** il metodo PowerShell assembla componenti già convertiti; per ricostruire tutti e tre da sorgente usare la procedura WSL precedente. I nomi di input sono esempi. Il generatore non sovrascrive un pacchetto esistente. Copiare il file `.motopack` in Download sul telefono, aprire l'APK sperimentale del branch di test, interrompere la navigazione e scegliere **Gestione mappe → Importa pacchetto unico Moto Chat GPS**. Lasciare il telefono alimentato e con molto spazio libero: durante l'importazione coesistono copie temporanee dei tre componenti e il TAR Valhalla decompresso. Il formato non migliora direttamente lo spazio occupato dal grafo installato.
-
-**Correzione verificata dopo il primo collaudo Android (15/11):** il primo APK salvava il componente Valhalla con nome temporaneo `valhalla.pending`; l'importatore non riconosceva `.tar.zst` e non installava il grafo. Il branch test ora conserva i nomi originali, mostra l'avanzamento della decompressione Valhalla e verifica la presenza del TAR installato. L'utente ha confermato che, prima della prima prova, aveva eliminato le vecchie mappe: MotoMap e Photon risultavano installati, Valhalla no. **Correzione verificata sul dispositivo dall'utente:** MotoMap 763,73 MB, Photon 1.074 MiB e Valhalla 1.766 MB installati, ricerca/rotta/mappa offline funzionanti. In alternativa, con l'APK precedente, importare il file Valhalla V5 `.tar.zst` originale tramite il pulsante Valhalla dedicato (nessuna cancellazione di MotoMap/Photon).
-
-**Garanzie e limiti:** Android verifica il manifest e SHA-256 di tutti e tre i componenti **prima di modificare** le mappe installate. Dopodiché riusa gli importatori attuali, ciascuno con il proprio meccanismo di sostituzione e backup. L'aggiornamento dei tre componenti **non è ancora una transazione atomica globale**: se una delle tre installazioni fallisce, alcuni componenti potrebbero risultare aggiornati e altri no. Verificare manualmente lo stato di MotoMap, Photon e Valhalla dopo il test; mantenere una copia degli originali sul PC. Non interrompere il processo deliberatamente durante il collaudo iniziale.
-
-**Test automatici del contenitore:** `python3 -m unittest discover -s scripts/offline_map -p 'test_motopack.py'`. Il test con un archivio fittizio non sostituisce la prova sul dispositivo con gli archivi reali.
-
-## 7. Diagnostica Android, seriale ESP32 e prossimo test clipping
-
-**Android:** collegare ESP32 via BLE e aprire **LOG**; scegliere `BASE` per eventi essenziali o `DEBUG` per dettagli (default `OFF`). Sessione DEBUG fino a circa 60 minuti, interrotta da disconnessione/riavvio o da `LOG → OFF`. **Prima di staccare il BLE**, usare **Condividi / Esporta diagnostica**: si genera `motogps-android-diagnostics.zip` con log Android e, quando presenti, eventi ESP32 ricevuti via BLE. La diagnostica Android usa file a rotazione; il pacchetto ZIP **non** equivale al replay GPS separato.
-
+**Privacy:** contiene coordinate, velocità, percorso e telemetria; condividere solo esplicitamente e non caricarlo su GitHub. I file GPS sono segmentati per sessioni lunghe: estrarre lo ZIP e riprodurre i `.jsonl` in ordine. Un nuovo **Avvia** sovrascrive la precedente sessione GPS non esportata; salvare lo ZIP prima del giro successivo. I log Android/ESP32 ruotano per limitare lo spazio. I vecchi replay individuali restano compatibili con gli strumenti di analisi.
 **ESP32 sul PC:** per vedere la telemetria `LVGL_ROADS`, `display perf` e le statistiche di frame è utile il **log seriale USB**; il precedente logger nella partizione flash `diag` non è la fonte attuale. Con scheda collegata a COM3, **finestra CMD del comando `moto` / ESP-IDF attivo**:
 
 ```cmd
@@ -410,13 +338,55 @@ py -m serial.tools.miniterm COM3 115200 --eol LF
 
 Aprire **un solo monitor** per volta. Per il test in movimento, se il dispositivo è collegato al telefono e non al computer, non dare per scontato di poter acquisire contemporaneamente la seriale: usare la configurazione fisica consentita dall'hardware o affidarsi alla diagnostica Android via BLE. Non maneggiare cablaggi e telefono durante la guida.
 
-**Test clipping ancora aperto (15/11):** il renderer precedente è stato giudicato positivo, ma il culling per singolo segmento inserito il 14/11 non è stato provato per maltempo. Durante il giro con rotatorie/tornanti e strade grigie dense, annotare FPS, eventuali salti, linee tronche e comportamento sui ricalcoli. Nei log `LVGL_ROADS` confrontare `seg`, `seg_skip`, `dirty`, `tiles`; `seg_skip` conta i segmenti scartati anticipatamente, non dimostra da solo un guadagno di FPS. Distinguere sosta e movimento. **Non modificare ora il clipping o il protocollo BLE.**
+## 7. Simulatore LVGL/WASM e server web in WSL
+
+Il simulatore usa Emscripten già installato in `~/emsdk`. Lavorare nello **stesso checkout WSL** sia per build sia per avvio server, evitando il vecchio percorso misto `/mnt/c/...`. **Da WSL Ubuntu-24.04:**
+
+```bash
+cd ~/MotoGPS/moto-gps-waveshare
+source ~/emsdk/emsdk_env.sh
+command -v emcmake
+./scripts/build_web.sh
+```
+
+Gli output reali LVGL vengono generati in `platforms/web/shell/runtime/moto-gps-device.js` e `moto-gps-device.wasm`. La CI standard non compila automaticamente questa variante Emscripten.
+
+**Avvio / riavvio del server**: in un **secondo terminale WSL** (non chiudere quello del server durante le prove):
+
+```bash
+cd ~/MotoGPS/moto-gps-waveshare
+python3 -m http.server 4173 --directory .
+```
+
+Aprire **http://127.0.0.1:4173/platforms/web/simulator/index.html** da Chrome/Edge Windows. Dopo modifica e ricompilazione premere **Ctrl+F5**. Per riavviare il server fermarlo nel suo terminale con **Ctrl+C** e ripetere il comando: **non** lanciare un secondo server sulla stessa porta. Se sono cambiati solo HTML/JS, non serve ricompilare il WASM; dopo modifiche C++/LVGL/Navigator sì.
+
+**Replay GPS:** estrarre `gps/` da `motogps-diagnostica-completa.zip` e caricare i JSONL singoli in ordine cronologico; non caricare direttamente lo ZIP. Il browser non emula l'intera catena Android/GNSS/BLE/QMI8658; i numeri RAF/WASM/flush non sono misure dirette degli FPS fisici dell'ESP32.
+
+**Confronto A/B/C/C2 predizione nelle rotonde (19/11/2026, solo simulatore):** il selettore `Predizione posizione` offre **A** (predittore originale ESP32), **B** (posizione GPS snapshot, OFF) e **C** (prototipo WASM con attenuazione del movimento in curva e riallineamento più pronto al GPS), più **C2** (ingresso curva anticipato, riallineamento all’uscita, reset durante sosta). Aprire un JSONL estratto dalla cartella `gps/` dello ZIP diagnostico completo, usare **Heading Originale**, riproduzione **1× dall'inizio** e confrontare lo stesso tratto in A/B/C. Il pannello mostra scarti in metri rispetto al GPS registrato e il CSV esporta anche scarti laterali/longitudinali di C. **Non** sono errori certificati rispetto alla strada: nessun campione QMI8658 raw né timing BLE effettivo è disponibile. Per attivare C è indispensabile ricompilare in WSL con `source ~/emsdk/emsdk_env.sh && ./scripts/build_web.sh` e aggiornare Chrome con Ctrl+F5. Nessuna modifica o nuovo flash ESP32; istruzioni dettagliate in `platforms/web/simulator/README.md`.
+
+**Confronto di regressione A/B (solo se serve diagnosi):** `bash scripts/diagnostics/prepare_20261115_replay_ab.sh` prepara due simulatori isolati, baseline del 15/11 e branch test, su porte `4174` e `4175`. I dettagli delle scene e dei singoli bug sono in [diagnostica regressione](diagnostics/REGRESSION_BASELINE_20261115_VS_20261117.md), non in questa procedura quotidiana. Per verificare lo zoom sperimentale riprodurre lo stesso JSONL nelle due versioni e controllare gli interruttori A/B, normalmente OFF. Non confondere i due server A/B con quello quotidiano in porta 4173.
+
+## 8. Registrazione GPS e analisi della progressione
+
+**App Android, branch `test/merge-gps-20261118`:** seguire **Altre opzioni → Diagnostica e replay GPS → BASE/DEBUG → Avvia diagnostica completa** prima del giro. Il comando unifica registrazione GPS e diagnostica ESP32; l'esportazione è unica, come nella sezione 6. Non si avvia automaticamente e richiede il BLE connesso. Non maneggiare il telefono durante la guida.
+
+I replay sono estratti dalla sottocartella `gps/` dello ZIP completo. Se vengono registrate più parti, caricarle in ordine numerico. Una nuova sessione sostituisce le vecchie parti GPS locali: **esportare prima di ripartire**.
+**Per verificare blocchi della progressione e manovre**, l'APK test recente può includere eventi `route_full` e `progress_debug`. I replay vecchi privi di tali eventi non si possono completare retroattivamente. In WSL, dopo aver copiato il proprio JSONL o ZIP in un percorso privato:
+
+```bash
+cd ~/MotoGPS/moto-gps-waveshare
+python3 scripts/diagnostics/analyze_progress_replay.py \
+  "$HOME/motogps-replay.jsonl" \
+  --csv "$HOME/motogps-progress-analysis.csv"
+```
+
+Il parser accetta anche un ZIP multipart come input. I campi `match_mode`, `matched_progress_m`, `raw_remaining_m`, `guarded_remaining_m`, `next_type` e `turn_m` aiutano a distinguere stallo della progressione da scostamento della mappa. Conservare replay, ZIP e CSV privati, **non caricarli su GitHub**.
 
 
 
-## 8. Radio Wi-Fi sperimentale (modalità isolata)
+## 9. Radio Wi-Fi sperimentale (modalità isolata)
 
-**Sezione ripristinata dalle istruzioni del 30 ottobre 2026 e verificata contro il codice presente il 5 novembre.** I comandi sono realmente previsti da `platforms/esp32/main/signal_wifi_console.cpp` e `signal_radio_stream.cpp`, ma la radio resta **sperimentale**: la presenza del parser **non garantisce** che audio MP3, connettività Wi-Fi, touch e stabilità della riproduzione siano stati collaudati sul firmware corrente.
+I comandi sono previsti da `platforms/esp32/main/signal_wifi_console.cpp` e `signal_radio_stream.cpp`, ma la radio resta **sperimentale**: la presenza del parser **non garantisce** che audio MP3, connettività Wi-Fi, touch e stabilità della riproduzione siano stati collaudati sul firmware corrente.
 
 ### Come entrare nella modalità radio
 
@@ -470,98 +440,41 @@ Il separatore `|` mantiene gli spazi nel nome rete: ad esempio `wifi set Hotspot
 
 **Sicurezza:** la console può mostrare in chiaro la password digitata, e le credenziali NVS potrebbero non essere cifrate. Per prove e screenshot/log usare solo una rete di test; non pubblicare password, SSID personali o log con dati sensibili. **Non eseguire streaming radio in parallelo alla navigazione.**
 
-## 9. Simulatore browser e replay GPS
+## 10. Funzioni Android sperimentali (branch test)
 
-### Avvio del simulatore LVGL in WSL Ubuntu
+Le funzioni qui sotto sono nel branch `test/merge-gps-20261118` e **non vanno attribuite automaticamente alla versione stabile** `valhalla`. La disponibilità effettiva dipende dall'APK installato.
 
+- **Panoramico / Touring moto:** in **Opzioni percorso** scegliere il profilo; Panoramico preferisce un itinerario relativamente più tortuoso, ma non certifica il paesaggio né garantisce una distanza precisa.
+- **Tour circolare:** dalla ricerca aprire **Crea tour circolare**, impostare circa **30–300 km** e N/E/S/O, aggiungere eventuali luoghi obbligatori trovati con Photon (massimo otto), quindi **Calcola tour**. Con zero punti obbligatori il pianificatore propone tappe automatiche; con uno può aggiungere un punto laterale, con più punti rispetta il loro ordine. Verificare sempre la preview di Valhalla, il ritorno e le tappe prima di partire.
+- **Salvare un tour:** nell'anteprima usare **Salva questo tour**. L'archivio locale **I miei tour salvati** permette **Partenza salvata** (pianificazione dall'origine originale) oppure **Da qui** (origine GPS attuale). La geometria viene ricalcolata, non conservata immutabile; i tour non sono sincronizzati sul cloud.
+- **Pausa/ripresa:** durante un tour avviato usare **Pausa tour (riprendi più tardi)**, non **Termina navigazione**. Al ritorno aprire **Tour in pausa → Riprendi da qui**, verificare l'anteprima della tratta residua e avviare manualmente. L'app salva checkpoint locali; eliminarne i dati può farli perdere.
+- **Salta prossima tappa:** nell'app, durante una navigazione con waypoint intermedi, scegliere **Salta prossima tappa** e confermare **solo da fermi e in sicurezza**. Ricalcola verso le tappe residue; non consente di saltare la destinazione finale. Il comando touch da ESP32 non è implementato.
 
-Con Emscripten/emcmake installati in `~/emsdk` e il repository già presente in WSL, eseguire da **WSL Ubuntu** (non da PowerShell):
+Le prove di routing, checkpoint e BLE/IMU non coincidono con un collaudo dell'intero nuovo script MotoPack del 18/11. Evitare di trasformare richieste future o esperimenti A/B in istruzioni della versione stabile; consultare `PROJECT_STATE.md` per test e limiti aperti.
 
-```bash
-cd /mnt/c/MotoGPS/moto-gps-waveshare
-git switch valhalla
-git pull --ff-only origin valhalla
-git submodule update --init --recursive
-source ~/emsdk/emsdk_env.sh
-command -v emcmake
-./scripts/build_web.sh
-```
+## 11. Operazioni manuali eccezionali e riferimento rapido
 
-Lo script compila il runtime C++/LVGL in `platforms/web/shell/runtime/moto-gps-device.js` e `moto-gps-device.wasm`. **Non serve ripetere l'installazione di Emscripten** a ogni avvio; `source ~/emsdk/emsdk_env.sh` attiva la toolchain nella shell WSL corrente.
+**La rigenerazione ordinaria è quella unica della sezione 2.** Le utility separate servono solo per una riparazione mirata o per assemblare **componenti già pronti**, senza ricostruire i tre dataset. Non usare file MotoMap v2/v3, Photon v1 o grafi Valhalla di generazioni non coerenti.
 
-**Server HTTP locale:** se è già in esecuzione, lasciarlo attivo. Altrimenti, in **un secondo terminale WSL**, dalla radice dello stesso checkout:
+- `scripts/offline_map/pbf_to_motomap.py`: converte `italy-latest.osm.pbf` + `italy.poly` in MotoMap v4; usare un nome output nuovo per evitare di sostituire un file valido.
+- `scripts/offline_map/photon_to_sqlite.py`: converte il dump `photon-italy.jsonl.zst` in database SQLite v2; **non** usare il vecchio indice Photon/Lucene al posto del dump JSONL.
+- `scripts/offline_map/build_valhalla_moto_v5.sh`: ricostruisce solo il grafo V5 da PBF; la directory destinazione deve essere nuova.
+- `scripts/offline_map/build_motopack_wsl.sh`: builder integrale per una cartella **nuova**, con input e output espliciti; `--resume` riusa intermedi completi e quindi **non** è adatto a forzare un aggiornamento degli stessi componenti.
+- `scripts/offline_map/motopack.py build/verify`: assembla e verifica un pacchetto con MotoMap, Photon e Valhalla già generati.
 
-```bash
-cd /mnt/c/MotoGPS/moto-gps-waveshare
-python3 -m http.server 4173 --directory .
-```
+**Stato del pacchetto:** il `.motopack` ZIP64 contiene i tre archivi e `manifest.json` con dimensioni e SHA-256. Il collaudo del pacchetto precedente del 15/11 è positivo secondo i test riportati; ciò non certifica ancora la nuova rigenerazione del 18/11.
 
-Aprire in Chrome/Edge su Windows: **http://127.0.0.1:4173/platforms/web/simulator/index.html**. Dopo un aggiornamento o una build, premere **Ctrl+F5** per evitare file JavaScript/WASM in cache. Il server si arresta con `Ctrl+C` nel terminale in cui gira. Se la porta 4173 risulta occupata, verificare prima che il server precedente sia ancora attivo, invece di avviarne un secondo.
+| Operazione frequente | Dove | Comando o percorso |
+| --- | --- | --- |
+| Aggiornare branch test | WSL | `git pull --ff-only origin test/merge-gps-20261118` |
+| Ricostruire tutto il MotoPack | WSL | `bash scripts/offline_map/rebuild_motopack_wsl.sh --threads 2` |
+| Aprire risultati da Windows | Win + R | `\\wsl.localhost\Ubuntu-24.04\home\mod\motogps-build\ItaliaUnificata-20261118` |
+| Compilare ESP32 | CMD attivato con `moto` | `idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.perf.defaults" build` |
+| Flash sola app ESP32 | CMD/esptool | offset `0x20000` (non `0x10000`) |
+| Compilare Android | PowerShell | `.\gradlew.bat testDebugUnitTest assembleDebug` |
+| Ricompilare simulatore | WSL + emsdk | `./scripts/build_web.sh` |
+| Avviare / riavviare server | WSL | `python3 -m http.server 4173 --directory .` (fermare il precedente con Ctrl+C) |
+| Avviare diagnostica unificata | Android | Altre opzioni → Diagnostica e replay GPS → BASE/DEBUG → Avvia diagnostica completa |
+| Esportare GPS + ESP32 + Android | Android | Ferma ed esporta tutto (ZIP): `motogps-diagnostica-completa.zip` |
 
-**Quando ricompilare:** se sono cambiati file C++/LVGL/NavPresenter oppure manca il runtime, eseguire `source ~/emsdk/emsdk_env.sh` e `./scripts/build_web.sh` dopo il pull. Per modifiche **solo JavaScript/HTML** del simulatore basta `git pull --ff-only origin valhalla` e `Ctrl+F5` (non è necessario ricompilare WASM).
-
-**Anteprima senza compilatore:** su Windows si può aprire direttamente `platforms\web\simulator\index.html`. Senza runtime comparirà `ANTEPRIMA 2D · NON LVGL`: mostra percorsi, scene e zoom, ma non riproduce esattamente il rendering dell'ESP32. Per utilizzare **LVGL reale** aprire l'URL HTTP sopra; `file://` non è sufficiente per caricare correttamente il runtime WASM.
-
-**Alternativa PowerShell nativa (non verificata sul PC):** con Emscripten Windows attivo è possibile tentare `emcmake cmake -S . -B build/web -DMOTO_BUILD_WEB=ON -DMOTO_BUILD_TESTS=OFF`, `cmake --build build/web --parallel` e `py -m http.server 4173`. La procedura verificata dall'utente resta **WSL Ubuntu**.
-
-**Nota PC Windows/WSL:** se il checkout per il simulatore si trova invece in `~/MotoGPS/moto-gps-waveshare`, usare **quel** percorso coerentemente sia per build sia per server. Su un PC con poca RAM limitare il parallelismo della compilazione dopo una diagnosi, non interpretare un processo `Killed` come bug di LVGL.
-
-### Registrare un replay GPS dall'app Android
-
-La registrazione del trace GPS rimane **OFF per impostazione predefinita** e si attiva manualmente dal pannello **LOG → Avvia registrazione GPS**. Non si interrompe automaticamente dopo 60 minuti; salva file consecutivi `replay-current-part-00001.jsonl`, `00002.jsonl`, ecc. La rotazione avviene ogni **30 minuti o circa 12 MiB per singolo file**, senza un limite fissato al numero di file o alla durata totale della sessione (resta il limite fisico dello spazio disponibile sul telefono). La scrittura resta su thread privato, senza carico di I/O nel callback GPS/BLE.
-
-Al termine premere **Ferma registrazione GPS → Esporta tracciato simulatore**: con una sola parte si condivide `motogps-replay.jsonl`; con più parti, `motogps-replay-parts.zip` che contiene **tutti i .jsonl numerati** e un README. Su Windows, estrarre lo ZIP e caricare i file `.jsonl` nel simulatore **uno alla volta, in ordine numerico**: ogni parte è autonoma e ricomincia da `t_ms=0`, ma contiene `part_index`, `session_elapsed_ms` e data iniziale per riallineare le prove. Non passare direttamente lo ZIP al selettore `.jsonl` del simulatore.
-
-**Attenzione a sicurezza e dati:** il file GPS contiene coordinate, posizioni previste, velocità, geometrie della rotta verde e delle strade MotoMap e manovre. Rimane privato finché non viene esportato volontariamente. Lo ZIP ordinario di **diagnostica Android non include i replay né coordinate**. L'avvio di una **nuova** registrazione sostituisce le parti locali della sessione precedente: esportare la sessione precedente prima di riavviare la registrazione. Se la memoria del telefono si esaurisce, la scrittura fallirà e la registrazione si interromperà; non esiste spazio di archiviazione infinito. Non maneggiare il telefono mentre si guida, né usare DEBUG ESP32 approfondito solo per registrare il GPS.
-
-La telemetria browser (RAF, WASM, render/flush) misura il **simulatore**, non il display ESP32. Le vecchie prove/patch iterative del novembre 2026 sono nell'archivio storico; non usare i vecchi comandi su branch `test/*`.
-
-
-## 10. Photon offline **v2** (ricerca indirizzi e civici)
-
-**Valhalla e MotoMap non dipendono da Photon.** Il convertitore in `valhalla` produce **solo lo schema SQLite v2**: FTS4 `contentless` e dizionari per comuni/regioni. La precedente v1 da circa 2 GiB è **incompatibile con il lettore Android v2**; la vecchia istruzione di generare `photon-italy.sqlite` con schema v1 è obsoleta.
-
-**Origine dump:** `photon-dump-italy-1.0-latest.jsonl.zst` (dump Photon/Nominatim italiano, non gli archivi server `photon-db*.tar.bz2`), disponibile dalla distribuzione pubblica GraphHopper:
-https://download1.graphhopper.com/public/europe/italy/photon-dump-italy-1.0-latest.jsonl.zst
-
-Conservare il dump in `C:\MotoGPS\PBF`, **fuori dal repository**. Se il comando `zstd` non è installato su Windows, da PowerShell è possibile usare `winget install --id Meta.Zstandard -e` e riaprire la finestra, verificando `zstd --version`. L'ultima conversione dell'utente ha già prodotto un database funzionante: **8.362.869 luoghi, 15.909 saltati, 1.074,0 MiB**; ricerca offline Android confermata per Courmayeur, Via Roma Torino e indirizzo con civico e accento. Non occorre rigenerarlo per aggiornare l'APK.
-
-**Solo se serve rigenerare** (Windows PowerShell, Python Launcher **`py`** perché `python` non era disponibile nel PATH del PC; `zstd` installato e visibile nel PATH):
-
-```powershell
-Set-Location "C:\MotoGPS\moto-gps-waveshare"
-git switch valhalla
-git pull --ff-only origin valhalla
-py --version
-zstd --version
-py scripts/offline_map/photon_to_sqlite.py --input "C:\MotoGPS\PBF\photon-dump-italy-1.0-latest.jsonl.zst" --output "C:\MotoGPS\PBF\photon-italy-v2.sqlite"
-```
-
-Il convertitore accetta `.jsonl` o `.jsonl.zst` e non sovrascrive un output esistente. Se `photon-italy-v2.sqlite` esiste già, **non cancellarlo** per prova: usare un nuovo nome output (es. `photon-italy-v2-new.sqlite`). Finalizzazione con FTS optimize e `VACUUM`: serve spazio temporaneo aggiuntivo sul disco. Sul PC Windows `py` è il launcher ufficiale e va bene anche quando il comando `python` non è disponibile.
-
-```powershell
-Get-Item "C:\MotoGPS\PBF\photon-italy-v2.sqlite" |
-    Select-Object Name, @{Name="MiB";Expression={[math]::Round($_.Length / 1MB, 1)}}
-```
-
-Per installarlo: copiare il database `.sqlite` (non lo `.zst` dump) in **Download** sul telefono → **Moto Chat GPS → Gestione mappe → Ricerca indirizzi offline — Photon → Importa indice Photon SQLite**. La copia è atomica con backup temporaneo, richiede spazio libero ulteriore; non reimportare per il semplice aggiornamento del codice.
-
-**Verifica offline:** disattivare rete/dati e cercare Courmayeur, Via Roma Torino, una strada con numero civico e un accento. Se l'indice manca o è incompatibile, l'app tenta Photon online e può mostrare errore di rete; la ricerca con indice valido resta offline, anche con zero risultati. Le coordinate inserite manualmente restano disponibili offline. Mantenere attribuzione OpenStreetMap/ODbL e Photon per qualsiasi distribuzione.
-
-## 11. Riepilogo delle operazioni quotidiane
-
-| Scopo | Azione corretta |
-| --- | --- |
-| Aggiornare i sorgenti | `git switch valhalla` + `git pull --ff-only origin valhalla` |
-| Compilare firmware ESP32 locale | PowerShell `moto` → CMD `idf.py … build` |
-| Flash app ESP32 | offset **`0x20000`**, non `0x10000` |
-| Installare APK | Artifact Android del branch `valhalla` o `gradlew.bat assembleDebug`; controllare firma |
-| Rigenerare strade grigie | `pbf_to_motomap.py` → **MotoMap v4 ZIP** |
-| Rigenerare indirizzi offline | Windows **`py`** + `photon_to_sqlite.py` → **Photon v2 SQLite** |
-| Rigenerare grafi moto | WSL `build_valhalla_moto_v5.sh --zstd --threads 2` |
-| Controllare grafi | WSL `analyze_valhalla_graph.py` V4/V5 |
-| Replay | WSL `./scripts/build_web.sh` + `python3 -m http.server 4173 --directory .` |
-| Diagnostica | Android LOG/ZIP e, per FPS/segmenti, seriale ESP32 |
-| Test rimasto aperto | **Clipping LVGL per segmento**: prova su strada, senza modifiche prima del feedback |
-
-**Materiale storico:** [archive/MANUALE_OPERATIVO_PRE_CLEANUP_2026-11-15.md](archive/MANUALE_OPERATIVO_PRE_CLEANUP_2026-11-15.md); non usarlo per comandi correnti.
+**Conservare come storico**, non come procedura corrente: [vecchio manuale](archive/MANUALE_OPERATIVO_PRE_CLEANUP_2026-11-15.md), [stato del progetto e diagnosi dettagliate](../PROJECT_STATE.md). Non cancellare source PBF o archivi validi per fare spazio senza averne un backup.

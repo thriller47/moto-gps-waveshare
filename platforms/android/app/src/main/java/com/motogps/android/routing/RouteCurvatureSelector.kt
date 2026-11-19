@@ -24,9 +24,11 @@ internal object RouteCurvatureSelector {
         val primaryBends = bendDensity(primary) ?: return response
         val alternates = response.optJSONArray("alternates") ?: return response
 
-        // Extra travel permitted depends on the rider's curve intensity.
-        val maxTimeFactor = 1.0 + 0.08 * preferences.curveLevel
-        val maxLengthFactor = 1.0 + 0.13 * preferences.curveLevel
+        // Panoramic uses a medium bend preference, independent of the Touring slider.
+        // This ranks curves only, never claims knowledge of landscape quality.
+        val intensity = if (preferences.style == RouteStyle.PANORAMIC) 2 else preferences.curveLevel
+        val maxTimeFactor = 1.0 + 0.08 * intensity
+        val maxLengthFactor = 1.0 + 0.13 * intensity
         var best = primary
         var bestScore = primaryBends
         for (index in 0 until min(2, alternates.length())) {
@@ -41,7 +43,7 @@ internal object RouteCurvatureSelector {
             val detourTime = max(0.0, time / baseTime - 1.0)
             val detourKm = max(0.0, distance / baseKm - 1.0)
             // Penalize gratuitous loops; higher intensity tolerates detours.
-            val penalty = (24.0 / preferences.curveLevel) * (detourTime + detourKm)
+            val penalty = (24.0 / intensity) * (detourTime + detourKm)
             val score = bends - penalty
             if (score > bestScore + 1.0) {
                 bestScore = score

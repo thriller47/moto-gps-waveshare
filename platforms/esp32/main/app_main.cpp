@@ -6,6 +6,7 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_sleep.h"
+#include "driver/rtc_io.h"
 #include "esp_timer.h"
 #include "esp_attr.h"
 #include "esp_system.h"
@@ -75,12 +76,12 @@ void update_motion_heading(float heading_rate_dps, std::uint64_t sample_ms,
                                                        sample_ms);
 }
 
-void demo_tick_task(void* context) {
+void motion_tick_task(void* context) {
   auto* bridge = static_cast<PhoneNavBridge*>(context);
   while (true) {
     const auto now_ms = static_cast<std::uint64_t>(esp_timer_get_time()) /
                         1'000U;
-    bridge->update_demo(now_ms);
+    bridge->update_motion_tick();
     // A maximum of one small diagnostic BLE batch/second, only when
     // explicitly enabled by Android. OFF does no work and never writes flash.
     bridge->service_diagnostics(now_ms);
@@ -123,6 +124,8 @@ void power_down(const char* reason) {
   }
   vTaskDelay(pdMS_TO_TICKS(500));
   while (board_port_power_button_pressed()) vTaskDelay(pdMS_TO_TICKS(20));
+  rtc_gpio_pulldown_en(GPIO_NUM_3);
+  rtc_gpio_pullup_dis(GPIO_NUM_3);
   ESP_ERROR_CHECK(esp_sleep_enable_ext1_wakeup_io(
       1ULL << 3, ESP_EXT1_WAKEUP_ANY_HIGH));
   esp_deep_sleep_start();
@@ -238,6 +241,8 @@ extern "C" void app_main(void) {
            static_cast<unsigned long>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)));
 
   MOTO_PSRAM_BSS static moto::nav::NavPresenter presenter;
+  // Use the proven maneuver zoom by default. The 17 Nov geometry-only
+  // experiment remains opt-in in the simulator after the replay regression.
 #ifdef MOTO_ESP_CURVE_ZOOM_EXPERIMENT
   // Test-only firmware: use the identical detector and 55 m / 80 m
   // hysteresis already exercised by browser replay/native tests.
@@ -406,11 +411,11 @@ extern "C" void app_main(void) {
     ESP_LOGI(kTag, "BOOT_DIAG stage=ble_advertising_requested");
   }
 
-  // Demo generation fills the retained snapshot in place, but geometry and
-  // LVGL projection still use deeper C++ call frames than a trivial task.
-  if (xTaskCreate(demo_tick_task, "moto_demo", 6'144, &phone_bridge, 2,
+  // Maintain 40 Hz motion interpolation and low-rate BLE diagnostics.
+  // This is NOT a simulated demo route: all map geometry comes from Android.
+  if (xTaskCreate(motion_tick_task, "moto_motion", 6'144, &phone_bridge, 2,
                   nullptr) != pdPASS) {
-    ESP_LOGW(kTag, "navigation demo task could not start");
+    ESP_LOGW(kTag, "navigation motion tick task could not start");
   }
 
 #ifdef MOTO_SIGNAL_AUDIO_BOOT_TEST

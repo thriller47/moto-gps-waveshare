@@ -14,8 +14,6 @@ moto_page_change_callback_t page_callback = nullptr;
 void* page_callback_context = nullptr;
 moto_music_command_callback_t music_callback = nullptr;
 void* music_callback_context = nullptr;
-moto_demo_change_callback_t demo_callback = nullptr;
-void* demo_callback_context = nullptr;
 int apply_count = 0;
 int waypoint_notice_count = 0;
 int waypoint_clear_count = 0;
@@ -29,7 +27,6 @@ uint8_t last_route_point_count = 0;
 uint8_t last_road_point_count = 0;
 uint8_t last_road_polyline_count = 0;
 uint8_t last_road_class = 0;
-uint8_t last_demo_active = 0;
 moto_maneuver_t last_maneuver = MOTO_MANEUVER_STRAIGHT;
 uint32_t last_distance_to_maneuver_m = 0;
 moto_ui_phone_connection_t last_phone_connection = MOTO_UI_PHONE_OFFLINE;
@@ -151,19 +148,6 @@ extern "C" void moto_nav_ui_set_music_command_callback(
   music_callback_context = context;
 }
 
-extern "C" void moto_nav_ui_set_demo_active(uint8_t enabled) {
-  const std::lock_guard<std::mutex> lock(probe_mutex);
-  last_demo_active = enabled;
-}
-
-extern "C" void moto_nav_ui_set_demo_change_callback(
-    moto_demo_change_callback_t callback,
-    void* context) {
-  const std::lock_guard<std::mutex> lock(probe_mutex);
-  demo_callback = callback;
-  demo_callback_context = context;
-}
-
 namespace moto::test {
 
 void reset_phone_nav_bridge_probe() {
@@ -181,7 +165,6 @@ void reset_phone_nav_bridge_probe() {
   last_road_point_count = 0;
   last_road_polyline_count = 0;
   last_road_class = 0;
-  last_demo_active = 0;
   last_maneuver = MOTO_MANEUVER_STRAIGHT;
   last_distance_to_maneuver_m = 0;
   last_phone_connection = MOTO_UI_PHONE_OFFLINE;
@@ -222,19 +205,6 @@ void emit_music_command(moto_music_command_t command) {
   if (callback == nullptr) return;
   const std::lock_guard<std::recursive_mutex> lock(board_mutex);
   callback(command, context);
-}
-
-void emit_demo_change(bool enabled) {
-  moto_demo_change_callback_t callback = nullptr;
-  void* context = nullptr;
-  {
-    const std::lock_guard<std::mutex> lock(probe_mutex);
-    callback = demo_callback;
-    context = demo_callback_context;
-  }
-  if (callback == nullptr) return;
-  const std::lock_guard<std::recursive_mutex> lock(board_mutex);
-  callback(enabled ? 1U : 0U, context);
 }
 
 int phone_nav_bridge_waypoint_notice_events() {
@@ -340,11 +310,6 @@ std::string phone_nav_bridge_media_title() {
 std::string phone_nav_bridge_media_artist() {
   const std::lock_guard<std::mutex> lock(probe_mutex);
   return media_artist;
-}
-
-bool phone_nav_bridge_last_demo_active() {
-  const std::lock_guard<std::mutex> lock(probe_mutex);
-  return last_demo_active != 0;
 }
 
 moto_maneuver_t phone_nav_bridge_last_maneuver() {

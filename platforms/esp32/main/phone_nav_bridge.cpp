@@ -8,7 +8,6 @@
 #include <utility>
 
 #include "board_port.h"
-#include "demo_fixture/jinan_big_data_demo.hpp"
 #include "esp_log.h"
 #include "moto_diagnostics.h"
 #include "esp_timer.h"
@@ -20,134 +19,6 @@
 
 namespace {
 constexpr char kTag[] = "phone_nav";
-constexpr double kDemoEarthRadiusM = 6'371'000.0;
-constexpr double kPi = 3.14159265358979323846;
-// The built-in ride begins at the real mapped driveway beside the D building.
-// At 12 m/s the first geometry-derived turn arrives after about 6.6 seconds,
-// so a physical-device check sees both the road context and a maneuver quickly.
-constexpr double kDemoRouteStartM = 0.0;
-constexpr double kDemoSpeedMps = 12.0;
-
-struct DemoPose {
-  moto::nav::Gcj02Point point{};
-  float heading_deg = 0.0F;
-};
-
-double demo_geo_distance(const moto::nav::Gcj02Point& from,
-                         const moto::nav::Gcj02Point& to) {
-  const double latitude =
-      (from.latitude_deg + to.latitude_deg) * 0.5 * kPi / 180.0;
-  const double north =
-      (to.latitude_deg - from.latitude_deg) * kPi / 180.0 *
-      kDemoEarthRadiusM;
-  const double east =
-      (to.longitude_deg - from.longitude_deg) * kPi / 180.0 *
-      std::cos(latitude) * kDemoEarthRadiusM;
-  return std::hypot(east, north);
-}
-
-const std::array<double, moto::demo::jinan_big_data::kRoute.size()>&
-demo_cumulative_distance() {
-  static const auto cumulative = [] {
-    std::array<double, moto::demo::jinan_big_data::kRoute.size()> values{};
-    for(std::size_t index = 1; index < values.size(); ++index) {
-      values[index] = values[index - 1] + demo_geo_distance(
-          moto::demo::jinan_big_data::kRoute[index - 1],
-          moto::demo::jinan_big_data::kRoute[index]);
-    }
-    return values;
-  }();
-  return cumulative;
-}
-
-moto::nav::Gcj02Point demo_route_point(double route_offset_m) {
-  const auto& cumulative = demo_cumulative_distance();
-  const double geometry_offset = std::clamp(
-      route_offset_m, 0.0, cumulative.back());
-  auto upper = std::upper_bound(cumulative.begin(), cumulative.end(),
-                                geometry_offset);
-  if(upper == cumulative.begin()) {
-    return moto::demo::jinan_big_data::kRoute.front();
-  }
-  if(upper == cumulative.end()) {
-    return moto::demo::jinan_big_data::kRoute.back();
-  }
-  const std::size_t end_index =
-      static_cast<std::size_t>(upper - cumulative.begin());
-  const std::size_t start_index = end_index - 1;
-  const double segment = cumulative[end_index] - cumulative[start_index];
-  const double fraction = segment > 0.0
-                              ? (geometry_offset - cumulative[start_index]) /
-                                    segment
-                              : 0.0;
-  const auto& start = moto::demo::jinan_big_data::kRoute[start_index];
-  const auto& end = moto::demo::jinan_big_data::kRoute[end_index];
-  return {
-      start.latitude_deg + (end.latitude_deg - start.latitude_deg) * fraction,
-      start.longitude_deg +
-          (end.longitude_deg - start.longitude_deg) * fraction,
-  };
-}
-
-double demo_route_distance() {
-  return demo_cumulative_distance().back();
-}
-
-double demo_maneuver_offset(
-    const moto::demo::jinan_big_data::ManeuverFixture& maneuver) {
-  const auto& cumulative = demo_cumulative_distance();
-  const std::size_t index = std::min<std::size_t>(
-      maneuver.route_point_index, cumulative.size() - 1);
-  return cumulative[index];
-}
-
-float demo_bearing(const moto::nav::Gcj02Point& from,
-                   const moto::nav::Gcj02Point& to) {
-  const double latitude =
-      (from.latitude_deg + to.latitude_deg) * 0.5 * kPi / 180.0;
-  const double north = to.latitude_deg - from.latitude_deg;
-  const double east = (to.longitude_deg - from.longitude_deg) *
-                      std::cos(latitude);
-  double value = std::atan2(east, north) * 180.0 / kPi;
-  if(value < 0.0) value += 360.0;
-  return static_cast<float>(value);
-}
-
-DemoPose demo_pose(double route_offset_m) {
-  constexpr double kTangentHalfWindowM = 11.0;
-  const auto before = demo_route_point(route_offset_m - kTangentHalfWindowM);
-  const auto after = demo_route_point(route_offset_m + kTangentHalfWindowM);
-  return {
-      demo_route_point(route_offset_m),
-      demo_bearing(before, after),
-  };
-}
-
-void add_demo_road_context(moto::nav::NavSnapshot& output) {
-  static_assert(moto::demo::jinan_big_data::kRoadPoints.size() <=
-                moto::nav::kRoadContextPointCapacity);
-  static_assert(moto::demo::jinan_big_data::kRoads.size() <=
-                moto::nav::kRoadContextPolylineCapacity);
-  output.road_context_point_count = static_cast<std::uint8_t>(
-      moto::demo::jinan_big_data::kRoadPoints.size());
-  std::copy(moto::demo::jinan_big_data::kRoadPoints.begin(),
-            moto::demo::jinan_big_data::kRoadPoints.end(),
-            output.road_context_points.begin());
-  output.road_context_polyline_count = static_cast<std::uint8_t>(
-      moto::demo::jinan_big_data::kRoads.size());
-  for(std::size_t index = 0;
-      index < moto::demo::jinan_big_data::kRoads.size(); ++index) {
-    const auto& road = moto::demo::jinan_big_data::kRoads[index];
-    output.road_context_polylines[index] = {
-        road.first_point_index,
-        road.point_count,
-        moto::nav::RoadContextClass::Residential,
-    };
-  }
-  output.has_road_context = true;
-  output.map_scene_revision = 0;
-}
-
 void clear_road_context(moto::nav::NavSnapshot& output) {
   output.has_road_context = false;
   output.road_context_point_count = 0;
@@ -162,15 +33,6 @@ void clear_map_context(moto::nav::NavSnapshot& output) {
 moto::nav::RoadContextClass map_road_class(
     moto::ble::MapRoadClass road_class) {
   return static_cast<moto::nav::RoadContextClass>(road_class);
-}
-
-bool is_ios_demo_route_token(std::uint32_t route_token) {
-  static const std::uint32_t kDemoRouteToken = moto::ble::route_token(
-      moto::demo::jinan_big_data::kRouteId);
-  static const std::uint32_t kReroutedDemoRouteToken =
-      moto::ble::route_token(moto::demo::jinan_big_data::kReroutedRouteId);
-  return route_token == kDemoRouteToken ||
-         route_token == kReroutedDemoRouteToken;
 }
 
 moto::nav::NavState map_state(moto::ble::NavigationState state) {
@@ -281,7 +143,6 @@ void PhoneNavBridge::set_sender(SendCallback callback,
 void PhoneNavBridge::install_ui_callbacks() {
   moto_nav_ui_set_page_change_callback(page_changed, this);
   moto_nav_ui_set_music_command_callback(music_command, this);
-  moto_nav_ui_set_demo_change_callback(demo_changed, this);
 }
 
 bool PhoneNavBridge::start_renderer() {
@@ -381,6 +242,8 @@ void PhoneNavBridge::on_link_state(bool active) {
       phone_snapshot.route_view_point_count = 0;
       clear_map_context(phone_snapshot);
       heading_fusion_.reset();
+      last_phone_anchor_ms_ = 0;
+      last_anchored_phone_heading_deg_ = -1.0F;
       last_motion_present_ms_ = 0;
       music_page_enabled_ = false;
       media_state_ = {};
@@ -402,8 +265,7 @@ void PhoneNavBridge::on_imu_sample(float heading_rate_dps,
   bool should_present = false;
   {
     const std::lock_guard<std::mutex> lock(state_mutex_);
-    if (demo_active_ ||
-        !heading_fusion_.integrate(heading_rate_dps, sample_ms)) {
+    if (!heading_fusion_.integrate(heading_rate_dps, sample_ms)) {
       return;
     }
     snapshot_.heading_deg = heading_fusion_.heading_deg();
@@ -422,122 +284,20 @@ void PhoneNavBridge::on_imu_sample(float heading_rate_dps,
   if (should_present) present_motion();
 }
 
-void PhoneNavBridge::fill_demo_snapshot(moto::nav::NavSnapshot& output,
-                                        std::uint64_t elapsed_ms) {
-  constexpr std::uint64_t kArrivalHoldMs = 2'200;
-  const double route_distance_m = demo_route_distance();
-  const std::uint64_t moving_ms = static_cast<std::uint64_t>(
-      (route_distance_m - kDemoRouteStartM) /
-      kDemoSpeedMps * 1'000.0);
-  const std::uint64_t cycle_ms = moving_ms + kArrivalHoldMs;
-  const std::uint64_t phase_ms = elapsed_ms % cycle_ms;
-  const bool arrived = phase_ms >= moving_ms;
-  const double progress = arrived
-                              ? route_distance_m
-                              : std::min(
-                                    route_distance_m,
-                                    kDemoRouteStartM +
-                                        phase_ms / 1'000.0 * kDemoSpeedMps);
-  const DemoPose rider = demo_pose(progress);
-
-  output = {};
-  output.state = arrived ? moto::nav::NavState::Arrived
-                         : moto::nav::NavState::Navigating;
-  output.network = moto::nav::NetworkState::Online;
-  output.display_page = moto::nav::DisplayPage::Navigation;
-  output.has_destination = true;
-  output.has_usable_fix = true;
-  output.gnss_stale = false;
-  output.speed_mps = arrived ? 0.0F : static_cast<float>(
-      kDemoSpeedMps + std::sin(phase_ms / 850.0) * 1.6);
-  output.heading_deg = rider.heading_deg;
-  output.horizontal_accuracy_m = 3.2F;
-  // A clearly visible demo-only value exercises the sign treatment. OSM road
-  // geometry does not include a verified speed-limit value for this fixture.
-  output.speed_limit_kph = 50;
-  output.route_id = moto::demo::jinan_big_data::kRouteId;
-  output.route_progress_m = progress;
-  output.total_distance_m = route_distance_m;
-  output.remaining_distance_m = std::max(
-      0.0, route_distance_m - progress);
-  output.remaining_duration_s = static_cast<std::uint32_t>(
-      std::ceil(output.remaining_distance_m / kDemoSpeedMps));
-  output.traffic_ahead = phase_ms % 11'000U > 8'500U
-                             ? moto::nav::TrafficLevel::Slow
-                             : moto::nav::TrafficLevel::FreeFlow;
-  output.route_generation = 1;
-  output.now_ms = elapsed_ms;
-  output.last_fix_ms = elapsed_ms;
-  output.last_traffic_update_ms = elapsed_ms;
-
-  output.has_next_maneuver = !arrived;
-  if (!arrived) {
-    // Select the first not-yet-passed instruction from the verified OSM
-    // route. A maneuver at the route origin only describes the initial road;
-    // skip it so the round display opens on the first actionable turn rather
-    // than a misleading straight-ahead instruction at 0 m.
-    const moto::demo::jinan_big_data::ManeuverFixture* next =
-        &moto::demo::jinan_big_data::kManeuvers.back();
-    for(std::size_t index = 1;
-        index < moto::demo::jinan_big_data::kManeuvers.size(); ++index) {
-      const auto& maneuver = moto::demo::jinan_big_data::kManeuvers[index];
-      if(demo_maneuver_offset(maneuver) > progress + 0.5) {
-        next = &maneuver;
-        break;
-      }
-    }
-    output.next_maneuver.id = next->id;
-    output.next_maneuver.type = next->type;
-    output.next_maneuver.route_offset_m = demo_maneuver_offset(*next);
-    output.next_maneuver.road_name = next->road_name;
-    output.next_maneuver.instruction = next->instruction;
-    output.distance_to_next_maneuver_m = std::max(
-        0.0, output.next_maneuver.route_offset_m - progress);
-  }
-
-  output.route_view_origin = rider.point;
-  output.route_view_point_count =
-      static_cast<std::uint8_t>(moto::nav::kRouteViewPointCapacity);
-  for (std::size_t i = 0; i < moto::nav::kRouteViewPointCapacity; ++i) {
-    // A constant-size 600 m real route window keeps the white selected route
-    // stable while the fixed rider advances and the entire map rotates.
-    const double sample_distance = std::clamp(
-        progress - 52.0 + static_cast<double>(i) * 27.0,
-        0.0, route_distance_m);
-    output.route_view_points[i] = demo_route_point(sample_distance);
-  }
-  output.has_route_view = true;
-  add_demo_road_context(output);
-}
-
-void PhoneNavBridge::update_demo(std::uint64_t now_ms) {
-  bool demo = false;
+void PhoneNavBridge::update_motion_tick() {
   bool motion = false;
   {
     const std::lock_guard<std::mutex> lock(state_mutex_);
-    demo = demo_active_;
-    if (demo) {
-      const std::uint64_t elapsed_ms = now_ms >= demo_started_ms_
-                                           ? now_ms - demo_started_ms_
-                                           : 0;
-      fill_demo_snapshot(snapshot_, elapsed_ms);
-    } else {
-      motion = snapshot_.state == moto::nav::NavState::Navigating &&
-               snapshot_.has_route_view;
-    }
+    motion = snapshot_.state == moto::nav::NavState::Navigating &&
+             snapshot_.has_route_view;
   }
-  if (demo) {
-    present_navigation();
-  } else if (motion) {
-    // A regular 25 ms position tick keeps the map smooth even when the
-    // QMI8658 has not yielded a new heading sample. Requests coalesce with
-    // the IMU renderer and never enter LVGL from this task.
-    present_motion();
-  }
+  // The 25 ms tick must remain: it advances the real phone route smoothly
+  // even when no new QMI8658 heading event arrives.
+  if (motion) present_motion();
 }
 
 void PhoneNavBridge::service_diagnostics(std::uint64_t now_ms) {
-  // Called only by the low-priority 25 ms demo clock; no work from BLE RX or
+  // Called only by the low-priority 25 ms motion clock; no work from BLE RX or
   // from the 40 Hz display renderer. No send or allocation when OFF.
   // OFF/disconnection also discards an unsent previous-session batch.
   if (moto_diag_mode() == 0) {
@@ -564,23 +324,6 @@ void PhoneNavBridge::service_diagnostics(std::uint64_t now_ms) {
               0, sender_context_)) {
     pending_diagnostic_batch_.records.clear();
   }
-}
-
-void PhoneNavBridge::set_demo_active(bool active) {
-  {
-    const std::lock_guard<std::mutex> lock(state_mutex_);
-    if (active == demo_active_) return;
-    demo_active_ = active;
-    if (active) {
-      snapshot_before_demo_ = snapshot_;
-      demo_started_ms_ = monotonic_ms();
-      fill_demo_snapshot(snapshot_, 0);
-    } else {
-      snapshot_ = snapshot_before_demo_;
-      demo_started_ms_ = 0;
-    }
-  }
-  present_navigation();
 }
 
 moto::ble::AckStatus PhoneNavBridge::on_message(
@@ -676,14 +419,6 @@ void PhoneNavBridge::consume_navigation(
     const moto::ble::NavigationSnapshot& input) {
   {
     const std::lock_guard<std::mutex> lock(state_mutex_);
-    // A valid phone snapshot is always authoritative. Older firmware allowed
-    // an accidental long press to leave the visible display in its built-in
-    // demo forever while real phone geometry was written to a hidden backup.
-    if (demo_active_) {
-      snapshot_ = snapshot_before_demo_;
-      demo_active_ = false;
-      demo_started_ms_ = 0;
-    }
     auto& phone_snapshot = phone_snapshot_locked();
     // Receiving a valid navigation snapshot proves that the two-phase
     // protocol session is usable even if a reordered Ready frame was not
@@ -700,9 +435,23 @@ void PhoneNavBridge::consume_navigation(
         static_cast<float>(input.heading_cdeg) / 100.0F;
     const bool has_usable_fix = has_flag(
         input.flags, moto::ble::NavigationHasFix);
-    heading_fusion_.anchor(phone_heading_deg, phone_speed_mps,
-                           has_usable_fix && !has_flag(
-                               input.flags, moto::ble::NavigationGnssStale));
+    // Snapshots can arrive 4x per second while the phone's GNSS course is
+    // updated only about once per second. Re-anchoring every copy would
+    // compound the correction gain and effectively disable gyro smoothing.
+    const bool valid_course = has_usable_fix && !has_flag(
+        input.flags, moto::ble::NavigationGnssStale) &&
+        std::isfinite(phone_heading_deg) &&
+        phone_heading_deg >= 0.0F && phone_heading_deg < 360.0F;
+    const std::uint64_t anchor_now_ms = monotonic_ms();
+    const bool repeat_course = last_phone_anchor_ms_ != 0 &&
+        anchor_now_ms >= last_phone_anchor_ms_ &&
+        anchor_now_ms - last_phone_anchor_ms_ < 900U &&
+        std::abs(phone_heading_deg - last_anchored_phone_heading_deg_) < 0.01F;
+    if (valid_course && (phone_speed_mps < 1.5F || !repeat_course)) {
+      heading_fusion_.anchor(phone_heading_deg, phone_speed_mps, true, NAN, anchor_now_ms);
+      last_phone_anchor_ms_ = anchor_now_ms;
+      last_anchored_phone_heading_deg_ = phone_heading_deg;
+    }
 
     phone_snapshot.state = map_state(input.state);
     // A waypoint notice reuses the existing bounded instruction string.
@@ -769,14 +518,10 @@ void PhoneNavBridge::consume_navigation(
     phone_snapshot.route_id = route_id;
     phone_snapshot.route_generation = input.route_generation;
 
-    // The built-in demo predates MapScene and still uses its matching,
-    // attributed OSM fixture. Once a live MapScene revision has arrived,
-    // ordinary navigation snapshots retain that complete phone-supplied
-    // window until it is atomically replaced or the session disconnects.
-    if (is_ios_demo_route_token(input.route_token) &&
-        phone_snapshot.map_scene_revision == 0) {
-      add_demo_road_context(phone_snapshot);
-    } else if (phone_snapshot.map_scene_revision == 0) {
+    // Phone-supplied MotoMap context is authoritative. Before the first
+    // MapScene revision no gray-road context may be fabricated locally.
+    // Preserve a valid MapScene until the next atomic replacement.
+    if (phone_snapshot.map_scene_revision == 0) {
       clear_map_context(phone_snapshot);
     }
 
@@ -1046,7 +791,7 @@ void PhoneNavBridge::apply_geometry_locked(moto::nav::NavSnapshot& target) {
 }
 
 moto::nav::NavSnapshot& PhoneNavBridge::phone_snapshot_locked() noexcept {
-  return demo_active_ ? snapshot_before_demo_ : snapshot_;
+  return snapshot_;
 }
 
 void PhoneNavBridge::present_navigation() {
@@ -1119,7 +864,6 @@ void PhoneNavBridge::render_pending() {
     }
     if (navigation) {
       render_phone_connection_ = ui_phone_connection_;
-      render_demo_active_ = demo_active_;
       render_music_page_enabled_ = music_page_enabled_;
       render_waypoint_index_ = waypoint_pending_index_;
       render_waypoint_total_ = waypoint_pending_total_;
@@ -1140,22 +884,40 @@ void PhoneNavBridge::render_pending() {
   if (trace_render) moto_diag_event(MotoDiagEvent::RenderPhase, 2);
 #endif
   if (navigation || motion) {
-    if (!render_demo_active_ &&
-        render_snapshot_.state == moto::nav::NavState::Navigating &&
+    if (render_snapshot_.state == moto::nav::NavState::Navigating &&
         render_snapshot_.has_route_view &&
         render_snapshot_.route_view_point_count >= 2) {
       const auto& origin = render_snapshot_.route_view_origin;
+      const std::uint64_t prediction_ms = monotonic_ms();
+      const bool usable = render_snapshot_.has_usable_fix &&
+          !render_snapshot_.gnss_stale;
+      float turn_assist = 0.0F;
+#if defined(MOTO_ESP_TURN_ASSIST_EXPERIMENT)
+      // Keep this state exclusively in the render task. A reroute invalidates
+      // the recent curve history, but does not alter the fused rotation.
+      if (turn_assist_route_id_ != render_snapshot_.route_id ||
+          turn_assist_route_generation_ != render_snapshot_.route_generation) {
+        turn_assist_policy_.reset();
+        turn_assist_route_id_ = render_snapshot_.route_id;
+        turn_assist_route_generation_ = render_snapshot_.route_generation;
+      }
+      turn_assist = turn_assist_policy_.observe(
+          render_snapshot_.heading_deg, render_snapshot_.speed_mps,
+          prediction_ms, usable);
+#endif
       const auto predicted = map_origin_predictor_.advance(
-          {origin.latitude_deg, origin.longitude_deg}, monotonic_ms(),
+          {origin.latitude_deg, origin.longitude_deg}, prediction_ms,
           render_geometry_sequence_, render_snapshot_.route_id,
           render_snapshot_.route_generation, render_snapshot_.speed_mps,
-          render_snapshot_.heading_deg,
-          render_snapshot_.has_usable_fix && !render_snapshot_.gnss_stale);
+          render_snapshot_.heading_deg, usable, turn_assist);
       render_snapshot_.route_view_origin = {
           predicted.latitude_deg, predicted.longitude_deg};
     } else {
-      // Clear any previous motion when the demo, route, or GPS changes.
+      // Clear stale motion prediction when the route or GPS changes.
       map_origin_predictor_ = MapOriginPredictor{};
+      turn_assist_policy_.reset();
+      turn_assist_route_id_.clear();
+      turn_assist_route_generation_ = 0;
     }
     presenter_.update(render_snapshot_);
   }
@@ -1203,7 +965,6 @@ void PhoneNavBridge::render_pending() {
 #endif
   if (navigation) {
     moto_nav_ui_set_phone_connection(render_phone_connection_);
-    moto_nav_ui_set_demo_active(render_demo_active_ ? 1U : 0U);
     moto_nav_ui_set_music_page_enabled(
         render_music_page_enabled_ ? 1U : 0U);
     presenter_.apply_to_lvgl();
@@ -1340,10 +1101,6 @@ void PhoneNavBridge::page_changed(moto_ui_page_t page, void* context) {
 void PhoneNavBridge::music_command(moto_music_command_t command,
                                    void* context) {
   static_cast<PhoneNavBridge*>(context)->send_music_command(command);
-}
-
-void PhoneNavBridge::demo_changed(uint8_t enabled, void* context) {
-  static_cast<PhoneNavBridge*>(context)->set_demo_active(enabled != 0U);
 }
 
 void PhoneNavBridge::send_page_command(moto_ui_page_t page) {

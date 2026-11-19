@@ -10,6 +10,7 @@ import java.util.Locale
 import java.util.TimeZone
 import java.util.concurrent.Executors
 import java.util.zip.ZipEntry
+import java.util.zip.ZipFile
 import java.util.zip.ZipOutputStream
 
 /** Persistent, bounded road-test trace. No GPS coordinates or road names. */
@@ -75,6 +76,71 @@ object DiagnosticLog {
             } catch (_: Exception) {
                 // Never interrupt BLE or navigation because of diagnostics.
             }
+        }
+    }
+
+    /**
+     * A single explicitly shared archive for Android, ESP32 and the complete
+     * GPS replay session. Must run off main thread after recording is stopped.
+     *
+     * The two exporters flush their respective single-thread workers before
+     * their snapshots are read. Replay parts are flattened into this archive,
+     * so each JSONL can be loaded directly by the browser simulator.
+     */
+    fun exportCompleteZip(context: Context): File {
+        val replay = ReplayTraceRecorder.export(context)
+        val logs = exportZip()
+        val dir = requireNotNull(root) { "Diagnostic logger not initialized" }
+        val exportDir = File(dir, "exports")
+        val complete = File(exportDir, "motogps-diagnostica-completa.zip")
+        val staged = File(exportDir, "motogps-diagnostica-completa.tmp")
+        try {
+            ZipOutputStream(staged.outputStream().buffered()).use { zip ->
+                ZipFile(logs).use { logArchive ->
+                    for (entryName in listOf(
+                            "previous.log", "current.log",
+                            "esp32-previous.log", "esp32-current.log")) {
+                        val entry = logArchive.getEntry(entryName) ?: continue
+                        zip.putNextEntry(ZipEntry("logs/" + entryName))
+                        logArchive.getInputStream(entry).use { it.copyTo(zip) }
+                        zip.closeEntry()
+                    }
+                }
+                if (replay.extension.equals("zip", ignoreCase = true)) {
+                    ZipFile(replay).use { replayArchive ->
+                        val entries = replayArchive.entries()
+                        while (entries.hasMoreElements()) {
+                            val entry = entries.nextElement()
+                            if (entry.isDirectory || !entry.name.endsWith(".jsonl")) continue
+                            // All names are generated internally, not from user input.
+                            val name = entry.name.substringAfterLast('/')
+                            zip.putNextEntry(ZipEntry("gps/" + name))
+                            replayArchive.getInputStream(entry).use { it.copyTo(zip) }
+                            zip.closeEntry()
+                        }
+                    }
+                } else {
+                    zip.putNextEntry(ZipEntry("gps/motogps-replay.jsonl"))
+                    replay.inputStream().use { it.copyTo(zip) }
+                    zip.closeEntry()
+                }
+                zip.putNextEntry(ZipEntry("README.txt"))
+                zip.write((
+                    "Moto Chat GPS - diagnostica completa privata.\\n" +
+                    "logs/: eventi Android e ESP32 ricevuti via BLE.\\n" +
+                    "gps/: tracce JSONL complete con coordinate, percorsi e velocita'.\\n" +
+                    "Caricare le parti JSONL nel simulatore in ordine numerico.\\n" +
+                    "Le coordinate sono informazioni personali: condividere solo volontariamente.\\n"
+                ).replace("\\\\n", "\\n").toByteArray(Charsets.UTF_8))
+                zip.closeEntry()
+            }
+            if (complete.exists() && !complete.delete()) {
+                throw IllegalStateException("Impossibile sostituire l'archivio precedente")
+            }
+            check(staged.renameTo(complete)) { "Impossibile finalizzare l'archivio" }
+            return complete
+        } finally {
+            if (staged.exists()) staged.delete()
         }
     }
 

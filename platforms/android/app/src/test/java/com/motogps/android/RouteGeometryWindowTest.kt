@@ -107,6 +107,21 @@ class RouteGeometryWindowTest {
     }
 
     @Test
+    fun progressHintKeepsLoopLegEvenWhenFixIs24mFromNearestSegment() {
+        val full = route(listOf(
+            GeoPointE6(45_000_000, 8_000_000),
+            GeoPointE6(45_000_000, 8_002_000),
+            GeoPointE6(45_000_054, 8_002_000),
+            GeoPointE6(45_000_054, 8_000_000)
+        ))
+        val without = RouteGeometryWindow.around(full, 45.000270, 8.0010)
+        val with = RouteGeometryWindow.around(
+            full, 45.000270, 8.0010, progressHintMeters = 80.0)
+        assertEquals(45_000_054, without.points.first().latitudeE6)
+        assertEquals(45_000_000, with.points.first().latitudeE6)
+    }
+
+    @Test
     fun progressAnchorNeverOverridesAClearlyCloserActualRoad() {
         val full = route(listOf(
             GeoPointE6(45_000_000, 8_000_000),

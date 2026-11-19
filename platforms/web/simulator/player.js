@@ -7,16 +7,17 @@
   const $ = id => document.getElementById(id);
   const names = ["trace-file","sample","snapshot","status","play","previous","next",
     "prev-event","next-event","speed","timeline","time","frame","maneuver",
-    "roads","ring-alignment","zoom","speed-kph","performance","lvgl-performance","map-motion","events","profile","canvas","preview","summary","curve-zoom"];
+    "roads","ring-alignment","zoom","speed-kph","gps-position","gps-heading","heading-mode","heading-mode-note","map-origin","prediction-offset","heading-chart","offset-chart","diagnostic-summary","export-heading","performance","lvgl-performance","map-motion","events","profile","canvas","preview","summary","curve-zoom","geometry-zoom","predictor-mode","prediction-three"];
   const ui = Object.fromEntries(names.map(id=>[id,$(id)]));
   const required = names.filter(id=>!ui[id]);
   if (required.length) throw Error("Controlli simulator mancanti: " + required.join(", "));
   const model = window.MotoReplayModel, fallback = window.MotoFallbackMap,
-    ringAlignment = window.MotoRingAlignment;
-  if (!model || !fallback || !ringAlignment) throw Error("Moduli replay non caricati");
-  const manoeuvres = {unknown:0,continue:1,keep_left:2,turn_left:3,
-    sharp_left:4,u_turn:5,keep_right:6,turn_right:7,sharp_right:8,
-    roundabout:10,exit:11,arrive:12};
+    ringAlignment = window.MotoRingAlignment, headingDiagnostic = window.MotoHeadingDiagnostics,
+    headingStability = window.MotoHeadingStability;
+  if (!model || !fallback || !ringAlignment || !headingDiagnostic || !headingStability) throw Error("Moduli replay non caricati");
+  const manoeuvres = {unknown:0,continue:1,keep_left:2,slight_left:2,turn_left:3,
+    sharp_left:4,u_turn:5,u_turn_left:5,keep_right:6,slight_right:6,turn_right:7,sharp_right:8,
+    u_turn_right:9,roundabout:10,exit:11,arrive:12};
   const labels = ["—","Dritto","Tieni sinistra","Sinistra","Sinistra stretta",
     "Inversione","Tieni destra","Destra","Destra stretta","Inversione",
     "Rotatoria","Uscita","Arrivo"];
@@ -28,6 +29,71 @@
   let playing = false, base = 0, started = 0;
   let lastProfilePaint = -Infinity, lastActiveEventFrame = null;
   let profileSpeeds = [], profileMaxSpeed = 40;
+  let diagnostics = [], predictorObservations = new Map(), lastDiagnosticDraw = 0;
+  let stableHeadings = [], courseHeadings = [], consensusHeadings = [],
+    consensusQuality = [], lockedHeading = NaN;
+  function selectedHeading(s,t,interpolated=false){
+    const raw=Number(s.heading_deg),mode=ui["heading-mode"].value;
+    if(mode==="locked" && Number.isFinite(lockedHeading))return lockedHeading;
+    if((mode==="stable"||mode==="course"||mode==="consensus") && stableHeadings.length){
+      const values=mode==="course"?courseHeadings:
+        mode==="consensus"?consensusHeadings:stableHeadings;
+      return interpolated?headingStability.at(frames,values,t):
+        values[index];
+    }
+    return raw;
+  }
+  function refreshHeadingMode(){
+    const mode=ui["heading-mode"].value;
+    ui["heading-mode-note"].textContent=mode==="locked"?
+      "Bloccato a "+(Number.isFinite(lockedHeading)?lockedHeading.toFixed(1)+"°":"—")+
+      ": diagnostica; in curva non segue la moto.":
+      mode==="stable"?"Stabilizzato: non tratta un semplice picco heading come una curva.":
+      mode==="course"?"GPS verificato: segue il movimento tra fix distinti e limita rotazioni isolate.":
+      mode==="consensus"?"Course multifix: almeno 16 m di movimento e curva confermata.":
+      "Originale: heading registrato, senza filtro aggiuntivo.";
+  }
+  function analyzeFullReplay() {
+    predictorObservations = new Map();
+    if(!api?.batchReset || !api?.batchRoute || !api?.batchSample ||
+       !api?.batchAlong || !api?.batchLateral || !frames.length) return;
+    api.batchReset();
+    let previousRoute=null, lastGeometryMs=NaN;
+    for(let i=0;i<frames.length;i++) {
+      const {route,snapshot:s,t}=frames[i];
+      if(route!==previousRoute) {
+        if(route) {
+          api.batchRoute(route.origin[0],route.origin[1],
+            route.generation,route.token);
+          lastGeometryMs=t;
+        } else {
+          api.batchReset();
+          lastGeometryMs=NaN;
+        }
+        previousRoute=route;
+      }
+      if(!route) continue;
+      const on=api.batchSample(Number(s.lat),Number(s.lon),
+        Number(s.heading_deg),Number(s.speed_mps),Number(t));
+      const curve=api.batchCurveOffset?api.batchCurveOffset():NaN;
+      const c2=api.batchC2Offset?api.batchC2Offset():NaN;
+      predictorObservations.set(i,{
+        off:0,on:Number.isFinite(on)?on:NaN,
+        curve:Number.isFinite(curve)?curve:NaN,
+        c2:Number.isFinite(c2)?c2:NaN,
+        c2Along:Number.isFinite(c2)&&api.batchC2Along?api.batchC2Along():NaN,
+        c2Lateral:Number.isFinite(c2)&&api.batchC2Lateral?api.batchC2Lateral():NaN,
+        curveAlong:Number.isFinite(curve)&&api.batchCurveAlong?api.batchCurveAlong():NaN,
+        curveLateral:Number.isFinite(curve)&&api.batchCurveLateral?api.batchCurveLateral():NaN,
+        // Time since latest DISTINCT geometry in the parsed trace. The
+        // parser deduplicates identical retransmissions, so this is NOT
+        // physical BLE packet latency or the predictor's internal timer.
+        geometryAgeMs:Number.isFinite(lastGeometryMs)?Math.max(0,t-lastGeometryMs):NaN,
+        along:Number.isFinite(on)?api.batchAlong():NaN,
+        lateral:Number.isFinite(on)?api.batchLateral():NaN
+      });
+    }
+  }
   // Separate JS-to-WASM update cost from browser animation-frame pacing.
   let diagStart = 0, diagRaf = 0, diagUpdates = 0, diagCost = 0;
   let diagMaxCost = 0, diagSlowRaf = 0, diagLastRaf = 0;
@@ -53,12 +119,57 @@
     ui.play.textContent = "▶ Riproduci";
   }
   function resetRenderer() {
-    if (api) api.reset();
+    if (api) {
+      api.reset();
+      const mode=Number(ui["predictor-mode"].value);
+      if(api.predictorMode)api.predictorMode(mode);
+      else api.predictor(mode===1?1:0);
+      api.geometryZoom?.(ui["geometry-zoom"].checked ? 1 : 0);
+    }
     rendered = -1;
     appliedRoute = null;
     appliedScene = null;
   }
-  function projectWithLvgl(frame, nextIndex) {
+  function coordinateLabel(lat,lon) {
+    return Number.isFinite(lat)&&Number.isFinite(lon) ?
+      lat.toFixed(6)+", "+lon.toFixed(6) : "—";
+  }
+  function updatePositionTelemetry(s, interpolated=false) {
+    const lat=Number(s.lat), lon=Number(s.lon), heading=Number(s.heading_deg);
+    const valid=Number.isFinite(lat)&&Number.isFinite(lon);
+    const tag=interpolated?" · interpolato JS":" · registrato";
+    ui["gps-position"].textContent=coordinateLabel(lat,lon)+tag;
+    const applied=selectedHeading(s,interpolated?Number(s.__replay_t):frames[index]?.t,interpolated);
+    const headingLabel=v=>Number.isFinite(v)?headingStability.norm(v).toFixed(1)+"°":"—";
+    ui["gps-heading"].textContent=headingLabel(heading)+" → "+headingLabel(applied)+
+      tag+(api?" · NavPresenter":" · anteprima 2D")+
+      (ui["heading-mode"].value==="consensus"&&consensusQuality[index]?
+        " · "+consensusQuality[index].status+
+        (consensusQuality[index].metres>0?" ("+consensusQuality[index].metres.toFixed(0)+" m)":""):"");
+    if (!api) {
+      ui["map-origin"].textContent="Non disponibile senza WASM";
+      ui["prediction-offset"].textContent="Non disponibile senza WASM";
+      return;
+    }
+    if(!api.originLat || !api.originLon){
+      ui["map-origin"].textContent="N/D (WASM da ricompilare)";
+      ui["prediction-offset"].textContent="N/D (telemetria opzionale assente)";
+      return;
+    }
+    const a=api.originLat(),b=api.originLon();
+    ui["map-origin"].textContent=coordinateLabel(a,b);
+    if (!valid||!Number.isFinite(a)||!Number.isFinite(b)) {
+      ui["prediction-offset"].textContent="— (coordinate non valide)";
+      return;
+    }
+    const north=(a-lat)*111195, east=(b-lon)*111195*Math.cos(lat*Math.PI/180);
+    const offset=Math.hypot(north,east);
+    ui["prediction-offset"].textContent=offset.toFixed(1)+" m"+
+      (" · modalità "+["B OFF","A originale","C curva","C2 curva/uscita"][Number(ui["predictor-mode"].value)]);
+    // Batch CSV analysis uses independent state and never samples this
+    // interactive renderer, so A/B data does not depend on the seek history.
+  }
+  function projectWithLvgl(frame, nextIndex, interpolated=false) {
     if (!api) return;
     const updateStarted=performance.now();
     if (nextIndex < rendered || rendered === -1) resetRenderer();
@@ -81,12 +192,15 @@
     }
     const m = Object.hasOwn(manoeuvres,s.maneuver) ? manoeuvres[s.maneuver] :
       numeric(s.maneuver,0);
+    const appliedHeading=selectedHeading(s,frame.t,interpolated);
     api.snapshot(states[s.state] ?? 3, m, numeric(s.lat),numeric(s.lon),
-      numeric(s.heading_deg),numeric(s.speed_mps),numeric(s.turn_m),
+      numeric(appliedHeading),numeric(s.speed_mps),numeric(s.turn_m),
       numeric(s.remaining_m),numeric(s.total_m),numeric(s.duration_s),
       numeric(s.progress_m),numeric(s.speed_limit),numeric(s.exit),
-      networks[s.network] ?? 0,s.has_turn===false?0:1);
+      networks[s.network] ?? 0,s.has_turn===false?0:1,
+      numeric(frame.t,0));
     rendered = nextIndex;
+    updatePositionTelemetry({...s,__replay_t:frame.t},interpolated);
     const cost=performance.now()-updateStarted;
     diagUpdates++;
     diagCost+=cost;
@@ -144,12 +258,81 @@
     ctx.fillText("Velocità 0–"+maxSpeed+" km/h",8,h-4);
     ctx.textAlign="right";ctx.fillText(timeLabel(dataset.lastMs-t0),w-6,h-4);
   }
+  function drawDiagnosticCharts(force=false) {
+    if(!diagnostics.length)return;
+    const now=performance.now();
+    if(!force && now-lastDiagnosticDraw<140)return;
+    lastDiagnosticDraw=now;
+    const t0=dataset.firstMs,span=Math.max(1,dataset.lastMs-t0);
+    const draw=(canvas,label,values,min,max,suffix)=>{
+      const ctx=canvas.getContext("2d");if(!ctx)return;
+      const w=canvas.width,h=canvas.height,left=35,right=w-9,top=24,bottom=h-24;
+      ctx.clearRect(0,0,w,h);
+      ctx.fillStyle="#aec3c9";ctx.font="12px system-ui";ctx.fillText(label,10,15);
+      ctx.strokeStyle="#28414a";ctx.lineWidth=1;
+      for(let k=0;k<=4;k++){const y=top+(bottom-top)*k/4;
+        ctx.beginPath();ctx.moveTo(left,y);ctx.lineTo(right,y);ctx.stroke();}
+      ctx.fillStyle="#94aab2";ctx.fillText(max.toFixed(0)+suffix,2,top+4);
+      ctx.fillText(min.toFixed(0)+suffix,2,bottom);
+      const x=t=>left+(right-left)*(t-t0)/span;
+      const y=v=>bottom-(v-min)/(max-min)*(bottom-top);
+      for(let j=0;j<values.length;j++){
+        ctx.beginPath();ctx.strokeStyle=["#72c9a9","#f0b67b","#8b9dff"][j];
+        let prevValid=false,prevT=0;
+        for(let i=0;i<diagnostics.length;i++){
+          const d=diagnostics[i],v=values[j](d);
+          if(!Number.isFinite(v)){prevValid=false;continue;}
+          // Do not draw a line across a large recording dropout.
+          if(!prevValid||d.t-prevT>3000)ctx.moveTo(x(d.t),y(Math.max(min,Math.min(max,v))));
+          else ctx.lineTo(x(d.t),y(Math.max(min,Math.min(max,v))));
+          prevValid=true;prevT=d.t;
+        }
+        ctx.stroke();
+      }
+      ctx.strokeStyle="#e5edf1";ctx.lineWidth=1;
+      const here=x(frames[index].t);ctx.beginPath();ctx.moveTo(here,top);ctx.lineTo(here,bottom);ctx.stroke();
+      ctx.fillStyle="#95b9ba";ctx.fillText("+ "+timeLabel(frames[index].t-t0),w-83,15);
+    };
+    draw(ui["heading-chart"],"Heading snapshot (verde) / segmento rotta (arancio), gradi",
+      [d=>d.gps,d=>d.routeHeading],0,360,"°");
+    const motionMax=Math.max(30,Math.min(200,Math.ceil(diagnostics.reduce((m,d)=>
+      Math.max(m,Number.isFinite(d.lateral)?d.lateral:0,Number.isFinite(d.moved)?d.moved:0),0)/20)*20));
+    draw(ui["offset-chart"],"Distanza dalla finestra verde (verde) / movimento fix (arancio), m",
+      [d=>d.lateral,d=>d.moved],0,motionMax,"m");
+    const row=diagnostics[index],warnings=diagnostics.filter(d=>d.flags.length).length;
+    const prediction=predictorObservations.get(index)||{};
+    ui["prediction-three"].textContent=
+      "A "+(Number.isFinite(prediction.on)?prediction.on.toFixed(1)+" m":"n/d")+
+      " · B 0 m · C "+(Number.isFinite(prediction.curve)?
+        prediction.curve.toFixed(1)+" m":"n/d")+
+      " · C2 "+(Number.isFinite(prediction.c2)?
+        prediction.c2.toFixed(1)+" m":"n/d (WASM da aggiornare)");
+    const signed=x=>Number.isFinite(x)?x.toFixed(1):"n/d";
+    ui["diagnostic-summary"].textContent=
+      "Frame "+(index+1)+" · Δ heading/rotta "+
+      (Number.isFinite(row.headingMismatch)?row.headingMismatch.toFixed(1)+"°":"n/d")+
+      " · laterale "+(Number.isFinite(row.lateral)?row.lateral.toFixed(1)+" m":"n/d")+
+      " · movimento "+(Number.isFinite(row.moved)?row.moved.toFixed(1)+" m":"n/d")+
+      " · ancora "+(Number.isFinite(prediction.geometryAgeMs)?
+        (prediction.geometryAgeMs/1000).toFixed(2)+" s":"n/d")+
+      " · avanti/indietro "+signed(prediction.along)+" m"+
+      " · destra/sinistra A "+signed(prediction.lateral)+" m"+
+      " · destra/sinistra C "+signed(prediction.curveLateral)+" m"+
+      " · destra/sinistra C2 "+signed(prediction.c2Lateral)+" m"+
+      " · segnalazioni "+warnings+" frame (non necessariamente errori)"+
+      (row.flags.length?" · QUI: "+row.flags.join(", "):"");
+  }
   function display(i, project = true) {
     if (!frames.length) return;
     index = Math.max(0,Math.min(frames.length-1,Math.trunc(Number(i)||0)));
     const f=frames[index],s=f.snapshot;
     if (api) { if (project) projectWithLvgl(f,index); }
-    else fallback.draw(ui.preview,f,annotation(f.t));
+    else {
+      const adjusted={...f,snapshot:{...s,heading_deg:selectedHeading(s,f.t)}};
+      fallback.draw(ui.preview,adjusted,annotation(f.t));
+      // Telemetry retains the original GPS heading.
+      updatePositionTelemetry(s);
+    }
     ui.timeline.value=String(index);
     ui.time.textContent=clock(f.t)+" · +"+timeLabel(f.t-dataset.firstMs);
     ui.frame.textContent=(index+1)+" / "+frames.length;
@@ -173,6 +356,7 @@
     ui.zoom.textContent=(api?api.zoomFactor():
       fallback.zoomFactor(s,!!f.route)).toFixed(2)+"×";
     ui["speed-kph"].textContent=Math.round(numeric(s.speed_mps)*3.6)+" km/h";
+    drawDiagnosticCharts(!playing);
     // The LVGL canvas is the priority during playback. Redrawing the entire
     // speed profile (thousands of vertices) every GPS snapshot causes jank
     // in browsers, especially on older Windows machines.
@@ -195,6 +379,17 @@
     const result=model.parse(source);
     pause();dataset=result;frames=result.frames;events=result.events;index=0;
     motionSpans=model.buildMotionSpans(frames);
+    diagnostics=headingDiagnostic.analyze(frames);
+    stableHeadings=headingStability.build(frames);
+    courseHeadings=headingStability.buildCourseValidated(frames);
+    const consensus=headingStability.buildDistanceConsensus(frames);
+    consensusHeadings=consensus.values;
+    consensusQuality=consensus.quality;
+    lockedHeading=NaN;
+    if(ui["heading-mode"].value==="locked")ui["heading-mode"].value="raw";
+    refreshHeadingMode();
+    analyzeFullReplay();
+    lastDiagnosticDraw=0;
     profileSpeeds=frames.map(f=>Math.max(0,numeric(f.snapshot.speed_mps)*3.6));
     profileMaxSpeed=Math.max(40,Math.ceil(
       profileSpeeds.reduce((a,b)=>Math.max(a,b),0)/20)*20);
@@ -246,7 +441,7 @@
     diagInterpolated++;
     const frame=frames[index];
     projectWithLvgl({snapshot:{...frame.snapshot,...motion},
-      route:frame.route,scene:frame.scene},index);
+      route:frame.route,scene:frame.scene,t:target},index,true);
     return true;
   }
   function tick(now){
@@ -356,13 +551,36 @@
       try {
         const mod=window.Module;
         const fn=(name,args)=>mod.cwrap("moto_web_replay_"+name,null,args);
+        // Older WASM builds may lack the optional diagnostic exports.
+        // Never let missing telemetry disable the real LVGL renderer.
+        const optional=(name,returnType,args)=>{
+          try{return mod.cwrap(name,returnType,args);}catch{return null;}
+        };
         api={reset:fn("reset",[]),
           routeBegin:fn("route_begin",["number","number","number","number"]),
           routePoint:fn("route_point",["number","number"]),
           sceneBegin:fn("scene_begin",["number"]),roadBegin:fn("road_begin",[]),
           roadPoint:fn("road_point",["number","number"]),roadEnd:fn("road_end",["number"]),
-          snapshot:fn("snapshot",Array(15).fill("number")),
+          snapshot:fn("snapshot",Array(16).fill("number")),
+          predictor:fn("set_predictor_enabled",["number"]),
+          predictorMode:optional("moto_web_replay_set_predictor_mode",null,["number"]),
+          batchReset:optional("moto_web_replay_batch_reset",null,[]),
+          batchRoute:optional("moto_web_replay_batch_route",null,
+            ["number","number","number","number"]),
+          batchSample:optional("moto_web_replay_batch_sample","number",
+            ["number","number","number","number","number"]),
+          batchAlong:optional("moto_web_replay_batch_along_m","number",[]),
+          batchLateral:optional("moto_web_replay_batch_lateral_m","number",[]),
+          batchCurveOffset:optional("moto_web_replay_batch_curve_offset_m","number",[]),
+          batchCurveAlong:optional("moto_web_replay_batch_curve_along_m","number",[]),
+          batchCurveLateral:optional("moto_web_replay_batch_curve_lateral_m","number",[]),
+          batchC2Offset:optional("moto_web_replay_batch_c2_offset_m","number",[]),
+          batchC2Along:optional("moto_web_replay_batch_c2_along_m","number",[]),
+          batchC2Lateral:optional("moto_web_replay_batch_c2_lateral_m","number",[]),
+          originLat:optional("moto_web_replay_origin_lat","number",[]),
+          originLon:optional("moto_web_replay_origin_lon","number",[]),
           curveZoom:fn("set_curve_zoom_enabled",["number"]),
+          geometryZoom:optional("moto_web_replay_set_geometry_zoom_enabled",null,["number"]),
           zoomFactor:mod.cwrap("moto_web_replay_zoom_factor","number",[]),
           lvglRender:mod.cwrap("moto_web_lvgl_render_hz","number",[]),
           lvglFlush:mod.cwrap("moto_web_lvgl_flush_hz","number",[]),
@@ -375,9 +593,13 @@
           lvglMax:mod.cwrap("moto_web_lvgl_handler_max_ms","number",[])};
         ui.preview.hidden=true;ui.canvas.hidden=false;
         ui["curve-zoom"].disabled=false;
+        ui["geometry-zoom"].disabled=!api.geometryZoom;
+        ui["predictor-mode"].disabled=!api.predictorMode;
+        if(!api.predictorMode)ui["predictor-mode"].value="0";
         api.curveZoom(ui["curve-zoom"].checked?1:0);
         resetRenderer();
-        if(frames.length)display(index);else load(synthetic(),"Esempio sintetico");
+        if(frames.length){analyzeFullReplay();display(index);}
+        else load(synthetic(),"Esempio sintetico");
       } catch(error){api=null;ui.preview.hidden=false;
         status("Bridge WASM non disponibile: "+error.message,true);}
     },0);
@@ -386,6 +608,26 @@
     const file=ui["trace-file"].files[0];if(!file)return;
     try{load(await file.text(),file.name);}
     catch(error){pause();status("Importazione fallita: "+error.message,true);}
+  });
+  ui["heading-mode"].addEventListener("change",()=>{
+    pause();
+    if(ui["heading-mode"].value==="locked"){
+      const current=frames[index]?.snapshot;
+      lockedHeading=current?Number(current.heading_deg):NaN;
+    }
+    refreshHeadingMode();
+    resetRenderer();
+    if(frames.length)display(index);
+  });
+  ui["predictor-mode"].addEventListener("change",()=>{
+    if (!api) return;
+    pause();resetRenderer();
+    if(frames.length)display(index);
+  });
+  ui["geometry-zoom"].addEventListener("change",()=>{
+    if (!api?.geometryZoom) return;
+    pause();resetRenderer();
+    if(frames.length)display(index);
   });
   ui["curve-zoom"].addEventListener("change",()=>{
     if (!api) return;
@@ -408,6 +650,23 @@
     const fraction=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width));
     const t=dataset.firstMs+(dataset.lastMs-dataset.firstMs)*fraction;
     pause();display(model.findFrameAtOrAfter(frames,t));
+  });
+  for(const id of ["heading-chart","offset-chart"]){
+    ui[id].addEventListener("click",e=>{
+      if(!frames.length)return;
+      const canvas=ui[id],r=canvas.getBoundingClientRect();
+      const fraction=Math.max(0,Math.min(1,(e.clientX-r.left)/r.width));
+      pause();display(model.findFrameAtOrAfter(frames,dataset.firstMs+
+        fraction*(dataset.lastMs-dataset.firstMs)));
+    });
+  }
+  ui["export-heading"].addEventListener("click",()=>{
+    if(!diagnostics.length)return;
+    const contents="\uFEFF"+headingDiagnostic.csv(diagnostics,predictorObservations);
+    const blob=new Blob([contents],{type:"text/csv;charset=utf-8"});
+    const url=URL.createObjectURL(blob),anchor=document.createElement("a");
+    anchor.href=url;anchor.download="moto-heading-diagnostics.csv";
+    anchor.click();setTimeout(()=>URL.revokeObjectURL(url),5000);
   });
   ui.speed.addEventListener("change",()=>{
     if(playing&&frames.length){base=frames[index].t-frames[0].t;started=performance.now();}

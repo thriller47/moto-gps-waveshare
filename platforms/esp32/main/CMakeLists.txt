@@ -132,6 +132,17 @@ if(MOTO_ESP_PERF_TELEMETRY_EXPERIMENT)
         MOTO_ESP_PERF_TELEMETRY_EXPERIMENT=1)
 endif()
 
+# Reversible on-road experiment: conservative turn-aware POSITION prediction.
+# Road-tested 19 November 2026: enabled by default after integration.
+# The previous predictor is retained with -DMOTO_ESP_TURN_ASSIST_EXPERIMENT=OFF.
+# The QMI8658 yaw fusion and absolute phone course are NOT modified.
+option(MOTO_ESP_TURN_ASSIST_EXPERIMENT
+    "Enable road-tested curve-aware position predictor (reversible)" ON)
+if(MOTO_ESP_TURN_ASSIST_EXPERIMENT)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE
+        MOTO_ESP_TURN_ASSIST_EXPERIMENT=1)
+endif()
+
 # Verified speaker test (Waveshare BSP); only used in GPS-integrated builds.
 option(MOTO_SIGNAL_AUDIO_BOOT_TEST "Run one-shot speaker test with GPS UI" OFF)
 if(MOTO_SIGNAL_AUDIO_BOOT_TEST AND NOT MOTO_SIGNAL_WIFI_LAB_BOOT)

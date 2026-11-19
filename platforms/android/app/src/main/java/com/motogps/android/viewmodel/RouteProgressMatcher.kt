@@ -29,6 +29,26 @@ internal class RouteProgressMatcher {
     private var lastLat = Double.NaN
     private var lastLon = Double.NaN
 
+    /**
+     * Evidence from the EXACT projection selected by remaining(). Telemetry
+     * only: the diagnostics never influence matching, routing or BLE.
+     * crossTrackM is the globally nearest edge, while scoredCandidateM is
+     * the best edge after continuity and course penalties.
+     */
+    data class MatchEvidence(
+        val mode: String,
+        val previousProgressM: Double?,
+        val scoredCandidateM: Double,
+        val selectedProgressM: Double,
+        val nearestCrossTrackM: Double,
+        val fixStepM: Double,
+        val originGapM: Double,
+        val initialCandidateM: Double?
+    )
+
+    var lastMatchEvidence: MatchEvidence? = null
+        private set
+
     fun reset(points: List<GeoPointE6> = emptyList()) {
         route = points
         cumulative = DoubleArray(points.size)
@@ -42,8 +62,59 @@ internal class RouteProgressMatcher {
                     (a.latitudeE6 + b.latitudeE6) / 2e6)))
         }
         progress = null
+        lastMatchEvidence = null
         lastLat = Double.NaN
         lastLon = Double.NaN
+    }
+
+    /**
+     * Distance to the CURRENT matched route corridor, not to an arbitrary
+     * future/return leg. This does not modify matcher state or progress.
+     *
+     * On a looping route the motorcycle can be just metres from a future
+     * segment while the matching anchor remains near the original departure.
+     * The whole-shape off-route check then says "on route", and progress can
+     * stay frozen for hundreds of metres. A sustained mismatch from THIS
+     * corridor must instead be eligible for a normal Valhalla reroute.
+     *
+     * Clip long segments to the progress interval (not just segment indices)
+     * so a single long road cannot silently extend the corridor forward.
+     */
+    fun distanceToMatchedCorridorMeters(
+        lat: Double, lon: Double,
+        behindMeters: Double = 30.0,
+        aheadMeters: Double = 100.0
+    ): Double {
+        val anchor = progress ?: return Double.NaN
+        if (route.size < 2 || !lat.isFinite() || !lon.isFinite() ||
+            !behindMeters.isFinite() || !aheadMeters.isFinite() ||
+            behindMeters < 0.0 || aheadMeters <= 0.0) return Double.NaN
+        val from = max(0.0, anchor - behindMeters)
+        val until = min(cumulative.last(), anchor + aheadMeters)
+        val mx = 111_195.0 * cos(Math.toRadians(lat))
+        var nearest = Double.POSITIVE_INFINITY
+        for (i in 0 until route.lastIndex) {
+            val segStart = cumulative[i]
+            val segEnd = cumulative[i + 1]
+            if (segEnd < from || segStart > until) continue
+            val segLength = segEnd - segStart
+            if (segLength <= 1e-6) continue
+            val a = route[i]
+            val b = route[i + 1]
+            val ax = (a.longitudeE6 / 1e6 - lon) * mx
+            val ay = (a.latitudeE6 / 1e6 - lat) * 111_195.0
+            val dx = (b.longitudeE6 - a.longitudeE6) / 1e6 * mx
+            val dy = (b.latitudeE6 - a.latitudeE6) / 1e6 * 111_195.0
+            val length2 = dx * dx + dy * dy
+            if (length2 <= 1e-8) continue
+            val t0 = ((from - segStart) / segLength).coerceIn(0.0, 1.0)
+            val t1 = ((until - segStart) / segLength).coerceIn(0.0, 1.0)
+            if (t0 > t1) continue
+            val closest = (-(ax * dx + ay * dy) / length2).coerceIn(t0, t1)
+            nearest = min(nearest,
+                hypot(ax + closest * dx, ay + closest * dy))
+        }
+        return nearest
     }
 
     /** Display-only hint; routing and reroute decisions remain unchanged. */
@@ -106,7 +177,10 @@ internal class RouteProgressMatcher {
     }
 
     fun remaining(lat: Double, lon: Double, heading: Float?, speed: Float): Long? {
-        if (route.size < 2 || !lat.isFinite() || !lon.isFinite()) return null
+        if (route.size < 2 || !lat.isFinite() || !lon.isFinite()) {
+            lastMatchEvidence = null
+            return null
+        }
         val mx = 111_195.0 * cos(Math.toRadians(lat))
         val prev = progress
         val travelled = if (lastLat.isFinite() && lastLon.isFinite())
@@ -148,10 +222,10 @@ internal class RouteProgressMatcher {
                 if (candidate < prev - 10.0)
                     score += (prev - 10.0 - candidate) * 1.5
                 val high = prev + max(22.0, travelled * 1.8 + 10.0)
-                if (candidate > high) score += (candidate - high) * 0.8
+                if (candidate > high) score += (candidate - high) * 2.0
             }
             if (heading != null && heading.isFinite() && speed >= 3f &&
-                len2 >= 144.0) {
+                len2 >= 4.0) {
                 val direction = Math.toDegrees(atan2(dx, dy)).toFloat()
                 val error = abs(((heading - direction + 540f) % 360f) - 180f)
                 if (error > 90f) score += min(35.0, (error - 90.0) * 0.55)
@@ -168,7 +242,10 @@ internal class RouteProgressMatcher {
                 initialBestPos = candidate
             }
         }
-        if (!bestScore.isFinite()) return null
+        if (!bestScore.isFinite()) {
+            lastMatchEvidence = null
+            return null
+        }
 
         // Outside the route corridor the rider is awaiting a reroute:
         // do not count travel away from the route as a distance increase.
@@ -179,6 +256,21 @@ internal class RouteProgressMatcher {
             else -> max(prev, min(bestPos,
                 prev + max(22.0, travelled * 1.8 + 10.0)))
         }
+        lastMatchEvidence = MatchEvidence(
+            mode = when {
+                prev != null && minCross > 45.0 -> "hold_offroute"
+                prev == null && initialBestScore.isFinite() -> "initial_origin"
+                prev == null -> "initial_global"
+                else -> "monotonic"
+            },
+            previousProgressM = prev,
+            scoredCandidateM = bestPos,
+            selectedProgressM = next,
+            nearestCrossTrackM = minCross,
+            fixStepM = travelled,
+            originGapM = originGap,
+            initialCandidateM = initialBestPos.takeIf { initialBestScore.isFinite() }
+        )
         progress = next
         lastLat = lat
         lastLon = lon

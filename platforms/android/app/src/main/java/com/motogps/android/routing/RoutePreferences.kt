@@ -2,7 +2,7 @@ package com.motogps.android.routing
 
 import org.json.JSONObject
 
-enum class RouteStyle { FASTEST, SHORTEST, SECONDARY, TOURING }
+enum class RouteStyle { FASTEST, SHORTEST, SECONDARY, TOURING, PANORAMIC }
 
 /** Preferences reused for preview, turn-by-turn navigation and reroutes. */
 data class RoutePreferences(
@@ -17,7 +17,7 @@ data class RoutePreferences(
     }
 
     val useCurvyAlternates: Boolean
-        get() = style == RouteStyle.TOURING && curveLevel > 0
+        get() = (style == RouteStyle.TOURING && curveLevel > 0) || style == RouteStyle.PANORAMIC
 
     /** Keep the normal requests light; only Touring with curve preference asks
      * for alternative paths, without extra HTTP requests or routing jobs. */
@@ -32,12 +32,15 @@ data class RoutePreferences(
                 auto.put("use_highways", 0.0)
                 auto.put("use_tracks", 0.0)
             }
-            RouteStyle.TOURING -> {
+            RouteStyle.TOURING, RouteStyle.PANORAMIC -> {
                 // Touring stays on auto costing, already verified on the
                 // imported Italian tiles. No dependence on motorcycle BETA.
-                auto.put("use_highways", 0.15)
+                auto.put("use_highways", if (style == RouteStyle.PANORAMIC) 0.05 else 0.15)
                 auto.put("use_tracks", 0.0)
                 auto.put("exclude_unpaved", true)
+                if (style == RouteStyle.PANORAMIC) {
+                    auto.put("use_tolls", 0.0)
+                }
             }
         }
         // Valhalla's 'shortest' ignores other costs/penalties.

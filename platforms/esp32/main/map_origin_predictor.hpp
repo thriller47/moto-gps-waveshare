@@ -19,7 +19,8 @@ class MapOriginPredictor {
                    std::uint32_t geometry_sequence,
                    const std::string& route_id,
                    std::uint32_t route_generation, float speed_mps,
-                   float heading_deg, bool usable) {
+                   float heading_deg, bool usable,
+                   float turn_assist = 0.0F) {
     if (!usable || route_id.empty() || !std::isfinite(measured.latitude_deg) ||
         !std::isfinite(measured.longitude_deg) ||
         std::abs(measured.latitude_deg) > 85.0 ||
@@ -37,7 +38,7 @@ class MapOriginPredictor {
       geometry_sequence_ = geometry_sequence;
       pose_ = measured;
       last_tick_ms_ = now_ms;
-      last_fix_ms_ = now_ms;
+      last_geometry_seen_ms_ = now_ms;
       correction_north_m_ = 0.0;
       correction_east_m_ = 0.0;
       last_anchor_heading_deg_ = heading_deg;
@@ -47,25 +48,44 @@ class MapOriginPredictor {
 
     const std::uint64_t elapsed_ms = now_ms - last_tick_ms_;
     last_tick_ms_ = now_ms;
-    const double dt = std::min<std::uint64_t>(elapsed_ms, 250U) / 1'000.0;
+    // Keep the whole elapsed interval: discarding 150 ms at a 400 ms render
+    // cadence permanently lags the rider. Gaps >1 s reset above.
+    const double dt = static_cast<double>(elapsed_ms) / 1'000.0;
     const double speed = static_cast<double>(speed_mps);
+    // Optional hardware experiment only. Zero is bit-for-bit the ordinary
+    // predictor path; no changes to IMU heading or BLE packet interpretation.
+    const double assist = std::isfinite(turn_assist) ?
+        static_cast<double>(std::clamp(turn_assist, 0.0F, 1.0F)) : 0.0;
 
-    // Normal BLE route windows can arrive 3.1s apart. The old 1.5s cap
-    // froze the moving map until the next window, causing 30m catch-ups.
-    // Bound prediction at 3.4s, still freezing during a genuine outage.
-    // GPS remains authoritative and the route geometry is not modified.
-    if (std::isfinite(speed) && speed >= 1.5 && speed <= 60.0 &&
-        std::isfinite(heading_deg) &&
-        now_ms - last_fix_ms_ <= 3'400U) {
+    // Normal BLE route windows arrive ~1.5s apart (900 ms in roundabouts).
+    // Bound prediction at 1.8s, still freezing during a genuine outage.
+    // Attenuate step length early during sustained turns relative to
+    // the last geometry anchor to prevent chord-cutting inside roundabouts.
+    if (std::isfinite(speed) && speed >= 1.5 && speed <= 35.0 &&
+        std::isfinite(heading_deg) && heading_deg >= 0.0F &&
+        heading_deg < 360.0F &&
+        now_ms - last_geometry_seen_ms_ <= 1'800U) {
+      double turn_scale = 1.0;
+      if (std::isfinite(last_anchor_heading_deg_)) {
+        const double anchor_turn_deg = std::abs(std::remainder(
+            static_cast<double>(heading_deg - last_anchor_heading_deg_),
+            360.0));
+        turn_scale = std::clamp(
+            1.0 - 0.90 * ((anchor_turn_deg - 4.0) / 32.0), 0.10, 1.0);
+        if (speed < 7.0 && turn_scale < 1.0) {
+          turn_scale *= (speed / 7.0);
+        }
+      }
+      turn_scale *= (1.0 - 0.45 * assist);
       const double heading = static_cast<double>(heading_deg) *
                              3.14159265358979323846 / 180.0;
-      move(std::cos(heading) * speed * dt,
-           std::sin(heading) * speed * dt);
+      move(std::cos(heading) * speed * dt * turn_scale,
+           std::sin(heading) * speed * dt * turn_scale);
     }
 
     if (geometry_sequence != geometry_sequence_) {
       geometry_sequence_ = geometry_sequence;
-      last_fix_ms_ = now_ms;
+      last_geometry_seen_ms_ = now_ms;
       const double lat_m = metres_per_degree_lat();
       const double lon_m = metres_per_degree_lon(measured.latitude_deg);
       double north = (measured.latitude_deg - pose_.latitude_deg) * lat_m;
@@ -81,12 +101,13 @@ class MapOriginPredictor {
       // retain the unmodified GPS correction.
       const bool moving = std::isfinite(speed_mps) &&
           speed_mps >= 3.0F && speed_mps <= 35.0F &&
-          std::isfinite(heading_deg) &&
+          std::isfinite(heading_deg) && heading_deg >= 0.0F &&
+          heading_deg < 360.0F &&
           std::isfinite(last_anchor_heading_deg_) &&
           std::isfinite(last_anchor_speed_mps_);
-      if (moving && raw_gap_m <= 35.0 && raw_gap_m > 0.5) {
-        constexpr double kMaxAgeCompensationSeconds = 0.70;
-        constexpr double kMaxAgeCompensationMeters = 14.0;
+      if (moving && raw_gap_m <= 45.0 && raw_gap_m > 0.5) {
+        constexpr double kMaxAgeCompensationSeconds = 0.35;
+        constexpr double kMaxAgeCompensationMeters = 7.0;
         const double heading = static_cast<double>(heading_deg) *
                                3.14159265358979323846 / 180.0;
         const double north_unit = std::cos(heading);
@@ -96,13 +117,13 @@ class MapOriginPredictor {
                                           east * north_unit);
         // The heading change between BLE geometry anchors is a conservative
         // proxy for road curvature. Smoothly fade a backward-only correction
-        // from full effect at <=12 deg to zero at >=70 deg. At a hairpin or
-        // roundabout exit do not extrapolate through the next road.
+        // from full effect at <=8 deg to zero at >=30 deg. At a hairpin or
+        // roundabout do not push along the inner tangent.
         const double turn_delta = std::abs(std::remainder(
             static_cast<double>(heading_deg - last_anchor_heading_deg_),
             360.0));
         const double turn_weight = std::clamp(
-            (70.0 - turn_delta) / 58.0, 0.0, 1.0);
+            (30.0 - turn_delta) / 22.0, 0.0, 1.0);
         const double speed_tolerance = std::max(
             2.0, static_cast<double>(speed_mps) * 0.25);
         const double speed_delta = std::abs(
@@ -112,12 +133,16 @@ class MapOriginPredictor {
             0.0, 1.0);
         // Reject large lateral offsets: they could be an actual lane change,
         // missed turn or GPS jump rather than delayed BLE delivery.
-        if (behind_m > 0.0 && lateral_m <= 14.0) {
+        if (behind_m > 0.0 && lateral_m <= 4.0) {
+          // Fade age compensation continuously between 25 and 45 m;
+          // previously 35.0 -> 35.1 m caused up to a 14 m jump.
+          const double gap_weight = std::clamp(
+              (45.0 - raw_gap_m) / 20.0, 0.0, 1.0);
           const double reduction_m = std::min(
               behind_m, std::min(static_cast<double>(speed_mps) *
                                 kMaxAgeCompensationSeconds,
                                 kMaxAgeCompensationMeters)) *
-              turn_weight * speed_weight;
+              turn_weight * speed_weight * gap_weight;
           north += north_unit * reduction_m;
           east += east_unit * reduction_m;
         }
@@ -139,7 +164,11 @@ class MapOriginPredictor {
     // A soft correction eliminates the 1–3 second GPS window jumps without
     // changing the actual route, the maneuver distances or zoom.
     if (dt > 0.0) {
-      const double alpha = std::min(1.0, dt / 0.55);
+      // Only shorten the correction time constant when a real fresh BLE
+      // anchor has already established a residual. Never pull towards a
+      // fabricated GPS position at the faster IMU render cadence.
+      const double correction_tau = 0.55 - 0.25 * assist;
+      const double alpha = -std::expm1(-dt / correction_tau);
       const double north = correction_north_m_ * alpha;
       const double east = correction_east_m_ * alpha;
       move(north, east);
@@ -171,7 +200,7 @@ class MapOriginPredictor {
   std::uint32_t route_generation_ = 0;
   std::uint32_t geometry_sequence_ = 0;
   std::uint64_t last_tick_ms_ = 0;
-  std::uint64_t last_fix_ms_ = 0;
+  std::uint64_t last_geometry_seen_ms_ = 0;
   double correction_north_m_ = 0.0;
   double correction_east_m_ = 0.0;
   float last_anchor_heading_deg_ = NAN;
