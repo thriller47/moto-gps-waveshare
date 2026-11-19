@@ -324,19 +324,10 @@ void test_waypoint_skip_command_requires_active_stop() {
               moto::ble::NavigationHasRouteView;
   CHECK(bridge.on_message(make_message(nav, 71)) ==
         moto::ble::AckStatus::Ok);
-  moto::ble::RouteGeometry geo;
-  geo.route_token = 123;
-  geo.route_generation = 1;
-  geo.total_point_count = 2;
-  geo.view_origin = {45'000'000, 9'000'000};
-  geo.points = {geo.view_origin, {45'001'000, 9'000'000}};
-  // Stop is kilometres away (no marker in the visible BLE geometry) but
-  // the independently signalled pending-stop flag makes the >> button active.
+  // No geometry window and no marker is necessary: a distant skippable
+  // intermediate stop is signalled by the dedicated navigation flag.
   nav.flags |= moto::ble::NavigationHasPendingWaypoints;
   CHECK(bridge.on_message(make_message(nav, 73)) == moto::ble::AckStatus::Ok);
-  geo.waypoint_markers.clear();
-  CHECK(bridge.on_message(make_message(geo, 72)) ==
-        moto::ble::AckStatus::Ok);
   moto::test::emit_waypoint_skip();
   CHECK(sender.commands.size() == 1);
   if (!sender.commands.empty()) {
@@ -344,6 +335,10 @@ void test_waypoint_skip_command_requires_active_stop() {
           moto::ble::DeviceCommandKind::SkipNextWaypoint);
     CHECK(sender.commands[0].page == moto::ble::DisplayPage::Navigation);
   }
+  nav.flags &= ~moto::ble::NavigationHasPendingWaypoints;
+  CHECK(bridge.on_message(make_message(nav, 74)) == moto::ble::AckStatus::Ok);
+  moto::test::emit_waypoint_skip();
+  CHECK(sender.commands.size() == 1);
   bridge.on_link_state(false);
   moto::test::emit_waypoint_skip();
   CHECK(sender.commands.size() == 1);
