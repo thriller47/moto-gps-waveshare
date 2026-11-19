@@ -136,6 +136,11 @@ struct Ui {
     lv_timer_t *nav_route_motion_timer = nullptr;
     lv_obj_t *nav_marker = nullptr;
     lv_obj_t *nav_waypoint_markers[MOTO_UI_WAYPOINT_MARKER_CAPACITY]{};
+    moto_waypoint_skip_callback_t waypoint_skip_callback = nullptr;
+    void *waypoint_skip_context = nullptr;
+    std::uint32_t waypoint_skip_confirm_ms = 0;
+    std::uint32_t waypoint_skip_route_id = 0;
+    bool waypoint_skip_armed = false;
     lv_obj_t *nav_status = nullptr;
     lv_obj_t *nav_waypoint_notice = nullptr;
     lv_timer_t *nav_waypoint_timer = nullptr;
@@ -938,6 +943,37 @@ void update_road_geometry(const moto_ui_state_t *state) {
 }
 
 
+// Double deliberate long press, rather than a tap near the green line, to
+// prevent accidental reroutes while wearing gloves.
+void waypoint_marker_long_press(lv_event_t *event) {
+    if(lv_event_get_code(event) != LV_EVENT_LONG_PRESSED ||
+       ui.waypoint_skip_callback == nullptr ||
+       ui.nav_waypoint_notice == nullptr || ui.nav_waypoint_timer == nullptr)
+        return;
+    const lv_obj_t *marker = lv_event_get_target_obj(event);
+    if(ui.nav_waypoint_markers[0] != marker ||
+       lv_obj_has_flag(ui.nav_waypoint_markers[0], LV_OBJ_FLAG_HIDDEN) ||
+       std::strcmp(lv_label_get_text(ui.nav_waypoint_markers[0]), "1") != 0)
+        return;
+    const std::uint32_t now = lv_tick_get();
+    const bool confirmed = ui.waypoint_skip_armed &&
+        ui.waypoint_skip_route_id == ui.nav_route_identity &&
+        static_cast<std::uint32_t>(now - ui.waypoint_skip_confirm_ms) <= 6000U;
+    ui.waypoint_skip_armed = !confirmed;
+    ui.waypoint_skip_route_id = ui.nav_route_identity;
+    ui.waypoint_skip_confirm_ms = now;
+    if(confirmed) {
+        lv_label_set_text(ui.nav_waypoint_notice, "SALTO TAPPA RICHIESTO");
+        ui.waypoint_skip_callback(ui.waypoint_skip_context);
+    } else {
+        lv_label_set_text(ui.nav_waypoint_notice, "TENERE PREMUTO ANCORA");
+    }
+    lv_obj_remove_flag(ui.nav_waypoint_notice, LV_OBJ_FLAG_HIDDEN);
+    lv_timer_set_period(ui.nav_waypoint_timer, 7000);
+    lv_timer_reset(ui.nav_waypoint_timer);
+    lv_timer_resume(ui.nav_waypoint_timer);
+}
+
 // Waypoint labels share the precise geographic rider-centred transform.
 void update_waypoint_markers(const moto_ui_state_t *state) {
     const std::uint8_t count = std::min<std::uint8_t>(
@@ -949,9 +985,10 @@ void update_waypoint_markers(const moto_ui_state_t *state) {
         const int x = i < count ? state->waypoint_markers[i].x : -1000;
         const int y = i < count ? state->waypoint_markers[i].y : -1000;
         const bool visible = i < count && x >= px(12) &&
-            x < MOTO_UI_CANVAS_WIDTH - px(12) &&
-            y >= px(12) && y < px(232) - px(12);
+            x < MOTO_UI_CANVAS_WIDTH - px(16) &&
+            y >= px(16) && y < px(232) - px(16);
         if(!visible) {
+            if(i == 0) ui.waypoint_skip_armed = false;
             if(!lv_obj_has_flag(marker, LV_OBJ_FLAG_HIDDEN))
                 lv_obj_add_flag(marker, LV_OBJ_FLAG_HIDDEN);
             continue;
@@ -963,8 +1000,8 @@ void update_waypoint_markers(const moto_ui_state_t *state) {
                       static_cast<unsigned>(state->waypoint_marker_indices[i]));
         if(std::strcmp(lv_label_get_text(marker), number) != 0)
             lv_label_set_text(marker, number);
-        const int left = x - px(11);
-        const int top = y - px(11);
+        const int left = x - px(16);
+        const int top = y - px(16);
         if(lv_obj_get_x(marker) != left || lv_obj_get_y(marker) != top)
             lv_obj_set_pos(marker, left, top);
     }
@@ -1724,14 +1761,20 @@ void create_navigation_page() {
     for(std::uint8_t i = 0; i < MOTO_UI_WAYPOINT_MARKER_CAPACITY; ++i) {
         lv_obj_t *marker = make_label(ui.nav_map, &lv_font_montserrat_16, kBlack, "");
         ui.nav_waypoint_markers[i] = marker;
-        lv_obj_set_size(marker, px(22), px(22));
+        lv_obj_set_size(marker, px(32), px(32));
         lv_obj_set_style_text_align(marker, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_style_bg_color(marker, kAmber, 0);
         lv_obj_set_style_bg_opa(marker, LV_OPA_COVER, 0);
         lv_obj_set_style_radius(marker, LV_RADIUS_CIRCLE, 0);
         lv_obj_set_style_border_color(marker, kGraphite, 0);
         lv_obj_set_style_border_width(marker, px(2), 0);
-        lv_obj_clear_flag(marker, LV_OBJ_FLAG_CLICKABLE);
+        if(i == 0) {
+            lv_obj_add_flag(marker, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_add_event_cb(marker, waypoint_marker_long_press,
+                                LV_EVENT_LONG_PRESSED, nullptr);
+        } else {
+            lv_obj_clear_flag(marker, LV_OBJ_FLAG_CLICKABLE);
+        }
         lv_obj_add_flag(marker, LV_OBJ_FLAG_HIDDEN);
     }
     ui.nav_marker = lv_obj_create(ui.nav_map);
@@ -2249,6 +2292,13 @@ extern "C" void moto_nav_ui_show_waypoint_reached(uint8_t index, uint8_t total) 
     lv_timer_set_period(ui.nav_waypoint_timer, 7000);
     lv_timer_reset(ui.nav_waypoint_timer);
     lv_timer_resume(ui.nav_waypoint_timer);
+}
+
+extern "C" void moto_nav_ui_set_waypoint_skip_callback(
+    moto_waypoint_skip_callback_t callback, void *context) {
+    ui.waypoint_skip_callback = callback;
+    ui.waypoint_skip_context = context;
+    ui.waypoint_skip_armed = false;
 }
 
 extern "C" void moto_nav_ui_clear_waypoint_reached(void) {

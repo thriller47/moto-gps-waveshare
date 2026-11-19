@@ -105,6 +105,7 @@ typedef void (*moto_music_command_callback_t)(moto_music_command_t command,
                                                void *context);
 typedef void (*moto_page_change_callback_t)(moto_ui_page_t page,
                                              void *context);
+typedef void (*moto_waypoint_skip_callback_t)(void *context);
 typedef struct {
     moto_ui_page_t page;
     moto_ui_mode_t mode;
@@ -168,6 +169,9 @@ void moto_nav_ui_set_state(const moto_ui_state_t *state);
 /** Seven-second, non-blocking intermediate-stop confirmation; never arrival. */
 void moto_nav_ui_show_waypoint_reached(uint8_t index, uint8_t total);
 void moto_nav_ui_clear_waypoint_reached(void);
+/** Double long-press on the next-stop marker; callback only after confirmation. */
+void moto_nav_ui_set_waypoint_skip_callback(
+    moto_waypoint_skip_callback_t callback, void *context);
 /** Apply only high-rate route/heading motion to the currently visible page. */
 void moto_nav_ui_set_motion_state(const moto_ui_state_t *state);
 /** Drive the full-screen connection/ready lifecycle on the navigation page. */
