@@ -294,7 +294,7 @@ jobs:
             -DMOTO_ESP_SUBPIXEL_EXPERIMENT=ON
             -DMOTO_ESP_MAP_DIRTY_TILES_EXPERIMENT=ON
             -DMOTO_ESP_PERF_TELEMETRY_EXPERIMENT=ON
-            -DMOTO_ESP_TURN_ASSIST_EXPERIMENT=${{ (github.ref == 'refs/heads/test/merge-gps-20261118' || github.head_ref == 'test/merge-gps-20261118') && 'ON' || 'OFF' }} build
+            -DMOTO_ESP_TURN_ASSIST_EXPERIMENT=${{ (github.ref == 'refs/heads/valhalla' || github.ref == 'refs/heads/test/merge-gps-20261118' || github.head_ref == 'test/merge-gps-20261118') && 'ON' || 'OFF' }} build
 
       - name: Rename output binary
         run: |
@@ -303,13 +303,13 @@ jobs:
             mv "platforms/esp32/build/moto_gps_esp32.bin" "platforms/esp32/build/moto-gps-waveshare.bin"
           fi
 
-      - name: Verify TURN ASSIST enabled in experimental build
+      - name: Verify TURN ASSIST enabled in valhalla/test build
         if: >-
-          ${{ github.ref == 'refs/heads/test/merge-gps-20261118' || github.head_ref == 'test/merge-gps-20261118' }}
+          ${{ github.ref == 'refs/heads/valhalla' || github.ref == 'refs/heads/test/merge-gps-20261118' || github.head_ref == 'test/merge-gps-20261118' }}
         run: |
           grep -Fxq 'MOTO_ESP_TURN_ASSIST_EXPERIMENT:BOOL=ON' platforms/esp32/build/CMakeCache.txt
           test -s platforms/esp32/build/moto-gps-waveshare.bin
-          printf 'MOTO_ESP_TURN_ASSIST_EXPERIMENT=ON\nCommit: %s\nExperimental ESP32 binary; not valhalla.\n' "$GITHUB_SHA" > platforms/esp32/build/TURN-ASSIST-ON.txt
+          printf 'MOTO_ESP_TURN_ASSIST_EXPERIMENT=ON\nCommit: %s\nTurn Assist ON; verify branch/commit before flashing.\n' "$GITHUB_SHA" > platforms/esp32/build/TURN-ASSIST-ON.txt
 
       - name: Upload ESP32 artifacts
         if: >-

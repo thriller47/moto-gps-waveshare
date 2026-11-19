@@ -133,11 +133,11 @@ if(MOTO_ESP_PERF_TELEMETRY_EXPERIMENT)
 endif()
 
 # Reversible on-road experiment: conservative turn-aware POSITION prediction.
-# OFF by default for local builds. GitHub Project Build selects ON only for
-# test/merge-gps-20261118, while valhalla and all other branches stay OFF.
+# Road-tested 19 November 2026: enabled by default after integration.
+# The previous predictor is retained with -DMOTO_ESP_TURN_ASSIST_EXPERIMENT=OFF.
 # The QMI8658 yaw fusion and absolute phone course are NOT modified.
 option(MOTO_ESP_TURN_ASSIST_EXPERIMENT
-    "Enable curve-aware position predictor (A/B hardware experiment)" OFF)
+    "Enable road-tested curve-aware position predictor (reversible)" ON)
 if(MOTO_ESP_TURN_ASSIST_EXPERIMENT)
     target_compile_definitions(${COMPONENT_LIB} PRIVATE
         MOTO_ESP_TURN_ASSIST_EXPERIMENT=1)
