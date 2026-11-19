@@ -2,6 +2,9 @@
 
 ## STATO ATTUALE — RIPARTIRE DA QUI
 
+**19/11/2026 — richiesta build GitHub ON:** il commit che modificava solo workflow e documentazione ha prodotto run con job ESP32 `skipped` (filtro dei percorsi). Aggiunta contestualmente una precisazione nel CMakeLists ESP32 relativa alla distinzione build locale OFF / CI branch test ON, così la push attiva realmente la compilazione ESP32 con flag ON. L'artifact è disponibile solo dopo successo del job `esp32` e del controllo del CMakeCache; verificare prima del flash.
+
+
 **19/11/2026 — CI ESP32 Turn Assist attiva per il test (branch `test/merge-gps-20261118`):** aggiornato il workflow `Project Build` per compilare con `MOTO_ESP_TURN_ASSIST_EXPERIMENT=ON` esclusivamente su push/PR dell'esatto branch sperimentale; `valhalla` e gli altri branch compilano con `OFF`. Il job controlla il valore ON nel CMakeCache e produce l'artifact `ESP32-Firmware-TURN-ASSIST-ON`, contenente `TURN-ASSIST-ON.txt` con il commit per evitare di confonderlo con la build standard. **Verifica:** CI del commit finale da controllare e test su hardware non ancora effettuato; precedente ESP32 OFF e native sono verdi. **Prossima azione:** scaricare l'artifact della nuova run verde, flashare come da manuale, conservare firmware OFF per rollback e registrare diagnostica completa su strada. Nessun merge in `valhalla`.
 
 
