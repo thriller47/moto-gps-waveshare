@@ -1,4 +1,5 @@
 #include "map_origin_predictor.hpp"
+#include "../../platforms/web/wasm/replay_curve_predictor.hpp"
 
 #include <cmath>
 #include <cstdlib>
@@ -268,6 +269,31 @@ void test_roundabout_exit_three_second_geometry_gap() {
   CHECK(distance_metres(after_easing, moving_exit) < 8.0);
 }
 
+void test_replay_curve_candidate_baseline_and_turn() {
+  const MapOriginPredictor::Position origin{45.0, 9.0};
+  ReplayCurvePredictor curve;
+  MapOriginPredictor production;
+  curve.advance(origin, origin, 1000, 1, "test", 1, 12, 90, true);
+  production.advance(origin, 1000, 1, "test", 1, 12, 90, true);
+  const auto straight = curve.advance(
+      origin, origin, 1100, 1, "test", 1, 12, 90, true);
+  const auto baseline_straight = production.advance(
+      origin, 1100, 1, "test", 1, 12, 90, true);
+  CHECK(distance_metres(straight, baseline_straight) < 0.001);
+
+  // A steep heading change is diagnosed in the recorded snapshot; GPS
+  // correction reduces the hypothetical displacement relative to that fix.
+  const auto in_curve = curve.advance(
+      origin, origin, 1200, 1, "test", 1, 12, 130, true);
+  const auto baseline_curve = production.advance(
+      origin, 1200, 1, "test", 1, 12, 130, true);
+  CHECK(distance_metres(in_curve, origin) < distance_metres(baseline_curve, origin));
+  curve.reset();
+  const auto after_reset = curve.advance(
+      origin, origin, 1000, 1, "test", 1, 12, 90, true);
+  CHECK(distance_metres(after_reset, origin) < 0.001);
+}
+
 }  // namespace
 
 int main() {
@@ -281,6 +307,7 @@ int main() {
   test_turning_continues_with_attenuated_step_along_live_heading();
   test_roundabout_exit_three_second_geometry_gap();
   test_turn_scale_threshold_and_floor();
+  test_replay_curve_candidate_baseline_and_turn();
 
   if (failures != 0) {
     std::cerr << failures << " map predictor checks failed\n";
