@@ -293,7 +293,8 @@ jobs:
             -DMOTO_ESP_CURVE_ZOOM_EXPERIMENT=ON
             -DMOTO_ESP_SUBPIXEL_EXPERIMENT=ON
             -DMOTO_ESP_MAP_DIRTY_TILES_EXPERIMENT=ON
-            -DMOTO_ESP_PERF_TELEMETRY_EXPERIMENT=ON build
+            -DMOTO_ESP_PERF_TELEMETRY_EXPERIMENT=ON
+            -DMOTO_ESP_TURN_ASSIST_EXPERIMENT=${{ (github.ref == 'refs/heads/test/merge-gps-20261118' || github.head_ref == 'test/merge-gps-20261118') && 'ON' || 'OFF' }} build
 
       - name: Rename output binary
         run: |
@@ -301,6 +302,14 @@ jobs:
           if [ -f "platforms/esp32/build/moto_gps_esp32.bin" ]; then
             mv "platforms/esp32/build/moto_gps_esp32.bin" "platforms/esp32/build/moto-gps-waveshare.bin"
           fi
+
+      - name: Verify TURN ASSIST enabled in experimental build
+        if: >-
+          ${{ github.ref == 'refs/heads/test/merge-gps-20261118' || github.head_ref == 'test/merge-gps-20261118' }}
+        run: |
+          grep -Fxq 'MOTO_ESP_TURN_ASSIST_EXPERIMENT:BOOL=ON' platforms/esp32/build/CMakeCache.txt
+          test -s platforms/esp32/build/moto-gps-waveshare.bin
+          printf 'MOTO_ESP_TURN_ASSIST_EXPERIMENT=ON\nCommit: %s\nExperimental ESP32 binary; not valhalla.\n' "$GITHUB_SHA" > platforms/esp32/build/TURN-ASSIST-ON.txt
 
       - name: Upload ESP32 artifacts
         if: >-
@@ -311,9 +320,10 @@ jobs:
           }}
         uses: actions/upload-artifact@v6
         with:
-          name: ${{ startsWith(github.ref, 'refs/heads/test/') && 'ESP32-Firmware-EXPERIMENTAL' || 'ESP32-Firmware' }}
+          name: ${{ (github.ref == 'refs/heads/test/merge-gps-20261118' || github.head_ref == 'test/merge-gps-20261118') && 'ESP32-Firmware-TURN-ASSIST-ON' || (startsWith(github.ref, 'refs/heads/test/') && 'ESP32-Firmware-EXPERIMENTAL' || 'ESP32-Firmware') }}
           path: |
             platforms/esp32/build/bootloader/bootloader.bin
             platforms/esp32/build/partition_table/partition-table.bin
             platforms/esp32/build/moto-gps-waveshare.bin
+            platforms/esp32/build/TURN-ASSIST-ON.txt
           retention-days: 3
