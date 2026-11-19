@@ -61,6 +61,9 @@ class PhoneNavBridge {
     std::uint16_t next_chunk = 0;
     std::uint16_t total_point_count = 0;
     std::uint16_t point_count = 0;
+    std::uint8_t waypoint_marker_count = 0;
+    std::array<moto::nav::Gcj02Point, moto::nav::kWaypointMarkerCapacity> waypoint_markers{};
+    std::array<std::uint8_t, moto::nav::kWaypointMarkerCapacity> waypoint_marker_indices{};
     moto::ble::GeoPointE6 origin_e6{};
     moto::nav::Gcj02Point origin{};
     std::array<moto::nav::Gcj02Point,

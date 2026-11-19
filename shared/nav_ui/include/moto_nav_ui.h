@@ -3,6 +3,7 @@
 #include <stdint.h>
 
 #define MOTO_UI_ROUTE_POINT_CAPACITY 24
+#define MOTO_UI_WAYPOINT_MARKER_CAPACITY 8
 #define MOTO_UI_ROAD_POINT_CAPACITY 192
 #define MOTO_UI_ROAD_POLYLINE_CAPACITY 24
 #define MOTO_UI_CANVAS_WIDTH 466
@@ -132,6 +133,9 @@ typedef struct {
     uint16_t heading_deg;
     uint8_t route_point_count;
     moto_ui_point_t route_points[MOTO_UI_ROUTE_POINT_CAPACITY];
+    uint8_t waypoint_marker_count;
+    moto_ui_point_t waypoint_markers[MOTO_UI_WAYPOINT_MARKER_CAPACITY];
+    uint8_t waypoint_marker_indices[MOTO_UI_WAYPOINT_MARKER_CAPACITY];
     uint8_t road_point_count;
     moto_ui_point_t road_points[MOTO_UI_ROAD_POINT_CAPACITY];
 #if defined(__EMSCRIPTEN__) || defined(MOTO_ESP_SUBPIXEL_EXPERIMENT)

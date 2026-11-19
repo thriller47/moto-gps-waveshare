@@ -240,6 +240,7 @@ void PhoneNavBridge::on_link_state(bool active) {
       geometry_ = {};
       phone_snapshot.has_route_view = false;
       phone_snapshot.route_view_point_count = 0;
+      phone_snapshot.waypoint_marker_count = 0;
       clear_map_context(phone_snapshot);
       heading_fusion_.reset();
       last_phone_anchor_ms_ = 0;
@@ -612,6 +613,15 @@ moto::ble::AckStatus PhoneNavBridge::consume_geometry(
           static_cast<double>(input.view_origin.latitude_e6) / 1'000'000.0,
           static_cast<double>(input.view_origin.longitude_e6) / 1'000'000.0,
       };
+      geometry_.waypoint_marker_count = static_cast<std::uint8_t>(
+          std::min(input.waypoint_markers.size(), moto::nav::kWaypointMarkerCapacity));
+      for (std::size_t i = 0; i < geometry_.waypoint_marker_count; ++i) {
+        const auto& marker = input.waypoint_markers[i];
+        geometry_.waypoint_markers[i] = {
+            static_cast<double>(marker.point.latitude_e6) / 1'000'000.0,
+            static_cast<double>(marker.point.longitude_e6) / 1'000'000.0};
+        geometry_.waypoint_marker_indices[i] = marker.index;
+      }
     }
 
     if (!geometry_.active || input.route_token != geometry_.route_token ||
@@ -772,6 +782,7 @@ moto::ble::AckStatus PhoneNavBridge::consume_map_scene(
 void PhoneNavBridge::apply_geometry_locked(moto::nav::NavSnapshot& target) {
   if (!geometry_.complete || target.route_id.empty()) {
     target.has_route_view = false;
+    target.waypoint_marker_count = 0;
     return;
   }
   char expected[20]{};
@@ -780,6 +791,7 @@ void PhoneNavBridge::apply_geometry_locked(moto::nav::NavSnapshot& target) {
   if (target.route_id != expected ||
       target.route_generation != geometry_.route_generation) {
     target.has_route_view = false;
+    target.waypoint_marker_count = 0;
     return;
   }
   target.route_view_origin = geometry_.origin;
@@ -788,6 +800,11 @@ void PhoneNavBridge::apply_geometry_locked(moto::nav::NavSnapshot& target) {
   std::copy_n(geometry_.points.begin(), geometry_.point_count,
               target.route_view_points.begin());
   target.has_route_view = geometry_.point_count >= 2;
+  target.waypoint_marker_count = target.has_route_view ? geometry_.waypoint_marker_count : 0;
+  for (std::size_t i = 0; i < target.waypoint_marker_count; ++i) {
+    target.waypoint_markers[i] = geometry_.waypoint_markers[i];
+    target.waypoint_marker_indices[i] = geometry_.waypoint_marker_indices[i];
+  }
 }
 
 moto::nav::NavSnapshot& PhoneNavBridge::phone_snapshot_locked() noexcept {

@@ -12,6 +12,7 @@
 namespace moto::nav {
 
 constexpr std::size_t kRouteViewPointCapacity = 24;
+constexpr std::size_t kWaypointMarkerCapacity = 8;
 // One local 466 px map window: enough for a dense urban road graph without
 // turning the ESP32 snapshot into a city-wide map database. The bundled Jinan
 // verification fixture intentionally exercises both limits.
@@ -73,6 +74,9 @@ struct NavSnapshot {
   Gcj02Point route_view_origin;
   std::array<Gcj02Point, kRouteViewPointCapacity> route_view_points{};
   std::uint8_t route_view_point_count = 0;
+  std::array<Gcj02Point, kWaypointMarkerCapacity> waypoint_markers{};
+  std::array<std::uint8_t, kWaypointMarkerCapacity> waypoint_marker_indices{};
+  std::uint8_t waypoint_marker_count = 0;
 
   // Optional, bounded street context for a GTA-style heading-up minimap.
   // Points stay in provider coordinates; NavPresenter applies the exact same

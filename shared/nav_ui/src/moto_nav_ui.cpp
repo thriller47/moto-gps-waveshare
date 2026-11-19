@@ -135,6 +135,7 @@ struct Ui {
     std::uint32_t nav_route_geometry_signature = 0;
     lv_timer_t *nav_route_motion_timer = nullptr;
     lv_obj_t *nav_marker = nullptr;
+    lv_obj_t *nav_waypoint_markers[MOTO_UI_WAYPOINT_MARKER_CAPACITY]{};
     lv_obj_t *nav_status = nullptr;
     lv_obj_t *nav_waypoint_notice = nullptr;
     lv_timer_t *nav_waypoint_timer = nullptr;
@@ -937,6 +938,38 @@ void update_road_geometry(const moto_ui_state_t *state) {
 }
 
 
+// Waypoint labels share the precise geographic rider-centred transform.
+void update_waypoint_markers(const moto_ui_state_t *state) {
+    const std::uint8_t count = std::min<std::uint8_t>(
+        state->route_point_count >= 2 ? state->waypoint_marker_count : 0,
+        MOTO_UI_WAYPOINT_MARKER_CAPACITY);
+    for(std::uint8_t i = 0; i < MOTO_UI_WAYPOINT_MARKER_CAPACITY; ++i) {
+        lv_obj_t *marker = ui.nav_waypoint_markers[i];
+        if(marker == nullptr) continue;
+        const int x = i < count ? state->waypoint_markers[i].x : -1000;
+        const int y = i < count ? state->waypoint_markers[i].y : -1000;
+        const bool visible = i < count && x >= px(12) &&
+            x < MOTO_UI_CANVAS_WIDTH - px(12) &&
+            y >= px(12) && y < px(232) - px(12);
+        if(!visible) {
+            if(!lv_obj_has_flag(marker, LV_OBJ_FLAG_HIDDEN))
+                lv_obj_add_flag(marker, LV_OBJ_FLAG_HIDDEN);
+            continue;
+        }
+        if(lv_obj_has_flag(marker, LV_OBJ_FLAG_HIDDEN))
+            lv_obj_remove_flag(marker, LV_OBJ_FLAG_HIDDEN);
+        char number[4];
+        std::snprintf(number, sizeof(number), "%u",
+                      static_cast<unsigned>(state->waypoint_marker_indices[i]));
+        if(std::strcmp(lv_label_get_text(marker), number) != 0)
+            lv_label_set_text(marker, number);
+        const int left = x - px(11);
+        const int top = y - px(11);
+        if(lv_obj_get_x(marker) != left || lv_obj_get_y(marker) != top)
+            lv_obj_set_pos(marker, left, top);
+    }
+}
+
 void update_route_geometry(const moto_ui_state_t *state) {
     const std::uint8_t count = std::min<std::uint8_t>(
         state->route_point_count, MOTO_UI_ROUTE_POINT_CAPACITY);
@@ -1463,6 +1496,7 @@ void update_nav_status(const moto_ui_state_t *state) {
 void update_navigation(const moto_ui_state_t *state) {
     update_road_geometry(state);
     update_route_geometry(state);
+    update_waypoint_markers(state);
     update_nav_status(state);
 
     // Never suggest "go straight for 0 m" while there is no route. Waiting is
@@ -1686,6 +1720,20 @@ void create_navigation_page() {
                                                  kPlatformMotionFrameMs,
                                                  nullptr);
 
+    // Static bounded marker objects, over the green road and below the bike.
+    for(std::uint8_t i = 0; i < MOTO_UI_WAYPOINT_MARKER_CAPACITY; ++i) {
+        lv_obj_t *marker = make_label(ui.nav_map, &lv_font_montserrat_16, kBlack, "");
+        ui.nav_waypoint_markers[i] = marker;
+        lv_obj_set_size(marker, px(22), px(22));
+        lv_obj_set_style_text_align(marker, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_style_bg_color(marker, kAmber, 0);
+        lv_obj_set_style_bg_opa(marker, LV_OPA_COVER, 0);
+        lv_obj_set_style_radius(marker, LV_RADIUS_CIRCLE, 0);
+        lv_obj_set_style_border_color(marker, kGraphite, 0);
+        lv_obj_set_style_border_width(marker, px(2), 0);
+        lv_obj_clear_flag(marker, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_flag(marker, LV_OBJ_FLAG_HIDDEN);
+    }
     ui.nav_marker = lv_obj_create(ui.nav_map);
     lv_obj_remove_style_all(ui.nav_marker);
     lv_obj_set_size(ui.nav_marker, px(35), px(37));
@@ -2217,6 +2265,7 @@ extern "C" void moto_nav_ui_set_motion_state(const moto_ui_state_t *state) {
     if(ui.page == MOTO_UI_PAGE_NAVIGATION) {
         update_road_geometry(state);
         update_route_geometry(state);
+        update_waypoint_markers(state);
     } else if(ui.page == MOTO_UI_PAGE_COMPASS) {
         update_compass(state);
     }
