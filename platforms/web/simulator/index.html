@@ -64,11 +64,12 @@ code{background:#0b151a;padding:2px 4px;border-radius:3px}a{color:#90d8ff}
 <div class="separator"><h2>Riproduzione</h2>
 <label class="curve-control"><input id="curve-zoom" type="checkbox" disabled> Zoom tornanti sperimentale (renderer LVGL)</label>
 <label class="curve-control"><input id="geometry-zoom" type="checkbox" disabled> Zoom geometrico 17/11 · A/B (non consigliato)</label>
-<label class="curve-control">Predizione posizione · confronto A/B/C
+<label class="curve-control">Predizione posizione · confronto A/B/C/C2
 <select id="predictor-mode" disabled aria-label="Modalità predizione posizione">
 <option value="0">B — OFF (GPS snapshot)</option>
 <option value="1">A — Predittore ESP32 attuale</option>
 <option value="2">C — Prudente in curva (solo WASM)</option>
+<option value="3">C2 — Curva, uscita e arresto (solo WASM)</option>
 </select></label>
 <label class="curve-control">Heading del replay
 <select id="heading-mode" aria-label="Modalità heading del replay">
@@ -80,7 +81,7 @@ code{background:#0b151a;padding:2px 4px;border-radius:3px}a{color:#90d8ff}
 </select></label>
 <p class="hint" id="heading-mode-note">Originale: heading registrato, senza filtro aggiuntivo.</p>
 <details><summary>Come funzionano i confronti A/B</summary>
-<p class="hint">B OFF usa il GPS dello snapshot; A usa <code>MapOriginPredictor</code> C++ originale con ancore di geometria; C usa lo stesso predittore con avanzamento attenuato quando l'heading varia rapidamente e correzione sperimentale verso il GPS dello snapshot. Per confrontare le modalità, riparti dall'inizio a 1× e mantieni heading Originale. C non è nel firmware ESP32. Il replay non contiene i campioni grezzi IMU né la latenza BLE reale.</p>
+<p class="hint">B OFF usa il GPS dello snapshot; A usa <code>MapOriginPredictor</code> C++ originale con ancore di geometria; C usa lo stesso predittore con avanzamento attenuato quando l'heading varia rapidamente e correzione sperimentale verso il GPS dello snapshot. C2 riconosce prima la curva, mantiene brevemente la correzione all'uscita e si riallinea al GPS da fermo. Per confrontare le modalità, riparti dall'inizio a 1× e mantieni heading Originale. C non è nel firmware ESP32. Il replay non contiene i campioni grezzi IMU né la latenza BLE reale.</p>
 <p class="hint">Zoom tornanti OFF: zoom originale. ON: curve della linea verde fino a 3×; rotatorie fino a 4×. Le modifiche C++ richiedono la ricompilazione WASM.</p>
 <p class="hint">Zoom geometrico 17/11 OFF (predefinito): zoom rotonde già collaudato, come sul firmware sperimentale aggiornato. ON: riproduce il rilevatore che ha generato zoom falsi e oscillanti nei video del 17/11. Questo confronto non elimina eventuali vertici OSM errati dalla linea verde.</p>
 <p class="hint">Heading bloccato: orientamento fisso. Stabilizzato: filtro sui rettilinei. GPS verificato: direzioni tra fix. Course multifix: almeno 4 fix distinti e 16 m di avanzamento su traiettoria coerente; se manca distanza sufficiente mantiene la direzione, e riconosce le curve su spostamenti GPS consecutivi. Tutte sono modalità sperimentali solo del replay.</p>
@@ -103,7 +104,7 @@ code{background:#0b151a;padding:2px 4px;border-radius:3px}a{color:#90d8ff}
 <div><small>Heading snapshot / applicato al renderer</small><b id="gps-heading">—</b></div>
 <div><small>Origine mappa inviata al renderer (lat, lon)</small><b id="map-origin">—</b></div>
 <div><small>Scarto origine rispetto allo snapshot</small><b id="prediction-offset">—</b></div>
-<div><small>Scarto A / B / C dallo snapshot sul frame</small><b id="prediction-three">—</b></div>
+<div><small>Scarto A / B / C / C2 dallo snapshot sul frame</small><b id="prediction-three">—</b></div>
 </div>
 <details><summary>Diagnostica avanzata (prestazioni, strade e anello)</summary>
 <div class="stats">

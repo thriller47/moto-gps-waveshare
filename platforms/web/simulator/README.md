@@ -1,6 +1,12 @@
 # Simulatore Moto Chat GPS per Windows (anteprima 2D + WebAssembly LVGL)
 
 
+## C2 — uscita di rotonda e sosta (19 novembre 2026)
+
+Nuova quarta modalità **C2 — Curva, uscita e arresto (solo WASM)**. Rimangono selezionabili A (originale), B (GPS OFF) e C (prima candidata). C2 riconosce le variazioni di heading su finestre >=100 ms con soglia diagnostica iniziale 6°/s; riduce l'avanzamento predetto durante la curva, mantiene una correzione progressivamente decrescente fino a 1 secondo dopo l'ultima variazione significativa, e a velocità <1,5 m/s ripristina l'origine al GPS dello snapshot e resetta lo stato per la ripartenza. Niente cambia sul firmware ESP32 né sulla fusione IMU. Nel CSV sono aggiunte `predicted_offset_c2_m`, `predicted_c2_along_heading_m` e `predicted_c2_lateral_heading_m`. Per confrontare il replay del 19/11 ricompilare Emscripten (`./scripts/build_web.sh`), fare Ctrl+F5, impostare heading Originale e velocità 1×. Verificare ingresso, uscita e fermi usando le quattro modalità.
+
+L'uso dello snapshot GPS per riallinearsi implica che una riduzione dello scarto sia in parte ottenuta per costruzione, non prova che la traiettoria sul veicolo sia più corretta. Nessun giroscopio fisico o timing BLE è emulato. C2 è **solo un esperimento**, non pronto per il flash.
+
 ## Test A/B/C predizione posizione in rotonda — 19 novembre 2026
 
 Nel nuovo menu **Predizione posizione · confronto A/B/C**:

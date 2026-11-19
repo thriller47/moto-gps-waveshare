@@ -64,7 +64,9 @@
       "warning_flags","predicted_offset_off_m","predicted_offset_on_m",
       "geometry_age_since_distinct_route_ms","predicted_along_heading_m",
       "predicted_lateral_heading_m","predicted_offset_curve_m",
-      "predicted_curve_along_heading_m","predicted_curve_lateral_heading_m"];
+      "predicted_curve_along_heading_m","predicted_curve_lateral_heading_m",
+      "predicted_offset_c2_m","predicted_c2_along_heading_m",
+      "predicted_c2_lateral_heading_m"];
     return [cols.join(","),...rows.map(r=>{
       const o=observed?.get(r.i)||{};
       return [r.t,r.i+1,coordinate(r.lat),coordinate(r.lon),format(r.gps),
@@ -76,7 +78,10 @@
         valid(o.lateral)?format(o.lateral):"",
         valid(o.curve)?format(o.curve):"",
         valid(o.curveAlong)?format(o.curveAlong):"",
-        valid(o.curveLateral)?format(o.curveLateral):""].join(",");
+        valid(o.curveLateral)?format(o.curveLateral):"",
+        valid(o.c2)?format(o.c2):"",
+        valid(o.c2Along)?format(o.c2Along):"",
+        valid(o.c2Lateral)?format(o.c2Lateral):""].join(",");
     })].join("\r\n");
   }
   return {analyze,nearestRoute,delta,metres,csv};

@@ -9,7 +9,7 @@ test("A/B/C CSV exports signed curve components on same recorded frame",()=>{
     lateral:2,moved:6,speed:10,flags:[]}];
   const results=new Map([[0,{off:0,on:8,curve:3,
     geometryAgeMs:700,along:4,lateral:-6,
-    curveAlong:2,curveLateral:-2}]]);
+    curveAlong:2,curveLateral:-2,c2:1.5,c2Along:0.8,c2Lateral:-0.5}]]);
   const [head,values]=csv(rows,results).split("\r\n");
   const columns=head.split(","),items=values.split(",");
   assert.equal(columns.length,items.length);
@@ -18,6 +18,8 @@ test("A/B/C CSV exports signed curve components on same recorded frame",()=>{
   assert.equal(items[columns.indexOf("predicted_lateral_heading_m")],"-6.00");
   assert.equal(items[columns.indexOf("predicted_curve_lateral_heading_m")],"-2.00");
   assert.equal(items[columns.indexOf("predicted_offset_off_m")],"0.00");
+  assert.equal(items[columns.indexOf("predicted_offset_c2_m")],"1.50");
+  assert.equal(items[columns.indexOf("predicted_c2_lateral_heading_m")],"-0.50");
 });
 
 test("older WASM data does not invent curve measurements",()=>{

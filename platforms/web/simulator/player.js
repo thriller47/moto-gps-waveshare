@@ -76,9 +76,13 @@
       const on=api.batchSample(Number(s.lat),Number(s.lon),
         Number(s.heading_deg),Number(s.speed_mps),Number(t));
       const curve=api.batchCurveOffset?api.batchCurveOffset():NaN;
+      const c2=api.batchC2Offset?api.batchC2Offset():NaN;
       predictorObservations.set(i,{
         off:0,on:Number.isFinite(on)?on:NaN,
         curve:Number.isFinite(curve)?curve:NaN,
+        c2:Number.isFinite(c2)?c2:NaN,
+        c2Along:Number.isFinite(c2)&&api.batchC2Along?api.batchC2Along():NaN,
+        c2Lateral:Number.isFinite(c2)&&api.batchC2Lateral?api.batchC2Lateral():NaN,
         curveAlong:Number.isFinite(curve)&&api.batchCurveAlong?api.batchCurveAlong():NaN,
         curveLateral:Number.isFinite(curve)&&api.batchCurveLateral?api.batchCurveLateral():NaN,
         // Time since latest DISTINCT geometry in the parsed trace. The
@@ -161,7 +165,7 @@
     const north=(a-lat)*111195, east=(b-lon)*111195*Math.cos(lat*Math.PI/180);
     const offset=Math.hypot(north,east);
     ui["prediction-offset"].textContent=offset.toFixed(1)+" m"+
-      (" · modalità "+["B OFF","A originale","C curva"][Number(ui["predictor-mode"].value)]);
+      (" · modalità "+["B OFF","A originale","C curva","C2 curva/uscita"][Number(ui["predictor-mode"].value)]);
     // Batch CSV analysis uses independent state and never samples this
     // interactive renderer, so A/B data does not depend on the seek history.
   }
@@ -300,7 +304,9 @@
     ui["prediction-three"].textContent=
       "A "+(Number.isFinite(prediction.on)?prediction.on.toFixed(1)+" m":"n/d")+
       " · B 0 m · C "+(Number.isFinite(prediction.curve)?
-        prediction.curve.toFixed(1)+" m":"n/d (WASM da aggiornare)");
+        prediction.curve.toFixed(1)+" m":"n/d")+
+      " · C2 "+(Number.isFinite(prediction.c2)?
+        prediction.c2.toFixed(1)+" m":"n/d (WASM da aggiornare)");
     const signed=x=>Number.isFinite(x)?x.toFixed(1):"n/d";
     ui["diagnostic-summary"].textContent=
       "Frame "+(index+1)+" · Δ heading/rotta "+
@@ -312,6 +318,7 @@
       " · avanti/indietro "+signed(prediction.along)+" m"+
       " · destra/sinistra A "+signed(prediction.lateral)+" m"+
       " · destra/sinistra C "+signed(prediction.curveLateral)+" m"+
+      " · destra/sinistra C2 "+signed(prediction.c2Lateral)+" m"+
       " · segnalazioni "+warnings+" frame (non necessariamente errori)"+
       (row.flags.length?" · QUI: "+row.flags.join(", "):"");
   }
@@ -567,6 +574,9 @@
           batchCurveOffset:optional("moto_web_replay_batch_curve_offset_m","number",[]),
           batchCurveAlong:optional("moto_web_replay_batch_curve_along_m","number",[]),
           batchCurveLateral:optional("moto_web_replay_batch_curve_lateral_m","number",[]),
+          batchC2Offset:optional("moto_web_replay_batch_c2_offset_m","number",[]),
+          batchC2Along:optional("moto_web_replay_batch_c2_along_m","number",[]),
+          batchC2Lateral:optional("moto_web_replay_batch_c2_lateral_m","number",[]),
           originLat:optional("moto_web_replay_origin_lat","number",[]),
           originLon:optional("moto_web_replay_origin_lon","number",[]),
           curveZoom:fn("set_curve_zoom_enabled",["number"]),

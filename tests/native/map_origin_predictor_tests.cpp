@@ -1,5 +1,6 @@
 #include "map_origin_predictor.hpp"
 #include "../../platforms/web/wasm/replay_curve_predictor.hpp"
+#include "../../platforms/web/wasm/replay_curve_predictor_v2.hpp"
 
 #include <cmath>
 #include <cstdlib>
@@ -313,6 +314,30 @@ void test_replay_curve_candidate_baseline_and_turn() {
   CHECK(distance_metres(after_reset, origin) < 0.001);
 }
 
+void test_replay_c2_straight_curve_exit_and_stop() {
+  const MapOriginPredictor::Position origin{45.0, 9.0};
+  ReplayCurvePredictorV2 c2;
+  MapOriginPredictor baseline;
+  c2.advance(origin, origin, 1000, 1, "test", 1, 12, 90, true);
+  baseline.advance(origin, 1000, 1, "test", 1, 12, 90, true);
+  const auto straight = c2.advance(origin, origin, 1100, 1, "test", 1, 12, 90, true);
+  const auto original = baseline.advance(origin, 1100, 1, "test", 1, 12, 90, true);
+  CHECK(distance_metres(straight, original) < 0.001);
+  const auto curve = c2.advance(origin, origin, 1220, 1, "test", 1, 12, 125, true);
+  const auto orig_curve = baseline.advance(origin, 1220, 1, "test", 1, 12, 125, true);
+  CHECK(distance_metres(curve, origin) < distance_metres(orig_curve, origin));
+  // An exit fix within one second continues to use GPS correction.
+  const auto exit_fix = c2.advance(origin, origin, 1400, 1, "test", 1, 12, 125, true);
+  const auto orig_exit = baseline.advance(origin, 1400, 1, "test", 1, 12, 125, true);
+  CHECK(distance_metres(exit_fix, origin) < distance_metres(orig_exit, origin));
+  const auto stopped = c2.advance(origin, origin, 1500, 1, "test", 1, 0, 125, true);
+  CHECK(distance_metres(stopped, origin) < 0.001);
+  const auto restarted = c2.advance(origin, origin, 1600, 2, "test", 1, 10, 125, true);
+  CHECK(distance_metres(restarted, origin) < 0.001);
+  const auto resumed = c2.advance(origin, origin, 1700, 2, "test", 1, 10, 125, true);
+  CHECK(distance_metres(resumed, origin) > 0.5);
+}
+
 }  // namespace
 
 int main() {
@@ -327,6 +352,7 @@ int main() {
   test_roundabout_exit_three_second_geometry_gap();
   test_turn_scale_threshold_and_floor();
   test_replay_curve_candidate_baseline_and_turn();
+  test_replay_c2_straight_curve_exit_and_stop();
 
   if (failures != 0) {
     std::cerr << failures << " map predictor checks failed\n";

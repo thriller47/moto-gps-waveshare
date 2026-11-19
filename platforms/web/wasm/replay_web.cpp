@@ -10,6 +10,7 @@
 #include "moto_nav_ui.h"
 #include "map_origin_predictor.hpp"
 #include "replay_curve_predictor.hpp"
+#include "replay_curve_predictor_v2.hpp"
 
 namespace {
 
@@ -23,15 +24,17 @@ bool collecting_road = false;
 // arrivals are treated as anchors, and recorded time drives dead reckoning.
 MapOriginPredictor replay_predictor;
 ReplayCurvePredictor replay_curve_predictor;
+ReplayCurvePredictorV2 replay_curve_predictor_v2;
 std::uint32_t replay_geometry_sequence = 0;
 MapOriginPredictor::Position replay_geometry_anchor{};
-int replay_predictor_mode = 0;  // 0=OFF, 1=production, 2=curve experiment
+int replay_predictor_mode = 0;  // 0=B OFF, 1=A, 2=C, 3=C2
 // Replay-only telemetry; no raw GNSS or IMU heading is available.
 double replay_origin_lat = NAN;
 double replay_origin_lon = NAN;
 // Dedicated replay batch predictor: independent of the visual LVGL predictor.
 MapOriginPredictor batch_predictor;
 ReplayCurvePredictor batch_curve_predictor;
+ReplayCurvePredictorV2 batch_curve_predictor_v2;
 MapOriginPredictor::Position batch_anchor{};
 std::uint32_t batch_sequence = 0;
 std::string batch_route_id;
@@ -44,6 +47,9 @@ double batch_lateral_m = NAN;
 double batch_curve_offset_m = NAN;
 double batch_curve_along_m = NAN;
 double batch_curve_lateral_m = NAN;
+double batch_c2_offset_m = NAN;
+double batch_c2_along_m = NAN;
+double batch_c2_lateral_m = NAN;
 
 bool valid_point(double lat, double lon) {
   return std::isfinite(lat) && std::isfinite(lon) &&
@@ -70,6 +76,7 @@ EMSCRIPTEN_KEEPALIVE void moto_web_replay_reset() {
   collecting_road = false;
   replay_predictor = MapOriginPredictor{};
   replay_curve_predictor.reset();
+  replay_curve_predictor_v2.reset();
   replay_geometry_sequence = 0;
   replay_geometry_anchor = {};
   replay_origin_lat = replay_origin_lon = NAN;
@@ -81,9 +88,10 @@ EMSCRIPTEN_KEEPALIVE void moto_web_replay_reset() {
 // A/B comparison of ESP's isolated position predictor (no physical IMU
 // measurements and no actual BLE delivery timestamps are in the JSONL).
 EMSCRIPTEN_KEEPALIVE void moto_web_replay_set_predictor_mode(int mode) {
-  replay_predictor_mode = std::clamp(mode, 0, 2);
+  replay_predictor_mode = std::clamp(mode, 0, 3);
   replay_predictor = MapOriginPredictor{};
   replay_curve_predictor.reset();
+  replay_curve_predictor_v2.reset();
 }
 EMSCRIPTEN_KEEPALIVE void moto_web_replay_set_predictor_enabled(int enabled) {
   moto_web_replay_set_predictor_mode(enabled != 0 ? 1 : 0);
@@ -97,6 +105,7 @@ EMSCRIPTEN_KEEPALIVE double moto_web_replay_origin_lon() { return replay_origin_
 EMSCRIPTEN_KEEPALIVE void moto_web_replay_batch_reset() {
   batch_predictor = MapOriginPredictor{};
   batch_curve_predictor.reset();
+  batch_curve_predictor_v2.reset();
   batch_anchor = {};
   batch_sequence = 0;
   batch_route_id.clear();
@@ -104,6 +113,7 @@ EMSCRIPTEN_KEEPALIVE void moto_web_replay_batch_reset() {
   batch_has_route = false;
   batch_along_m = batch_lateral_m = NAN;
   batch_curve_offset_m = batch_curve_along_m = batch_curve_lateral_m = NAN;
+  batch_c2_offset_m = batch_c2_along_m = batch_c2_lateral_m = NAN;
 }
 EMSCRIPTEN_KEEPALIVE void moto_web_replay_batch_route(
     double lat, double lon, int generation, int token) {
@@ -119,6 +129,7 @@ EMSCRIPTEN_KEEPALIVE double moto_web_replay_batch_sample(
     double lat, double lon, double heading, double speed, double time_ms) {
   batch_along_m = batch_lateral_m = NAN;
   batch_curve_offset_m = batch_curve_along_m = batch_curve_lateral_m = NAN;
+  batch_c2_offset_m = batch_c2_along_m = batch_c2_lateral_m = NAN;
   if (!batch_has_route || !valid_point(lat, lon) ||
       !std::isfinite(time_ms) || time_ms < 0.0) return NAN;
   const auto predicted = batch_predictor.advance(
@@ -148,7 +159,29 @@ EMSCRIPTEN_KEEPALIVE double moto_web_replay_batch_sample(
     batch_curve_along_m = cn * std::cos(rad) + ce * std::sin(rad);
     batch_curve_lateral_m = -cn * std::sin(rad) + ce * std::cos(rad);
   }
+  const auto c2 = batch_curve_predictor_v2.advance(
+      batch_anchor, {lat, lon}, static_cast<std::uint64_t>(time_ms),
+      batch_sequence, batch_route_id, batch_generation,
+      static_cast<float>(speed), static_cast<float>(heading), true);
+  const double dn = (c2.latitude_deg - lat) * metres_per_degree;
+  const double de = (c2.longitude_deg - lon) * metres_per_degree *
+      std::cos(lat * 3.14159265358979323846 / 180.0);
+  batch_c2_offset_m = std::hypot(dn, de);
+  if (std::isfinite(heading)) {
+    const double rad = heading * 3.14159265358979323846 / 180.0;
+    batch_c2_along_m = dn * std::cos(rad) + de * std::sin(rad);
+    batch_c2_lateral_m = -dn * std::sin(rad) + de * std::cos(rad);
+  }
   return std::hypot(north, east);
+}
+EMSCRIPTEN_KEEPALIVE double moto_web_replay_batch_c2_offset_m() {
+  return batch_c2_offset_m;
+}
+EMSCRIPTEN_KEEPALIVE double moto_web_replay_batch_c2_along_m() {
+  return batch_c2_along_m;
+}
+EMSCRIPTEN_KEEPALIVE double moto_web_replay_batch_c2_lateral_m() {
+  return batch_c2_lateral_m;
 }
 EMSCRIPTEN_KEEPALIVE double moto_web_replay_batch_curve_offset_m() {
   return batch_curve_offset_m;
@@ -285,7 +318,12 @@ EMSCRIPTEN_KEEPALIVE void moto_web_replay_snapshot(
       trace.has_route_view && replay_geometry_sequence > 0 &&
       std::isfinite(replay_time_ms) && replay_time_ms >= 0.0) {
     const auto tick = static_cast<std::uint64_t>(replay_time_ms);
-    const auto predicted = replay_predictor_mode == 2 ?
+    const auto predicted = replay_predictor_mode == 3 ?
+        replay_curve_predictor_v2.advance(
+            replay_geometry_anchor, {lat, lon}, tick,
+            replay_geometry_sequence, trace.route_id, trace.route_generation,
+            trace.speed_mps, trace.heading_deg, trace.has_usable_fix) :
+        replay_predictor_mode == 2 ?
         replay_curve_predictor.advance(
             replay_geometry_anchor, {lat, lon}, tick,
             replay_geometry_sequence, trace.route_id, trace.route_generation,
