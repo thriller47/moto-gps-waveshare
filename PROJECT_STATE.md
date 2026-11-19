@@ -2,6 +2,9 @@
 
 ## STATO ATTUALE — RIPARTIRE DA QUI
 
+**19/11/2026 — adeguamento test rendering dopo correzione layout:** la run `44583899160` ha fallito in `nav_ui_render_tests` e `nav_ui_render_dirty_tests` perché due confronti pixel continuavano a presumere che nell'area centrale bassa non comparisse mai la distanza alla svolta. Ora la label è correttamente sotto l'arrivo (`y=321`), quindi le verifiche proteggono la fascia del contatore ARRIVO `y245–315` anziché vietare modifiche fino al fondo schermo. **Nessuna nuova modifica firmware** rispetto alla revisione col bordo blu; CI dei test aggiornati ancora da verificare prima del flash.
+
+
 **19/11/2026 — correzione layout dopo collaudo reale dell'utente:** l'utente riferisce **«funziona perfettamente»** per il pulsante fisso `>>` e il salto tappa. Richieste e implementate due sole variazioni del firmware ESP32 su `test/waypoint-markers-20261119` (nessun merge): **bordo del badge `>>` blu `#2D8CF0`** al posto del verde; **distanza alla prossima svolta sempre centrata a `y=321`** sotto la distanza all'arrivo (che resta a `y=250`), anziché a sinistra sotto il pulsante. Rimossi i riposizionamenti dinamici dipendenti da tappe residue per evitare salti della label. Dimensioni badge 61×61, doppio tocco di conferma, marker numerati, Android, protocollo BLE, Turn Assist e Valhalla invariati. La run precedente `44581378900` era verde su native/Android/ESP32 e il comando era collaudato dall'utente. **La nuova modifica grafica non è ancora compilata/collaudata al momento del commit.** Prossima azione: verificare la singola build CI e osservare la leggibilità delle due distanze sul display fisico; `valhalla` invariato.
 
 
