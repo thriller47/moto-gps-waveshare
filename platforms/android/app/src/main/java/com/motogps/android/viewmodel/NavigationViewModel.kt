@@ -526,17 +526,24 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         }
     }
 
-    /** Prefer Photon v2 when valid; fallback online if the index is unusable.
-     * A valid offline search with zero results is NOT an online fallback. */
+    /** Search the installed Italian index first. If it has no matches, try
+     * online Photon (also for foreign destinations). Network failure must not
+     * turn a valid offline zero-result search into a navigation error. */
     private fun searchPhotonPlaces(query: String): List<PlaceSearchResult> {
         val gps = if (hasFirstFix) currentLocation.value else null
         val context = appContext
         if (context != null && OfflinePhotonPlaceSearch.installed(context)) {
             try {
-                return OfflinePhotonPlaceSearch.search(context, query, gps)
+                val local = OfflinePhotonPlaceSearch.search(context, query, gps)
+                if (local.isNotEmpty()) return local
             } catch (e: Exception) {
-                // Preserve online fallback, but expose the original SQLite cause.
                 Log.w("MotoGPS_Photon", "Offline Photon v2 search failed; using online", e)
+            }
+            return try {
+                PhotonPlaceSearch.search(query, gps)
+            } catch (e: Exception) {
+                Log.w("MotoGPS_Photon", "Online Photon fallback unavailable", e)
+                emptyList()
             }
         }
         return PhotonPlaceSearch.search(query, gps)
