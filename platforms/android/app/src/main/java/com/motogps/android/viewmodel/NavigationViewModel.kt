@@ -1786,7 +1786,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         val farFromRoute = distanceFromRoute > 45.0
         if ((!farFromRoute && !reverseCourse && !stalledOnRoute) ||
             lastGpsSpeedMs < 1.5f ||
-            rerouteStability.shouldDeferWhileTurning(now, distanceFromRoute)) {
+            rerouteStability.shouldDeferWhileTurning(
+                now, distanceFromRoute, lastFixAccuracyM)) {
             offRouteFixCount = 0
             offRouteFirstFixMs = 0L
             return

@@ -45,6 +45,45 @@ class RerouteStabilityPolicyTest {
         assertFalse(p.shouldDeferWhileTurning(12_100L, 81.0))
     }
 
+    @Test fun sustainedAccurateDepartureEscapesRepeatedTurnGuard() {
+        val p = RerouteStabilityPolicy()
+        p.observeCourse(1_000L, 20f, 8f)
+        p.observeCourse(2_000L, 48f, 8f)
+        assertTrue(p.shouldDeferWhileTurning(2_100L, 68.0, 3f))
+        p.observeCourse(2_900L, 72f, 8f) // Guard extended to 8,900 ms.
+        assertTrue(p.shouldDeferWhileTurning(3_100L, 71.0, 3f))
+        p.observeCourse(3_800L, 100f, 8f) // Guard extended again.
+        assertFalse(p.shouldDeferWhileTurning(4_101L, 72.0, 3f))
+        // A turn can still hold a merely ambiguous position mismatch.
+        assertTrue(p.shouldDeferWhileTurning(4_200L, 48.0, 3f))
+    }
+
+    @Test fun noisyOrInterruptedOffRouteFixesCannotBypassTurnGuard() {
+        val p = RerouteStabilityPolicy()
+        p.observeCourse(1_000L, 20f, 8f)
+        p.observeCourse(2_000L, 50f, 8f)
+        assertTrue(p.shouldDeferWhileTurning(2_100L, 70.0, 3f))
+        // A poor fix breaks the evidence sequence.
+        assertTrue(p.shouldDeferWhileTurning(3_700L, 80.0, 25f))
+        assertTrue(p.shouldDeferWhileTurning(4_100L, 70.0, 3f))
+        // A long silence also requires a fresh two-second sequence.
+        assertTrue(p.shouldDeferWhileTurning(7_000L, 70.0, 3f))
+        p.observeCourse(7_100L, 70f, 8f)
+        assertTrue(p.shouldDeferWhileTurning(7_500L, 70.0, 3f))
+        assertFalse(p.shouldDeferWhileTurning(9_100L, 75.0, 3f))
+    }
+
+    @Test fun acceptedRouteClearsDepartureEvidence() {
+        val p = RerouteStabilityPolicy()
+        p.observeCourse(1_000L, 20f, 8f)
+        p.observeCourse(2_000L, 48f, 8f)
+        assertTrue(p.shouldDeferWhileTurning(2_100L, 70.0, 3f))
+        p.accepted(3_000L, 45.0, 9.0)
+        p.observeCourse(3_200L, 20f, 8f)
+        p.observeCourse(3_500L, 48f, 8f)
+        assertTrue(p.shouldDeferWhileTurning(3_600L, 70.0, 3f))
+    }
+
     @Test fun acceptedClearsTurnGuardImmediately() {
         val p = RerouteStabilityPolicy()
         p.observeCourse(1_000L, 20f, 8f)

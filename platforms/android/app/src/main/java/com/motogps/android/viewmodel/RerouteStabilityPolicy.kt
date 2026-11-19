@@ -15,6 +15,18 @@ internal class RerouteStabilityPolicy {
     private var previousCourseDeg: Float? = null
     private var previousCourseMs = -1L
     private var turnGuardUntilMs = -1L
+    private var credibleDepartureSinceMs = -1L
+    private var lastCredibleDepartureMs = -1L
+
+    private companion object {
+        // A 45 m threshold can still be a false junction snap. At 60+ metres
+        // with accurate GNSS, however, sustained off-route travel must not be
+        // blocked indefinitely by repeated heading changes in a roundabout.
+        const val CONFIRMED_DEPARTURE_METRES = 60.0
+        const val MAX_FIX_ACCURACY_METRES = 12.0F
+        const val CONFIRMATION_MS = 2_000L
+        const val MAX_FIX_GAP_MS = 2_500L
+    }
 
     /** Only accepted moving GNSS courses, not stale BLE/compass headings. */
     fun observeCourse(nowMs: Long, courseDeg: Float?, speedMps: Float) {
@@ -32,10 +44,41 @@ internal class RerouteStabilityPolicy {
         previousCourseMs = nowMs
     }
 
-    // A true >=100 m departure always remains eligible for fast rerouting.
-    fun shouldDeferWhileTurning(nowMs: Long, distanceFromRouteM: Double) =
-        nowMs >= 0L && turnGuardUntilMs >= nowMs &&
-            distanceFromRouteM < 100.0
+    /**
+     * Preserve the turn guard for ambiguous junctions, but release it when
+     * accurate fixes sustain a substantial departure for >=2 seconds.
+     * Repeated GNSS course changes cannot restart this independent clock.
+     * This is only a guard bypass: NavigationViewModel still enforces its
+     * consecutive-fix debounce, route-acceptance hold and reroute cooldown.
+     */
+    fun shouldDeferWhileTurning(
+        nowMs: Long, distanceFromRouteM: Double,
+        accuracyM: Float = Float.POSITIVE_INFINITY
+    ): Boolean {
+        val credibleDeparture = nowMs >= 0L &&
+            distanceFromRouteM.isFinite() &&
+            distanceFromRouteM >= CONFIRMED_DEPARTURE_METRES &&
+            accuracyM.isFinite() && accuracyM in 0.0F..MAX_FIX_ACCURACY_METRES
+        if (!credibleDeparture) {
+            credibleDepartureSinceMs = -1L
+            lastCredibleDepartureMs = -1L
+        } else {
+            if (credibleDepartureSinceMs < 0L ||
+                lastCredibleDepartureMs < 0L ||
+                nowMs < lastCredibleDepartureMs ||
+                nowMs - lastCredibleDepartureMs > MAX_FIX_GAP_MS) {
+                credibleDepartureSinceMs = nowMs
+            }
+            lastCredibleDepartureMs = nowMs
+        }
+
+        if (nowMs < 0L || turnGuardUntilMs < nowMs ||
+            distanceFromRouteM >= 100.0) return false
+
+        val confirmedDeparture = credibleDeparture &&
+            nowMs - credibleDepartureSinceMs >= CONFIRMATION_MS
+        return !confirmedDeparture
+    }
 
     fun reset() {
         acceptedAtMs = -1L
@@ -44,6 +87,8 @@ internal class RerouteStabilityPolicy {
         previousCourseDeg = null
         previousCourseMs = -1L
         turnGuardUntilMs = -1L
+        credibleDepartureSinceMs = -1L
+        lastCredibleDepartureMs = -1L
     }
 
     fun accepted(nowMs: Long, lat: Double, lon: Double) {
@@ -51,6 +96,8 @@ internal class RerouteStabilityPolicy {
         acceptedLat = lat
         acceptedLon = lon
         turnGuardUntilMs = -1L
+        credibleDepartureSinceMs = -1L
+        lastCredibleDepartureMs = -1L
     }
 
     fun shouldDefer(
