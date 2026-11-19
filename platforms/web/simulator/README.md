@@ -1,5 +1,31 @@
 # Simulatore Moto Chat GPS per Windows (anteprima 2D + WebAssembly LVGL)
 
+
+## Test A/B/C predizione posizione in rotonda — 19 novembre 2026
+
+Nel nuovo menu **Predizione posizione · confronto A/B/C**:
+
+- **A — Predittore ESP32 attuale:** classe C++ `MapOriginPredictor` di produzione, senza modifiche;
+- **B — OFF (GPS snapshot):** nessun avanzamento; l'origine della mappa usa la posizione registrata/interpolata, quindi lo scarto rispetto allo stesso snapshot è 0 m per definizione;
+- **C — Prudente in curva:** prototipo **esclusivo del WASM** che usa il predittore originale ma attenua l'avanzamento quando cambia rapidamente l'heading registrato e riallinea più rapidamente la posizione alla coordinata GPS dello snapshot. Il firmware ESP32 **non** usa C.
+
+Con il replay del giro del 19/11, estrarre i singoli JSONL da `gps/` in `motogps-diagnostica-completa.zip`. Aprire **un file JSONL alla volta**, impostare `Heading del replay → Originale`, velocità **1×**, poi riprodurre dall'inizio il tratto desiderato, cambiando A, B e C. In `Scarto A / B / C dallo snapshot` sono visibili i tre risultati dello stesso frame; `Esporta diagnostica CSV` include anche `predicted_offset_curve_m`, `predicted_curve_along_heading_m` e `predicted_curve_lateral_heading_m`. Scarto laterale positivo = destra, negativo = sinistra **rispetto all'heading dello snapshot**, non necessariamente rispetto al bordo della strada.
+
+**Limiti fondamentali:** il replay non registra i 125 Hz grezzi del QMI8658, l'heading effettivamente fuso a ogni frame o i tempi reali di consegna BLE. C utilizza il GPS dello snapshot come riferimento aggiuntivo, quindi uno scarto inferiore non dimostra da solo che il mezzo fosse sulla carreggiata. La prova confronta ipotesi sulla predizione della posizione, senza risolvere automaticamente la deriva della rotazione. È necessaria una verifica fisica prima di adottare modifiche al firmware.
+
+**Ricompilazione obbligatoria** perché cambiano `replay_web.cpp` e gli export Emscripten:
+
+```bash
+cd ~/MotoGPS/moto-gps-waveshare
+git pull --ff-only origin test/merge-gps-20261118
+source ~/emsdk/emsdk_env.sh
+./scripts/build_web.sh
+python3 -m http.server 4173 --directory .
+```
+
+Se il server è già attivo, non aprirne un secondo sulla porta 4173: fermare il precedente con Ctrl+C o aggiornare la pagina con Ctrl+F5 dopo il rebuild. Se il menu A/B/C rimane disabilitato, il WASM non contiene ancora il nuovo export. Nessun bisogno di compilare APK o flashare ESP32 per questo test.
+
+
 **Stato:** simulatore e replay Android integrati in `valhalla` (PR #73 e #74); matcher dei ricalcoli verificato su strada il 10 novembre 2026. Due modalità separate. **Anteprima geometrica 2D** immediata (JavaScript, non è la grafica LVGL del firmware) e **renderer LVGL + NavPresenter reali** quando si compila il runtime WebAssembly. Non richiede ESP32 né GPS del PC. Nessun tracciato viene caricato su un server. FPS del browser e latenza BLE non rappresentano l'hardware.
 
 ## Aprire subito l'anteprima 2D senza compilatore
