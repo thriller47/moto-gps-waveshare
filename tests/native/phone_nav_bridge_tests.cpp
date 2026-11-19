@@ -303,6 +303,48 @@ void test_phone_connection_lifecycle_reaches_the_ui() {
   CHECK(moto::test::phone_nav_bridge_last_road_name().empty());
 }
 
+void test_waypoint_skip_command_requires_active_stop() {
+  moto::test::reset_phone_nav_bridge_probe();
+  moto::nav::NavPresenter presenter;
+  PhoneNavBridge bridge(presenter);
+  MusicSenderContext sender;
+  bridge.set_sender(record_music_sender, &sender);
+  bridge.install_ui_callbacks();
+  bridge.on_link_state(true);
+  // No navigation or visible stop: do not emit a command.
+  moto::test::emit_waypoint_skip();
+  CHECK(sender.commands.empty());
+
+  moto::ble::NavigationSnapshot nav;
+  nav.state = moto::ble::NavigationState::Navigating;
+  nav.network = moto::ble::NetworkState::Online;
+  nav.route_token = 123;
+  nav.route_generation = 1;
+  nav.flags = moto::ble::NavigationHasDestination |
+              moto::ble::NavigationHasRouteView;
+  CHECK(bridge.on_message(make_message(nav, 71)) ==
+        moto::ble::AckStatus::Ok);
+  moto::ble::RouteGeometry geo;
+  geo.route_token = 123;
+  geo.route_generation = 1;
+  geo.total_point_count = 2;
+  geo.view_origin = {45'000'000, 9'000'000};
+  geo.points = {geo.view_origin, {45'001'000, 9'000'000}};
+  geo.waypoint_markers = {{1, {45'000'500, 9'000'000}}};
+  CHECK(bridge.on_message(make_message(geo, 72)) ==
+        moto::ble::AckStatus::Ok);
+  moto::test::emit_waypoint_skip();
+  CHECK(sender.commands.size() == 1);
+  if (!sender.commands.empty()) {
+    CHECK(sender.commands[0].kind ==
+          moto::ble::DeviceCommandKind::SkipNextWaypoint);
+    CHECK(sender.commands[0].page == moto::ble::DisplayPage::Navigation);
+  }
+  bridge.on_link_state(false);
+  moto::test::emit_waypoint_skip();
+  CHECK(sender.commands.size() == 1);
+}
+
 void test_music_capability_state_and_touch_commands() {
   moto::test::reset_phone_nav_bridge_probe();
   moto::nav::NavPresenter presenter;
@@ -579,6 +621,7 @@ int main() {
   test_power_monitor_tracks_arrival_and_phone_reconnection();
   test_ble_submission_never_waits_for_lvgl_and_retries_latest_state();
   test_phone_connection_lifecycle_reaches_the_ui();
+  test_waypoint_skip_command_requires_active_stop();
   test_music_capability_state_and_touch_commands();
   test_legacy_demo_route_token_does_not_inject_fake_roads();
   test_map_scene_atomically_replaces_roads_at_capacity();

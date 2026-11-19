@@ -14,6 +14,8 @@ moto_page_change_callback_t page_callback = nullptr;
 void* page_callback_context = nullptr;
 moto_music_command_callback_t music_callback = nullptr;
 void* music_callback_context = nullptr;
+moto_waypoint_skip_callback_t waypoint_skip_callback = nullptr;
+void* waypoint_skip_context = nullptr;
 int apply_count = 0;
 int waypoint_notice_count = 0;
 int waypoint_clear_count = 0;
@@ -148,6 +150,13 @@ extern "C" void moto_nav_ui_set_music_command_callback(
   music_callback_context = context;
 }
 
+extern "C" void moto_nav_ui_set_waypoint_skip_callback(
+    moto_waypoint_skip_callback_t callback, void* context) {
+  const std::lock_guard<std::mutex> lock(probe_mutex);
+  waypoint_skip_callback = callback;
+  waypoint_skip_context = context;
+}
+
 namespace moto::test {
 
 void reset_phone_nav_bridge_probe() {
@@ -192,6 +201,19 @@ void emit_page_change(moto_ui_page_t page) {
   // LVGL invokes input callbacks while its recursive board lock is held.
   const std::lock_guard<std::recursive_mutex> lock(board_mutex);
   callback(page, context);
+}
+
+void emit_waypoint_skip() {
+  moto_waypoint_skip_callback_t callback = nullptr;
+  void* context = nullptr;
+  {
+    const std::lock_guard<std::mutex> lock(probe_mutex);
+    callback = waypoint_skip_callback;
+    context = waypoint_skip_context;
+  }
+  if (!callback) return;
+  const std::lock_guard<std::recursive_mutex> lock(board_mutex);
+  callback(context);
 }
 
 void emit_music_command(moto_music_command_t command) {

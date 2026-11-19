@@ -208,7 +208,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 }
             }
             onDeviceCommandReceived = { command ->
-                if (command.kind == 21) { // SkipNextWaypoint from ESP32
+                if (command.kind == 21) { // Confirmed waypoint-marker request from ESP32
                     DiagnosticLog.event("WAYPOINT_SKIP", "phase=device_command")
                     viewModel.skipNextWaypoint()
                 }

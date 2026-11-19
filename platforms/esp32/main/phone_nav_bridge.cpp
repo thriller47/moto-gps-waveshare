@@ -1122,6 +1122,7 @@ void PhoneNavBridge::music_command(moto_music_command_t command,
   static_cast<PhoneNavBridge*>(context)->send_music_command(command);
 }
 
+// Only Android owns the route plan; ESP32 may request a guarded skip.
 void PhoneNavBridge::waypoint_skip_command(void* context) {
   auto* self = static_cast<PhoneNavBridge*>(context);
   {

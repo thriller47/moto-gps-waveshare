@@ -2,6 +2,9 @@
 
 ## STATO ATTUALE — RIPARTIRE DA QUI
 
+**19/11/2026 — fix CI host bridge e test comando salto tappa:** la run 44528339926 ha fallito solo in native sul linker (`moto_nav_ui_set_waypoint_skip_callback` non definito nello stub host), non su protocollo/Android/ESP. Aggiunta implementazione stub con prova di chiamata callback e regressione nativa per richiesta solo durante Navigating con un marker valido, più controllo dopo disconnessione. Modifiche minime ad Android/ESP32 assicurano che la revisione consolidata verifichi tutti i componenti. **Stato:** in attesa esito della CI finale, nessun test sul dispositivo. **Prossimo passo:** verifica native/Android/ESP32 e collaudo APK+ESP dello stesso commit; `valhalla` invariato.
+
+
 **19/11/2026 — controllo salto tappa direttamente da ESP32 (branch `test/waypoint-markers-20261119`):** esteso `DeviceCommandKind::SkipNextWaypoint = 21` (protocollo C++ e ricezione Android): a seguito di una **doppia pressione prolungata** sul marker numerato **1** entro 6 secondi, UI LVGL mostra prima `TENERE PREMUTO ANCORA` e poi `SALTO TAPPA RICHIESTO`, e `PhoneNavBridge` invia il DeviceCommand. `MainActivity` lo inoltra alla stessa funzione `NavigationViewModel.skipNextWaypoint()` già collegata al pulsante Android; Android resta unico responsabile del ricalcolo Valhalla. Il primo marker deve essere visibile e mostrare **1**; le altre tappe non si saltano direttamente. Doppia long press limita tocchi accidentali, ma la prova va eseguita da fermi. Test di roundtrip nativo per nuovo comando. **Stato:** build sperimentale precedente con sole etichette verde (Android/ESP32) e test native erano verdi; questa revisione include nuovo comando e richiede CI finale di nuovo, hardware ancora non provato. `valhalla` resta invariato. **Prossima azione:** CI integrata, download APK/firmware dello stesso commit, prova tappa via telefono e via display.
 
 
