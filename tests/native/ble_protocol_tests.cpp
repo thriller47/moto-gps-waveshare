@@ -629,6 +629,40 @@ void test_link_watchdog() {
   CHECK(watchdog.expired(31'000));
 }
 
+void test_route_geometry_waypoint_extension() {
+  RouteGeometry geometry = geometry_fixture();
+  geometry.waypoint_markers = {
+      {1, {39'922'702, 116'417'285}},
+      {2, {39'923'205, 116'418'160}},
+  };
+  const BytesResult encoded = encode_message(Message{geometry});
+  CHECK(encoded.ok());
+  if (!encoded.ok()) return;
+  const MessageResult decoded = decode_message(
+      MessageType::RouteGeometry, ByteView(encoded.value));
+  CHECK(decoded.ok());
+  if (decoded.ok()) {
+    CHECK(std::get<RouteGeometry>(decoded.value) == geometry);
+    CHECK(std::get<RouteGeometry>(decoded.value).waypoint_markers.size() == 2);
+  }
+  Bytes truncated = encoded.value;
+  truncated.pop_back();
+  CHECK(!decode_message(MessageType::RouteGeometry, ByteView(truncated)).ok());
+
+  geometry.waypoint_markers.clear();
+  const BytesResult old = encode_message(Message{geometry});
+  CHECK(old.ok());
+  if (old.ok()) {
+    const MessageResult legacy = decode_message(
+        MessageType::RouteGeometry, ByteView(old.value));
+    CHECK(legacy.ok());
+    if (legacy.ok())
+      CHECK(std::get<RouteGeometry>(legacy.value).waypoint_markers.empty());
+  }
+  geometry.waypoint_markers.resize(kMaxWaypointMarkers + 1);
+  CHECK(encode_message(Message{geometry}).error == Error::TooManyItems);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -640,6 +674,7 @@ int main(int argc, char** argv) {
   test_uuid_contract();
   test_crc_and_sequence_primitives();
   test_all_message_round_trips();
+  test_route_geometry_waypoint_extension();
   test_golden_vectors();
   test_fragmentation_and_reassembly();
   test_full_map_scene_budget_and_reassembly();
