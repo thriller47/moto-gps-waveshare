@@ -1,4 +1,5 @@
 #include "map_origin_predictor.hpp"
+#include "turn_assist_heading_policy.hpp"
 #include "../../platforms/web/wasm/replay_curve_predictor.hpp"
 #include "../../platforms/web/wasm/replay_curve_predictor_v2.hpp"
 
@@ -338,6 +339,56 @@ void test_replay_c2_straight_curve_exit_and_stop() {
   CHECK(distance_metres(resumed, origin) > 0.5);
 }
 
+void test_turn_assist_policy_and_bounded_prediction() {
+  TurnAssistHeadingPolicy policy;
+  const MapOriginPredictor::Position start{45.0, 9.0};
+  MapOriginPredictor base, assisted;
+  // Straight heading at 40Hz remains unchanged.
+  for (int i = 0; i < 8; ++i) {
+    const std::uint64_t t = 1000U + 25U * i;
+    const float weight = policy.observe(90.0F, 12.0F, t, true);
+    CHECK(weight == 0.0F);
+    const auto a = base.advance(start, t, 1, "route", 1, 12, 90, true);
+    const auto b = assisted.advance(start, t, 1, "route", 1, 12, 90, true, weight);
+    CHECK(distance_metres(a, b) < 0.001);
+  }
+  // Rapid turn triggers translation attenuation but no modification to the
+  // heading fed into the route rotation (still 125 degrees here).
+  float turn = 0.0F;
+  for (int i = 8; i < 16; ++i) {
+    const auto t = static_cast<std::uint64_t>(1000 + 25 * i);
+    const float h = 90.0F + 5.0F * static_cast<float>(i - 7);
+    turn = policy.observe(h, 12.0F, t, true);
+    base.advance(start, t, 1, "route", 1, 12, h, true);
+    assisted.advance(start, t, 1, "route", 1, 12, h, true, turn);
+  }
+  CHECK(turn > 0.0F);
+  const auto a = base.advance(start, 1400U, 1, "route", 1, 12, 130, true);
+  const auto b = assisted.advance(start, 1400U, 1, "route", 1, 12, 130, true, turn);
+  CHECK(distance_metres(b, start) < distance_metres(a, start));
+  CHECK(policy.observe(130, 0, 1425U, true) == 0.0F);
+  CHECK(policy.observe(130, 12, 5000U, false) == 0.0F);
+  policy.reset();
+  CHECK(policy.observe(130, 12, 5100U, true) == 0.0F);
+}
+
+void test_assist_uses_only_received_geometry_anchors() {
+  MapOriginPredictor p;
+  const MapOriginPredictor::Position start{45.0, 9.0};
+  p.advance(start, 1000U, 1, "route", 1, 10, 90, true, 0.0F);
+  // Curve assist must not teleport towards a GPS point that never arrived.
+  auto prev = p.advance(start, 1125U, 1, "route", 1, 10, 100, true, 0.8F);
+  auto next = p.advance(start, 1150U, 1, "route", 1, 10, 100, true, 0.8F);
+  CHECK(distance_metres(next, prev) < 0.26);
+  // New BLE geometry may establish correction; higher curve confidence
+  // closes it faster without an immediate unbounded snap.
+  const double scale = 111195.0 *
+      std::cos(45.0 * 3.14159265358979323846 / 180.0);
+  const MapOriginPredictor::Position anchor{45.0, 9.0 + 5.0 / scale};
+  const auto updated = p.advance(anchor, 1175U, 2, "route", 1, 10, 100, true, 0.8F);
+  CHECK(distance_metres(updated, prev) < 2.5);
+}
+
 }  // namespace
 
 int main() {
@@ -353,6 +404,8 @@ int main() {
   test_turn_scale_threshold_and_floor();
   test_replay_curve_candidate_baseline_and_turn();
   test_replay_c2_straight_curve_exit_and_stop();
+  test_turn_assist_policy_and_bounded_prediction();
+  test_assist_uses_only_received_geometry_anchors();
 
   if (failures != 0) {
     std::cerr << failures << " map predictor checks failed\n";

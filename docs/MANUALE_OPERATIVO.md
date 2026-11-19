@@ -267,6 +267,8 @@ La riuscita del comando `moto` **non dimostra da sola** che compilazione, flash 
 
 ---
 
+**Test sperimentale predizione curva ESP32 (19/11/2026, branch di test):** l'opzione CMake `MOTO_ESP_TURN_ASSIST_EXPERIMENT` è **OFF per default**. La build normale continua a utilizzare il predittore A. Per provare l'assistenza hardware curva mantenendo inalterato Android e il filtro IMU, da **PowerShell con ESP-IDF già attivo** e cartella `platforms\\esp32` lanciare `idf.py -DMOTO_ESP_TURN_ASSIST_EXPERIMENT=ON -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.perf.defaults" build`, verificando che la configurazione CMake utilizzi realmente `ON`. Per tornare al firmware A, eseguire `idf.py -DMOTO_ESP_TURN_ASSIST_EXPERIMENT=OFF -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.perf.defaults" build` e flashare la build precedente o la nuova build OFF. Nella CI standard il flag resta OFF. Non fare flash prima che il build ON sia verde. La modifica non replica C2 identico: non ricevendo nuovi fix GPS ad ogni render, corregge solo con nuovi ancoraggi BLE reali e mantiene uno scostamento eventualmente residuo durante la sosta fino al successivo anchor. Raccogliere il log diagnostico completo nel giro di prova, e confrontare il comportamento rispetto al firmware A precedente.
+
 ## 5. Flash ESP32 — COM3 d'esempio
 
 Scollegare monitor seriali/Arduino IDE prima di usare esptool: COM3 deve essere libera. Installare esptool, se necessario, oppure usare l'esptool.exe già disponibile.

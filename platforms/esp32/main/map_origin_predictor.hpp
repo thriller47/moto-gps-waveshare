@@ -19,7 +19,8 @@ class MapOriginPredictor {
                    std::uint32_t geometry_sequence,
                    const std::string& route_id,
                    std::uint32_t route_generation, float speed_mps,
-                   float heading_deg, bool usable) {
+                   float heading_deg, bool usable,
+                   float turn_assist = 0.0F) {
     if (!usable || route_id.empty() || !std::isfinite(measured.latitude_deg) ||
         !std::isfinite(measured.longitude_deg) ||
         std::abs(measured.latitude_deg) > 85.0 ||
@@ -51,6 +52,10 @@ class MapOriginPredictor {
     // cadence permanently lags the rider. Gaps >1 s reset above.
     const double dt = static_cast<double>(elapsed_ms) / 1'000.0;
     const double speed = static_cast<double>(speed_mps);
+    // Optional hardware experiment only. Zero is bit-for-bit the ordinary
+    // predictor path; no changes to IMU heading or BLE packet interpretation.
+    const double assist = std::isfinite(turn_assist) ?
+        static_cast<double>(std::clamp(turn_assist, 0.0F, 1.0F)) : 0.0;
 
     // Normal BLE route windows arrive ~1.5s apart (900 ms in roundabouts).
     // Bound prediction at 1.8s, still freezing during a genuine outage.
@@ -71,6 +76,7 @@ class MapOriginPredictor {
           turn_scale *= (speed / 7.0);
         }
       }
+      turn_scale *= (1.0 - 0.45 * assist);
       const double heading = static_cast<double>(heading_deg) *
                              3.14159265358979323846 / 180.0;
       move(std::cos(heading) * speed * dt * turn_scale,
@@ -158,7 +164,11 @@ class MapOriginPredictor {
     // A soft correction eliminates the 1–3 second GPS window jumps without
     // changing the actual route, the maneuver distances or zoom.
     if (dt > 0.0) {
-      const double alpha = -std::expm1(-dt / 0.55);
+      // Only shorten the correction time constant when a real fresh BLE
+      // anchor has already established a residual. Never pull towards a
+      // fabricated GPS position at the faster IMU render cadence.
+      const double correction_tau = 0.55 - 0.25 * assist;
+      const double alpha = -std::expm1(-dt / correction_tau);
       const double north = correction_north_m_ * alpha;
       const double east = correction_east_m_ * alpha;
       move(north, east);

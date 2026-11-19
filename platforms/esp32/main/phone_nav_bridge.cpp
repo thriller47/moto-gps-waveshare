@@ -888,17 +888,36 @@ void PhoneNavBridge::render_pending() {
         render_snapshot_.has_route_view &&
         render_snapshot_.route_view_point_count >= 2) {
       const auto& origin = render_snapshot_.route_view_origin;
+      const std::uint64_t prediction_ms = monotonic_ms();
+      const bool usable = render_snapshot_.has_usable_fix &&
+          !render_snapshot_.gnss_stale;
+      float turn_assist = 0.0F;
+#if defined(MOTO_ESP_TURN_ASSIST_EXPERIMENT)
+      // Keep this state exclusively in the render task. A reroute invalidates
+      // the recent curve history, but does not alter the fused rotation.
+      if (turn_assist_route_id_ != render_snapshot_.route_id ||
+          turn_assist_route_generation_ != render_snapshot_.route_generation) {
+        turn_assist_policy_.reset();
+        turn_assist_route_id_ = render_snapshot_.route_id;
+        turn_assist_route_generation_ = render_snapshot_.route_generation;
+      }
+      turn_assist = turn_assist_policy_.observe(
+          render_snapshot_.heading_deg, render_snapshot_.speed_mps,
+          prediction_ms, usable);
+#endif
       const auto predicted = map_origin_predictor_.advance(
-          {origin.latitude_deg, origin.longitude_deg}, monotonic_ms(),
+          {origin.latitude_deg, origin.longitude_deg}, prediction_ms,
           render_geometry_sequence_, render_snapshot_.route_id,
           render_snapshot_.route_generation, render_snapshot_.speed_mps,
-          render_snapshot_.heading_deg,
-          render_snapshot_.has_usable_fix && !render_snapshot_.gnss_stale);
+          render_snapshot_.heading_deg, usable, turn_assist);
       render_snapshot_.route_view_origin = {
           predicted.latitude_deg, predicted.longitude_deg};
     } else {
       // Clear stale motion prediction when the route or GPS changes.
       map_origin_predictor_ = MapOriginPredictor{};
+      turn_assist_policy_.reset();
+      turn_assist_route_id_.clear();
+      turn_assist_route_generation_ = 0;
     }
     presenter_.update(render_snapshot_);
   }

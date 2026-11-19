@@ -4,11 +4,13 @@
 #include <atomic>
 #include <cstdint>
 #include <mutex>
+#include <string>
 
 #include "moto/ble_protocol/ble_protocol.hpp"
 #include "moto_nav_presenter.hpp"
 #include "motion_heading_fusion.hpp"
 #include "map_origin_predictor.hpp"
+#include "turn_assist_heading_policy.hpp"
 
 #ifdef ESP_PLATFORM
 #include "freertos/FreeRTOS.h"
@@ -102,6 +104,9 @@ class PhoneNavBridge {
   std::uint32_t geometry_sequence_ = 0;
   std::uint32_t render_geometry_sequence_ = 0;
   MapOriginPredictor map_origin_predictor_{};
+  TurnAssistHeadingPolicy turn_assist_policy_{};
+  std::string turn_assist_route_id_{};
+  std::uint32_t turn_assist_route_generation_ = 0;
   SendCallback sender_ = nullptr;
   void* sender_context_ = nullptr;
   // BLE decoding runs on moto_ble_rx while touch callbacks run on the LVGL
