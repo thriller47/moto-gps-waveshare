@@ -257,6 +257,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             val routePreview = viewModel.routePreview.collectAsState().value
             val routeOptions = viewModel.routeOptions.collectAsState().value
             val routeWaypoints = viewModel.routeWaypoints.collectAsState().value
+            val nextWaypointToSkip = viewModel.nextWaypointToSkip.collectAsState().value
             val waypointSearchResults = viewModel.waypointSearchResults.collectAsState().value
             val waypointSearching = viewModel.waypointSearching.collectAsState().value
             val waypointSearchError = viewModel.waypointSearchError.collectAsState().value
@@ -308,6 +309,8 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     routePreview = routePreview,
                     routeOptions = routeOptions,
                     routeWaypoints = routeWaypoints,
+                    nextWaypointToSkip = nextWaypointToSkip,
+                    onSkipNextWaypoint = { viewModel.skipNextWaypoint() },
                     waypointSearchResults = waypointSearchResults,
                     waypointSearching = waypointSearching,
                     waypointSearchError = waypointSearchError,

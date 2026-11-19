@@ -472,7 +472,10 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         // the BLE payload remains the same 24-point moving window.
         ReplayTraceRecorder.fullRoute(route, turnPlan)
         ReplayTraceRecorder.route(window)
-        bleManager.sendRouteGeometry(window)
+        // Only intermediate stops still ahead; final arrival remains separate.
+        val markers = WaypointMarkerWindow.visible(
+            window, activeWaypoints.drop(nextWaypointIndex))
+        bleManager.sendRouteGeometry(window.copy(waypointMarkers = markers))
         val endpoint = route.points.lastOrNull()
         val endMeters = endpoint?.let {
             calculateDistanceMeters(lat, lon, it.latitudeE6 / 1e6, it.longitudeE6 / 1e6).toInt()

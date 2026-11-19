@@ -358,9 +358,11 @@ Error validate(const RouteGeometry& value) {
       return Error::OutOfRange;
     }
   }
-  if (!valid_geo_point(value.view_origin)) {
-    return Error::OutOfRange;
-  }
+  if (!valid_geo_point(value.view_origin)) return Error::OutOfRange;
+  if (value.waypoint_markers.size() > kMaxWaypointMarkers) return Error::TooManyItems;
+  for (const auto& m : value.waypoint_markers)
+    if (m.index == 0 || m.index > kMaxWaypointMarkers ||
+        !valid_geo_point(m.point)) return Error::OutOfRange;
   return Error::None;
 }
 
@@ -571,6 +573,14 @@ BytesResult encode_payload(const T& value) {
       writer.signed_varint(static_cast<std::int32_t>(longitude_delta));
       previous = value.points[i];
     }
+    if (!value.waypoint_markers.empty()) {
+      writer.u8(static_cast<std::uint8_t>(value.waypoint_markers.size()));
+      for (const auto& marker : value.waypoint_markers) {
+        writer.u8(marker.index);
+        writer.s32(marker.point.latitude_e6);
+        writer.s32(marker.point.longitude_e6);
+      }
+    }
   } else if constexpr (std::is_same_v<T, TrafficDeviation>) {
     writer.u32(value.route_token);
     writer.u32(value.route_generation);
@@ -775,6 +785,18 @@ MessageResult decode_route_geometry(ByteView payload) {
           break;
         }
         value.points.push_back(point);
+      }
+      if (reader.ok() && reader.remaining() > 0) {
+        const std::size_t count = reader.u8();
+        if (count == 0 || count > kMaxWaypointMarkers) reader.fail(Error::OutOfRange);
+        for (std::size_t i = 0; i < count && reader.ok(); ++i) {
+          WaypointMarker marker;
+          marker.index = reader.u8();
+          marker.point = {reader.s32(), reader.s32()};
+          if (marker.index == 0 || marker.index > kMaxWaypointMarkers ||
+              !valid_geo_point(marker.point)) reader.fail(Error::OutOfRange);
+          else value.waypoint_markers.push_back(marker);
+        }
       }
       reader.require_end();
     }
@@ -1449,11 +1471,11 @@ bool GeoPointE6::operator==(const GeoPointE6& rhs) const noexcept {
 bool RouteGeometry::operator==(const RouteGeometry& rhs) const noexcept {
   return std::tie(coordinate_system, route_token, route_generation,
                   chunk_index, chunk_count, first_point_index,
-                  total_point_count, view_origin, points) ==
+                  total_point_count, view_origin, points, waypoint_markers) ==
          std::tie(rhs.coordinate_system, rhs.route_token,
                   rhs.route_generation, rhs.chunk_index, rhs.chunk_count,
                   rhs.first_point_index, rhs.total_point_count,
-                  rhs.view_origin, rhs.points);
+                  rhs.view_origin, rhs.points, rhs.waypoint_markers);
 }
 
 bool TrafficSegment::operator==(const TrafficSegment& rhs) const noexcept {

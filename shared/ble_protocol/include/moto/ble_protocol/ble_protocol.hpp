@@ -47,6 +47,7 @@ constexpr std::size_t kDefaultMaxMessageSize = 4'096;
 // Matches nav::kRouteViewPointCapacity. RouteGeometry is the bounded local
 // display window, not the phone's complete provider route.
 constexpr std::size_t kMaxRoutePointsPerChunk = 24;
+constexpr std::size_t kMaxWaypointMarkers = 8;
 constexpr std::size_t kMaxTrafficSegments = 64;
 // One replaceable, rider-centred minimap window.  The complete Jinan database
 // remains on the phone; these limits bound ESP32 RAM and LVGL object counts.
@@ -417,6 +418,14 @@ struct GeoPointE6 {
   bool operator==(const GeoPointE6& rhs) const noexcept;
 };
 
+struct WaypointMarker {
+  std::uint8_t index = 0;
+  GeoPointE6 point;
+  bool operator==(const WaypointMarker& rhs) const noexcept {
+    return index == rhs.index && point == rhs.point;
+  }
+};
+
 struct RouteGeometry {
   CoordinateSystem coordinate_system = CoordinateSystem::Gcj02;
   std::uint32_t route_token = 0;
@@ -427,6 +436,7 @@ struct RouteGeometry {
   std::uint16_t total_point_count = 0;
   GeoPointE6 view_origin;
   std::vector<GeoPointE6> points;
+  std::vector<WaypointMarker> waypoint_markers;
 
   bool operator==(const RouteGeometry& rhs) const noexcept;
 };

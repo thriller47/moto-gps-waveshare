@@ -10,6 +10,8 @@ data class GeoPointE6(
     val longitudeE6: Int
 )
 
+data class MotoBLEWaypointMarker(val index: Int, val point: GeoPointE6)
+
 data class MotoBLERouteGeometry(
     val coordinateSystem: Int = 2, // GCJ-02
     val routeToken: Long,
@@ -19,7 +21,8 @@ data class MotoBLERouteGeometry(
     val firstPointIndex: Int = 0,
     val totalPointCount: Int,
     val viewOrigin: GeoPointE6,
-    val points: List<GeoPointE6>
+    val points: List<GeoPointE6>,
+    val waypointMarkers: List<MotoBLEWaypointMarker> = emptyList()
 )
 
 data class MotoBLEMapRoadPolyline(
@@ -536,7 +539,21 @@ class MotoBLEProtocolCodec {
             writer.writeSignedVarint(dLon)
             prev = pt
         }
-
+        // Optional v1 extension: legacy geometry remains byte-identical.
+        val markers = geometry.waypointMarkers
+        if (markers.size > 8 || markers.any {
+                it.index !in 1..8 ||
+                kotlin.math.abs(it.point.latitudeE6.toLong()) > 85_000_000L ||
+                kotlin.math.abs(it.point.longitudeE6.toLong()) > 180_000_000L
+            }) return null
+        if (markers.isNotEmpty()) {
+            writer.writeU8(markers.size)
+            for (marker in markers) {
+                writer.writeU8(marker.index)
+                writer.writeS32(marker.point.latitudeE6)
+                writer.writeS32(marker.point.longitudeE6)
+            }
+        }
         return writer.toByteArray()
     }
 
