@@ -129,12 +129,26 @@ internal object OfflinePhotonPlaceSearch {
                            WHEN lower(?)=lower(p.name||' '||c.name) THEN 1
                            WHEN lower(?) LIKE lower(p.name||' %') THEN 2
                            ELSE 3 END,
+                      CASE WHEN ? = 1 THEN
+                          (p.lat - ?) * (p.lat - ?) +
+                          (p.lon - ?) * (p.lon - ?) * ? * ?
+                      ELSE 0 END,
                       p.importance DESC
              LIMIT 4000
         """.trimIndent()
+        val validGps = gps?.takeIf {
+            it.first.isFinite() && it.second.isFinite() &&
+                it.first in -90.0..90.0 && it.second in -180.0..180.0
+        }
+        val lat = validGps?.first ?: 0.0
+        val lon = validGps?.second ?: 0.0
+        val longitudeScale = cos(Math.toRadians(lat))
         SQLiteDatabase.openDatabase(target.absolutePath, null,
             SQLiteDatabase.OPEN_READONLY).use { db ->
-            db.rawQuery(sql, arrayOf(match, query.trim(), query.trim(), query.trim())).use { rows ->
+            db.rawQuery(sql, arrayOf(match, query.trim(), query.trim(), query.trim(),
+                if (validGps != null) "1" else "0",
+                lat.toString(), lat.toString(), lon.toString(), lon.toString(),
+                longitudeScale.toString(), longitudeScale.toString())).use { rows ->
                 while (rows.moveToNext()) {
                     candidates.add(PhotonOfflineRanking.Candidate(
                         rows.getString(0), rows.getString(1), rows.getString(2),
@@ -204,6 +218,14 @@ internal object PhotonOfflineRanking {
             }
             base + if (!roadQuery && candidate.kind in setOf("street", "house")) 2 else 0
         }.thenBy { candidate ->
+            if (validGps == null) 0.0
+            else {
+                val dLat = candidate.lat - validGps.first
+                val dLon = candidate.lon - validGps.second
+                val scale = cos(Math.toRadians(validGps.first))
+                dLat * dLat + dLon * dLon * scale * scale
+            }
+        }.thenBy { candidate ->
             when (candidate.kind) {
                 "city", "locality" -> 0
                 "other" -> 1
@@ -211,15 +233,7 @@ internal object PhotonOfflineRanking {
                 else -> 3
             }
         }.thenByDescending { it.importance }
-            .thenBy { candidate ->
-                if (validGps == null) 0.0
-                else {
-                    val dLat = candidate.lat - validGps.first
-                    val dLon = candidate.lon - validGps.second
-                    val scale = cos(Math.toRadians(validGps.first))
-                    dLat * dLat + dLon * dLon * scale * scale
-                }
-            }.thenBy { it.name.length })
+            .thenBy { it.name.length })
         val result = ArrayList<Candidate>(limit)
         val seen = HashSet<String>()
         for (place in ranked) {
