@@ -7,7 +7,7 @@
   const $ = id => document.getElementById(id);
   const names = ["trace-file","sample","snapshot","status","play","previous","next",
     "prev-event","next-event","speed","timeline","time","frame","maneuver",
-    "roads","ring-alignment","zoom","speed-kph","gps-position","gps-heading","heading-mode","heading-mode-note","map-origin","prediction-offset","heading-chart","offset-chart","diagnostic-summary","export-heading","performance","lvgl-performance","map-motion","events","profile","canvas","preview","summary","curve-zoom","geometry-zoom","predictor-ab"];
+    "roads","ring-alignment","zoom","speed-kph","gps-position","gps-heading","heading-mode","heading-mode-note","map-origin","prediction-offset","heading-chart","offset-chart","diagnostic-summary","export-heading","performance","lvgl-performance","map-motion","events","profile","canvas","preview","summary","curve-zoom","geometry-zoom","predictor-mode","prediction-three"];
   const ui = Object.fromEntries(names.map(id=>[id,$(id)]));
   const required = names.filter(id=>!ui[id]);
   if (required.length) throw Error("Controlli simulator mancanti: " + required.join(", "));
@@ -75,8 +75,12 @@
       if(!route) continue;
       const on=api.batchSample(Number(s.lat),Number(s.lon),
         Number(s.heading_deg),Number(s.speed_mps),Number(t));
+      const curve=api.batchCurveOffset?api.batchCurveOffset():NaN;
       predictorObservations.set(i,{
         off:0,on:Number.isFinite(on)?on:NaN,
+        curve:Number.isFinite(curve)?curve:NaN,
+        curveAlong:Number.isFinite(curve)&&api.batchCurveAlong?api.batchCurveAlong():NaN,
+        curveLateral:Number.isFinite(curve)&&api.batchCurveLateral?api.batchCurveLateral():NaN,
         // Time since latest DISTINCT geometry in the parsed trace. The
         // parser deduplicates identical retransmissions, so this is NOT
         // physical BLE packet latency or the predictor's internal timer.
@@ -113,7 +117,9 @@
   function resetRenderer() {
     if (api) {
       api.reset();
-      api.predictor(ui["predictor-ab"].checked ? 1 : 0);
+      const mode=Number(ui["predictor-mode"].value);
+      if(api.predictorMode)api.predictorMode(mode);
+      else api.predictor(mode===1?1:0);
       api.geometryZoom?.(ui["geometry-zoom"].checked ? 1 : 0);
     }
     rendered = -1;
@@ -155,7 +161,7 @@
     const north=(a-lat)*111195, east=(b-lon)*111195*Math.cos(lat*Math.PI/180);
     const offset=Math.hypot(north,east);
     ui["prediction-offset"].textContent=offset.toFixed(1)+" m"+
-      (ui["predictor-ab"].checked?" · predittore ON":" · predittore OFF");
+      (" · modalità "+["B OFF","A originale","C curva"][Number(ui["predictor-mode"].value)]);
     // Batch CSV analysis uses independent state and never samples this
     // interactive renderer, so A/B data does not depend on the seek history.
   }
@@ -291,6 +297,10 @@
       [d=>d.lateral,d=>d.moved],0,motionMax,"m");
     const row=diagnostics[index],warnings=diagnostics.filter(d=>d.flags.length).length;
     const prediction=predictorObservations.get(index)||{};
+    ui["prediction-three"].textContent=
+      "A "+(Number.isFinite(prediction.on)?prediction.on.toFixed(1)+" m":"n/d")+
+      " · B 0 m · C "+(Number.isFinite(prediction.curve)?
+        prediction.curve.toFixed(1)+" m":"n/d (WASM da aggiornare)");
     const signed=x=>Number.isFinite(x)?x.toFixed(1):"n/d";
     ui["diagnostic-summary"].textContent=
       "Frame "+(index+1)+" · Δ heading/rotta "+
@@ -300,7 +310,8 @@
       " · ancora "+(Number.isFinite(prediction.geometryAgeMs)?
         (prediction.geometryAgeMs/1000).toFixed(2)+" s":"n/d")+
       " · avanti/indietro "+signed(prediction.along)+" m"+
-      " · destra/sinistra "+signed(prediction.lateral)+" m"+
+      " · destra/sinistra A "+signed(prediction.lateral)+" m"+
+      " · destra/sinistra C "+signed(prediction.curveLateral)+" m"+
       " · segnalazioni "+warnings+" frame (non necessariamente errori)"+
       (row.flags.length?" · QUI: "+row.flags.join(", "):"");
   }
@@ -545,6 +556,7 @@
           roadPoint:fn("road_point",["number","number"]),roadEnd:fn("road_end",["number"]),
           snapshot:fn("snapshot",Array(16).fill("number")),
           predictor:fn("set_predictor_enabled",["number"]),
+          predictorMode:optional("moto_web_replay_set_predictor_mode",null,["number"]),
           batchReset:optional("moto_web_replay_batch_reset",null,[]),
           batchRoute:optional("moto_web_replay_batch_route",null,
             ["number","number","number","number"]),
@@ -552,6 +564,9 @@
             ["number","number","number","number","number"]),
           batchAlong:optional("moto_web_replay_batch_along_m","number",[]),
           batchLateral:optional("moto_web_replay_batch_lateral_m","number",[]),
+          batchCurveOffset:optional("moto_web_replay_batch_curve_offset_m","number",[]),
+          batchCurveAlong:optional("moto_web_replay_batch_curve_along_m","number",[]),
+          batchCurveLateral:optional("moto_web_replay_batch_curve_lateral_m","number",[]),
           originLat:optional("moto_web_replay_origin_lat","number",[]),
           originLon:optional("moto_web_replay_origin_lon","number",[]),
           curveZoom:fn("set_curve_zoom_enabled",["number"]),
@@ -569,7 +584,8 @@
         ui.preview.hidden=true;ui.canvas.hidden=false;
         ui["curve-zoom"].disabled=false;
         ui["geometry-zoom"].disabled=!api.geometryZoom;
-        ui["predictor-ab"].disabled=false;
+        ui["predictor-mode"].disabled=!api.predictorMode;
+        if(!api.predictorMode)ui["predictor-mode"].value="0";
         api.curveZoom(ui["curve-zoom"].checked?1:0);
         resetRenderer();
         if(frames.length){analyzeFullReplay();display(index);}
@@ -593,7 +609,7 @@
     resetRenderer();
     if(frames.length)display(index);
   });
-  ui["predictor-ab"].addEventListener("change",()=>{
+  ui["predictor-mode"].addEventListener("change",()=>{
     if (!api) return;
     pause();resetRenderer();
     if(frames.length)display(index);
