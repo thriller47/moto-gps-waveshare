@@ -115,6 +115,7 @@ internal object OfflinePhotonPlaceSearch {
         val match = tokenize(query)
         if (match.isBlank()) return emptyList()
         val normalized = PhotonOfflineRanking.normalize(query)
+        val cityQualified = query.contains(',')
         val candidates = ArrayList<PhotonOfflineRanking.Candidate>()
         // Query contract is executed against generated v2 SQLite by the Python
         // regression test; only joined aliases c/r expose normalized names.
@@ -125,10 +126,11 @@ internal object OfflinePhotonPlaceSearch {
               JOIN cities c ON c.id=p.city_id
               JOIN regions r ON r.id=p.region_id
              WHERE places_fts MATCH ?
-             ORDER BY CASE WHEN lower(p.name)=lower(?) THEN 0
-                           WHEN lower(?)=lower(p.name||' '||c.name) THEN 1
-                           WHEN lower(?) LIKE lower(p.name||' %') THEN 2
-                           ELSE 3 END,
+             ORDER BY CASE WHEN ? = 1 AND lower(?) = lower(p.name||' '||c.name)
+                           THEN 0 WHEN ? = 1 THEN 1 ELSE 0 END,
+                      CASE WHEN lower(p.name)=lower(?)
+                                 OR lower(p.name) LIKE lower(?||' %')
+                           THEN 0 ELSE 1 END,
                       CASE WHEN ? = 1 THEN
                           (p.lat - ?) * (p.lat - ?) +
                           (p.lon - ?) * (p.lon - ?) * ? * ?
@@ -145,7 +147,10 @@ internal object OfflinePhotonPlaceSearch {
         val longitudeScale = cos(Math.toRadians(lat))
         SQLiteDatabase.openDatabase(target.absolutePath, null,
             SQLiteDatabase.OPEN_READONLY).use { db ->
-            db.rawQuery(sql, arrayOf(match, query.trim(), query.trim(), query.trim(),
+            db.rawQuery(sql, arrayOf(match,
+                if (cityQualified) "1" else "0", normalized,
+                if (cityQualified) "1" else "0",
+                normalized, normalized,
                 if (validGps != null) "1" else "0",
                 lat.toString(), lat.toString(), lon.toString(), lon.toString(),
                 longitudeScale.toString(), longitudeScale.toString())).use { rows ->
@@ -198,7 +203,17 @@ internal object PhotonOfflineRanking {
             it.first.isFinite() && it.second.isFinite() &&
                 it.first in -90.0..90.0 && it.second in -180.0..180.0
         }
-        val ranked = candidates.sortedWith(compareBy<Candidate> { candidate ->
+        // Explicit locations override proximity, including "Via Roma Torino"
+        // without a comma. For generic searches, nearby strong matches win.
+        val qualifiedCity = candidates.any { candidate ->
+            val city = normalize(candidate.city)
+            val name = normalize(candidate.name)
+            val street = normalize(candidate.street)
+            city.isNotBlank() && q.endsWith(" " + city) &&
+                (q.startsWith(name + " ") ||
+                    (street.isNotBlank() && q.startsWith(street + " ")))
+        }
+        fun matchQuality(candidate: Candidate): Int {
             val name = normalize(candidate.name)
             val street = normalize(candidate.street)
             val city = normalize(candidate.city)
@@ -216,7 +231,20 @@ internal object PhotonOfflineRanking {
                 queryWords.all { it in full } -> 8
                 else -> 15
             }
-            base + if (!roadQuery && candidate.kind in setOf("street", "house")) 2 else 0
+            return base + if (!roadQuery && candidate.kind in setOf("street", "house")) 2 else 0
+        }
+        fun genericMatchGroup(candidate: Candidate): Int {
+            val nameWords = normalize(candidate.name).split(' ').toSet()
+            val strong = queryWords.all { it in nameWords }
+            return when {
+                strong && roadQuery && candidate.kind in setOf("street", "house") -> 0
+                strong -> 1
+                else -> 2
+            }
+        }
+        val ranked = candidates.sortedWith(compareBy<Candidate> { candidate ->
+            if (qualifiedCity) matchQuality(candidate)
+            else genericMatchGroup(candidate)
         }.thenBy { candidate ->
             if (validGps == null) 0.0
             else {
@@ -225,15 +253,21 @@ internal object PhotonOfflineRanking {
                 val scale = cos(Math.toRadians(validGps.first))
                 dLat * dLat + dLon * dLon * scale * scale
             }
-        }.thenBy { candidate ->
-            when (candidate.kind) {
-                "city", "locality" -> 0
-                "other" -> 1
-                "street" -> 2
-                else -> 3
-            }
-        }.thenByDescending { it.importance }
+        }.thenBy { matchQuality(it) }
+            .thenBy { candidate ->
+                when (candidate.kind) {
+                    "city", "locality" -> 0
+                    "other" -> 1
+                    "street" -> 2
+                    else -> 3
+                }
+            }.thenByDescending { it.importance }
             .thenBy { it.name.length })
+        /*
+         * Previous ordering sorted exact names before nearby addresses, so
+         * a distant "Via Roma" could outrank a nearby "Via Roma 12".
+         * Keep the location override only for explicitly qualified searches.
+         */
         val result = ArrayList<Candidate>(limit)
         val seen = HashSet<String>()
         for (place in ranked) {
