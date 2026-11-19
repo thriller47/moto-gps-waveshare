@@ -2,6 +2,7 @@ package com.motogps.android
 
 import com.motogps.android.routing.OnlineValhallaRouter
 import com.motogps.android.viewmodel.PhotonPlaceSearch
+import com.motogps.android.viewmodel.PlaceSearchResult
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.*
@@ -85,5 +86,13 @@ class HybridValhallaAndPhotonTest {
         assertTrue(noGps.first().displayArea.contains("Roma"))
     }
 
+
+    @Test fun searchDistanceLabelsUseMetersAndKilometers() {
+        val near = PlaceSearchResult("Via Roma", "", "Italia", 45.0, 8.0, 350.0)
+        val far = near.copy(distanceMeters = 1850.0)
+        assertEquals("350 m", near.distanceLabel)
+        assertEquals("1,9 km", far.distanceLabel)
+        assertEquals("", near.copy(distanceMeters = null).distanceLabel)
+    }
 
 }
