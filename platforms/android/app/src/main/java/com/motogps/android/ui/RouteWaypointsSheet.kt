@@ -85,7 +85,9 @@ fun RouteWaypointsSheet(
                 searchResults.take(6).forEach { place ->
                     ListItem(
                         headlineContent = { Text(place.name) },
-                        supportingContent = { Text(place.displayArea.ifBlank { place.address }) },
+                        supportingContent = { Text(listOf(place.displayArea.ifBlank { place.address },
+                            place.distanceLabel).filter { it.isNotBlank() }
+                            .joinToString(" · ")) },
                         leadingContent = { Icon(Icons.Default.Add, contentDescription = null) },
                         modifier = Modifier.clickable {
                             onAdd(place)
