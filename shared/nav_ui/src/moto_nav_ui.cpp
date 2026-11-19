@@ -43,6 +43,8 @@ constexpr lv_color_t kSoft = LV_COLOR_MAKE(0xAE, 0xB2, 0xB0);
 constexpr lv_color_t kAmber = LV_COLOR_MAKE(0xE6, 0xC8, 0x4F);
 constexpr lv_color_t kRed = LV_COLOR_MAKE(0xFF, 0x4B, 0x43);
 constexpr lv_color_t kGreen = LV_COLOR_MAKE(0x69, 0xD4, 0x94);
+// Blue ring distinguishes the skip-waypoint action from the green route.
+constexpr lv_color_t kSkipBlue = LV_COLOR_MAKE(0x2D, 0x8C, 0xF0);
 // Acid green for connection/ready lifecycle only; navigation colors unchanged.
 constexpr lv_color_t kConnectionAcidGreen = LV_COLOR_MAKE(0x32, 0x99, 0x6D); // Muted splash green for connection UI.
 constexpr double kPi = 3.14159265358979323846;
@@ -1550,14 +1552,9 @@ void update_skip_button(const moto_ui_state_t *state) {
         ui.waypoint_skip_armed = false;
         ui.skip_last_request_ms = 0;
     }
-    // Distance-to-turn is normally at eight o'clock, but must not overlap
-    // the fixed >> control when intermediate stops exist.
-    if(ui.nav_turn_distance != nullptr) {
-        const int top = visible ? 305 : 250;
-        if(lv_obj_get_y(ui.nav_turn_distance) != px(top)) {
-            lv_obj_align(ui.nav_turn_distance, LV_ALIGN_TOP_LEFT, px(18), px(top));
-        }
-    }
+    // Turn distance is always directly below the central arrival distance.
+    // This keeps it away from the fixed >> badge at 8 o'clock and prevents
+    // any layout jump when the final intermediate stop is skipped.
 }
 
 void update_navigation(const moto_ui_state_t *state) {
@@ -1627,11 +1624,15 @@ void update_navigation(const moto_ui_state_t *state) {
     if(state->mode == MOTO_UI_ARRIVED) std::snprintf(value, sizeof(value), "0");
     lv_label_set_text(ui.nav_distance, value);
     lv_label_set_text(ui.nav_unit, unit);
-    // Keep arrival distance in its original central position,
-    // independent of the turn counter at 8 o'clock.
+    // Keep arrival distance central, with the smaller next-turn counter
+    // directly underneath instead of underneath the skip button.
     lv_obj_align(ui.nav_distance, LV_ALIGN_TOP_MID, 0, px(250));
     lv_obj_align_to(ui.nav_unit, ui.nav_distance, LV_ALIGN_OUT_RIGHT_BOTTOM,
                 px(6), px(-7));
+    // Bottom-centred, independent of the presence of intermediate stops.
+    // y=321 gives the 28pt label room below the large destination distance
+    // without clipping it against the 360px design canvas edge.
+    lv_obj_align(ui.nav_turn_distance, LV_ALIGN_TOP_MID, 0, px(321));
 
     lv_arc_set_value(ui.nav_progress,
                      std::min<int>(100, state->route_progress_percent));
@@ -1840,13 +1841,13 @@ void create_navigation_page() {
                         LV_EVENT_DRAW_MAIN_END, nullptr);
     lv_obj_add_flag(ui.nav_finish_flag, LV_OBJ_FLAG_HIDDEN);
 
-    // 28pt turn distance at 8 o'clock: separate from the central
-    // distance-to-destination and the speed-limit badge.
+    // 28pt next-turn distance under the central arrival distance. It is
+    // deliberately kept clear of both round controls in the bottom corners.
     ui.nav_turn_distance = make_label(
         page, &lv_font_montserrat_28, kWhite, "");
     lv_obj_set_width(ui.nav_turn_distance, px(110));
     lv_obj_set_style_text_align(ui.nav_turn_distance, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(ui.nav_turn_distance, LV_ALIGN_TOP_LEFT, px(18), px(250));
+    lv_obj_align(ui.nav_turn_distance, LV_ALIGN_TOP_MID, 0, px(321));
     lv_obj_clear_flag(ui.nav_turn_distance, LV_OBJ_FLAG_CLICKABLE);
 
     // The destination distance and its unit retain their original position
@@ -1878,7 +1879,7 @@ void create_navigation_page() {
     lv_obj_set_style_radius(ui.nav_skip_button, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_color(ui.nav_skip_button, kGraphite, 0);
     lv_obj_set_style_bg_opa(ui.nav_skip_button, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_color(ui.nav_skip_button, kGreen, 0);
+    lv_obj_set_style_border_color(ui.nav_skip_button, kSkipBlue, 0);
     lv_obj_set_style_border_width(ui.nav_skip_button, px(6), 0);
     lv_obj_set_style_pad_all(ui.nav_skip_button, 0, 0);
     lv_obj_add_flag(ui.nav_skip_button, LV_OBJ_FLAG_CLICKABLE);
