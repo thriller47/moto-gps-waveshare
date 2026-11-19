@@ -263,6 +263,7 @@ bool valid_command_kind(DeviceCommandKind kind) {
     case DeviceCommandKind::MusicNext:
     case DeviceCommandKind::MusicLike:
     case DeviceCommandKind::StartOta:
+    case DeviceCommandKind::SkipNextWaypoint:
       return true;
   }
   return false;

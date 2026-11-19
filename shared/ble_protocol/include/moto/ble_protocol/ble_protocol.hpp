@@ -551,6 +551,7 @@ enum class DeviceCommandKind : std::uint8_t {
   MusicNext = 18,
   MusicLike = 19,
   StartOta = 20,
+  SkipNextWaypoint = 21,
 };
 
 constexpr std::uint16_t kUnknownTouchCoordinate = 0xFFFFU;

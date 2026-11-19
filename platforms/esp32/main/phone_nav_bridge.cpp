@@ -143,6 +143,7 @@ void PhoneNavBridge::set_sender(SendCallback callback,
 void PhoneNavBridge::install_ui_callbacks() {
   moto_nav_ui_set_page_change_callback(page_changed, this);
   moto_nav_ui_set_music_command_callback(music_command, this);
+  moto_nav_ui_set_waypoint_skip_callback(waypoint_skip_command, this);
 }
 
 bool PhoneNavBridge::start_renderer() {
@@ -1119,6 +1120,19 @@ void PhoneNavBridge::page_changed(moto_ui_page_t page, void* context) {
 void PhoneNavBridge::music_command(moto_music_command_t command,
                                    void* context) {
   static_cast<PhoneNavBridge*>(context)->send_music_command(command);
+}
+
+void PhoneNavBridge::waypoint_skip_command(void* context) {
+  auto* self = static_cast<PhoneNavBridge*>(context);
+  {
+    const std::lock_guard<std::mutex> lock(self->state_mutex_);
+    if (self->snapshot_.state != moto::nav::NavState::Navigating ||
+        self->snapshot_.waypoint_marker_count == 0) return;
+  }
+  moto::ble::DeviceCommand command;
+  command.kind = moto::ble::DeviceCommandKind::SkipNextWaypoint;
+  command.page = moto::ble::DisplayPage::Navigation;
+  self->send_device_command(command);
 }
 
 void PhoneNavBridge::send_page_command(moto_ui_page_t page) {

@@ -629,6 +629,21 @@ void test_link_watchdog() {
   CHECK(watchdog.expired(31'000));
 }
 
+void test_skip_next_waypoint_device_command() {
+  DeviceCommand command;
+  command.kind = DeviceCommandKind::SkipNextWaypoint;
+  command.command_id = 37;
+  command.page = DisplayPage::Navigation;
+  const auto encoded = encode_message(Message{command});
+  CHECK(encoded.ok());
+  if (encoded.ok()) {
+    const auto decoded = decode_message(
+        MessageType::DeviceCommand, ByteView(encoded.value));
+    CHECK(decoded.ok());
+    if (decoded.ok()) CHECK(std::get<DeviceCommand>(decoded.value) == command);
+  }
+}
+
 void test_route_geometry_waypoint_extension() {
   RouteGeometry geometry = geometry_fixture();
   geometry.waypoint_markers = {
@@ -675,6 +690,7 @@ int main(int argc, char** argv) {
   test_crc_and_sequence_primitives();
   test_all_message_round_trips();
   test_route_geometry_waypoint_extension();
+  test_skip_next_waypoint_device_command();
   test_golden_vectors();
   test_fragmentation_and_reassembly();
   test_full_map_scene_budget_and_reassembly();

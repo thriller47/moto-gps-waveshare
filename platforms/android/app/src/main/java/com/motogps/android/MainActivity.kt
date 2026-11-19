@@ -207,6 +207,12 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     diagnosticTimeoutHandler.post(diagnosticRefresh)
                 }
             }
+            onDeviceCommandReceived = { command ->
+                if (command.kind == 21) { // SkipNextWaypoint from ESP32
+                    DiagnosticLog.event("WAYPOINT_SKIP", "phase=device_command")
+                    viewModel.skipNextWaypoint()
+                }
+            }
             onDiagnosticBatchReceived = { records ->
                 DiagnosticLog.esp32Batch(records)
             }
