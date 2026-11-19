@@ -288,6 +288,25 @@ void test_replay_curve_candidate_baseline_and_turn() {
   const auto baseline_curve = production.advance(
       origin, 1200, 1, "test", 1, 12, 130, true);
   CHECK(distance_metres(in_curve, origin) < distance_metres(baseline_curve, origin));
+  // A 60 Hz browser replay must detect an accumulated turn over 100 ms;
+  // no individual 16 ms sample should be mistaken for a straight line.
+  ReplayCurvePredictor interpolated;
+  MapOriginPredictor interpolated_baseline;
+  interpolated.advance(origin, origin, 1000, 1, "test", 1, 12, 90, true);
+  interpolated_baseline.advance(origin, 1000, 1, "test", 1, 12, 90, true);
+  MapOriginPredictor::Position curve_frame{};
+  MapOriginPredictor::Position baseline_frame{};
+  for (int i = 1; i <= 8; ++i) {
+    const auto t = static_cast<std::uint64_t>(1000 + 16 * i);
+    const float heading = 90.0F + i * 5.0F;
+    curve_frame = interpolated.advance(
+        origin, origin, t, 1, "test", 1, 12, heading, true);
+    baseline_frame = interpolated_baseline.advance(
+        origin, t, 1, "test", 1, 12, heading, true);
+  }
+  CHECK(distance_metres(curve_frame, origin) <
+        distance_metres(baseline_frame, origin));
+
   curve.reset();
   const auto after_reset = curve.advance(
       origin, origin, 1000, 1, "test", 1, 12, 90, true);
