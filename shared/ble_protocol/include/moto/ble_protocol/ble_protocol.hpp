@@ -47,7 +47,9 @@ constexpr std::size_t kDefaultMaxMessageSize = 4'096;
 // Matches nav::kRouteViewPointCapacity. RouteGeometry is the bounded local
 // display window, not the phone's complete provider route.
 constexpr std::size_t kMaxRoutePointsPerChunk = 24;
-constexpr std::size_t kMaxWaypointMarkers = 8;
+// Eight intermediate stops (1..8) plus a final arrival (index 0).
+constexpr std::size_t kMaxWaypointMarkers = 9;
+constexpr std::uint8_t kFinalArrivalMarkerIndex = 0;
 constexpr std::size_t kMaxTrafficSegments = 64;
 // One replaceable, rider-centred minimap window.  The complete Jinan database
 // remains on the phone; these limits bound ESP32 RAM and LVGL object counts.

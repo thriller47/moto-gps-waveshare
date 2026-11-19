@@ -33,6 +33,18 @@ class WaypointMarkerWindowTest {
         assertEquals(45_003_000, remaining.single().point.latitudeE6)
         assertTrue(WaypointMarkerWindow.visible(window(), emptyList()).isEmpty())
     }
+    @Test fun destinationIsBlueZeroMarkerEvenWithoutIntermediateStops() {
+        val arrival = stop("Arrivo", 45.003)
+        val markers = WaypointMarkerWindow.visible(window(), emptyList(), arrival)
+        assertEquals(listOf(0), markers.map { it.index })
+        assertEquals(45_003_000, markers.single().point.latitudeE6)
+        val withStops = WaypointMarkerWindow.visible(
+            window(), listOf(stop("Tappa", 45.001)), arrival)
+        assertEquals(listOf(1, 0), withStops.map { it.index })
+        assertTrue(WaypointMarkerWindow.visible(window(), emptyList(),
+            stop("Lontano", 47.0)).isEmpty())
+    }
+
     @Test fun sideStreetIsNotPlacedOnRoute() {
         assertTrue(WaypointMarkerWindow.visible(window(),
             listOf(stop("Via laterale", 45.002, 9.005))).isEmpty())

@@ -662,6 +662,25 @@ void test_navigation_snapshot_pending_stops_flag() {
   CHECK(encode_message(Message{snap}).ok()); // legacy frame preserved
 }
 
+void test_arrival_marker_roundtrip() {
+  RouteGeometry geometry = geometry_fixture();
+  geometry.waypoint_markers = {{0, {39'923'205, 116'418'160}}};
+  const BytesResult encoded = encode_message(Message{geometry});
+  CHECK(encoded.ok());
+  if (!encoded.ok()) return;
+  const auto decoded = decode_message(
+      MessageType::RouteGeometry, ByteView(encoded.value));
+  CHECK(decoded.ok());
+  if (decoded.ok()) {
+    const auto& route = std::get<RouteGeometry>(decoded.value);
+    CHECK(route.waypoint_markers.size() == 1);
+    CHECK(route.waypoint_markers[0].index == kFinalArrivalMarkerIndex);
+  }
+  geometry.waypoint_markers.insert(geometry.waypoint_markers.begin(),
+                                   {1, {39'922'702, 116'417'285}});
+  CHECK(encode_message(Message{geometry}).ok());
+}
+
 void test_route_geometry_waypoint_extension() {
   RouteGeometry geometry = geometry_fixture();
   geometry.waypoint_markers = {
@@ -708,6 +727,7 @@ int main(int argc, char** argv) {
   test_crc_and_sequence_primitives();
   test_all_message_round_trips();
   test_route_geometry_waypoint_extension();
+  test_arrival_marker_roundtrip();
   test_navigation_snapshot_pending_stops_flag();
   test_skip_next_waypoint_device_command();
   test_golden_vectors();

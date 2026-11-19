@@ -12,7 +12,7 @@
 namespace moto::nav {
 
 constexpr std::size_t kRouteViewPointCapacity = 24;
-constexpr std::size_t kWaypointMarkerCapacity = 8;
+constexpr std::size_t kWaypointMarkerCapacity = 9;
 // One local 466 px map window: enough for a dense urban road graph without
 // turning the ESP32 snapshot into a city-wide map database. The bundled Jinan
 // verification fixture intentionally exercises both limits.

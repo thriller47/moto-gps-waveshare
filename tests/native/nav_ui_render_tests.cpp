@@ -522,11 +522,6 @@ void test_no_turn_suppresses_false_arrow_without_losing_destination_distance() {
                      no_turn.bytes.begin() + first));
   }
 
- first,
-                     with_turn.bytes.begin() + last,
-                     no_turn.bytes.begin() + first));
-  }
-
   // The arrived mode must display the finish flag even if there is no
   // next maneuver in the Valhalla route.
   state.mode = MOTO_UI_ARRIVED;

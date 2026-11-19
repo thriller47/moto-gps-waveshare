@@ -6,13 +6,16 @@ import com.motogps.android.jni.MotoBLEWaypointMarker
 import kotlin.math.cos
 import kotlin.math.roundToInt
 
-/** Only pending intermediate stops inside the moving route window. */
+/** Pending intermediate stops plus the optional final arrival in the BLE route window. */
 internal object WaypointMarkerWindow {
     private const val MAX_MARKERS = 8
     private const val MAX_SNAP_METERS = 100.0
 
+    // Index zero is the final arrival, reserved across Android, BLE and LVGL.
+    // Up to eight numbered intermediate stops plus one blue arrival marker.
     fun visible(window: MotoBLERouteGeometry,
-                pendingStops: List<PlaceSearchResult>): List<MotoBLEWaypointMarker> {
+                pendingStops: List<PlaceSearchResult>,
+                destination: PlaceSearchResult? = null): List<MotoBLEWaypointMarker> {
         if (window.points.size < 2) return emptyList()
         val lat0 = window.viewOrigin.latitudeE6 / 1e6
         val lon0 = window.viewOrigin.longitudeE6 / 1e6
@@ -21,10 +24,12 @@ internal object WaypointMarkerWindow {
         fun x(p: GeoPointE6) = (p.longitudeE6 / 1e6 - lon0) * xScale
         fun y(p: GeoPointE6) = (p.latitudeE6 / 1e6 - lat0) * yScale
         val result = mutableListOf<MotoBLEWaypointMarker>()
-        pendingStops.take(MAX_MARKERS).forEachIndexed { index, stop ->
+        (pendingStops.take(MAX_MARKERS).mapIndexed { index, stop ->
+            (index + 1) to stop
+        } + listOfNotNull(destination?.let { 0 to it })).forEach { (index, stop) ->
             if (!stop.latitude.isFinite() || !stop.longitude.isFinite() ||
                 kotlin.math.abs(stop.latitude) > 85.0 ||
-                kotlin.math.abs(stop.longitude) > 180.0) return@forEachIndexed
+                kotlin.math.abs(stop.longitude) > 180.0) return@forEach
             val wx = (stop.longitude - lon0) * xScale
             val wy = (stop.latitude - lat0) * yScale
             var best = MAX_SNAP_METERS * MAX_SNAP_METERS
@@ -52,7 +57,7 @@ internal object WaypointMarkerWindow {
                     )
                 }
             }
-            snapped?.let { result.add(MotoBLEWaypointMarker(index + 1, it)) }
+            snapped?.let { result.add(MotoBLEWaypointMarker(index, it)) }
         }
         return result
     }

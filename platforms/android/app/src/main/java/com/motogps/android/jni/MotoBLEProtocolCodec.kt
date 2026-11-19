@@ -543,8 +543,8 @@ class MotoBLEProtocolCodec {
         }
         // Optional v1 extension: legacy geometry remains byte-identical.
         val markers = geometry.waypointMarkers
-        if (markers.size > 8 || markers.any {
-                it.index !in 1..8 ||
+        if (markers.size > 9 || markers.any {
+                it.index !in 0..8 ||
                 kotlin.math.abs(it.point.latitudeE6.toLong()) > 85_000_000L ||
                 kotlin.math.abs(it.point.longitudeE6.toLong()) > 180_000_000L
             }) return null

@@ -2,6 +2,9 @@
 
 ## STATO ATTUALE — RIPARTIRE DA QUI
 
+**19/11/2026 — marker arrivo blu e bandiera ridotta (branch `test/waypoint-markers-20261119`; `valhalla` invariato):** aggiunto un marker di arrivo **blu `#2D8CF0` con lettera A bianca** sopra la linea verde nella stessa finestra BLE dei segnalini tappe, usando `WaypointMarker.index=0` riservato al traguardo; gli intermedi mantengono indici 1..8 e colore giallo. Marker di arrivo presente anche in itinerari diretti senza tappe quando il traguardo compare nella finestra, e nascosto fuori finestra come gli intermedi. Il massimo dei marker per finestra passa da 8 a **9** (8 tappe + arrivo), senza nuovi tipi BLE, senza nuovo traffico periodico e senza impatto su routing o manovre. Il flag a scacchi laterale viene ridotto uniformemente di ~20%, **116→93** design px, mantenendo il centro invariato; resta visibile all'arrivo. Aggiunti test Android di arrivo diretto/con tappe/fuori finestra e round-trip nativo sul marker 0. Corretto inoltre il residuo di sintassi nel test grafico `nav_ui_render_tests.cpp` che bloccava la CI del commit `e43d9cb3`. **Prossima azione:** eseguire un'unica CI finale native+Android+ESP32 e verificare il marker sul display fisico prima di qualsiasi merge. Stato: codice predisposto, test non ancora eseguiti; collaudo salto tappa precedente riferito positivo dall'utente.
+
+
 **19/11/2026 — adeguamento test rendering dopo correzione layout:** la run `44583899160` ha fallito in `nav_ui_render_tests` e `nav_ui_render_dirty_tests` perché due confronti pixel continuavano a presumere che nell'area centrale bassa non comparisse mai la distanza alla svolta. Ora la label è correttamente sotto l'arrivo (`y=321`), quindi le verifiche proteggono la fascia del contatore ARRIVO `y245–315` anziché vietare modifiche fino al fondo schermo. **Nessuna nuova modifica firmware** rispetto alla revisione col bordo blu; CI dei test aggiornati ancora da verificare prima del flash.
 
 

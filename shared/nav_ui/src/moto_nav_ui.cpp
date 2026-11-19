@@ -1003,11 +1003,18 @@ void update_waypoint_markers(const moto_ui_state_t *state) {
         }
         if(lv_obj_has_flag(marker, LV_OBJ_FLAG_HIDDEN))
             lv_obj_remove_flag(marker, LV_OBJ_FLAG_HIDDEN);
+        const bool arrival_marker = state->waypoint_marker_indices[i] == 0;
         char number[4];
-        std::snprintf(number, sizeof(number), "%u",
-                      static_cast<unsigned>(state->waypoint_marker_indices[i]));
+        if(arrival_marker) {
+            std::snprintf(number, sizeof(number), "A");
+        } else {
+            std::snprintf(number, sizeof(number), "%u",
+                          static_cast<unsigned>(state->waypoint_marker_indices[i]));
+        }
         if(std::strcmp(lv_label_get_text(marker), number) != 0)
             lv_label_set_text(marker, number);
+        lv_obj_set_style_bg_color(marker, arrival_marker ? kSkipBlue : kAmber, 0);
+        lv_obj_set_style_text_color(marker, arrival_marker ? kWhite : kBlack, 0);
         const int left = x - px(16);
         const int top = y - px(16);
         if(lv_obj_get_x(marker) != left || lv_obj_get_y(marker) != top)
@@ -1123,13 +1130,14 @@ void draw_finish_flag(lv_event_t *event) {
     lv_draw_line_dsc_t pole;
     lv_draw_line_dsc_init(&pole);
     pole.color = kWhite;
-    pole.width = px(11);
+    // Side checkered flag scaled uniformly to 80% of the prior 116px icon.
+    pole.width = px(9);
     pole.round_start = 1;
     pole.round_end = 1;
-    pole.p1 = {static_cast<lv_value_precise_t>(area.x1 + px(42)),
-               static_cast<lv_value_precise_t>(area.y1 + px(101))};
-    pole.p2 = {static_cast<lv_value_precise_t>(area.x1 + px(42)),
-               static_cast<lv_value_precise_t>(area.y1 + px(17))};
+    pole.p1 = {static_cast<lv_value_precise_t>(area.x1 + px(34)),
+               static_cast<lv_value_precise_t>(area.y1 + px(81))};
+    pole.p2 = {static_cast<lv_value_precise_t>(area.x1 + px(34)),
+               static_cast<lv_value_precise_t>(area.y1 + px(14))};
     lv_draw_line(layer, &pole);
 
     // Explicit checkered arrival flag: no directional arrows are drawn.
@@ -1142,10 +1150,10 @@ void draw_finish_flag(lv_event_t *event) {
             square.bg_opa = LV_OPA_COVER;
             square.border_opa = LV_OPA_TRANSP;
             const lv_area_t square_area = {
-                area.x1 + px(46 + col * 14),
-                area.y1 + px(19 + row * 13),
-                area.x1 + px(60 + col * 14) - 1,
-                area.y1 + px(32 + row * 13) - 1,
+                area.x1 + px(37 + col * 11),
+                area.y1 + px(15 + row * 10),
+                area.x1 + px(48 + col * 11) - 1,
+                area.y1 + px(25 + row * 10) - 1,
             };
             lv_draw_rect(layer, &square, &square_area);
         }
@@ -1834,8 +1842,9 @@ void create_navigation_page() {
     // widgets or callbacks exist: the map geometry is the turn indicator.
     ui.nav_finish_flag = lv_obj_create(page);
     lv_obj_remove_style_all(ui.nav_finish_flag);
-    lv_obj_set_size(ui.nav_finish_flag, px(116), px(116));
-    lv_obj_set_pos(ui.nav_finish_flag, px(22), px(103));
+    // Keep the flag's centre unchanged while reducing its footprint by 20%.
+    lv_obj_set_size(ui.nav_finish_flag, px(93), px(93));
+    lv_obj_set_pos(ui.nav_finish_flag, px(34), px(115));
     lv_obj_clear_flag(ui.nav_finish_flag, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(ui.nav_finish_flag, draw_finish_flag,
                         LV_EVENT_DRAW_MAIN_END, nullptr);

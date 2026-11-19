@@ -362,7 +362,7 @@ Error validate(const RouteGeometry& value) {
   if (!valid_geo_point(value.view_origin)) return Error::OutOfRange;
   if (value.waypoint_markers.size() > kMaxWaypointMarkers) return Error::TooManyItems;
   for (const auto& m : value.waypoint_markers)
-    if (m.index == 0 || m.index > kMaxWaypointMarkers ||
+    if (m.index > kMaxWaypointMarkers - 1 ||
         !valid_geo_point(m.point)) return Error::OutOfRange;
   return Error::None;
 }
@@ -794,7 +794,7 @@ MessageResult decode_route_geometry(ByteView payload) {
           WaypointMarker marker;
           marker.index = reader.u8();
           marker.point = {reader.s32(), reader.s32()};
-          if (marker.index == 0 || marker.index > kMaxWaypointMarkers ||
+          if (marker.index > kMaxWaypointMarkers - 1 ||
               !valid_geo_point(marker.point)) reader.fail(Error::OutOfRange);
           else value.waypoint_markers.push_back(marker);
         }

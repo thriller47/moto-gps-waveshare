@@ -409,8 +409,9 @@ void project_waypoint_markers(const NavSnapshot& snapshot,
   for (std::size_t i = 0; i < count; ++i) {
     const auto p = project_map_point_precise(snapshot.waypoint_markers[i], transform);
     const auto number = snapshot.waypoint_marker_indices[i];
+    // Zero is the final destination, numbered stops are 1..8.
     if (!std::isfinite(p.x) || !std::isfinite(p.y) ||
-        number == 0 || number > MOTO_UI_WAYPOINT_MARKER_CAPACITY) continue;
+        number >= MOTO_UI_WAYPOINT_MARKER_CAPACITY) continue;
     const auto slot = output.waypoint_marker_count++;
     output.waypoint_markers[slot] = round_projected_map_point(p);
     output.waypoint_marker_indices[slot] = number;
