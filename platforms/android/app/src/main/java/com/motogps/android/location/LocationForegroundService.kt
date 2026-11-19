@@ -10,6 +10,8 @@ import android.content.pm.ServiceInfo
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
+import android.os.SystemClock
+import android.util.Log
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
@@ -59,15 +61,26 @@ open class LocationForegroundService : Service(), LocationListener {
                 .build()
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                startForeground(
-                    NOTIFICATION_ID,
-                    notification,
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION or ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
-                )
+                try {
+                    startForeground(
+                        NOTIFICATION_ID,
+                        notification,
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION or ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+                    )
+                } catch (e: SecurityException) {
+                    Log.w("LocationForegroundService", "SecurityException starting foreground with CONNECTED_DEVICE; falling back to LOCATION", e)
+                    startForeground(
+                        NOTIFICATION_ID,
+                        notification,
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+                    )
+                }
             } else {
                 startForeground(NOTIFICATION_ID, notification)
             }
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            Log.e("LocationForegroundService", "Failed to start foreground service", e)
+        }
 
         startLocationUpdates()
         return START_STICKY
@@ -91,7 +104,10 @@ open class LocationForegroundService : Service(), LocationListener {
             val bestLast = selectBestLocation(lastGps, lastNet)
             if (bestLast != null) {
                 if (bestLast.provider == LocationManager.GPS_PROVIDER) {
-                    lastGpsFixTime = System.currentTimeMillis()
+                    val ageMs = (currentElapsedRealtimeNanos() - bestLast.elapsedRealtimeNanos) / 1_000_000L
+                    if (ageMs in 0 until 5_000L) {
+                        lastGpsFixTime = currentElapsedRealtime()
+                    }
                 }
                 dispatchLocation(bestLast)
             }
@@ -132,20 +148,48 @@ open class LocationForegroundService : Service(), LocationListener {
 
     override fun onLocationChanged(location: Location) {
         if (location.provider == LocationManager.GPS_PROVIDER) {
-            lastGpsFixTime = System.currentTimeMillis()
+            lastGpsFixTime = currentElapsedRealtime()
             dispatchLocation(location)
         } else {
             // Only use network fallback if no GPS fix received in the last 5 seconds
-            val now = System.currentTimeMillis()
+            val now = currentElapsedRealtime()
             if (now - lastGpsFixTime > 5_000L) {
                 dispatchLocation(location)
             }
         }
     }
 
+    protected open fun currentElapsedRealtime(): Long = SystemClock.elapsedRealtime()
+    protected open fun currentElapsedRealtimeNanos(): Long = SystemClock.elapsedRealtimeNanos()
+
     @Deprecated("Deprecated in Java")
     override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
-    override fun onProviderEnabled(provider: String) {}
+    @SuppressLint("MissingPermission")
+    override fun onProviderEnabled(provider: String) {
+        try {
+            val mgr = locationManager ?: (getSystemService(Context.LOCATION_SERVICE) as? LocationManager) ?: return
+            when (provider) {
+                LocationManager.GPS_PROVIDER -> {
+                    mgr.requestLocationUpdates(
+                        LocationManager.GPS_PROVIDER,
+                        gpsIntervalMs,
+                        0f,
+                        this
+                    )
+                }
+                LocationManager.NETWORK_PROVIDER -> {
+                    mgr.requestLocationUpdates(
+                        LocationManager.NETWORK_PROVIDER,
+                        networkFallbackIntervalMs,
+                        1f,
+                        this
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("LocationForegroundService", "Failed to register updates onProviderEnabled for $provider", e)
+        }
+    }
     override fun onProviderDisabled(provider: String) {}
 
     override fun onBind(intent: Intent?): IBinder? = null

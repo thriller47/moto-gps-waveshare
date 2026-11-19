@@ -195,7 +195,10 @@ int BleNavTransport::gatt_access(std::uint16_t,
     return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
   }
 
-  RxPacket packet;
+  // This callback runs serially in NimBLE's host task; there is only one
+  // writer. FreeRTOS xQueueSend copies the packet before we reuse the buffer.
+  // The RX worker holds its own queue copy, never a reference to this member.
+  RxPacket& packet = self->rx_packet_buffer_;
   packet.connection_epoch = self->connection_epoch_.load();
   packet.loss_epoch = self->rx_loss_epoch_.load();
   packet.length = length;
@@ -310,6 +313,13 @@ void BleNavTransport::host_reset(int reason) {
   BleNavTransport* self = active_instance_;
   if (self != nullptr) {
     self->host_ready_.store(false, std::memory_order_release);
+    self->connected_.store(false, std::memory_order_release);
+    self->encrypted_.store(false, std::memory_order_release);
+    self->subscribed_.store(false, std::memory_order_release);
+    self->connection_handle_.store(kNoConnection, std::memory_order_release);
+    self->peer_max_frame_size_.store(20, std::memory_order_release);
+    self->session_id_.store(0, std::memory_order_release);
+    self->connection_epoch_.fetch_add(1, std::memory_order_acq_rel);
   }
   ESP_LOGE(kTag, "NimBLE host reset: reason=%d", reason);
 }

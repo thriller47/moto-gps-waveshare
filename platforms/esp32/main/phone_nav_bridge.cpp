@@ -322,9 +322,17 @@ void PhoneNavBridge::service_diagnostics(std::uint64_t now_ms) {
   // removed from the PSRAM ring and immediately lost on send failure.
   if (pending_diagnostic_batch_.records.empty() &&
       !moto_diag_take_batch(pending_diagnostic_batch_)) return;
-  if (sender_ &&
-      sender_(moto::ble::Message{pending_diagnostic_batch_},
-              0, sender_context_)) {
+  SendCallback sender = nullptr;
+  void* sender_context = nullptr;
+  {
+    const std::lock_guard<std::mutex> lock(state_mutex_);
+    if (sender_ == nullptr || !link_active_) return;
+    sender = sender_;
+    sender_context = sender_context_;
+  }
+  // The BLE sender may re-enter the bridge; do not hold state_mutex_ while sending.
+  if (sender(moto::ble::Message{pending_diagnostic_batch_},
+             0, sender_context)) {
     pending_diagnostic_batch_.records.clear();
   }
 }
