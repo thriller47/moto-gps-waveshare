@@ -50,8 +50,15 @@ data class PlaceSearchResult(
     val address: String,
     val displayArea: String,
     val latitude: Double,
-    val longitude: Double
-)
+    val longitude: Double,
+    val distanceMeters: Double? = null
+) {
+    val distanceLabel: String
+        get() = distanceMeters?.takeIf { it.isFinite() && it >= 0 }?.let {
+            if (it < 1000.0) "${it.toInt()} m"
+            else String.format(Locale.ITALY, "%.1f km", it / 1000.0)
+        } ?: ""
+}
 
 data class RouteOption(
     val id: String,
@@ -526,27 +533,48 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         }
     }
 
-    /** Search the installed Italian index first. If it has no matches, try
-     * online Photon (also for foreign destinations). Network failure must not
-     * turn a valid offline zero-result search into a navigation error. */
+    /** Attach straight-line distance to search items for both result lists.
+     * Do not show distance when the GPS fix is not available. */
+    private fun withSearchDistances(places: List<PlaceSearchResult>,
+                                    gps: Pair<Double, Double>?): List<PlaceSearchResult> {
+        val fix = gps?.takeIf {
+            it.first.isFinite() && it.second.isFinite() &&
+                it.first in -90.0..90.0 && it.second in -180.0..180.0
+        } ?: return places
+        val lat1 = Math.toRadians(fix.first)
+        val lon1 = Math.toRadians(fix.second)
+        return places.map { place ->
+            val dLat = Math.toRadians(place.latitude) - lat1
+            val dLon = Math.toRadians(place.longitude) - lon1
+            val a = kotlin.math.sin(dLat / 2).let { it * it } +
+                kotlin.math.cos(lat1) * kotlin.math.cos(Math.toRadians(place.latitude)) *
+                kotlin.math.sin(dLon / 2).let { it * it }
+            val distance = 6371000.0 * 2.0 *
+                kotlin.math.atan2(kotlin.math.sqrt(a.coerceIn(0.0, 1.0)),
+                    kotlin.math.sqrt((1.0 - a).coerceAtLeast(0.0)))
+            place.copy(distanceMeters = distance)
+        }
+    }
+
+    /** Italian offline first; online Photon when no local match exists. */
     private fun searchPhotonPlaces(query: String): List<PlaceSearchResult> {
         val gps = if (hasFirstFix) currentLocation.value else null
         val context = appContext
         if (context != null && OfflinePhotonPlaceSearch.installed(context)) {
             try {
                 val local = OfflinePhotonPlaceSearch.search(context, query, gps)
-                if (local.isNotEmpty()) return local
+                if (local.isNotEmpty()) return withSearchDistances(local, gps)
             } catch (e: Exception) {
                 Log.w("MotoGPS_Photon", "Offline Photon v2 search failed; using online", e)
             }
             return try {
-                PhotonPlaceSearch.search(query, gps)
+                withSearchDistances(PhotonPlaceSearch.search(query, gps), gps)
             } catch (e: Exception) {
                 Log.w("MotoGPS_Photon", "Online Photon fallback unavailable", e)
                 emptyList()
             }
         }
-        return PhotonPlaceSearch.search(query, gps)
+        return withSearchDistances(PhotonPlaceSearch.search(query, gps), gps)
     }
 
     fun searchDestination(query: String) {
