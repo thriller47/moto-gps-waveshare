@@ -49,4 +49,26 @@ class OfflinePhotonPlaceSearchTest {
         assertEquals("Torino", hits.first().city)
         assertEquals(2, hits.size)
     }
+    @Test fun genericStreetQueryRanksNearbyAddressesAheadOfDistantExactName() {
+        val items = listOf(
+            place("Via Roma", "Roma", "street", 41.90, 12.50),
+            place("Via Roma 12", "Gallarate", "house", 45.67, 8.78),
+            place("Via Roma", "Varese", "street", 45.82, 8.82),
+            place("Via Roma", "Gallarate", "street", 45.66, 8.77))
+        val hits = PhotonOfflineRanking.rank(items, "Via Roma", 45.67 to 8.78)
+        assertEquals("Gallarate", hits[0].city)
+        assertEquals("Via Roma 12", hits[0].name)
+        assertEquals("Gallarate", hits[1].city)
+        assertEquals("Varese", hits[2].city)
+        assertEquals("Roma", hits[3].city)
+    }
+
+    @Test fun explicitDistantCityOverridesNearbyStreet() {
+        val items = listOf(
+            place("Via Roma", "Gallarate", "street", 45.67, 8.78),
+            place("Via Roma", "Torino", "street", 45.06, 7.68))
+        val hits = PhotonOfflineRanking.rank(items, "Via Roma Torino", 45.67 to 8.78)
+        assertEquals("Torino", hits[0].city)
+    }
+
 }
