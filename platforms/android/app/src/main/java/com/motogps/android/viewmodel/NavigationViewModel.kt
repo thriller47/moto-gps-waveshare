@@ -448,6 +448,17 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     private var telemetryJob: Job? = null
 
     private var navigationJob: Job? = null
+    // A bit in the existing 16-bit navigation flags tells the device whether
+    // any intermediate stop remains. It is independent of the visible BLE
+    // geometry window, so the circular >> button is available even kilometres
+    // before a stop. Final destination is never skippable.
+    private fun sendNavigationSnapshotWithStops(snapshot: MotoBLENavigationSnapshot) {
+        val hasPendingStops = _isNavigating.value && !_hasArrived.value &&
+            activeWaypoints.size > nextWaypointIndex
+        bleManager.sendNavigationSnapshot(
+            snapshot.copy(hasPendingWaypoints = hasPendingStops))
+    }
+
     private var currentSnapshot: MotoBLENavigationSnapshot? = null
     private var currentGeometry: MotoBLERouteGeometry? = null
     private var lastWindowGapDiagnosticMs = 0L
@@ -751,7 +762,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                 if (geometry != null) {
                     sendNearbyRouteGeometry(geometry)
                 }
-                bleManager.sendNavigationSnapshot(requireNotNull(currentSnapshot))
+                sendNavigationSnapshotWithStops(requireNotNull(currentSnapshot))
 
                 _isLoading.value = false
 
@@ -821,7 +832,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                             "gnss_stale=$gnssStale position=accepted_gps")
                     }
                     ReplayTraceRecorder.snapshot(activeSnap, lat, lon)
-                    bleManager.sendNavigationSnapshot(activeSnap)
+                    sendNavigationSnapshotWithStops(activeSnap)
 
                     // A stationary GPS provider may stop emitting fixes. Keep
                     // offline map lookup / online tile retry alive independently
@@ -942,7 +953,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                 rerouteStability.accepted(SystemClock.elapsedRealtime(), lat, lon)
                 _routingSource.value = lastRoutingProvider
                 if (geometry != null) sendNearbyRouteGeometry(geometry)
-                bleManager.sendNavigationSnapshot(requireNotNull(currentSnapshot))
+                sendNavigationSnapshotWithStops(requireNotNull(currentSnapshot))
                 DiagnosticLog.event("WAYPOINT_SKIP",
                     "phase=success remaining=${activeWaypoints.size - nextWaypointIndex}")
             } catch (e: CancellationException) {
@@ -1019,7 +1030,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
             roundaboutExit = 0,
             instructionText = ""
         )
-        bleManager.sendNavigationSnapshot(stopSnapshot)
+        sendNavigationSnapshotWithStops(stopSnapshot)
 
         _routePreview.value = null
         _routeOptions.value = emptyList()
@@ -1227,7 +1238,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                 )
                 if (arrived != null) {
                     currentSnapshot = arrived
-                    bleManager.sendNavigationSnapshot(arrived)
+                    sendNavigationSnapshotWithStops(arrived)
                 }
                 if (destination.displayArea == "Tour circolare") {
                     try { discardTourCheckpoint() } catch (e: Exception) {
@@ -1872,7 +1883,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                     SystemClock.elapsedRealtime(), acceptedLat, acceptedLon)
                 _routingSource.value = lastRoutingProvider
                 if (geometry != null) sendNearbyRouteGeometry(geometry)
-                bleManager.sendNavigationSnapshot(refreshed)
+                sendNavigationSnapshotWithStops(refreshed)
             } catch (e: Exception) {
                 DiagnosticLog.event("REROUTE_ERROR", e.message.orEmpty())
                 Log.w("NavigationVM", "Route recalculation failed: ${e.message}")
@@ -2174,7 +2185,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                         "stops_pending=${activeWaypoints.size - nextWaypointIndex}")
                 try {
                     if (replay.geometry) currentGeometry?.let { sendNearbyRouteGeometry(it) }
-                    currentSnapshot?.let { bleManager.sendNavigationSnapshot(it) }
+                    currentSnapshot?.let { sendNavigationSnapshotWithStops(it) }
                 } catch (e: Exception) {
                     DiagnosticLog.event("BLE_NAV_RESYNC_ERROR",
                         "exception=${e.javaClass.simpleName}")
@@ -2229,7 +2240,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                         roundaboutExit = 0,
                         instructionText = ""
                     )
-                    bleManager.sendNavigationSnapshot(idleSnapshot)
+                    sendNavigationSnapshotWithStops(idleSnapshot)
                 }
             }
         }

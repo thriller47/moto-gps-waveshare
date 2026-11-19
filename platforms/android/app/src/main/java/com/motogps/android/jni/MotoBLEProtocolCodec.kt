@@ -459,6 +459,8 @@ class MotoBLEProtocolCodec {
         if (snapshot.offRoute) flags = flags or 8
         if (snapshot.routeRequestInFlight) flags = flags or 32
         if (snapshot.trafficRequestInFlight) flags = flags or 64
+        if (snapshot.hasPendingWaypoints && snapshot.hasDestination &&
+            state in 3..4) flags = flags or 256 // NavigationHasPendingWaypoints
 
         // Match the shared C++ BLE protocol and the ESP32 bridge. An
         // instruction such as "Prosegui" is NOT an actionable maneuver:

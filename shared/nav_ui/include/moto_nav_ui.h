@@ -121,6 +121,8 @@ typedef struct {
     uint8_t gps_accuracy_m;
     uint8_t online;
     uint8_t has_destination;
+    /* True for any intermediate stop remaining, even outside visible map. */
+    uint8_t has_pending_waypoints;
     uint8_t route_request_in_flight;
     /* Geometry identity, used only to distinguish a reroute/map replacement
        from ordinary high-rate heading and position motion. */

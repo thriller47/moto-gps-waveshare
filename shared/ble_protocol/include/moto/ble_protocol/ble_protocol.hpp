@@ -371,13 +371,16 @@ enum NavigationFlag : std::uint16_t {
   NavigationRouteRequestInFlight = 1U << 5U,
   NavigationTrafficRequestInFlight = 1U << 6U,
   NavigationHasRouteView = 1U << 7U,
+  // Phone still has a skippable intermediate stop, even if it is outside
+  // the current 550m geometry window. No BLE payload length change.
+  NavigationHasPendingWaypoints = 1U << 8U,
 };
 
 constexpr std::uint16_t kKnownNavigationFlags =
     NavigationHasDestination | NavigationHasFix | NavigationGnssStale |
     NavigationOffRoute | NavigationHasNextManeuver |
     NavigationRouteRequestInFlight | NavigationTrafficRequestInFlight |
-    NavigationHasRouteView;
+    NavigationHasRouteView | NavigationHasPendingWaypoints;
 
 struct NavigationSnapshot {
   NavigationState state = NavigationState::Idle;

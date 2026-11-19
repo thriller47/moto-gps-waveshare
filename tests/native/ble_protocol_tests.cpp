@@ -644,6 +644,24 @@ void test_skip_next_waypoint_device_command() {
   }
 }
 
+void test_navigation_snapshot_pending_stops_flag() {
+  NavigationSnapshot snap = navigation_fixture();
+  snap.flags |= NavigationHasPendingWaypoints;
+  const BytesResult encoded = encode_message(Message{snap});
+  CHECK(encoded.ok());
+  if (!encoded.ok()) return;
+  const auto decoded = decode_message(
+      MessageType::NavigationSnapshot, ByteView(encoded.value));
+  CHECK(decoded.ok());
+  if (decoded.ok()) {
+    const auto& back = std::get<NavigationSnapshot>(decoded.value);
+    CHECK((back.flags & NavigationHasPendingWaypoints) != 0);
+    CHECK(back == snap);
+  }
+  snap.flags &= ~NavigationHasPendingWaypoints;
+  CHECK(encode_message(Message{snap}).ok()); // legacy frame preserved
+}
+
 void test_route_geometry_waypoint_extension() {
   RouteGeometry geometry = geometry_fixture();
   geometry.waypoint_markers = {
@@ -690,6 +708,7 @@ int main(int argc, char** argv) {
   test_crc_and_sequence_primitives();
   test_all_message_round_trips();
   test_route_geometry_waypoint_extension();
+  test_navigation_snapshot_pending_stops_flag();
   test_skip_next_waypoint_device_command();
   test_golden_vectors();
   test_fragmentation_and_reassembly();

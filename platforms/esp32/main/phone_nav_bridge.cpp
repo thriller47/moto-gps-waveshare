@@ -242,6 +242,7 @@ void PhoneNavBridge::on_link_state(bool active) {
       phone_snapshot.has_route_view = false;
       phone_snapshot.route_view_point_count = 0;
       phone_snapshot.waypoint_marker_count = 0;
+      phone_snapshot.has_pending_waypoints = false;
       clear_map_context(phone_snapshot);
       heading_fusion_.reset();
       last_phone_anchor_ms_ = 0;
@@ -482,6 +483,8 @@ void PhoneNavBridge::consume_navigation(
     phone_snapshot.display_page = map_page(input.display_page);
     phone_snapshot.has_destination = has_flag(
         input.flags, moto::ble::NavigationHasDestination);
+    phone_snapshot.has_pending_waypoints = has_flag(
+        input.flags, moto::ble::NavigationHasPendingWaypoints);
     phone_snapshot.has_usable_fix = has_usable_fix;
     phone_snapshot.gnss_stale = has_flag(
         input.flags, moto::ble::NavigationGnssStale);
@@ -1128,7 +1131,9 @@ void PhoneNavBridge::waypoint_skip_command(void* context) {
   {
     const std::lock_guard<std::mutex> lock(self->state_mutex_);
     if (self->snapshot_.state != moto::nav::NavState::Navigating ||
-        self->snapshot_.waypoint_marker_count == 0) return;
+        !self->snapshot_.has_pending_waypoints ||
+        !self->snapshot_.has_destination ||
+        self->snapshot_.route_request_in_flight) return;
   }
   moto::ble::DeviceCommand command;
   command.kind = moto::ble::DeviceCommandKind::SkipNextWaypoint;

@@ -53,6 +53,7 @@ struct NavSnapshot {
   DisplayPage display_page = DisplayPage::Navigation;
 
   bool has_destination = false;
+  bool has_pending_waypoints = false;
   bool has_usable_fix = false;
   bool gnss_stale = true;
   bool off_route = false;
