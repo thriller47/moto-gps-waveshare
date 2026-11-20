@@ -31,6 +31,10 @@ Questa roadmap distingue **da verificare**, **da sviluppare** e **già implement
 
 **Prossima azione:** preparare i test nativi di montaggio/inclinazione e la strumentazione numerica, senza cambiare i guadagni dell'attuale fusione.
 
+## Ricerca POI online allineata ai tag OSM offline — DA TESTARE
+
+**20/11/2026:** la ricerca generica online ora usa Photon `/api` con filtri `include=osm.*` e bbox locale, senza ricerca testuale del nome (`q`); cerca 15/50/150 km e verifica categoria OSM nelle risposte. Il testo normale continua ad usare Photon FTS. Verificare su APK `trattoria`, `bar`, `hotel`, `distributore`, assenza GPS, dati fuori Italia e risposta server 400 per filtro non disponibile. Non ripristinare Overpass, non mostrare risultati fuori zona se il filtro online fallisce. Nessuna nuova build effettuata.
+
 ## Priorità 1 — Parità del contesto stradale OpenFreeMap / MotoMap (DA TESTARE)
 
 **Motivazione:** prova online del 20/11: tile scaricate correttamente (99/99) ma rotonde spezzate e strade grigie che cambiano bruscamente. La versione MVT di OpenFreeMap non include identificativi OSM originali dei nodi, way o tag di giunzione; il selettore MotoMap non può comporre i suoi anelli topologici. **Intervento sperimentale:** `OpenFreeMapRoundaboutGeometry.kt` individua soltanto circuiti chiusi per coincidenza conservativa di estremi e con >=3 bracci; `NavigationViewModel` usa il fallback solo se il focus topologico originale è assente. Si riutilizza il normale budget BLE e si registra `OFM_RING`. Test sintetici aggiunti; **non ancora eseguiti**.
