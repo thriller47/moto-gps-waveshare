@@ -206,6 +206,7 @@ internal object PhotonPlaceSearch {
             it.first.isFinite() && it.second.isFinite() &&
                 it.first in -85.0..85.0 && it.second in -180.0..180.0
         } ?: return emptyList()
+        val collected = LinkedHashMap<String, PlaceSearchResult>()
         for (radius in listOf(15.0, 50.0, 150.0)) {
             val conn = (URL(categoryEndpoint(
                 categories, fix.first, fix.second, radius
@@ -220,15 +221,20 @@ internal object PhotonPlaceSearch {
                     throw IOException("Photon category HTTP ${conn.responseCode}")
                 val json = JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
                 categoryResults(json, categories, fix.first, fix.second, radius)
+            } catch (e: IOException) {
+                if (collected.isEmpty()) throw e
+                // Preserve close validated matches if a wider request fails.
+                break
             } finally {
                 conn.disconnect()
             }
-            if (results.size >= 8 || radius == 150.0) return results
-            // Keep the closest returned matches if a tighter search found some,
-            // rather than erasing valid nearby results on broader searches.
-            if (results.isNotEmpty()) return results
+            results.forEach { place ->
+                collected.putIfAbsent(
+                    "${place.latitude},${place.longitude},${place.name}", place)
+            }
+            if (collected.size >= 8) break
         }
-        return emptyList()
+        return collected.values.sortedBy { it.distanceMeters }.take(8)
     }
 
     fun search(query: String, gpsLocation: Pair<Double, Double>?): List<PlaceSearchResult> {
