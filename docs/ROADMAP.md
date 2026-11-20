@@ -45,6 +45,14 @@ Nel branch di test sono presenti: fallback a Photon online quando la ricerca SQL
 
 **Verifica pendente:** con MotoPack assente e connessione disponibile, calcolare la rotta, premere Avvia, verificare il dialogo «Prepara strade OpenFreeMap» con il conteggio; scegliere «Avvia e scarica» e controllare eventi `OFM_COVERAGE`, `OFM_CORRIDOR` e comparsa delle strade grigie anche in movimento. Verificare anche «Avvia senza download», annullamento e route con tile tutte già in cache. Non scaricare implicitamente mentre si guida; serve azione esplicita. **Nessuna build lanciata.**
 
+## Priorità 1 — Itinerari internazionali con copertura mista (LOGICA ESISTENTE, DA TESTARE)
+
+**Scenario:** Italia con MotoMap v4 e Valhalla V5 installati → gita in Francia. La pianificazione della copertura del corridoio OpenFreeMap considera l'intera geometria della rotta, sottraendo solo le tile già in cache o coperte dal MotoMap; **non presume che una mappa italiana copra il tratto francese**. Aggiunto test JUnit `OpenFreeMapMixedCoverageTest.kt` per un itinerario rappresentativo, porzione coperta, porzione mancante e cache parziale; **test non eseguito**.
+
+**Verifica pratica:** con MotoMap Italia installata, rotta con partenza italiana e destinazione francese; controllare che siano proposte soltanto tile mancanti oltre copertura, che le grigie continuino senza interruzione e che il routing ripieghi sul Valhalla online dove il grafo Italia non copre la Francia. Se internet assente e non esiste grafo Valhalla francese, non promettere routing offline oltre confine: OpenFreeMap non contiene il grafo Valhalla.
+
+**Limiti da risolvere per lunghi viaggi:** `OpenFreeMapRouteCorridor.plan` rifiuta oltre 3.000 tile, download massimo 50 MB. Valutare scaricamento per sezioni o regione estera distinta, con preventivo spazio/rete e ripresa, **prima** di promettere una copertura fino a destinazioni molto lontane. Verificare anche la reattività del conteggio in anteprima: `missing()` legge gli indici degli archivi in modo sincrono.
+
 ## Priorità 1 — Ultima integrazione Android/ESP32 (DA COLLAUDARE)
 
 Sul branch `test/waypoint-markers-20261119`: waypoint gialli numerati e arrivo `A` blu sulla rotta, flag a scacchi ridotta, pulsante ESP32 blu `>>` per saltare la prossima tappa con doppio tocco, distanza alla svolta sotto quella all'arrivo; hardening BLE/GATT, radio, IMU/bias e pacing display. Il salto tappa prima degli ultimi interventi è stato **collaudato positivamente dall'utente**; l'intero hardening e i commit Photon successivi **non hanno ancora un collaudo hardware complessivo confermato**.
