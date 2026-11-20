@@ -15,6 +15,8 @@ import kotlin.math.tan
 internal object OpenFreeMapRouteCorridor {
     const val ZOOM = 14
     const val MAX_TILES = 3000
+    // Seven tiles across the route: current tile plus three on either side.
+    const val CORRIDOR_RADIUS_TILES = 3
     const val MAX_BYTES = 50L * 1024 * 1024
     data class Tile(val x: Int, val y: Int) {
         val filename get() = "ofm_trial_${ZOOM}_${x}_${y}.motomap"
@@ -58,7 +60,8 @@ internal object OpenFreeMapRouteCorridor {
                 val f = step.toDouble() / steps
                 val x = floor(previous.first + (next.first - previous.first) * f).toInt()
                 val y = floor(previous.second + (next.second - previous.second) * f).toInt()
-                for (dx in -1..1) for (dy in -1..1) {
+                for (dx in -CORRIDOR_RADIUS_TILES..CORRIDOR_RADIUS_TILES)
+                    for (dy in -CORRIDOR_RADIUS_TILES..CORRIDOR_RADIUS_TILES) {
                     val tx = x + dx
                     val ty = y + dy
                     if (tx in 0 until (1 shl ZOOM) && ty in 0 until (1 shl ZOOM)) {
