@@ -146,7 +146,7 @@ internal object OpenFreeMapRoundaboutGeometry {
             val diameter = hypot(width, height)
             val roundness = metric.circularity(shape)
             if (perimeter !in 35.0..MAX_PERIMETER_M || diameter !in 12.0..145.0 ||
-                roundness !in 0.57..1.06 || members.any { it.roadClass == 0 }) {
+                roundness !in 0.82..1.06 || members.any { it.roadClass == 0 }) {
                 rejected++
                 return
             }
