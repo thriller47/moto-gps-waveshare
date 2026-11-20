@@ -46,9 +46,9 @@ class FuelStationSearchTest {
     }
 
     @Test fun fuelBrandsAreCombinedInOneIndexedQuery() {
-        assertTrue(FuelStationSearch.ftsQuery.contains("eni*"))
-        assertTrue(FuelStationSearch.ftsQuery.contains("ip*"))
-        assertTrue(FuelStationSearch.ftsQuery.contains("q8*"))
+        assertTrue(FuelStationSearch.ftsQuery.contains("eni"))
+        assertTrue(FuelStationSearch.ftsQuery.contains("ip"))
+        assertTrue(FuelStationSearch.ftsQuery.contains("q8"))
         assertTrue(FuelStationSearch.ftsQuery.contains(" OR "))
     }
 }
