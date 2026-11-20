@@ -216,7 +216,13 @@ explorer.exe "$(wslpath -w "$HOME/motogps-build/ItaliaUnificata-20261118")"
 
 Anche `\\wsl$\Ubuntu-24.04\home\mod\motogps-build\ItaliaUnificata-20261118` è utilizzabile. Se la distribuzione cambia, verificare con `wsl -l -v` da PowerShell. Non spostare la build su `/mnt/c` durante la compilazione.
 
-**Copiare il pacchetto finale in Windows** (da WSL, una volta verificato):
+**Copiare il pacchetto finale in Windows** (da WSL, una volta verificato). **Comando rapido da copiare e incollare:**
+
+```bash
+cp ~/motogps-build/ItaliaUnificata-20261118/MotoChatGPS-Italia.motopack /mnt/c/MotoGPS/MotoChatGPS-Italia.motopack
+```
+
+Equivalente su due righe:
 
 ```bash
 cp "$HOME/motogps-build/ItaliaUnificata-20261118/MotoChatGPS-Italia.motopack" \
