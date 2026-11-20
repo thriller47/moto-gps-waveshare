@@ -73,6 +73,7 @@ class MotoBLEProtocolCodec {
         const val MSG_DEVICE_COMMAND: Byte = 0x20
         const val MSG_DIAGNOSTIC_CONTROL: Byte = 0x21
         const val MSG_DIAGNOSTIC_BATCH: Byte = 0x22
+        const val MSG_POWER_POLICY: Byte = 0x23
 
         private val idGenerator = AtomicLong(1L)
         private val instances = ConcurrentHashMap<Long, CodecStorage>()
@@ -245,6 +246,18 @@ class MotoBLEProtocolCodec {
         writer.writeStringU8("") // artist
         val payload = writer.toByteArray()
         return fragmentMessage(storage, MSG_MEDIA_STATE, payload, ackRequested = false, urgent = false)
+    }
+
+    /** Optional version-1 extension, ignored by older ESP32 firmware.
+     * Sends only a bounded timeout, never a radio start or wake command. */
+    fun nativeEncodePowerPolicy(ptr: Long, minutes: Int): Array<ByteArray> {
+        val storage = instances[ptr] ?: return emptyArray()
+        if (minutes !in 1..30) return emptyArray()
+        val writer = Writer()
+        writer.writeU8(PAYLOAD_REVISION.toInt())
+        writer.writeU8(minutes)
+        return fragmentMessage(storage, MSG_POWER_POLICY,
+            writer.toByteArray(), ackRequested = false, urgent = true)
     }
 
     fun nativeEncodeDiagnosticControl(ptr: Long, mode: Int): Array<ByteArray> {
