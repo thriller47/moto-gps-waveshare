@@ -72,9 +72,34 @@ class MotoBLEManager(private val context: Context) {
     private var currentSessionId: Long = 0L
 
     @Volatile private var isScanning = false
-    // One bounded retry for the ESP32's remote-termination (GATT 19) during
-    // the initial handshake. A successful Ready frame resets the allowance.
-    private var initialConnectRetries = 0
+    // The user's Connect action opts into recovery until explicit Disconnect/close.
+    // Scan windows keep Android from scanning continuously while out of range.
+    @Volatile private var reconnectEnabled = false
+    private var reconnectAttempt = 0
+    private val reconnectRunnable = Runnable {
+        if (!closed && reconnectEnabled && bluetoothGatt == null && !isScanning) {
+            DiagnosticLog.event("BLE_RECONNECT", "phase=scan attempt=${reconnectAttempt}")
+            startScan(automaticRetry = true)
+        }
+    }
+    private val scanWindowTimeout = Runnable {
+        if (!closed && reconnectEnabled && isScanning && bluetoothGatt == null) {
+            stopScan()
+            DiagnosticLog.event("BLE_RECONNECT", "phase=scan_timeout")
+            scheduleReconnect()
+        }
+    }
+    private fun cancelReconnect() {
+        mainHandler.removeCallbacks(reconnectRunnable)
+        mainHandler.removeCallbacks(scanWindowTimeout)
+    }
+    private fun scheduleReconnect() {
+        if (closed || !reconnectEnabled || bluetoothGatt != null || isScanning) return
+        val delay = BleReconnectPolicy.delayMillis(reconnectAttempt++)
+        cancelReconnect()
+        DiagnosticLog.event("BLE_RECONNECT", "phase=scheduled delay_ms=$delay")
+        mainHandler.postDelayed(reconnectRunnable, delay)
+    }
     @Volatile private var closed = false
 
     // Synchronized FIFO Write Queue for GATT Characteristic Writes
@@ -338,16 +363,14 @@ class MotoBLEManager(private val context: Context) {
                     }, 300)
                 }
                 BluetoothProfile.STATE_DISCONNECTED -> {
-                    val retryInitialConnect =
-                        status == 19 && handshakeState != HandshakeState.COMPLETED &&
-                        initialConnectRetries == 0 && !closed
+                    val unexpectedLoss = reconnectEnabled && !closed
                     stopHeartbeat()
                     mainHandler.removeCallbacks(cccdTimeoutRunnable)
                     cccdWritePending = false
                     cccdRetryCount = 0
                     handshakeState = HandshakeState.IDLE
                     mainHandler.post { onConnectionStateChange?.invoke("Non connesso") }
-                    if (status != BluetoothGatt.GATT_SUCCESS && !retryInitialConnect) {
+                    if (status != BluetoothGatt.GATT_SUCCESS && !unexpectedLoss) {
                         mainHandler.post { onConnectionError?.invoke("Errore di connessione GATT ($status)") }
                     }
                     writeCharacteristic = null
@@ -372,14 +395,12 @@ class MotoBLEManager(private val context: Context) {
                     if (bluetoothGatt == gatt) {
                         bluetoothGatt = null
                     }
-                    if (retryInitialConnect) {
-                        initialConnectRetries++
-                        Log.i("MotoBLEManager", "GATT 19 before handshake; retrying scan once")
-                        mainHandler.postDelayed({
-                            if (!closed && bluetoothGatt == null && !isScanning) {
-                                startScan(automaticRetry = true)
-                            }
-                        }, 1_500L)
+                    if (unexpectedLoss) {
+                        // Applies to a live navigation session too, not just
+                        // GATT 19 before first handshake completion.
+                        DiagnosticLog.event("BLE_RECONNECT",
+                            "phase=lost status=$status")
+                        mainHandler.post { scheduleReconnect() }
                     }
                 }
             }
@@ -566,7 +587,8 @@ class MotoBLEManager(private val context: Context) {
                     enqueueSendFramesTask(frames)
                 } else if (handshakeState == HandshakeState.READY_SENT) {
                     handshakeState = HandshakeState.COMPLETED
-                    initialConnectRetries = 0
+                    reconnectAttempt = 0
+                    cancelReconnect()
                     mainHandler.post { onConnectionStateChange?.invoke("Connesso") }
                     startHeartbeat()
                 }
@@ -595,9 +617,16 @@ class MotoBLEManager(private val context: Context) {
 
         override fun onScanFailed(errorCode: Int) {
             isScanning = false
+            mainHandler.removeCallbacks(scanWindowTimeout)
             mainHandler.post {
                 onConnectionStateChange?.invoke("Non connesso")
-                onConnectionError?.invoke("Errore di scansione ($errorCode)")
+                if (reconnectEnabled) {
+                    DiagnosticLog.event("BLE_RECONNECT",
+                        "phase=scan_failed code=$errorCode")
+                    scheduleReconnect()
+                } else {
+                    onConnectionError?.invoke("Errore di scansione ($errorCode)")
+                }
             }
         }
     }
@@ -618,11 +647,14 @@ class MotoBLEManager(private val context: Context) {
     }
 
     fun startScan(automaticRetry: Boolean = false) {
-        if (closed) return
-        if (!automaticRetry) initialConnectRetries = 0
+        if (closed || (automaticRetry && !reconnectEnabled)) return
+        if (!automaticRetry) {
+            reconnectEnabled = true
+            reconnectAttempt = 0
+        }
         // A new scan must not leave an old GATT session or fragmented BLE
         // messages alive when ESP32 is already powered on.
-        disconnect()
+        disconnect(userRequested = false)
         onConnectionStateChange?.invoke("Ricerca in corso...")
         val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
         val adapter = bluetoothManager.adapter ?: return
@@ -639,11 +671,16 @@ class MotoBLEManager(private val context: Context) {
         try {
             isScanning = true
             scanner.startScan(listOf(filter), settings, scanCallback)
+            if (automaticRetry) {
+                mainHandler.postDelayed(scanWindowTimeout,
+                    BleReconnectPolicy.SCAN_WINDOW_MS)
+            }
         } catch (e: Exception) {
             isScanning = false
             Log.e("MotoBLEManager", "Failed to start BLE scan: ${e.message}")
             onConnectionStateChange?.invoke("Non connesso")
-            onConnectionError?.invoke("Impossibile avviare la scansione BLE")
+            if (automaticRetry) scheduleReconnect()
+            else onConnectionError?.invoke("Impossibile avviare la scansione BLE")
         }
     }
 
@@ -667,7 +704,9 @@ class MotoBLEManager(private val context: Context) {
         heartbeatScheduler = null
     }
 
-    fun disconnect() {
+    fun disconnect(userRequested: Boolean = true) {
+        if (userRequested) reconnectEnabled = false
+        cancelReconnect()
         stopHeartbeat()
         stopScan()
         mainHandler.removeCallbacksAndMessages(null)
