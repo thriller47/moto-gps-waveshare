@@ -561,6 +561,15 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         val gps = if (hasFirstFix) currentLocation.value else null
         val context = appContext
         if (context != null && OfflinePhotonPlaceSearch.installed(context)) {
+            if (OfflinePoiCategorySearch.categories(query).isNotEmpty() &&
+                OfflinePoiCategorySearch.available(context) && gps != null) {
+                try {
+                    val categorized = OfflinePoiCategorySearch.search(context, query, gps)
+                    if (categorized.isNotEmpty()) return withSearchDistances(categorized, gps)
+                } catch (e: Exception) {
+                    Log.w("MotoGPS_Photon", "OSM POI category index unavailable; falling back", e)
+                }
+            }
             try {
                 val local = OfflinePhotonPlaceSearch.search(context, query, gps)
                 if (local.isNotEmpty()) return withSearchDistances(local, gps)
