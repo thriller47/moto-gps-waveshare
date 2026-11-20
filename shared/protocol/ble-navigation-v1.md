@@ -426,6 +426,10 @@ kind：0 PageSelected、1 Tap、2 LongPress、3 SwipeLeft、4 SwipeRight、5 Swi
 `NavPresenter` 消费，显示端适配器可置零或维护本地诊断值。手机仍是这些事实的所有
 者；不能因此在 ESP32 再启动第二套 NavCore 状态机。
 
+### Optional Moto Chat GPS power policy extension (2026-11-20)
+
+`PowerPolicy (0x23)` is a **phone → device optional message** added without changing the v1 frame format or any existing golden vectors. Its complete payload is exactly two bytes: `revision=1`, `coffee_timeout_minutes=1..30`. The phone sends it after a completed handshake and whenever the user changes the setting in Android. The device retains it across unexpected BLE loss, resetting to 10 minutes on a cold boot. Older firmware may reject/ignore the unknown type without altering heartbeat or navigation messaging. The phone does **not** change the existing reserved `Heartbeat.status_flags=0` bytes, and no radio-start command is repeated. The 30-second coffee display pause and the 120-second arrival shutdown are fixed firmware policies; `coffee_timeout_minutes` only configures the final cutoff after BLE loss.
+
 ## 8. 错误、版本与资源边界
 
 - magic、版本、CRC、reserved flags、长度或范围错误时整帧/整消息拒绝，不做部分
