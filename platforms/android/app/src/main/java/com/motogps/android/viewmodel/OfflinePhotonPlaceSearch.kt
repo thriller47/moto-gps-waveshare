@@ -128,7 +128,7 @@ internal object OfflinePhotonPlaceSearch {
         // Select by exact indexed brand tokens, and filter by actual station name/kind
         // after reading the bounded nearby shortlist. Avoid scanning millions
         // of rows from the unindexed places.kind column on existing v2 packs.
-        val sql = """
+        val fuelSql = """
             SELECT p.name,p.street,p.house,c.name,r.name,p.postcode,
                    p.kind,p.importance,p.lat,p.lon
               FROM places_fts JOIN places p ON p.id = places_fts.docid
@@ -145,7 +145,7 @@ internal object OfflinePhotonPlaceSearch {
         val candidates = ArrayList<PhotonOfflineRanking.Candidate>()
         SQLiteDatabase.openDatabase(target.absolutePath, null,
             SQLiteDatabase.OPEN_READONLY).use { db ->
-            db.rawQuery(sql, arrayOf(
+            db.rawQuery(fuelSql, arrayOf(
                 FuelStationSearch.ftsQuery,
                 if (validGps != null) "1" else "0",
                 lat.toString(), lat.toString(), lon.toString(), lon.toString(),
