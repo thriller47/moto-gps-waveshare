@@ -132,6 +132,8 @@ Valhalla **online** calcola il percorso ma **non fornisce da solo** le strade gr
 
 **Bug riscontrato durante il test del 20/11 (senza MotoPack):** `MainActivity` non collegava i callback di conteggio tile e download, quindi il dialogo non compariva e il contesto restava vuoto. Corretto nel branch `test/waypoint-markers-20261119`, **da compilare e verificare sul dispositivo**. Per una nuova prova controllare se la UI propone il corridoio e se la diagnostica registra `OFM_COVERAGE` e `OFM_CORRIDOR`; `OSM_CONTEXT segments=0` da solo non certifica un errore del routing.
 
+**Copertura mista Italia/Francia:** se hai MotoMap Italia installato e calcoli un itinerario oltre confine, la logica del corridoio verifica **tutta la rotta**, esclude dal conteggio le tile già coperte dal MotoMap e propone di scaricare solo quelle ancora mancanti, anche francesi. Un test specifico è stato aggiunto nel branch sperimentale ma non ancora eseguito. **Attenzione:** il download OpenFreeMap aggiunge solo strade di contesto grigie: non estende Valhalla V5 Italia, quindi i percorsi francesi necessitano di routing online salvo disponibilità di un grafo locale adeguato. Se il piano supera 3.000 tile o 50 MB, attualmente non esiste download automatico a tranche; suddividere il viaggio o predisporre dati offline appropriati. Il conteggio viene effettuato in anteprima e va verificata la fluidità su MotoMap grandi.
+
 ## 3. GitHub Actions e Android
 
 [GitHub Actions — Project Build](https://github.com/thriller47/moto-gps-waveshare/actions/workflows/project-build.yml). Le job `native`, `android` ed `esp32` sono selettive; `skipped` non è equivalente a un test superato. Per il codice avviare **una sola CI consolidata alla fine**; una modifica al solo manuale non richiede build.
