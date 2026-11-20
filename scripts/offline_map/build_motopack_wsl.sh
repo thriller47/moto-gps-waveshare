@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # WSL-only, end-to-end builder: OSM PBF + matching POLY + Photon JSONL(.zst)
-# => MotoMap v4, Valhalla V5, Photon SQLite v2, verified .motopack.
+# => MotoMap v4, Valhalla V5, Photon SQLite v2 with OSM POIs, verified .motopack.
 set -euo pipefail
 
 usage() {
@@ -96,6 +96,22 @@ else
   [[ ! -e "$DB.part" ]] || { echo "Remove incomplete Photon file before resuming: $DB.part" >&2; exit 2; }
   "$PYTHON" "$SCRIPT_DIR/photon_to_sqlite.py" --input "$PHOTON" --output "$DB.part"
   mv -- "$DB.part" "$DB"
+fi
+
+# POIs are added inside Photon v2 SQLite, preserving the MotoPack's three
+# components and the existing version. This also runs for a resumed Photon
+# file if its POI index has not yet been added.
+if ! "$PYTHON" - "$DB" <<'PY'
+import sqlite3, sys
+with sqlite3.connect(sys.argv[1]) as conn:
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == 2
+    assert conn.execute("SELECT 1 FROM sqlite_master WHERE name='poi_places'").fetchone()
+    assert int(conn.execute("SELECT value FROM metadata WHERE key='poi_count'").fetchone()[0]) > 0
+PY
+then
+  # --resume may recover an existing, but incomplete, POI augmentation.
+  # Never overwrite a pre-existing index silently.
+  "$PYTHON" "$SCRIPT_DIR/add_poi_to_photon.py" --pbf "$PBF" --sqlite "$DB"
 fi
 
 step '3/4 Valhalla motorcycle graph V5'
