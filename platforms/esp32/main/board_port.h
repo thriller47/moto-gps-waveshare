@@ -43,6 +43,10 @@ lv_display_t *board_port_get_display(void);
  */
 esp_err_t board_port_reveal_display(void);
 
+/** Blank/unblank AMOLED for coffee pause. Call under board_port_lock().
+ * Keep panel initialized and TE synchronization alive for an instant wake. */
+esp_err_t board_port_set_display_awake(bool awake);
+
 /**
  * Lock LVGL for calls made outside the board-owned LVGL task.
  * timeout_ms == UINT32_MAX means wait indefinitely.
