@@ -629,6 +629,36 @@ void test_link_watchdog() {
   CHECK(watchdog.expired(31'000));
 }
 
+void test_coffee_power_policy_optional_message() {
+  for (const std::uint8_t minutes : {std::uint8_t{1}, std::uint8_t{10},
+                                     std::uint8_t{30}}) {
+    PowerPolicy policy;
+    policy.coffee_timeout_minutes = minutes;
+    const auto encoded = encode_message(Message{policy});
+    CHECK(encoded.ok());
+    CHECK(message_type(Message{policy}) == MessageType::PowerPolicy);
+    if (!encoded.ok()) continue;
+    CHECK(encoded.value.size() == 2U);
+    CHECK(encoded.value[0] == kPayloadRevision);
+    CHECK(encoded.value[1] == minutes);
+    const auto decoded = decode_message(MessageType::PowerPolicy,
+                                        ByteView(encoded.value));
+    CHECK(decoded.ok());
+    if (decoded.ok()) CHECK(std::get<PowerPolicy>(decoded.value) == policy);
+  }
+  for (const std::uint8_t invalid : {std::uint8_t{0}, std::uint8_t{31}}) {
+    PowerPolicy policy;
+    policy.coffee_timeout_minutes = invalid;
+    CHECK(encode_message(Message{policy}).error == Error::OutOfRange);
+    const Bytes payload = {kPayloadRevision, invalid};
+    CHECK(decode_message(MessageType::PowerPolicy, ByteView(payload)).error ==
+          Error::OutOfRange);
+  }
+  const Bytes truncated = {kPayloadRevision};
+  CHECK(decode_message(MessageType::PowerPolicy, ByteView(truncated)).error ==
+        Error::TruncatedPayload);
+}
+
 void test_skip_next_waypoint_device_command() {
   DeviceCommand command;
   command.kind = DeviceCommandKind::SkipNextWaypoint;
@@ -738,6 +768,7 @@ int main(int argc, char** argv) {
   test_validation_failures();
   test_optional_diagnostics_extension();
   test_link_watchdog();
+  test_coffee_power_policy_optional_message();
 
   if (failures != 0) {
     std::cerr << failures << " BLE protocol checks failed\n";
