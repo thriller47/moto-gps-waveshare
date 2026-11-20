@@ -45,6 +45,12 @@ Nel branch di test sono presenti: fallback a Photon online quando la ricerca SQL
 
 **Verifica pendente:** con MotoPack assente e connessione disponibile, calcolare la rotta, premere Avvia, verificare il dialogo «Prepara strade OpenFreeMap» con il conteggio; scegliere «Avvia e scarica» e controllare eventi `OFM_COVERAGE`, `OFM_CORRIDOR` e comparsa delle strade grigie anche in movimento. Verificare anche «Avvia senza download», annullamento e route con tile tutte già in cache. Non scaricare implicitamente mentre si guida; serve azione esplicita. **Nessuna build lanciata.**
 
+## Priorità 1 — Corridoio OpenFreeMap a 7 tile (IMPLEMENTATO, DA COLLAUDARE)
+
+**Modifica 20/11 sul branch test:** allargata la fascia di raccolta tile z14 da **3 a 7 tile complessive** (tile centrale + 3 per lato) per lasciare margine in caso di deviazioni. La logica continua a contare le tile una sola volta, a sottrarre le tile MotoMap Italia/OpenFreeMap già presenti e a chiedere consenso prima del download. Restano **3.000 tile pianificate e 50 MiB massimi di download**, senza download automatico a tranche. Test JUnit specifico per impronta 7×7 aggiunto, **non eseguito**.
+
+**Da verificare:** anteprima e tempi di calcolo con MotoMap Italia completo, itinerari curvilinei e misti Italia/Francia, disponibilità delle strade fuori rotta a seguito di ricalcolo, comportamento quando la nuova fascia supera 3.000 tile. Limite noto: il tetto tile è applicato durante la pianificazione **prima** di escludere la copertura già installata; verificare se provoca rifiuti inutili su rotte lunghe e affrontarlo con una modifica separata, senza eludere i limiti del servizio.
+
 ## Priorità 1 — Itinerari internazionali con copertura mista (LOGICA ESISTENTE, DA TESTARE)
 
 **Scenario:** Italia con MotoMap v4 e Valhalla V5 installati → gita in Francia. La pianificazione della copertura del corridoio OpenFreeMap considera l'intera geometria della rotta, sottraendo solo le tile già in cache o coperte dal MotoMap; **non presume che una mappa italiana copra il tratto francese**. Aggiunto test JUnit `OpenFreeMapMixedCoverageTest.kt` per un itinerario rappresentativo, porzione coperta, porzione mancante e cache parziale; **test non eseguito**.
