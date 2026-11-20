@@ -60,7 +60,7 @@ class TestPOIIndex(unittest.TestCase):
             class SimpleHandler:
                 def apply_file(self, filename, locations, idx):
                     assert locations is True
-                    assert idx == "sparse_file_array"
+                    assert idx.startswith("sparse_file_array,")
                     self.node(MockNode(101, 44.39, 7.55,
                         {"amenity": "restaurant", "name": "La Pergola"}))
                     self.node(MockNode(102, 44.395, 7.551,
