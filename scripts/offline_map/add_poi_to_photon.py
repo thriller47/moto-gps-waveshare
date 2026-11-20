@@ -82,6 +82,7 @@ def build(pbf, database):
                 "SELECT 1 FROM sqlite_master WHERE name='poi_places'").fetchone():
             raise ValueError("POI index already exists; use a fresh Photon v2 SQLite")
         db.executescript(SCHEMA)
+        db.execute("BEGIN")  # One transaction for the entire POI augmentation.
         statement = """INSERT OR REPLACE INTO poi_places
             (osm_type,osm_id,category,subtype,name,brand,lat,lon)
             VALUES (?,?,?,?,?,?,?,?)"""
@@ -134,6 +135,12 @@ def build(pbf, database):
         print("POI index ready:", dict(counts), flush=True)
     except BaseException:
         db.rollback()
+        # executescript() commits the DDL: do not leave a phantom POI schema
+        # which a later resumed builder might mistake for a finished index.
+        db.execute("DROP INDEX IF EXISTS poi_category_lat_lon")
+        db.execute("DROP TABLE IF EXISTS poi_places")
+        db.execute("DELETE FROM metadata WHERE key IN ('poi_schema','poi_count')")
+        db.commit()
         raise
     finally:
         db.close()
