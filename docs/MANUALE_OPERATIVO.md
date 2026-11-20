@@ -36,9 +36,125 @@ git submodule update --init --recursive
 
 Il repository non usa più `main`. Il branch `test/*` resta separato da `valhalla` fino a collaudo e approvazione del merge. Un `git pull` non aggiorna automaticamente l'APK, il firmware o le mappe sul telefono.
 
+## 1.1 Preparare WSL Ubuntu e l'ambiente `valhalla-env` da zero
+
+Questa procedura si usa **solo quando si prepara un nuovo PC o si ricrea l'ambiente WSL**. Sul PC attuale, dove `~/valhalla-env` è già disponibile, **non cancellarlo e non ricrearlo**: passare direttamente a «Riattivare e verificare l'ambiente». Tutti i comandi Linux vanno eseguiti in **Ubuntu WSL**, non in PowerShell/CMD Windows. I comandi di installazione richiedono internet.
+
+### A. Installare WSL 2 e Ubuntu 24.04 (una sola volta)
+
+Da **PowerShell Windows come amministratore**, solo se Ubuntu WSL non è ancora presente:
+
+```powershell
+wsl --install -d Ubuntu-24.04
+```
+
+Se Windows richiede il riavvio, riavviare e completare la creazione dell'utente Linux. Prima di tentare una nuova installazione controllare:
+
+```powershell
+wsl --list --verbose
+wsl --set-default-version 2
+wsl -d Ubuntu-24.04
+```
+
+Nel tuo ambiente già configurato non serve ripetere `wsl --install`. I file originali di Windows sono raggiungibili in WSL da `/mnt/c/MotoGPS/PBF`; non spostare i grandi file temporanei di build su `/mnt/c`.
+
+### B. Dipendenze di sistema in Ubuntu
+
+Aprire il terminale **Ubuntu-24.04**:
+
+```bash
+sudo apt update
+sudo apt install -y \
+  python3 python3-venv python3-pip python3-dev \
+  build-essential cmake pkg-config git zstd \
+  libffi-dev libssl-dev
+```
+
+`zstd` serve per leggere `photon-italy.jsonl.zst` e comprimere `valhalla_tiles.tar.zst`. Il compilatore e gli header Python servono come fallback se qualche pacchetto Python non dispone di una wheel precompilata. Il progetto usa inoltre `python3`, `bash`, `git` e gli eseguibili Valhalla. **Non** installare pacchetti Python nel Python di sistema con `sudo pip` o `--break-system-packages`.
+
+### C. Creare l'ambiente Python dedicato
+
+Eseguire **solo se `~/valhalla-env` non esiste già**:
+
+```bash
+python3 --version
+test ! -e "$HOME/valhalla-env" || {
+  echo "valhalla-env esiste già: non lo sovrascrivo"; exit 1;
+}
+python3 -m venv "$HOME/valhalla-env"
+source "$HOME/valhalla-env/bin/activate"
+python -m pip install --upgrade pip wheel
+python -m pip install "pyvalhalla==3.9.1" osmium shapely
+```
+
+`pyvalhalla==3.9.1` è la **versione utilizzata dal progetto** per generare Valhalla V5; non aggiornarla automaticamente a versioni più recenti senza verificare compatibilità e formato dei grafi. Il pacchetto PyPI `osmium` fornisce le API Python di **pyosmium** (`import osmium`), mentre `shapely` serve al convertitore MotoMap. Con il Python standard di Ubuntu 24.04 (normalmente 3.12) sono disponibili pacchetti wheel Linux per queste dipendenze; se un'installazione prova a compilare codice nativo, leggere l'errore prima di cambiare versione Python o toolchain.
+
+### D. Riattivare e verificare l'ambiente ogni volta
+
+In **ogni nuova sessione Ubuntu WSL** prima di generare le mappe:
+
+```bash
+source "$HOME/valhalla-env/bin/activate"
+which python3
+python3 -m pip show pyvalhalla osmium shapely
+python3 -c "import osmium, shapely, valhalla; print('Valhalla / osmium / Shapely: import OK')"
+```
+
+Verificare che `which python3` punti a `~/valhalla-env/bin/python3` e che `pip show pyvalhalla` riporti **3.9.1**. Per gli strumenti effettivamente utilizzati dagli script di costruzione:
+
+```bash
+for tool in valhalla_build_config valhalla_build_tiles \
+            valhalla_build_extract zstd; do
+  command -v "$tool" || echo "MANCANTE: $tool"
+done
+python3 -c "import osmium, shapely; print('osmium OK; Shapely', shapely.__version__)"
+```
+
+Se non compare un `valhalla_build_*`, non assumere che la build sia pronta: controllare che l'ambiente sia attivo, ripetere `python -m pip show pyvalhalla` e usare la diagnostica ufficiale `python -m valhalla valhalla_build_tiles -h`. **I nostri script richiedono comunque che i comandi `valhalla_build_*` siano risolvibili sul `PATH`**; il modulo Python da solo non sostituisce tale requisito.
+
+Se `valhalla-env` **esiste già** ma mancano solo i nuovi moduli POI:
+
+```bash
+source "$HOME/valhalla-env/bin/activate"
+python -m pip install osmium shapely
+python3 -c "import osmium, shapely; print('POI: dipendenze OK')"
+```
+
+Non reinstallare pyvalhalla né cancellare `valhalla-env` se la build V5 precedente funziona.
+
+### E. Preparare il repository e verificare gli input
+
+In Ubuntu WSL, con ambiente attivo:
+
+```bash
+cd ~/MotoGPS/moto-gps-waveshare
+git status --short
+git fetch origin --prune
+git switch test/waypoint-markers-20261119
+git pull --ff-only origin test/waypoint-markers-20261119
+
+ls -lh /mnt/c/MotoGPS/PBF/italy-latest.osm.pbf \
+       /mnt/c/MotoGPS/PBF/italy.poly \
+       /mnt/c/MotoGPS/PBF/photon-italy.jsonl.zst
+df -h "$HOME"
+```
+
+Il PBF deve corrispondere alla regione del file `.poly` e il dump Photon deve essere in formato JSONL Nominatim/Photon 0.1.x, non un indice Lucene già compilato. Controllare lo spazio disponibile: la rigenerazione mantiene temporaneamente **vecchia e nuova build** e crea grafi intermedi di dimensioni notevoli.
+
+### F. Test rapido prima della rigenerazione (facoltativo)
+
+Dalla radice del repository, nell'ambiente attivo:
+
+```bash
+python3 -m unittest discover \
+  -s scripts/offline_map -p 'test_add_poi_to_photon.py' -v
+```
+
+Questo controlla lo script POI con dati sintetici; **non** è una prova di generazione completa sul PBF Italia. Per avviare la ricostruzione reale seguire la sezione 2. In caso di errori fermarsi prima di sostituire i dati esistenti. Gli strumenti POI e la procedura integrata sono ancora **da collaudare con l'intero dataset italiano** nel branch sperimentale.
+
 ## 2. Rigenerazione completa MotoPack — procedura consigliata
 
-**Un unico comando in WSL** ricrea **MotoMap v4** (strade e copertura), **Photon SQLite v2** (ricerca indirizzi), **Valhalla V5** (grafo moto dal PBF aggiornato), quindi assembla e verifica il pacchetto `MotoChatGPS-Italia.motopack`. Usa lo script `scripts/offline_map/rebuild_motopack_wsl.sh`, presente nel branch sperimentale.
+**Un unico comando in WSL** ricrea **MotoMap v4** (strade e copertura), **Photon SQLite v2 con POI OSM** (ricerca indirizzi, carburante, ristorazione e alloggi), **Valhalla V5** (grafo moto dal PBF aggiornato), quindi assembla e verifica il pacchetto `MotoChatGPS-Italia.motopack`. Usa lo script `scripts/offline_map/rebuild_motopack_wsl.sh`, presente nel branch sperimentale.
 
 **Sorgenti attuali in `C:\MotoGPS\PBF`:**
 
@@ -48,7 +164,7 @@ Il repository non usa più `main`. Il branch `test/*` resta separato da `valhall
 
 Il file sorgente eventualmente presente `valhalla_italia_v5.tar.zst` **non è usato dalla rigenerazione completa**: il grafo viene ricostruito dal PBF. I file di input non vengono sovrascritti.
 
-**Da WSL Ubuntu-24.04** (ambiente `valhalla-env` già configurato; richiesti `pyvalhalla==3.9.1`, `osmium`, `shapely`, `zstd`):
+**Da WSL Ubuntu-24.04** (prima configurare e verificare `valhalla-env` con la sezione 1.1; richiesti `pyvalhalla==3.9.1`, `osmium`, `shapely`, `zstd`):
 
 ```bash
 cd ~/MotoGPS/moto-gps-waveshare
