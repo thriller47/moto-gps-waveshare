@@ -25,8 +25,14 @@ class OfflinePoiCategorySearchTest {
     }
 
     @Test fun fuelAliasesAndOrdinaryNameSearchRemainSeparate() {
-        assertEquals(listOf("fuel"),
-            OfflinePoiCategorySearch.categories("Distributori"))
+        for (query in listOf(
+                "distributore", "distributori", "benzinaio", "benzinai",
+                "distributore benzina", "distributori benzina",
+                "distributore carburante", "distributori carburante",
+                "stazione di servizio", "stazioni di servizio")) {
+            assertEquals(query, listOf("fuel"),
+                OfflinePoiCategorySearch.categories(query))
+        }
         assertTrue(OfflinePoiCategorySearch.categories("Eni").isEmpty())
         assertTrue(OfflinePoiCategorySearch.categories("La Pergola").isEmpty())
         assertTrue(OfflinePoiCategorySearch.categories("Via Roma").isEmpty())
