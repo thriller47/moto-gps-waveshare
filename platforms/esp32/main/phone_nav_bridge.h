@@ -42,6 +42,9 @@ class PhoneNavBridge {
   bool phone_connected() const noexcept {
     return power_connected_.load(std::memory_order_relaxed);
   }
+  std::uint8_t coffee_timeout_minutes() const noexcept {
+    return coffee_timeout_minutes_.load(std::memory_order_relaxed);
+  }
   bool phone_arrived() const noexcept {
     return power_arrived_.load(std::memory_order_relaxed);
   }
@@ -123,6 +126,7 @@ class PhoneNavBridge {
   std::atomic<bool> power_ever_connected_{false};
   std::atomic<bool> power_connected_{false};
   std::atomic<bool> power_arrived_{false};
+  std::atomic<std::uint8_t> coffee_timeout_minutes_{10};
   moto_ui_phone_connection_t ui_phone_connection_ = MOTO_UI_PHONE_OFFLINE;
   moto::ble::MediaState media_state_{};
   moto::ble::MediaState render_media_state_{};
