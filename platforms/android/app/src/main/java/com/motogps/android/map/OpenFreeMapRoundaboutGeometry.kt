@@ -68,7 +68,7 @@ internal object OpenFreeMapRoundaboutGeometry {
                 area += coords[i].first * coords[i + 1].second -
                     coords[i + 1].first * coords[i].second
             }
-            return PI * abs(area) / (length * length)
+            return 2.0 * PI * abs(area) / (length * length)
         }
     }
 
