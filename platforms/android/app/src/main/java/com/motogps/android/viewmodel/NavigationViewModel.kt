@@ -557,34 +557,50 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         }
     }
 
-    /** Italian offline first; online Photon when no local match exists. */
+    /** Category words are NOT place-name queries: offline and online both use
+     * OSM classification + GPS proximity. Never fall back to text "trattoria".
+     * Unqualified addresses and actual business names keep normal Photon FTS.
+     */
     private fun searchPhotonPlaces(query: String): List<PlaceSearchResult> {
         val gps = if (hasFirstFix) currentLocation.value else null
         val context = appContext
-        if (context != null && OfflinePhotonPlaceSearch.installed(context)) {
-            if (OfflinePoiCategorySearch.categories(query).isNotEmpty() &&
-                OfflinePoiCategorySearch.available(context) && gps != null) {
+        val categories = OfflinePoiCategorySearch.categories(query)
+        if (categories.isNotEmpty()) {
+            if (gps == null) {
+                Log.i("MotoGPS_Photon", "Categoria POI: attendo fix GPS")
+                return emptyList()
+            }
+            if (context != null && OfflinePoiCategorySearch.available(context)) {
                 try {
-                    val categorized = OfflinePoiCategorySearch.search(context, query, gps)
-                    if (categorized.isNotEmpty()) return withSearchDistances(categorized, gps)
+                    val local = OfflinePoiCategorySearch.search(context, query, gps)
+                    if (local.isNotEmpty()) return withSearchDistances(local, gps)
                 } catch (e: Exception) {
-                    Log.w("MotoGPS_Photon", "OSM POI category index unavailable; falling back", e)
+                    Log.w("MotoGPS_Photon", "OSM POI offline index unavailable", e)
                 }
             }
+            return try {
+                withSearchDistances(PhotonPlaceSearch.searchCategories(categories, gps), gps)
+            } catch (e: Exception) {
+                // A failed category filter must NOT quietly turn into a textual
+                // search and return distant businesses whose name matches.
+                Log.w("MotoGPS_Photon", "Online OSM POI category search failed", e)
+                emptyList()
+            }
+        }
+        if (context != null && OfflinePhotonPlaceSearch.installed(context)) {
             try {
                 val local = OfflinePhotonPlaceSearch.search(context, query, gps)
                 if (local.isNotEmpty()) return withSearchDistances(local, gps)
             } catch (e: Exception) {
                 Log.w("MotoGPS_Photon", "Offline Photon v2 search failed; using online", e)
             }
-            return try {
-                withSearchDistances(PhotonPlaceSearch.search(query, gps), gps)
-            } catch (e: Exception) {
-                Log.w("MotoGPS_Photon", "Online Photon fallback unavailable", e)
-                emptyList()
-            }
         }
-        return withSearchDistances(PhotonPlaceSearch.search(query, gps), gps)
+        return try {
+            withSearchDistances(PhotonPlaceSearch.search(query, gps), gps)
+        } catch (e: Exception) {
+            Log.w("MotoGPS_Photon", "Online Photon fallback unavailable", e)
+            emptyList()
+        }
     }
 
     fun searchDestination(query: String) {
