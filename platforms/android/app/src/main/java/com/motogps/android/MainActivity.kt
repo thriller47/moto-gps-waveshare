@@ -258,6 +258,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         })
 
         setContent {
+            var coffeeTimeoutMinutes by remember {
+                mutableStateOf(bleManager.getCoffeeTimeoutMinutes())
+            }
             val connectionState = viewModel.connectionState.collectAsState().value
             val isLoading = viewModel.isLoading.collectAsState().value
             val searchResults = viewModel.searchResults.collectAsState().value
@@ -312,6 +315,11 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                         checkPermissionsAndScan(forceScan = true)
                     },
                     connectionState = connectionState,
+                    coffeeTimeoutMinutes = coffeeTimeoutMinutes,
+                    onCoffeeTimeoutChange = { minutes ->
+                        bleManager.setCoffeeTimeoutMinutes(minutes)
+                        coffeeTimeoutMinutes = bleManager.getCoffeeTimeoutMinutes()
+                    },
                     isLoading = isLoading,
                     searchResults = searchResults,
                     routePreview = routePreview,
