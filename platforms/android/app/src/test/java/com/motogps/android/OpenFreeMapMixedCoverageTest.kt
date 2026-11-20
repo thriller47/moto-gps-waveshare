@@ -28,6 +28,25 @@ class OpenFreeMapMixedCoverageTest {
         return JSONObject().put("geometry_gcj02", geometry)
     }
 
+    @Test fun corridorIsSevenTilesWideAroundAStationaryRoutePoint() {
+        val coordinate = JSONObject()
+            .put("latitude_deg", 45.0).put("longitude_deg", 7.20)
+        val route = JSONObject().put("geometry_gcj02",
+            JSONArray().put(coordinate).put(JSONObject(coordinate.toString())))
+        val tiles = OpenFreeMapRouteCorridor.plan(route)
+        val mercator = tiles[tiles.size / 2]
+        val centerX = tiles.map { it.x }.minOrNull()!! + 3
+        val centerY = tiles.map { it.y }.minOrNull()!! + 3
+
+        assertEquals(3, OpenFreeMapRouteCorridor.CORRIDOR_RADIUS_TILES)
+        assertEquals(49, tiles.size)
+        assertEquals(7, tiles.map { it.x }.distinct().size)
+        assertEquals(7, tiles.map { it.y }.distinct().size)
+        assertTrue(tiles.contains(OpenFreeMapRouteCorridor.Tile(centerX - 3, centerY - 3)))
+        assertTrue(tiles.contains(OpenFreeMapRouteCorridor.Tile(centerX + 3, centerY + 3)))
+        assertTrue(tiles.contains(mercator))
+    }
+
     @Test fun italianPackCoversOnlyItsOwnTilesAndLeavesFrenchCorridorDownloadable() {
         val context = mock(Context::class.java)
         `when`(context.filesDir).thenReturn(temporaryFiles.root)
