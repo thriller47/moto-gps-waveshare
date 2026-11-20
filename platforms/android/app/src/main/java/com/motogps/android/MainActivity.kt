@@ -348,6 +348,12 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     onStartNavigation = { place ->
                         viewModel.startNavigation(place)
                     },
+                    onCorridorTileCount = {
+                        viewModel.corridorTileCount(this@MainActivity)
+                    },
+                    onDownloadCorridor = {
+                        viewModel.downloadOpenFreeMapCorridor(this@MainActivity)
+                    },
                     onStopNavigation = {
                         viewModel.stopNavigation()
                     },
