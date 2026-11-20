@@ -108,10 +108,79 @@ internal object OfflinePhotonPlaceSearch {
 
     fun delete(context: Context): Boolean = file(context).let { !it.exists() || it.delete() }
 
+    /**
+     * Generic fuel search across branded stations already present in the Photon v2
+     * FTS4 index. No new schema, no public-server fan-out and no MotoPack rebuild.
+     * FTS has name tokens, not a dedicated amenity lookup: unbranded fuel POIs
+     * without a searchable fuel name remain a known limitation.
+     */
+    private fun searchFuelStations(
+        context: Context, gps: Pair<Double, Double>?
+    ): List<PlaceSearchResult> {
+        val target = file(context)
+        val validGps = gps?.takeIf {
+            it.first.isFinite() && it.second.isFinite() &&
+                it.first in -90.0..90.0 && it.second in -180.0..180.0
+        }
+        val lat = validGps?.first ?: 0.0
+        val lon = validGps?.second ?: 0.0
+        val scale = cos(Math.toRadians(lat))
+        // Select by indexed brand tokens, and filter by actual station name/kind
+        // after reading the bounded nearby shortlist. Avoid scanning millions
+        // of rows from the unindexed places.kind column on existing v2 packs.
+        val sql = """
+            SELECT p.name,p.street,p.house,c.name,r.name,p.postcode,
+                   p.kind,p.importance,p.lat,p.lon
+              FROM places_fts JOIN places p ON p.id = places_fts.docid
+              JOIN cities c ON c.id=p.city_id
+              JOIN regions r ON r.id=p.region_id
+             WHERE places_fts MATCH ?
+             ORDER BY CASE WHEN ? = '1' THEN
+                          (p.lat - ?) * (p.lat - ?) +
+                          (p.lon - ?) * (p.lon - ?) * ? * ?
+                      ELSE 0 END,
+                      p.importance DESC
+             LIMIT 4000
+        """.trimIndent()
+        val candidates = ArrayList<PhotonOfflineRanking.Candidate>()
+        SQLiteDatabase.openDatabase(target.absolutePath, null,
+            SQLiteDatabase.OPEN_READONLY).use { db ->
+            db.rawQuery(sql, arrayOf(
+                FuelStationSearch.ftsQuery,
+                if (validGps != null) "1" else "0",
+                lat.toString(), lat.toString(), lon.toString(), lon.toString(),
+                scale.toString(), scale.toString())).use { rows ->
+                while (rows.moveToNext()) {
+                    val candidate = PhotonOfflineRanking.Candidate(
+                        rows.getString(0), rows.getString(1), rows.getString(2),
+                        rows.getString(3), rows.getString(4), rows.getString(5),
+                        rows.getString(6), rows.getDouble(7), rows.getDouble(8),
+                        rows.getDouble(9))
+                    if (FuelStationSearch.isStation(candidate.name, candidate.kind)) {
+                        candidates.add(candidate)
+                    }
+                }
+            }
+        }
+        return PhotonOfflineRanking.rank(candidates, "distributore", validGps)
+            .map { place ->
+                val address = listOf(place.street +
+                    (if (place.house.isNotBlank()) " " + place.house else ""),
+                    place.postcode, place.city)
+                    .filter { it.isNotBlank() }.distinct().joinToString(", ")
+                val area = listOf(place.city, place.region, "Italia")
+                    .filter { it.isNotBlank() }.distinct().joinToString(", ")
+                PlaceSearchResult(place.name, address, area, place.lat, place.lon)
+            }
+    }
+
     /** An installed index always takes priority over the remote Photon service. */
     fun search(context: Context, query: String, gps: Pair<Double, Double>?): List<PlaceSearchResult> {
         val target = file(context)
         if (!target.isFile) throw IOException("Indice Photon non installato")
+        if (FuelStationSearch.isGenericQuery(query)) {
+            return searchFuelStations(context, gps)
+        }
         val match = tokenize(query)
         if (match.isBlank()) return emptyList()
         val normalized = PhotonOfflineRanking.normalize(query)
@@ -173,6 +242,43 @@ internal object OfflinePhotonPlaceSearch {
                     .filter { it.isNotBlank() }.distinct().joinToString(", ")
                 PlaceSearchResult(place.name, address, area, place.lat, place.lon)
             }
+    }
+}
+
+/**
+ * Known Italian forecourt brands, used only for generic fuel-station searches.
+ * Searching an individual brand still uses the normal Photon query unchanged.
+ * Match the name itself, never the street/city containing a brand word.
+ */
+internal object FuelStationSearch {
+    private val brandWords = listOf(
+        "eni", "agip", "ip", "q8", "tamoil", "esso", "shell",
+        "totalenergies", "beyfin", "retitalia", "vega", "costantin",
+        "repsol"
+    )
+    val ftsQuery: String = brandWords.joinToString(" OR ") { "$it*" }
+
+    fun isGenericQuery(query: String): Boolean =
+        PhotonOfflineRanking.normalize(query) in setOf(
+            "distributore", "distributori", "distributore benzina",
+            "distributori benzina", "benzinaio", "benzinai",
+            "stazione di servizio", "stazioni di servizio",
+            "distributore carburante", "distributori carburante")
+
+    fun isStation(name: String, kind: String): Boolean {
+        val words = PhotonOfflineRanking.words(name)
+        if (words.isEmpty()) return false
+        val normalizedKind = PhotonOfflineRanking.normalize(kind)
+        // The dump's address_type can identify the amenity even when its
+        // display name is not the brand itself.
+        if (normalizedKind in setOf("fuel", "gas station", "petrol station")) return true
+        // Brand names are typically the complete POI label or begin it.
+        // Reject unrelated addresses like "Via Eni" and localities containing IP.
+        if (words.first() !in brandWords) return false
+        return words.size == 1 || words.drop(1).any {
+            it in setOf("easy", "station", "service", "distributore",
+                "benzina", "carburanti", "live", "self", "gas", "oil")
+        }
     }
 }
 
