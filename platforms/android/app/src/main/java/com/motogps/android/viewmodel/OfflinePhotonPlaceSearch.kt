@@ -125,7 +125,7 @@ internal object OfflinePhotonPlaceSearch {
         val lat = validGps?.first ?: 0.0
         val lon = validGps?.second ?: 0.0
         val scale = cos(Math.toRadians(lat))
-        // Select by indexed brand tokens, and filter by actual station name/kind
+        // Select by exact indexed brand tokens, and filter by actual station name/kind
         // after reading the bounded nearby shortlist. Avoid scanning millions
         // of rows from the unindexed places.kind column on existing v2 packs.
         val sql = """
@@ -256,7 +256,7 @@ internal object FuelStationSearch {
         "totalenergies", "beyfin", "retitalia", "vega", "costantin",
         "repsol"
     )
-    val ftsQuery: String = brandWords.joinToString(" OR ") { "$it*" }
+    val ftsQuery: String = brandWords.joinToString(" OR ") { it }
 
     fun isGenericQuery(query: String): Boolean =
         PhotonOfflineRanking.normalize(query) in setOf(
