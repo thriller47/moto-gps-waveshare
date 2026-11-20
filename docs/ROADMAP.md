@@ -31,7 +31,13 @@ Questa roadmap distingue **da verificare**, **da sviluppare** e **già implement
 
 **Prossima azione:** preparare i test nativi di montaggio/inclinazione e la strumentazione numerica, senza cambiare i guadagni dell'attuale fusione.
 
-## Priorità 1 — Categorie POI ristorazione e alloggio (DA PROGETTARE/TESTARE)
+## Priorità 1 — Indice OSM POI integrato nel MotoPack (IMPLEMENTATO, DA VALIDARE)
+
+**Aggiornamento 20/11/2026:** implementato `scripts/offline_map/add_poi_to_photon.py`, richiamato dalla pipeline WSL esistente. Il PBF italiano viene letto una volta per nodi e way POI, e i risultati vengono memorizzati nella stessa `photon-italy-v2.sqlite` in `poi_places` (categoria, sottotipo, nome, marchio e posizione), indicizzata per categoria/latitudine/longitudine. Tre componenti e formato MotoPack invariati. `motopack.py` controlla integrità dell'indice opzionale; i vecchi pacchetti v2 non vengono rifiutati. Lato Android `OfflinePoiCategorySearch` interroga i POI vicini per parole generiche carburante, ristoranti/trattorie, bar/caffetterie e alberghi/hotel/motel; `NavigationViewModel` mantiene il comportamento della ricerca per nome. Test Python sintetici e JUnit aggiunti, **ancora da eseguire**.
+
+**Validazione necessaria:** confermare pyosmium sul PC WSL; testare scansione del vero `italy-latest.osm.pbf` (dimensione e durata) con indice temporaneo su filesystem Linux, SQLite finale e verifica MotoPack; installare nuovo APK e nuovo pacchetto, testare `La Pergola` come ristorante cercando «ristorante», altri nomi non descrittivi, varianti, deduplica, tempo delle query e coordinate in città/montagna. **Non dichiarare completa l'implementazione prima di questo collaudo.** Il metodo per POI prevede ricerca *vicino alla posizione GPS*, non ricerca lungo tutta la rotta. Nessun bisogno di quarto file né di nuovo bundle; fuori Italia serve PBF/indice del Paese relativo.
+
+## Priorità 2 — Ricerche POI da affinare (ROADMAP FUTURA)
 
 **Richiesta 20/11:** cercando genericamente «ristorante», «trattoria», «bar», «albergo», «hotel» o «motel», restituire i POI reali vicini in un unico elenco, senza richiedere il nome dell'esercizio. Gruppi proposti: ristorazione (restaurant, trattorie/osterie dove i tag lo permettono), sosta (bar, cafe, pub) e alloggi (hotel, motel, guest_house e altre categorie esplicitamente concordate). Evitare di confondere bar con una strada o hotel con parole nel nome di una via; preservare la ricerca libera per nome.
 
