@@ -26,5 +26,6 @@ data class MotoBLENavigationSnapshot(
     val accuracyDecimeters: Int,
     val crossTrackDecimeters: Int,
     val roundaboutExit: Int,
-    val instructionText: String
+    val instructionText: String,
+    val hasPendingWaypoints: Boolean = false
 )

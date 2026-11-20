@@ -831,8 +831,9 @@ fun NavigationScreen(
                             ListItem(
                                 headlineContent = { Text(place.name) },
                                 supportingContent = {
-                                    Text(place.displayArea.ifBlank { place.address },
-                                        maxLines = 1)
+                                    Text(listOf(place.displayArea.ifBlank { place.address },
+                                        place.distanceLabel).filter { it.isNotBlank() }
+                                        .joinToString(" · "), maxLines = 1)
                                 },
                                 leadingContent = {
                                     Icon(Icons.Default.Add, contentDescription = null)
@@ -1549,7 +1550,9 @@ fun NavigationScreen(
                             ListItem(
                                 headlineContent = { Text(place.name) },
                                 supportingContent = {
-                                    val subtitle = listOf(place.displayArea, place.address).filter { it.isNotBlank() }.joinToString(" · ")
+                                    val subtitle = listOf(place.displayArea, place.address,
+                                        place.distanceLabel).filter { it.isNotBlank() }
+                                        .joinToString(" · ")
                                     Text(subtitle)
                                 },
                                 modifier = Modifier.clickable {

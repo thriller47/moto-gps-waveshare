@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # WSL-only, end-to-end builder: OSM PBF + matching POLY + Photon JSONL(.zst)
-# => MotoMap v4, Valhalla V5, Photon SQLite v2, verified .motopack.
+# => MotoMap v4, Valhalla V5, Photon SQLite v2 with OSM POIs, verified .motopack.
 set -euo pipefail
 
 usage() {
@@ -96,6 +96,55 @@ else
   [[ ! -e "$DB.part" ]] || { echo "Remove incomplete Photon file before resuming: $DB.part" >&2; exit 2; }
   "$PYTHON" "$SCRIPT_DIR/photon_to_sqlite.py" --input "$PHOTON" --output "$DB.part"
   mv -- "$DB.part" "$DB"
+fi
+
+# POIs are added inside Photon v2 SQLite, preserving the MotoPack's three
+# components and the existing version. This also runs for a resumed Photon
+# file if its POI index has not yet been added.
+# Distinguish a new Photon v2 (POIs to build) from a corrupt or partially
+# augmented SQLite file. An absent POI table is expected on a first build and
+# must not generate a Python AssertionError traceback.
+if "$PYTHON" - "$DB" <<'PY'
+import sqlite3
+import sys
+
+with sqlite3.connect(sys.argv[1]) as conn:
+    if conn.execute("PRAGMA user_version").fetchone()[0] != 2:
+        raise SystemExit("Errore: Photon SQLite non e' v2")
+    table = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='poi_places'"
+    ).fetchone()
+    if not table:
+        # Exit code 10 means this Photon SQLite has not yet been augmented.
+        sys.exit(10)
+    schema = conn.execute(
+        "SELECT value FROM metadata WHERE key='poi_schema'"
+    ).fetchone()
+    count = conn.execute(
+        "SELECT value FROM metadata WHERE key='poi_count'"
+    ).fetchone()
+    index = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='index' "
+        "AND name='poi_category_lat_lon'"
+    ).fetchone()
+    if schema != ("1",) or count is None or index is None:
+        raise SystemExit("Errore: indice POI gia' presente ma incompleto")
+    recorded = int(count[0])
+    actual = conn.execute("SELECT COUNT(*) FROM poi_places").fetchone()[0]
+    if recorded <= 0 or actual != recorded:
+        raise SystemExit("Errore: conteggio POI non valido")
+PY
+then
+  echo "Indice POI gia' completo nel database Photon: lo riutilizzo."
+else
+  rc=$?
+  if (( rc == 10 )); then
+    echo "Photon v2 pronto. Indice POI OSM assente: inizio estrazione dal PBF..."
+    "$PYTHON" "$SCRIPT_DIR/add_poi_to_photon.py" --pbf "$PBF" --sqlite "$DB"
+  else
+    echo "Controllo dell'indice POI fallito (codice $rc): interrompo senza ricreare Photon." >&2
+    exit "$rc"
+  fi
 fi
 
 step '3/4 Valhalla motorcycle graph V5'

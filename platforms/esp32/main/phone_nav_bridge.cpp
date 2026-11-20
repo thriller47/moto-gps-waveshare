@@ -143,6 +143,7 @@ void PhoneNavBridge::set_sender(SendCallback callback,
 void PhoneNavBridge::install_ui_callbacks() {
   moto_nav_ui_set_page_change_callback(page_changed, this);
   moto_nav_ui_set_music_command_callback(music_command, this);
+  moto_nav_ui_set_waypoint_skip_callback(waypoint_skip_command, this);
 }
 
 bool PhoneNavBridge::start_renderer() {
@@ -240,6 +241,8 @@ void PhoneNavBridge::on_link_state(bool active) {
       geometry_ = {};
       phone_snapshot.has_route_view = false;
       phone_snapshot.route_view_point_count = 0;
+      phone_snapshot.waypoint_marker_count = 0;
+      phone_snapshot.has_pending_waypoints = false;
       clear_map_context(phone_snapshot);
       heading_fusion_.reset();
       last_phone_anchor_ms_ = 0;
@@ -319,9 +322,17 @@ void PhoneNavBridge::service_diagnostics(std::uint64_t now_ms) {
   // removed from the PSRAM ring and immediately lost on send failure.
   if (pending_diagnostic_batch_.records.empty() &&
       !moto_diag_take_batch(pending_diagnostic_batch_)) return;
-  if (sender_ &&
-      sender_(moto::ble::Message{pending_diagnostic_batch_},
-              0, sender_context_)) {
+  SendCallback sender = nullptr;
+  void* sender_context = nullptr;
+  {
+    const std::lock_guard<std::mutex> lock(state_mutex_);
+    if (sender_ == nullptr || !link_active_) return;
+    sender = sender_;
+    sender_context = sender_context_;
+  }
+  // The BLE sender may re-enter the bridge; do not hold state_mutex_ while sending.
+  if (sender(moto::ble::Message{pending_diagnostic_batch_},
+             0, sender_context)) {
     pending_diagnostic_batch_.records.clear();
   }
 }
@@ -480,6 +491,8 @@ void PhoneNavBridge::consume_navigation(
     phone_snapshot.display_page = map_page(input.display_page);
     phone_snapshot.has_destination = has_flag(
         input.flags, moto::ble::NavigationHasDestination);
+    phone_snapshot.has_pending_waypoints = has_flag(
+        input.flags, moto::ble::NavigationHasPendingWaypoints);
     phone_snapshot.has_usable_fix = has_usable_fix;
     phone_snapshot.gnss_stale = has_flag(
         input.flags, moto::ble::NavigationGnssStale);
@@ -612,6 +625,16 @@ moto::ble::AckStatus PhoneNavBridge::consume_geometry(
           static_cast<double>(input.view_origin.latitude_e6) / 1'000'000.0,
           static_cast<double>(input.view_origin.longitude_e6) / 1'000'000.0,
       };
+      // Marker metadata belongs to exactly this validated BLE geometry window.
+      geometry_.waypoint_marker_count = static_cast<std::uint8_t>(
+          std::min(input.waypoint_markers.size(), moto::nav::kWaypointMarkerCapacity));
+      for (std::size_t i = 0; i < geometry_.waypoint_marker_count; ++i) {
+        const auto& marker = input.waypoint_markers[i];
+        geometry_.waypoint_markers[i] = {
+            static_cast<double>(marker.point.latitude_e6) / 1'000'000.0,
+            static_cast<double>(marker.point.longitude_e6) / 1'000'000.0};
+        geometry_.waypoint_marker_indices[i] = marker.index;
+      }
     }
 
     if (!geometry_.active || input.route_token != geometry_.route_token ||
@@ -772,6 +795,7 @@ moto::ble::AckStatus PhoneNavBridge::consume_map_scene(
 void PhoneNavBridge::apply_geometry_locked(moto::nav::NavSnapshot& target) {
   if (!geometry_.complete || target.route_id.empty()) {
     target.has_route_view = false;
+    target.waypoint_marker_count = 0;
     return;
   }
   char expected[20]{};
@@ -780,6 +804,7 @@ void PhoneNavBridge::apply_geometry_locked(moto::nav::NavSnapshot& target) {
   if (target.route_id != expected ||
       target.route_generation != geometry_.route_generation) {
     target.has_route_view = false;
+    target.waypoint_marker_count = 0;
     return;
   }
   target.route_view_origin = geometry_.origin;
@@ -788,6 +813,11 @@ void PhoneNavBridge::apply_geometry_locked(moto::nav::NavSnapshot& target) {
   std::copy_n(geometry_.points.begin(), geometry_.point_count,
               target.route_view_points.begin());
   target.has_route_view = geometry_.point_count >= 2;
+  target.waypoint_marker_count = target.has_route_view ? geometry_.waypoint_marker_count : 0;
+  for (std::size_t i = 0; i < target.waypoint_marker_count; ++i) {
+    target.waypoint_markers[i] = geometry_.waypoint_markers[i];
+    target.waypoint_marker_indices[i] = geometry_.waypoint_marker_indices[i];
+  }
 }
 
 moto::nav::NavSnapshot& PhoneNavBridge::phone_snapshot_locked() noexcept {
@@ -1101,6 +1131,22 @@ void PhoneNavBridge::page_changed(moto_ui_page_t page, void* context) {
 void PhoneNavBridge::music_command(moto_music_command_t command,
                                    void* context) {
   static_cast<PhoneNavBridge*>(context)->send_music_command(command);
+}
+
+// Only Android owns the route plan; ESP32 may request a guarded skip.
+void PhoneNavBridge::waypoint_skip_command(void* context) {
+  auto* self = static_cast<PhoneNavBridge*>(context);
+  {
+    const std::lock_guard<std::mutex> lock(self->state_mutex_);
+    if (self->snapshot_.state != moto::nav::NavState::Navigating ||
+        !self->snapshot_.has_pending_waypoints ||
+        !self->snapshot_.has_destination ||
+        self->snapshot_.route_request_in_flight) return;
+  }
+  moto::ble::DeviceCommand command;
+  command.kind = moto::ble::DeviceCommandKind::SkipNextWaypoint;
+  command.page = moto::ble::DisplayPage::Navigation;
+  self->send_device_command(command);
 }
 
 void PhoneNavBridge::send_page_command(moto_ui_page_t page) {

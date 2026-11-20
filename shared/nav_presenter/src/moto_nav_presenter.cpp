@@ -399,6 +399,25 @@ void project_route_view(const NavSnapshot& snapshot,
   output.route_point_count = static_cast<std::uint8_t>(count);
 }
 
+void project_waypoint_markers(const NavSnapshot& snapshot,
+                              const MapTransform& transform,
+                              moto_ui_state_t& output) {
+  output.waypoint_marker_count = 0;
+  if (!snapshot.has_route_view || snapshot.route_view_point_count < 2) return;
+  const std::size_t count = std::min<std::size_t>(
+      snapshot.waypoint_marker_count, MOTO_UI_WAYPOINT_MARKER_CAPACITY);
+  for (std::size_t i = 0; i < count; ++i) {
+    const auto p = project_map_point_precise(snapshot.waypoint_markers[i], transform);
+    const auto number = snapshot.waypoint_marker_indices[i];
+    // Zero is the final destination, numbered stops are 1..8.
+    if (!std::isfinite(p.x) || !std::isfinite(p.y) ||
+        number >= MOTO_UI_WAYPOINT_MARKER_CAPACITY) continue;
+    const auto slot = output.waypoint_marker_count++;
+    output.waypoint_markers[slot] = round_projected_map_point(p);
+    output.waypoint_marker_indices[slot] = number;
+  }
+}
+
 void project_road_context(const NavSnapshot& snapshot,
                           const MapTransform& transform,
                           moto_ui_state_t& output) {
@@ -504,6 +523,7 @@ void NavPresenter::update(const NavSnapshot& snapshot) {
           : 0;
   ui_state_.online = snapshot.network == NetworkState::Online ? 1 : 0;
   ui_state_.has_destination = snapshot.has_destination ? 1 : 0;
+  ui_state_.has_pending_waypoints = snapshot.has_pending_waypoints ? 1 : 0;
   ui_state_.route_request_in_flight =
       snapshot.route_request_in_flight ? 1 : 0;
   ui_state_.route_identity = route_identity(snapshot.route_id);
@@ -669,6 +689,7 @@ void NavPresenter::update(const NavSnapshot& snapshot) {
       local_zoom.factor > 1.01 || roundabout_retained > 1.01 ? 1U : 0U;
   const MapTransform transform = map_transform(snapshot, applied_zoom_factor_);
   project_route_view(snapshot, transform, ui_state_);
+  project_waypoint_markers(snapshot, transform, ui_state_);
   project_road_context(snapshot, transform, ui_state_);
   ui_state_.road_name = road_name_.empty() ? nullptr : road_name_.c_str();
   ui_state_.next_road_name =

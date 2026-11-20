@@ -1,10 +1,10 @@
 # Moto Chat GPS — Manuale operativo
 
-**Aggiornato:** 19 novembre 2026 (integrazione GPS/IMU, MotoPack e Turn Assist) · **Repository:** `thriller47/moto-gps-waveshare` · **Branch stabile di riferimento:** `valhalla`.
+**Aggiornato:** 20 novembre 2026 (diagnosi corridoio OpenFreeMap online, ricerca Photon, GPS/IMU e MotoPack) · **Repository:** `thriller47/moto-gps-waveshare` · **Branch stabile di riferimento:** `valhalla`.
 
 Queste sono le **procedure operative correnti**, per Waveshare ESP32-S3-Touch-AMOLED-1.75C e app Android. Le istruzioni distinguono **Windows PowerShell**, **CMD ESP-IDF** e **WSL Ubuntu-24.04**: i rispettivi comandi non sono intercambiabili. La porta USB `COM3` è un esempio da verificare sul PC.
 
-**Dove cercare il resto:** [PROJECT_STATE.md](../PROJECT_STATE.md) registra decisioni, regressioni e prove; [archivio del manuale precedente](archive/MANUALE_OPERATIVO_PRE_CLEANUP_2026-11-15.md) conserva i vecchi passaggi senza renderli procedure attive. Il MotoPack v4/V5/v2 installato il **15/11** è stato collaudato; la **nuova rigenerazione completa del 18/11** con lo script di sostituzione è ancora da confermare su dataset reale e su Android.
+**Dove cercare il resto:** [PROJECT_STATE.md](../PROJECT_STATE.md) è lo stato sintetico corrente; [ROADMAP.md](ROADMAP.md) distingue lavoro da testare da funzionalità già disponibili; la [cronologia storica completa](archive/PROJECT_STATE_PRE_CLEANUP_2026-11-19.md) conserva diagnosi e prove precedenti, e l'[archivio del vecchio manuale](archive/MANUALE_OPERATIVO_PRE_CLEANUP_2026-11-15.md) conserva le procedure superate. Il MotoPack v4/V5/v2 installato il **15/11** è stato collaudato; la **nuova rigenerazione completa del 18/11** con lo script di sostituzione è ancora da confermare su dataset reale e su Android.
 
 ## 1. Repository e ambienti
 
@@ -16,8 +16,8 @@ Per **lavorare nel branch sperimentale in WSL**:
 cd ~/MotoGPS/moto-gps-waveshare
 git status --short
 git fetch origin --prune
-git switch test/merge-gps-20261118
-git pull --ff-only origin test/merge-gps-20261118
+git switch test/waypoint-markers-20261119
+git pull --ff-only origin test/waypoint-markers-20261119
 git branch --show-current
 ```
 
@@ -36,9 +36,126 @@ git submodule update --init --recursive
 
 Il repository non usa più `main`. Il branch `test/*` resta separato da `valhalla` fino a collaudo e approvazione del merge. Un `git pull` non aggiorna automaticamente l'APK, il firmware o le mappe sul telefono.
 
+## 1.1 Preparare WSL Ubuntu e l'ambiente `valhalla-env` da zero
+
+Questa procedura si usa **solo quando si prepara un nuovo PC o si ricrea l'ambiente WSL**. Sul PC attuale, dove `~/valhalla-env` è già disponibile, **non cancellarlo e non ricrearlo**: passare direttamente a «Riattivare e verificare l'ambiente». Tutti i comandi Linux vanno eseguiti in **Ubuntu WSL**, non in PowerShell/CMD Windows. I comandi di installazione richiedono internet.
+
+### A. Installare WSL 2 e Ubuntu 24.04 (una sola volta)
+
+Da **PowerShell Windows come amministratore**, solo se Ubuntu WSL non è ancora presente:
+
+```powershell
+wsl --install -d Ubuntu-24.04
+```
+
+Se Windows richiede il riavvio, riavviare e completare la creazione dell'utente Linux. Prima di tentare una nuova installazione controllare:
+
+```powershell
+wsl --list --verbose
+wsl --set-default-version 2
+wsl -d Ubuntu-24.04
+```
+
+Nel tuo ambiente già configurato non serve ripetere `wsl --install`. I file originali di Windows sono raggiungibili in WSL da `/mnt/c/MotoGPS/PBF`; non spostare i grandi file temporanei di build su `/mnt/c`.
+
+### B. Dipendenze di sistema in Ubuntu
+
+Aprire il terminale **Ubuntu-24.04**:
+
+```bash
+sudo apt update
+sudo apt install -y \
+  python3 python3-venv python3-pip python3-dev \
+  build-essential cmake pkg-config git zstd \
+  libffi-dev libssl-dev
+```
+
+`zstd` serve per leggere `photon-italy.jsonl.zst` e comprimere `valhalla_tiles.tar.zst`. Il compilatore e gli header Python servono come fallback se qualche pacchetto Python non dispone di una wheel precompilata. Il progetto usa inoltre `python3`, `bash`, `git` e gli eseguibili Valhalla. **Non** installare pacchetti Python nel Python di sistema con `sudo pip` o `--break-system-packages`.
+
+### C. Creare l'ambiente Python dedicato
+
+Eseguire **solo se `~/valhalla-env` non esiste già**:
+
+```bash
+python3 --version
+if [ -e "$HOME/valhalla-env" ]; then
+  echo "valhalla-env esiste già: non lo sovrascrivo"
+else
+  python3 -m venv "$HOME/valhalla-env"
+fi
+source "$HOME/valhalla-env/bin/activate"
+python -m pip install --upgrade pip wheel
+python -m pip install "pyvalhalla==3.9.1" osmium shapely
+```
+
+`pyvalhalla==3.9.1` è la **versione utilizzata dal progetto** per generare Valhalla V5; non aggiornarla automaticamente a versioni più recenti senza verificare compatibilità e formato dei grafi. Il pacchetto PyPI `osmium` fornisce le API Python di **pyosmium** (`import osmium`), mentre `shapely` serve al convertitore MotoMap. Con il Python standard di Ubuntu 24.04 (normalmente 3.12) sono disponibili pacchetti wheel Linux per queste dipendenze; se un'installazione prova a compilare codice nativo, leggere l'errore prima di cambiare versione Python o toolchain.
+
+### D. Riattivare e verificare l'ambiente ogni volta
+
+In **ogni nuova sessione Ubuntu WSL** prima di generare le mappe:
+
+```bash
+source "$HOME/valhalla-env/bin/activate"
+which python3
+python3 -m pip show pyvalhalla osmium shapely
+python3 -c "import osmium, shapely, valhalla; print('Valhalla / osmium / Shapely: import OK')"
+```
+
+Verificare che `which python3` punti a `~/valhalla-env/bin/python3` e che `pip show pyvalhalla` riporti **3.9.1**. Per gli strumenti effettivamente utilizzati dagli script di costruzione:
+
+```bash
+for tool in valhalla_build_config valhalla_build_tiles \
+            valhalla_build_extract zstd; do
+  command -v "$tool" || echo "MANCANTE: $tool"
+done
+python3 -c "import osmium, shapely; print('osmium OK; Shapely', shapely.__version__)"
+```
+
+Se non compare un `valhalla_build_*`, non assumere che la build sia pronta: controllare che l'ambiente sia attivo, ripetere `python -m pip show pyvalhalla` e usare la diagnostica ufficiale `python -m valhalla valhalla_build_tiles -h`. **I nostri script richiedono comunque che i comandi `valhalla_build_*` siano risolvibili sul `PATH`**; il modulo Python da solo non sostituisce tale requisito.
+
+Se `valhalla-env` **esiste già** ma mancano solo i nuovi moduli POI:
+
+```bash
+source "$HOME/valhalla-env/bin/activate"
+python -m pip install osmium shapely
+python3 -c "import osmium, shapely; print('POI: dipendenze OK')"
+```
+
+Non reinstallare pyvalhalla né cancellare `valhalla-env` se la build V5 precedente funziona.
+
+### E. Preparare il repository e verificare gli input
+
+In Ubuntu WSL, con ambiente attivo:
+
+```bash
+cd ~/MotoGPS/moto-gps-waveshare
+git status --short
+git fetch origin --prune
+git switch test/waypoint-markers-20261119
+git pull --ff-only origin test/waypoint-markers-20261119
+
+ls -lh /mnt/c/MotoGPS/PBF/italy-latest.osm.pbf \
+       /mnt/c/MotoGPS/PBF/italy.poly \
+       /mnt/c/MotoGPS/PBF/photon-italy.jsonl.zst
+df -h "$HOME"
+```
+
+Il PBF deve corrispondere alla regione del file `.poly` e il dump Photon deve essere in formato JSONL Nominatim/Photon 0.1.x, non un indice Lucene già compilato. Controllare lo spazio disponibile: la rigenerazione mantiene temporaneamente **vecchia e nuova build** e crea grafi intermedi di dimensioni notevoli.
+
+### F. Test rapido prima della rigenerazione (facoltativo)
+
+Dalla radice del repository, nell'ambiente attivo:
+
+```bash
+python3 -m unittest discover \
+  -s scripts/offline_map -p 'test_add_poi_to_photon.py' -v
+```
+
+Questo controlla lo script POI con dati sintetici; **non** è una prova di generazione completa sul PBF Italia. Per avviare la ricostruzione reale seguire la sezione 2. In caso di errori fermarsi prima di sostituire i dati esistenti. Gli strumenti POI e la procedura integrata sono ancora **da collaudare con l'intero dataset italiano** nel branch sperimentale.
+
 ## 2. Rigenerazione completa MotoPack — procedura consigliata
 
-**Un unico comando in WSL** ricrea **MotoMap v4** (strade e copertura), **Photon SQLite v2** (ricerca indirizzi), **Valhalla V5** (grafo moto dal PBF aggiornato), quindi assembla e verifica il pacchetto `MotoChatGPS-Italia.motopack`. Usa lo script `scripts/offline_map/rebuild_motopack_wsl.sh`, presente nel branch sperimentale.
+**Un unico comando in WSL** ricrea **MotoMap v4** (strade e copertura), **Photon SQLite v2 con POI OSM** (ricerca indirizzi, carburante, ristorazione e alloggi), **Valhalla V5** (grafo moto dal PBF aggiornato), quindi assembla e verifica il pacchetto `MotoChatGPS-Italia.motopack`. Usa lo script `scripts/offline_map/rebuild_motopack_wsl.sh`, presente nel branch sperimentale.
 
 **Sorgenti attuali in `C:\MotoGPS\PBF`:**
 
@@ -48,7 +165,7 @@ Il repository non usa più `main`. Il branch `test/*` resta separato da `valhall
 
 Il file sorgente eventualmente presente `valhalla_italia_v5.tar.zst` **non è usato dalla rigenerazione completa**: il grafo viene ricostruito dal PBF. I file di input non vengono sovrascritti.
 
-**Da WSL Ubuntu-24.04** (ambiente `valhalla-env` già configurato; richiesti `pyvalhalla==3.9.1`, `osmium`, `shapely`, `zstd`):
+**Da WSL Ubuntu-24.04** (prima configurare e verificare `valhalla-env` con la sezione 1.1; richiesti `pyvalhalla==3.9.1`, `osmium`, `shapely`, `zstd`):
 
 ```bash
 cd ~/MotoGPS/moto-gps-waveshare
@@ -99,7 +216,13 @@ explorer.exe "$(wslpath -w "$HOME/motogps-build/ItaliaUnificata-20261118")"
 
 Anche `\\wsl$\Ubuntu-24.04\home\mod\motogps-build\ItaliaUnificata-20261118` è utilizzabile. Se la distribuzione cambia, verificare con `wsl -l -v` da PowerShell. Non spostare la build su `/mnt/c` durante la compilazione.
 
-**Copiare il pacchetto finale in Windows** (da WSL, una volta verificato):
+**Copiare il pacchetto finale in Windows** (da WSL, una volta verificato). **Comando rapido da copiare e incollare:**
+
+```bash
+cp ~/motogps-build/ItaliaUnificata-20261118/MotoChatGPS-Italia.motopack /mnt/c/MotoGPS/MotoChatGPS-Italia.motopack
+```
+
+Equivalente su due righe:
 
 ```bash
 cp "$HOME/motogps-build/ItaliaUnificata-20261118/MotoChatGPS-Italia.motopack" \
@@ -118,7 +241,66 @@ Nella schermata iniziale la ricerca destinazione è l'azione principale, seguita
 
 **Mappe offline:** il pulsante principale **Importa MotoPack (.motopack)** aggiorna MotoMap v4, Valhalla V5 e Photon v2 insieme. Le importazioni singole MotoMap ZIP, indice Photon SQLite e grafo Valhalla, oltre alle opzioni di eliminazione, restano disponibili tramite **Opzioni avanzate · componenti separati**. Controllare lo stato dei tre componenti prima di navigare; non disinstallare l'app per aggiornare le mappe.
 
-**Salta prossima tappa:** disponibile durante **qualsiasi** navigazione con almeno una tappa intermedia ancora pendente, non soltanto nei tour circolari. Toccare il pulsante e confermare da fermi: la tappa corrente viene esclusa solo dopo che Valhalla ha restituito una nuova rotta valida; tappe successive e **destinazione finale** vengono conservate. Sui tour circolari si aggiorna anche il checkpoint di ripresa. Sui percorsi ordinari non si crea un checkpoint circolare. Se ci si dirige direttamente all'arrivo senza tappe intermedie, il pulsante non compare. Il corrispondente comando ESP32 resta non implementato.
+**Salta prossima tappa:** disponibile durante **qualsiasi** navigazione con almeno una tappa intermedia ancora pendente, non soltanto nei tour circolari. Toccare il pulsante e confermare da fermi: la tappa corrente viene esclusa solo dopo che Valhalla ha restituito una nuova rotta valida; tappe successive e **destinazione finale** vengono conservate. Sui tour circolari si aggiorna anche il checkpoint di ripresa. Sui percorsi ordinari non si crea un checkpoint circolare. Se ci si dirige direttamente all'arrivo senza tappe intermedie, il pulsante non compare. Sul branch attuale di test è presente anche il pulsante ESP32 **blu `>>`**, con doppio tocco di conferma, visibile quando ci sono tappe residue; il salto tappa di una revisione precedente è stato provato dall'utente. La validazione completa dopo l'ultimo hardening resta pendente. Non attribuire automaticamente questo comportamento a un firmware `valhalla` più vecchio.
+
+### Ricerca indirizzi e POI (offline prima, online come fallback)
+
+**Nel branch `test/waypoint-markers-20261119`, non ancora nella baseline `valhalla`:** cercare una destinazione o una tappa interroga prima Photon SQLite v2 italiano; **se non restituisce risultati**, usa Photon online quando disponibile, anche per luoghi fuori Italia. I risultati offline sono ordinati con preferenza alle corrispondenze pertinenti vicine al GPS; quelli online richiedono fino a 30 candidati e applicano una preferenza geografica analoga, mostrando al massimo otto risultati. Quando il GPS è disponibile, la distanza mostrata è **in linea d'aria**, non chilometri di guida. Una città espressamente indicata (es. `Via Roma, Torino`) prevale sulla vicinanza.
+
+**Verifica ancora richiesta su APK finale:** `Via Roma` vicino, `Via Roma, Torino`, località estera, GPS assente e rete assente. Il database Photon non è garantito come indice esaustivo di categorie POI: trovare un marchio di distributore non dimostra la ricerca di tutti i distributori entro un raggio. Questa modifica non richiede rigenerare MotoPack.
+
+### Strade di contesto quando si naviga online senza MotoPack — branch test
+
+Valhalla **online** calcola il percorso ma **non fornisce da solo** le strade grigie dell'ESP32. Nella schermata di anteprima, dopo il calcolo, premere **Avvia navigazione**: se mancano tile del corridoio, l'app propone **Prepara strade OpenFreeMap** e permette **Avvia e scarica** oppure **Avvia senza download**. Lo scaricamento è un'azione esplicita, non parte automaticamente dal GPS; i file restano in cache per gli utilizzi successivi. La rotta verde può partire subito, mentre le strade grigie compaiono dopo la disponibilità dei dati. Il download ha limiti documentati di **3.000 tile / 50 MB**.
+
+**Bug riscontrato durante il test del 20/11 (senza MotoPack):** `MainActivity` non collegava i callback di conteggio tile e download, quindi il dialogo non compariva e il contesto restava vuoto. Corretto nel branch `test/waypoint-markers-20261119`, **da compilare e verificare sul dispositivo**. Per una nuova prova controllare se la UI propone il corridoio e se la diagnostica registra `OFM_COVERAGE` e `OFM_CORRIDOR`; `OSM_CONTEXT segments=0` da solo non certifica un errore del routing.
+
+**Larghezza del corridoio (branch test, aggiornamento 20/11):** la fascia OpenFreeMap segue la geometria della rotta ed è stata ampliata a **sette tile z14 in totale**: la tile attraversata e tre tile adiacenti per lato, per mantenere strade grigie disponibili anche in caso di piccole deviazioni. Non è una modifica alla zona coperta dal MotoMap italiano. La modifica non è stata ancora compilata o provata su strada. **Limiti invariati:** massimo 3.000 tile pianificate e 50 MiB scaricabili; una rotta troppo estesa può produrre l'avviso di corridoio troppo grande, senza download automatico in tranche. Il limite di pianificazione si applica prima della sottrazione delle tile già presenti, comportamento da migliorare solo dopo verifica del caso pratico.
+
+**Rotonde con OpenFreeMap (branch test, implementazione sperimentale 20/11):** il decoder MVT restituisce geometria reale ma non gli ID OSM originali; per questo il riconoscimento topologico di MotoMap continua a prevalere, mentre in assenza del suo focus viene tentato un riconoscimento geometrico conservativo di circuiti OpenFreeMap con estremi coincidenti e almeno tre bracci. Non si inventano nodi OSM e non si presume connettività quando due linee si incrociano. La diagnostica aggiunge l'evento `OFM_RING` con `edges`, `loops`, `rejected`, `focus`, `exits`. **Per il collaudo online:** installare il nuovo APK, partire senza MotoPack italiano (oppure fuori copertura), autorizzare il corridoio OpenFreeMap, registrare la diagnostica completa durante l'avvicinamento e il passaggio in una rotonda con più ingressi; controllare `OFM_RING focus=1`, l'anello intero e la presenza delle uscite. Eventi `focus=0` non garantiscono un bug: il candidato può essere ambiguo o non chiuso. La selezione delle strade non appartenenti all'anello può ancora variare durante il movimento; **non dichiarare raggiunta la parità online/offline finché la prova non è positiva**. Questa modifica è solo Android, non richiede rigenerazione MotoPack e non modifica il firmware ESP32.
+
+**Copertura mista Italia/Francia:** se hai MotoMap Italia installato e calcoli un itinerario oltre confine, la logica del corridoio verifica **tutta la rotta**, esclude dal conteggio le tile già coperte dal MotoMap e propone di scaricare solo quelle ancora mancanti, anche francesi. Un test specifico è stato aggiunto nel branch sperimentale ma non ancora eseguito. **Attenzione:** il download OpenFreeMap aggiunge solo strade di contesto grigie: non estende Valhalla V5 Italia, quindi i percorsi francesi necessitano di routing online salvo disponibilità di un grafo locale adeguato. Se il piano supera 3.000 tile o 50 MB, attualmente non esiste download automatico a tranche; suddividere il viaggio o predisporre dati offline appropriati. Il conteggio viene effettuato in anteprima e va verificata la fluidità su MotoMap grandi.
+
+**Ricerca POI online per categoria (correzione 20/11, branch test da validare):** quando la query coincide con una delle parole generiche documentate, Android cerca prima per categoria nel nuovo SQLite POI OSM; se indisponibile o privo di risultati, interroga Photon online con `include=osm.amenity.*` / `osm.tourism.*`, **senza `q` testuale** e con `bbox` limitata alla zona GPS (raggi progressivi 15, 50, 150 km; fino a otto risultati ordinati per distanza). Il risultato viene verificato nuovamente tramite `osm_key`/`osm_value` e distanza. Se non c'è fix GPS, o il server non supporta i filtri, la ricerca generica restituisce nessun risultato: **non vengono mostrate attività lontane perché contengono 'trattoria' o 'hotel' nel nome**. Query di indirizzo o nome proprio (es. `Trattoria da Mario`, `Via Roma, Torino`) restano ricerche testuali normali. Nessun Overpass, nessuna rigenerazione MotoPack richiesta per questa correzione: serve nuovo APK. **Compatibilità effettiva del filtro con il server pubblico Photon e test Android non ancora verificati su dispositivo.**
+
+### POI offline: carburante, ristoranti, bar e alloggi — nuova rigenerazione
+
+Nel branch di test la procedura **unica** di rigenerazione crea ora un indice di punti di interesse direttamente dentro `photon-italy-v2.sqlite`, usando **`italy-latest.osm.pbf`**: nodi e perimetri OSM con tag `amenity=fuel/restaurant/fast_food/cafe/bar/pub` e `tourism=hotel/motel/guest_house/hostel/apartment/chalet`. L'indice contiene categoria, sottotipo, nome (o un'etichetta generica) e coordinate; **non richiede un quarto file nel MotoPack né cambia lo schema principale Photon v2**. Il generatore usa `pyosmium` già previsto negli strumenti WSL e un indice su disco per i nodi delle geometrie.
+
+**Comando WSL (ambiente e PBF già configurati):**
+
+```bash
+cd ~/MotoGPS/moto-gps-waveshare
+git switch test/waypoint-markers-20261119
+git pull --ff-only origin test/waypoint-markers-20261119
+source ~/valhalla-env/bin/activate
+bash scripts/offline_map/rebuild_motopack_wsl.sh --threads 2
+```
+
+Lo script genera normalmente MotoMap, Photon + POI e Valhalla in staging, verifica il bundle e **sostituisce la cartella di output solo a lavoro completato**. Senza modifica del formato del MotoPack, `motopack.py verify` mantiene il controllo dei tre componenti. Per aggiungere i soli POI a **una nuova copia** di Photon v2 già pronta, senza ricostruire il resto, si può usare in alternativa:
+
+```bash
+python3 scripts/offline_map/add_poi_to_photon.py \
+  --pbf /mnt/c/MotoGPS/PBF/italy-latest.osm.pbf \
+  --sqlite /percorso/alla/copia/photon-italy-v2.sqlite
+```
+
+**Non puntare questo comando al Photon attualmente installato sul telefono o a un file di produzione senza backup**: lo script modifica il file SQLite indicato e rifiuta di eseguire una seconda aggiunta allo stesso indice.
+
+### Parole chiave per la ricerca POI offline
+
+Inserire **una delle parole o frasi riportate esattamente nella tabella** nel campo di ricerca destinazione o tappa. Maiuscole e accenti vengono normalizzati. Le parole sono riconosciute come categoria solo quando la query contiene l'alias, **senza aggiungere città o altre parole** (esempio: `bar` è una ricerca di categoria, `Bar Centrale` è una ricerca per nome).
+
+| Categoria | Parole chiave riconosciute nell'APK | Tipi OSM cercati |
+| --- | --- | --- |
+| **Carburante** | `distributore`, `distributori`, `benzinaio`, `benzinai`, `distributore benzina`, `distributori benzina`, `distributore carburante`, `distributori carburante`, `stazione di servizio`, `stazioni di servizio` | `amenity=fuel` |
+| **Ristoranti** | `ristorante`, `ristoranti`, `trattoria`, `trattorie`, `osteria`, `osterie` | `amenity=restaurant`, `amenity=fast_food` |
+| **Bar e caffetterie** | `bar`, `caffe`, `caffè`, `caffetteria`, `caffetterie`, `pub` | `amenity=bar`, `amenity=cafe`, `amenity=pub` |
+| **Pernottamento** | `albergo`, `alberghi`, `hotel`, `motel`, `pensione`, `pensioni`, `affittacamere`, `ostello`, `ostelli` | `tourism=hotel`, `tourism=motel`, `tourism=guest_house`, `tourism=hostel`, `tourism=apartment`, `tourism=chalet` |
+
+**Comportamento:** con **MotoPack rigenerato con l'indice POI**, l'APK aggiornato e un **fix GPS valido**, l'app cerca i POI della categoria nelle vicinanze e mostra fino a otto risultati per distanza geografica approssimata. Per esempio, cercare `distributore` restituisce tutti i `amenity=fuel` disponibili nell'indice, anche **senza marchio**, non un elenco fisso di Eni/IP/Q8. Cercare invece `Eni` o `Q8` resta una normale ricerca Photon per nome. I risultati possono essere scelti come destinazione o tappa; le distanze mostrate sono **in linea d'aria**.
+
+**Compatibilità:** con il vecchio Photon SQLite v2 senza `poi_places`, o senza GPS valido, la ricerca torna al normale Photon per testo; **non** esegue più interrogazioni speciali ai marchi e non garantisce un elenco completo dei distributori. Se il motore locale non trova risultati, l'app può utilizzare il Photon pubblico quando è disponibile una connessione. La ricerca per categoria copre i POI OSM presenti nel **PBF Italia**; non è un elenco di attività verificate come aperte né una ricerca lungo il percorso. `trattoria` cerca tutti i ristoranti del gruppo, `hotel` include altre tipologie di alloggio. La nuova funzione richiede ancora collaudo di APK, MotoPack e tempi di query sul dataset italiano completo.
 
 ## 3. GitHub Actions e Android
 
@@ -129,7 +311,7 @@ Gli artifact della run corretta possono includere il firmware `ESP32-Firmware` (
 **Da PowerShell Windows, con GitHub CLI configurata** (esempio per il branch test, cambiare `-b` quando si usa `valhalla`):
 
 ```powershell
-gh run list -R thriller47/moto-gps-waveshare -b test/merge-gps-20261118 -w project-build.yml -L 10
+gh run list -R thriller47/moto-gps-waveshare -b test/waypoint-markers-20261119 -w project-build.yml -L 10
 gh run download ID_RUN -R thriller47/moto-gps-waveshare -n ESP32-Firmware -D C:\MotoGPS\ESP32-Firmware
 ```
 
@@ -269,7 +451,15 @@ La riuscita del comando `moto` **non dimostra da sola** che compilazione, flash 
 
 **Test sperimentale predizione curva ESP32 (19/11/2026, branch di test):** l'opzione CMake `MOTO_ESP_TURN_ASSIST_EXPERIMENT` è **ON per default** dopo il collaudo e l'integrazione in `valhalla`. La versione precedente A resta ottenibile esplicitamente con `OFF`. Per provare l'assistenza hardware curva mantenendo inalterato Android e il filtro IMU, da **PowerShell con ESP-IDF già attivo** e cartella `platforms\\esp32` lanciare `idf.py -DMOTO_ESP_TURN_ASSIST_EXPERIMENT=ON -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.perf.defaults" build`, verificando che la configurazione CMake utilizzi realmente `ON`. Per tornare al firmware A, eseguire `idf.py -DMOTO_ESP_TURN_ASSIST_EXPERIMENT=OFF -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.perf.defaults" build` e flashare la build precedente o la nuova build OFF. Nella CI standard di `valhalla` il flag è ON; per il rollback usare `-DMOTO_ESP_TURN_ASSIST_EXPERIMENT=OFF`. Non fare flash prima che il build ON sia verde. La modifica non replica C2 identico: non ricevendo nuovi fix GPS ad ogni render, corregge solo con nuovi ancoraggi BLE reali e mantiene uno scostamento eventualmente residuo durante la sosta fino al successivo anchor. Raccogliere il log diagnostico completo nel giro di prova, e confrontare il comportamento rispetto al firmware A precedente.
 
-**Firmware sperimentale Turn Assist da GitHub (19/11/2026, branch `test/merge-gps-20261118`):** la run `Project Build` di questo branch produce il firmware ESP32 con `MOTO_ESP_TURN_ASSIST_EXPERIMENT=ON`, dopo controllo esplicito del flag. Aprire la run, confermare `esp32 = success`, scaricare l'artifact `ESP32-Firmware-TURN-ASSIST-ON` e controllare il file `TURN-ASSIST-ON.txt` (flag e commit); nello ZIP sono inclusi binario applicazione, bootloader e partizioni. Eseguire il flash seguendo la sezione 5. Conservare il firmware precedente OFF per ripristino. Dopo il merge la funzione è presente anche negli artifact standard di `valhalla`; l'APK non richiede ulteriori aggiornamenti rispetto alla versione già collaudata. Dopo prova rotonde/rettilinei/ricalcoli condividere la diagnostica completa.
+**Firmware sperimentale Turn Assist da GitHub (19/11/2026, branch `test/waypoint-markers-20261119`):** la run `Project Build` di questo branch produce il firmware ESP32 con `MOTO_ESP_TURN_ASSIST_EXPERIMENT=ON`, dopo controllo esplicito del flag. Aprire la run, confermare `esp32 = success`, scaricare l'artifact `ESP32-Firmware-TURN-ASSIST-ON` e controllare il file `TURN-ASSIST-ON.txt` (flag e commit); nello ZIP sono inclusi binario applicazione, bootloader e partizioni. Eseguire il flash seguendo la sezione 5. Conservare il firmware precedente OFF per ripristino. Dopo il merge la funzione è presente anche negli artifact standard di `valhalla`; l'APK non richiede ulteriori aggiornamenti rispetto alla versione già collaudata. Dopo prova rotonde/rettilinei/ricalcoli condividere la diagnostica completa.
+
+**Salto tappa nei percorsi non circolari e marcatori ESP32 (branch di prova `test/waypoint-markers-20261119`):** nel percorso normale con almeno una tappa intermedia, una volta avviata la navigazione, Android mostra **Salta prossima tappa**. Confermare per chiedere a Valhalla una rotta verso le tappe restanti o direttamente la destinazione finale. La destinazione non si può saltare e, se il calcolo fallisce, il percorso rimane invariato. L'ESP32 mostra **cerchi gialli numerati 1–8** sulla linea verde, solo per le tappe intermedie ancora da visitare nella finestra visibile; un marker fuori mappa non viene visualizzato. Il marker della tappa raggiunta/saltata scompare dopo la prossima finestra BLE, e la bandiera di arrivo resta separata. **Per testare** installare APK e firmware entrambi del branch di prova, perché il suffisso BLE opzionale con coordinate delle tappe non è gestito dalla vecchia versione ESP32. Verificare con diagnostica completa: salto prima tappa, salto ultima tappa intermedia, ricalcolo, BLE e arrivo finale; test su strada da eseguire prima del merge.
+
+**Nota storica (precedente versione di test):** il doppio long-press sul segnalino 1 è stato sostituito dal pulsante fisso `>>` speculare al badge limite di velocità. I segnalini sulla mappa non sono più interattivi.
+
+**Pulsante fisso Salta tappa >> su ESP32 (19/11/2026; branch sperimentale `test/waypoint-markers-20261119`):** in navigazione con almeno una tappa intermedia ancora da visitare appare un badge rotondo `>>` sul lato sinistro, **speculare e della stessa dimensione del badge limite velocità** sulla destra. Il pulsante è presente anche quando il numero della tappa è ancora fuori dalla mappa visibile; i marcatori sulla linea verde restano solo informativi. Primo tocco: `TOCCA ANCORA >>`; secondo tocco entro **5 secondi**: invio `SALTO TAPPA RICHIESTO`. Solo Android ricalcola con Valhalla e preserva la destinazione finale; il messaggio conferma la richiesta, non ancora il successo del ricalcolo. Per evitare interazioni accidentali, effettuare i primi test da fermi. Il pulsante sparisce automaticamente quando non rimangono tappe intermedie. Installare APK e firmware dello stesso commit, poiché usano il nuovo bit `NavigationHasPendingWaypoints` nei flag BLE. **Dopo la correzione layout del 19/11:** il bordo del badge è blu (`#2D8CF0`); la distanza alla prossima svolta è sempre centrata sotto la distanza all'arrivo, anche senza tappe, per evitare sovrapposizioni. La distanza all'arrivo e il badge limite velocità non sono stati spostati.
+
+**Arrivo sulla mappa ESP32 (19/11/2026, branch `test/waypoint-markers-20261119`):** il traguardo viene ora rappresentato da un **cerchio blu con A bianca** sulla linea verde, con le stesse regole di visibilità dei marker intermedi gialli: compare quando la destinazione finale entra nella finestra locale trasmessa da Android, anche su una rotta senza tappe. Non è interattivo e non sostituisce la destinazione finale del navigatore. La bandiera a scacchi laterale nella schermata di arrivo è ridotta del 20% (da 116 a 93 unità di layout) e mantiene il proprio centro. Richiesti APK e firmware del medesimo commit del branch per vedere il marker blu; collaudo da eseguire prima del merge.
 
 ## 5. Flash ESP32 — COM3 d'esempio
 
@@ -368,7 +558,7 @@ Aprire **http://127.0.0.1:4173/platforms/web/simulator/index.html** da Chrome/Ed
 
 ## 8. Registrazione GPS e analisi della progressione
 
-**App Android, branch `test/merge-gps-20261118`:** seguire **Altre opzioni → Diagnostica e replay GPS → BASE/DEBUG → Avvia diagnostica completa** prima del giro. Il comando unifica registrazione GPS e diagnostica ESP32; l'esportazione è unica, come nella sezione 6. Non si avvia automaticamente e richiede il BLE connesso. Non maneggiare il telefono durante la guida.
+**App Android, branch `test/waypoint-markers-20261119`:** seguire **Altre opzioni → Diagnostica e replay GPS → BASE/DEBUG → Avvia diagnostica completa** prima del giro. Il comando unifica registrazione GPS e diagnostica ESP32; l'esportazione è unica, come nella sezione 6. Non si avvia automaticamente e richiede il BLE connesso. Non maneggiare il telefono durante la guida.
 
 I replay sono estratti dalla sottocartella `gps/` dello ZIP completo. Se vengono registrate più parti, caricarle in ordine numerico. Una nuova sessione sostituisce le vecchie parti GPS locali: **esportare prima di ripartire**.
 **Per verificare blocchi della progressione e manovre**, l'APK test recente può includere eventi `route_full` e `progress_debug`. I replay vecchi privi di tali eventi non si possono completare retroattivamente. In WSL, dopo aver copiato il proprio JSONL o ZIP in un percorso privato:
@@ -442,15 +632,23 @@ Il separatore `|` mantiene gli spazi nel nome rete: ad esempio `wifi set Hotspot
 
 ## 10. Funzioni Android sperimentali (branch test)
 
-Le funzioni qui sotto sono nel branch `test/merge-gps-20261118` e **non vanno attribuite automaticamente alla versione stabile** `valhalla`. La disponibilità effettiva dipende dall'APK installato.
+Le funzioni elencate sono presenti nel codice del branch `test/waypoint-markers-20261119` e **non vanno attribuite automaticamente alla versione stabile** `valhalla`. Alcune possono essere già in `valhalla`, altre no: verificare il firmware/APK realmente installato. La disponibilità effettiva dipende dall'APK installato.
 
 - **Panoramico / Touring moto:** in **Opzioni percorso** scegliere il profilo; Panoramico preferisce un itinerario relativamente più tortuoso, ma non certifica il paesaggio né garantisce una distanza precisa.
 - **Tour circolare:** dalla ricerca aprire **Crea tour circolare**, impostare circa **30–300 km** e N/E/S/O, aggiungere eventuali luoghi obbligatori trovati con Photon (massimo otto), quindi **Calcola tour**. Con zero punti obbligatori il pianificatore propone tappe automatiche; con uno può aggiungere un punto laterale, con più punti rispetta il loro ordine. Verificare sempre la preview di Valhalla, il ritorno e le tappe prima di partire.
 - **Salvare un tour:** nell'anteprima usare **Salva questo tour**. L'archivio locale **I miei tour salvati** permette **Partenza salvata** (pianificazione dall'origine originale) oppure **Da qui** (origine GPS attuale). La geometria viene ricalcolata, non conservata immutabile; i tour non sono sincronizzati sul cloud.
 - **Pausa/ripresa:** durante un tour avviato usare **Pausa tour (riprendi più tardi)**, non **Termina navigazione**. Al ritorno aprire **Tour in pausa → Riprendi da qui**, verificare l'anteprima della tratta residua e avviare manualmente. L'app salva checkpoint locali; eliminarne i dati può farli perdere.
-- **Salta prossima tappa:** nell'app, durante una navigazione con waypoint intermedi, scegliere **Salta prossima tappa** e confermare **solo da fermi e in sicurezza**. Ricalcola verso le tappe residue; non consente di saltare la destinazione finale. Il comando touch da ESP32 non è implementato.
+- **Salta prossima tappa:** nell'app, durante una navigazione con waypoint intermedi, scegliere **Salta prossima tappa** e confermare **solo da fermi e in sicurezza**. Ricalcola verso le tappe residue; non consente di saltare la destinazione finale. Nel branch di test il pulsante touch ESP32 `>>` è implementato e richiede doppio tocco; collaudare la combinazione firmware/APK più recente prima di considerarla definitiva.
 
 Le prove di routing, checkpoint e BLE/IMU non coincidono con un collaudo dell'intero nuovo script MotoPack del 18/11. Evitare di trasformare richieste future o esperimenti A/B in istruzioni della versione stabile; consultare `PROJECT_STATE.md` per test e limiti aperti.
+
+### Audit IMU per uso motociclistico — da preparare, non eseguito
+
+Il Waveshare è previsto **centrato sul manubrio e quasi orizzontale**; può essere acceso con la moto inclinata sul cavalletto laterale. L'attuale QMI8658 stima la verticale usando l'accelerometro e proietta il giroscopio su tale riferimento, ma il comportamento su una moto in piega **non è ancora validato**. Il simulatore GPS/LVGL esistente **non riproduce i sei assi raw della QMI8658**.
+
+La prossima verifica consiste in **test nativi C++ con segnali sintetici coerenti accel/gyro sui tre assi**: cavalletto inclinato → raddrizzamento → rettilineo con ricalibrazione prudente → piega 15°/30°/45° → uscita dalla curva → frenata e vibrazioni → GNSS assente/ripristinato. Registrare errori di heading e bias prima di modificare la fusione. Solo se serve, estendere successivamente il replay WASM alla telemetria IMU reale. Dettagli, vincoli e criteri sono nella [roadmap dedicata](ROADMAP.md#priorità-1--audit-imu-qmi8658-per-uso-in-moto-da-testare).
+
+**Stato:** audit proposto e documentato; test non implementati/eseguiti, nessuna modifica alla fusione e **nessuna build richiesta per ora**. Non fare prove di inclinazione/manipolazione del dispositivo mentre si guida.
 
 ## 11. Operazioni manuali eccezionali e riferimento rapido
 
@@ -466,7 +664,7 @@ Le prove di routing, checkpoint e BLE/IMU non coincidono con un collaudo dell'in
 
 | Operazione frequente | Dove | Comando o percorso |
 | --- | --- | --- |
-| Aggiornare branch test | WSL | `git pull --ff-only origin test/merge-gps-20261118` |
+| Aggiornare branch test | WSL | `git pull --ff-only origin test/waypoint-markers-20261119` |
 | Ricostruire tutto il MotoPack | WSL | `bash scripts/offline_map/rebuild_motopack_wsl.sh --threads 2` |
 | Aprire risultati da Windows | Win + R | `\\wsl.localhost\Ubuntu-24.04\home\mod\motogps-build\ItaliaUnificata-20261118` |
 | Compilare ESP32 | CMD attivato con `moto` | `idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.perf.defaults" build` |
@@ -477,4 +675,4 @@ Le prove di routing, checkpoint e BLE/IMU non coincidono con un collaudo dell'in
 | Avviare diagnostica unificata | Android | Altre opzioni → Diagnostica e replay GPS → BASE/DEBUG → Avvia diagnostica completa |
 | Esportare GPS + ESP32 + Android | Android | Ferma ed esporta tutto (ZIP): `motogps-diagnostica-completa.zip` |
 
-**Conservare come storico**, non come procedura corrente: [vecchio manuale](archive/MANUALE_OPERATIVO_PRE_CLEANUP_2026-11-15.md), [stato del progetto e diagnosi dettagliate](../PROJECT_STATE.md). Non cancellare source PBF o archivi validi per fare spazio senza averne un backup.
+**Conservare come storico**, non come procedura corrente: [vecchio manuale](archive/MANUALE_OPERATIVO_PRE_CLEANUP_2026-11-15.md), [cronologia tecnica completa al 19/11](archive/PROJECT_STATE_PRE_CLEANUP_2026-11-19.md). Stato e attività aperte: [PROJECT_STATE.md](../PROJECT_STATE.md) e [ROADMAP.md](ROADMAP.md). Non cancellare source PBF o archivi validi per fare spazio senza averne un backup.

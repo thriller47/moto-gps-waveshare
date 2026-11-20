@@ -3,6 +3,7 @@
 #include <stdint.h>
 
 #define MOTO_UI_ROUTE_POINT_CAPACITY 24
+#define MOTO_UI_WAYPOINT_MARKER_CAPACITY 9
 #define MOTO_UI_ROAD_POINT_CAPACITY 192
 #define MOTO_UI_ROAD_POLYLINE_CAPACITY 24
 #define MOTO_UI_CANVAS_WIDTH 466
@@ -104,6 +105,7 @@ typedef void (*moto_music_command_callback_t)(moto_music_command_t command,
                                                void *context);
 typedef void (*moto_page_change_callback_t)(moto_ui_page_t page,
                                              void *context);
+typedef void (*moto_waypoint_skip_callback_t)(void *context);
 typedef struct {
     moto_ui_page_t page;
     moto_ui_mode_t mode;
@@ -119,6 +121,8 @@ typedef struct {
     uint8_t gps_accuracy_m;
     uint8_t online;
     uint8_t has_destination;
+    /* True for any intermediate stop remaining, even outside visible map. */
+    uint8_t has_pending_waypoints;
     uint8_t route_request_in_flight;
     /* Geometry identity, used only to distinguish a reroute/map replacement
        from ordinary high-rate heading and position motion. */
@@ -132,6 +136,9 @@ typedef struct {
     uint16_t heading_deg;
     uint8_t route_point_count;
     moto_ui_point_t route_points[MOTO_UI_ROUTE_POINT_CAPACITY];
+    uint8_t waypoint_marker_count;
+    moto_ui_point_t waypoint_markers[MOTO_UI_WAYPOINT_MARKER_CAPACITY];
+    uint8_t waypoint_marker_indices[MOTO_UI_WAYPOINT_MARKER_CAPACITY];
     uint8_t road_point_count;
     moto_ui_point_t road_points[MOTO_UI_ROAD_POINT_CAPACITY];
 #if defined(__EMSCRIPTEN__) || defined(MOTO_ESP_SUBPIXEL_EXPERIMENT)
@@ -164,6 +171,9 @@ void moto_nav_ui_set_state(const moto_ui_state_t *state);
 /** Seven-second, non-blocking intermediate-stop confirmation; never arrival. */
 void moto_nav_ui_show_waypoint_reached(uint8_t index, uint8_t total);
 void moto_nav_ui_clear_waypoint_reached(void);
+/** Double long-press on the next-stop marker; callback only after confirmation. */
+void moto_nav_ui_set_waypoint_skip_callback(
+    moto_waypoint_skip_callback_t callback, void *context);
 /** Apply only high-rate route/heading motion to the currently visible page. */
 void moto_nav_ui_set_motion_state(const moto_ui_state_t *state);
 /** Drive the full-screen connection/ready lifecycle on the navigation page. */

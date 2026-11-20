@@ -43,6 +43,8 @@ constexpr lv_color_t kSoft = LV_COLOR_MAKE(0xAE, 0xB2, 0xB0);
 constexpr lv_color_t kAmber = LV_COLOR_MAKE(0xE6, 0xC8, 0x4F);
 constexpr lv_color_t kRed = LV_COLOR_MAKE(0xFF, 0x4B, 0x43);
 constexpr lv_color_t kGreen = LV_COLOR_MAKE(0x69, 0xD4, 0x94);
+// Blue ring distinguishes the skip-waypoint action from the green route.
+constexpr lv_color_t kSkipBlue = LV_COLOR_MAKE(0x2D, 0x8C, 0xF0);
 // Acid green for connection/ready lifecycle only; navigation colors unchanged.
 constexpr lv_color_t kConnectionAcidGreen = LV_COLOR_MAKE(0x32, 0x99, 0x6D); // Muted splash green for connection UI.
 constexpr double kPi = 3.14159265358979323846;
@@ -135,6 +137,12 @@ struct Ui {
     std::uint32_t nav_route_geometry_signature = 0;
     lv_timer_t *nav_route_motion_timer = nullptr;
     lv_obj_t *nav_marker = nullptr;
+    lv_obj_t *nav_waypoint_markers[MOTO_UI_WAYPOINT_MARKER_CAPACITY]{};
+    moto_waypoint_skip_callback_t waypoint_skip_callback = nullptr;
+    void *waypoint_skip_context = nullptr;
+    std::uint32_t waypoint_skip_confirm_ms = 0;
+    std::uint32_t waypoint_skip_route_id = 0;
+    bool waypoint_skip_armed = false;
     lv_obj_t *nav_status = nullptr;
     lv_obj_t *nav_waypoint_notice = nullptr;
     lv_timer_t *nav_waypoint_timer = nullptr;
@@ -145,6 +153,10 @@ struct Ui {
     lv_obj_t *nav_finish_flag = nullptr;
     lv_obj_t *nav_limit = nullptr;
     lv_obj_t *nav_limit_value = nullptr;
+    lv_obj_t *nav_skip_button = nullptr;
+    lv_obj_t *nav_skip_symbol = nullptr;
+    bool nav_skip_visible = false;
+    std::uint32_t skip_last_request_ms = 0;
     lv_obj_t *nav_progress = nullptr;
 
     // A full-screen empty-state surface replaces the old tiny
@@ -937,6 +949,79 @@ void update_road_geometry(const moto_ui_state_t *state) {
 }
 
 
+// Fixed, glove-sized fast-forward button: mirror of the speed-limit badge.
+// A second tap within 5s confirms, to avoid inadvertent route changes while
+// moving. Unlike a waypoint marker, it is available at any route distance.
+void skip_button_clicked(lv_event_t *event) {
+    if(lv_event_get_code(event) != LV_EVENT_CLICKED ||
+       !ui.nav_skip_visible || ui.nav_skip_button == nullptr ||
+       ui.waypoint_skip_callback == nullptr || ui.nav_waypoint_notice == nullptr ||
+       ui.nav_waypoint_timer == nullptr ||
+       ui.navigation_route_request_in_flight) return;
+    const std::uint32_t now = lv_tick_get();
+    const bool confirmed = ui.waypoint_skip_armed &&
+        ui.waypoint_skip_route_id == ui.nav_route_identity &&
+        static_cast<std::uint32_t>(now - ui.waypoint_skip_confirm_ms) <= 5000U;
+    ui.waypoint_skip_armed = !confirmed;
+    ui.waypoint_skip_route_id = ui.nav_route_identity;
+    ui.waypoint_skip_confirm_ms = now;
+    if(confirmed) {
+        // Blocks duplicate BLE commands until the phone updates the route,
+        // or five seconds elapse after a failed or delayed recalculation.
+        if(ui.skip_last_request_ms != 0U &&
+           static_cast<std::uint32_t>(now - ui.skip_last_request_ms) < 5000U)
+            return;
+        ui.skip_last_request_ms = now;
+        lv_label_set_text(ui.nav_waypoint_notice, "SALTO TAPPA RICHIESTO");
+        ui.waypoint_skip_callback(ui.waypoint_skip_context);
+    } else {
+        lv_label_set_text(ui.nav_waypoint_notice, "TOCCA ANCORA >>");
+    }
+    lv_obj_remove_flag(ui.nav_waypoint_notice, LV_OBJ_FLAG_HIDDEN);
+    lv_timer_set_period(ui.nav_waypoint_timer, 5000);
+    lv_timer_reset(ui.nav_waypoint_timer);
+    lv_timer_resume(ui.nav_waypoint_timer);
+}
+
+// Waypoint labels share the precise geographic rider-centred transform.
+void update_waypoint_markers(const moto_ui_state_t *state) {
+    const std::uint8_t count = std::min<std::uint8_t>(
+        state->route_point_count >= 2 ? state->waypoint_marker_count : 0,
+        MOTO_UI_WAYPOINT_MARKER_CAPACITY);
+    for(std::uint8_t i = 0; i < MOTO_UI_WAYPOINT_MARKER_CAPACITY; ++i) {
+        lv_obj_t *marker = ui.nav_waypoint_markers[i];
+        if(marker == nullptr) continue;
+        const int x = i < count ? state->waypoint_markers[i].x : -1000;
+        const int y = i < count ? state->waypoint_markers[i].y : -1000;
+        const bool visible = i < count && x >= px(12) &&
+            x < MOTO_UI_CANVAS_WIDTH - px(16) &&
+            y >= px(16) && y < px(232) - px(16);
+        if(!visible) {
+            if(!lv_obj_has_flag(marker, LV_OBJ_FLAG_HIDDEN))
+                lv_obj_add_flag(marker, LV_OBJ_FLAG_HIDDEN);
+            continue;
+        }
+        if(lv_obj_has_flag(marker, LV_OBJ_FLAG_HIDDEN))
+            lv_obj_remove_flag(marker, LV_OBJ_FLAG_HIDDEN);
+        const bool arrival_marker = state->waypoint_marker_indices[i] == 0;
+        char number[4];
+        if(arrival_marker) {
+            std::snprintf(number, sizeof(number), "A");
+        } else {
+            std::snprintf(number, sizeof(number), "%u",
+                          static_cast<unsigned>(state->waypoint_marker_indices[i]));
+        }
+        if(std::strcmp(lv_label_get_text(marker), number) != 0)
+            lv_label_set_text(marker, number);
+        lv_obj_set_style_bg_color(marker, arrival_marker ? kSkipBlue : kAmber, 0);
+        lv_obj_set_style_text_color(marker, arrival_marker ? kWhite : kBlack, 0);
+        const int left = x - px(16);
+        const int top = y - px(16);
+        if(lv_obj_get_x(marker) != left || lv_obj_get_y(marker) != top)
+            lv_obj_set_pos(marker, left, top);
+    }
+}
+
 void update_route_geometry(const moto_ui_state_t *state) {
     const std::uint8_t count = std::min<std::uint8_t>(
         state->route_point_count, MOTO_UI_ROUTE_POINT_CAPACITY);
@@ -1045,13 +1130,14 @@ void draw_finish_flag(lv_event_t *event) {
     lv_draw_line_dsc_t pole;
     lv_draw_line_dsc_init(&pole);
     pole.color = kWhite;
-    pole.width = px(11);
+    // Side checkered flag scaled uniformly to 80% of the prior 116px icon.
+    pole.width = px(9);
     pole.round_start = 1;
     pole.round_end = 1;
-    pole.p1 = {static_cast<lv_value_precise_t>(area.x1 + px(42)),
-               static_cast<lv_value_precise_t>(area.y1 + px(101))};
-    pole.p2 = {static_cast<lv_value_precise_t>(area.x1 + px(42)),
-               static_cast<lv_value_precise_t>(area.y1 + px(17))};
+    pole.p1 = {static_cast<lv_value_precise_t>(area.x1 + px(34)),
+               static_cast<lv_value_precise_t>(area.y1 + px(81))};
+    pole.p2 = {static_cast<lv_value_precise_t>(area.x1 + px(34)),
+               static_cast<lv_value_precise_t>(area.y1 + px(14))};
     lv_draw_line(layer, &pole);
 
     // Explicit checkered arrival flag: no directional arrows are drawn.
@@ -1064,10 +1150,10 @@ void draw_finish_flag(lv_event_t *event) {
             square.bg_opa = LV_OPA_COVER;
             square.border_opa = LV_OPA_TRANSP;
             const lv_area_t square_area = {
-                area.x1 + px(46 + col * 14),
-                area.y1 + px(19 + row * 13),
-                area.x1 + px(60 + col * 14) - 1,
-                area.y1 + px(32 + row * 13) - 1,
+                area.x1 + px(37 + col * 11),
+                area.y1 + px(15 + row * 10),
+                area.x1 + px(48 + col * 11) - 1,
+                area.y1 + px(25 + row * 10) - 1,
             };
             lv_draw_rect(layer, &square, &square_area);
         }
@@ -1460,10 +1546,31 @@ void update_nav_status(const moto_ui_state_t *state) {
     lv_obj_set_style_text_color(ui.nav_status, color, 0);
 }
 
+void update_skip_button(const moto_ui_state_t *state) {
+    const bool visible = state->has_pending_waypoints != 0 &&
+        state->has_destination != 0 &&
+        (state->mode == MOTO_UI_NAVIGATING ||
+         state->mode == MOTO_UI_REROUTING || state->mode == MOTO_UI_OFFLINE);
+    ui.nav_skip_visible = visible;
+    if(ui.nav_skip_button != nullptr) {
+        if(visible) lv_obj_remove_flag(ui.nav_skip_button, LV_OBJ_FLAG_HIDDEN);
+        else lv_obj_add_flag(ui.nav_skip_button, LV_OBJ_FLAG_HIDDEN);
+    }
+    if(!visible || state->route_identity != ui.waypoint_skip_route_id) {
+        ui.waypoint_skip_armed = false;
+        ui.skip_last_request_ms = 0;
+    }
+    // Turn distance is always directly below the central arrival distance.
+    // This keeps it away from the fixed >> badge at 8 o'clock and prevents
+    // any layout jump when the final intermediate stop is skipped.
+}
+
 void update_navigation(const moto_ui_state_t *state) {
     update_road_geometry(state);
     update_route_geometry(state);
+    update_waypoint_markers(state);
     update_nav_status(state);
+    update_skip_button(state);
 
     // Never suggest "go straight for 0 m" while there is no route. Waiting is
     // a connection state, not actionable navigation guidance.
@@ -1525,11 +1632,15 @@ void update_navigation(const moto_ui_state_t *state) {
     if(state->mode == MOTO_UI_ARRIVED) std::snprintf(value, sizeof(value), "0");
     lv_label_set_text(ui.nav_distance, value);
     lv_label_set_text(ui.nav_unit, unit);
-    // Keep arrival distance in its original central position,
-    // independent of the turn counter at 8 o'clock.
+    // Keep arrival distance central, with the smaller next-turn counter
+    // directly underneath instead of underneath the skip button.
     lv_obj_align(ui.nav_distance, LV_ALIGN_TOP_MID, 0, px(250));
     lv_obj_align_to(ui.nav_unit, ui.nav_distance, LV_ALIGN_OUT_RIGHT_BOTTOM,
                 px(6), px(-7));
+    // Bottom-centred, independent of the presence of intermediate stops.
+    // y=321 gives the 28pt label room below the large destination distance
+    // without clipping it against the 360px design canvas edge.
+    lv_obj_align(ui.nav_turn_distance, LV_ALIGN_TOP_MID, 0, px(321));
 
     lv_arc_set_value(ui.nav_progress,
                      std::min<int>(100, state->route_progress_percent));
@@ -1686,6 +1797,22 @@ void create_navigation_page() {
                                                  kPlatformMotionFrameMs,
                                                  nullptr);
 
+    // Static bounded marker objects, over the green road and below the bike.
+    for(std::uint8_t i = 0; i < MOTO_UI_WAYPOINT_MARKER_CAPACITY; ++i) {
+        lv_obj_t *marker = make_label(ui.nav_map, &lv_font_montserrat_16, kBlack, "");
+        ui.nav_waypoint_markers[i] = marker;
+        lv_obj_set_size(marker, px(32), px(32));
+        lv_obj_set_style_text_align(marker, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_style_bg_color(marker, kAmber, 0);
+        lv_obj_set_style_bg_opa(marker, LV_OPA_COVER, 0);
+        lv_obj_set_style_radius(marker, LV_RADIUS_CIRCLE, 0);
+        lv_obj_set_style_border_color(marker, kGraphite, 0);
+        lv_obj_set_style_border_width(marker, px(2), 0);
+        // Route markers are informative only. The fixed >> button handles
+        // all skip requests, independently of their screen positions.
+        lv_obj_clear_flag(marker, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_flag(marker, LV_OBJ_FLAG_HIDDEN);
+    }
     ui.nav_marker = lv_obj_create(ui.nav_map);
     lv_obj_remove_style_all(ui.nav_marker);
     lv_obj_set_size(ui.nav_marker, px(35), px(37));
@@ -1715,20 +1842,21 @@ void create_navigation_page() {
     // widgets or callbacks exist: the map geometry is the turn indicator.
     ui.nav_finish_flag = lv_obj_create(page);
     lv_obj_remove_style_all(ui.nav_finish_flag);
-    lv_obj_set_size(ui.nav_finish_flag, px(116), px(116));
-    lv_obj_set_pos(ui.nav_finish_flag, px(22), px(103));
+    // Keep the flag's centre unchanged while reducing its footprint by 20%.
+    lv_obj_set_size(ui.nav_finish_flag, px(93), px(93));
+    lv_obj_set_pos(ui.nav_finish_flag, px(34), px(115));
     lv_obj_clear_flag(ui.nav_finish_flag, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(ui.nav_finish_flag, draw_finish_flag,
                         LV_EVENT_DRAW_MAIN_END, nullptr);
     lv_obj_add_flag(ui.nav_finish_flag, LV_OBJ_FLAG_HIDDEN);
 
-    // 28pt turn distance at 8 o'clock: separate from the central
-    // distance-to-destination and the speed-limit badge.
+    // 28pt next-turn distance under the central arrival distance. It is
+    // deliberately kept clear of both round controls in the bottom corners.
     ui.nav_turn_distance = make_label(
         page, &lv_font_montserrat_28, kWhite, "");
     lv_obj_set_width(ui.nav_turn_distance, px(110));
     lv_obj_set_style_text_align(ui.nav_turn_distance, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(ui.nav_turn_distance, LV_ALIGN_TOP_LEFT, px(18), px(250));
+    lv_obj_align(ui.nav_turn_distance, LV_ALIGN_TOP_MID, 0, px(321));
     lv_obj_clear_flag(ui.nav_turn_distance, LV_OBJ_FLAG_CLICKABLE);
 
     // The destination distance and its unit retain their original position
@@ -1751,6 +1879,25 @@ void create_navigation_page() {
     lv_obj_clear_flag(ui.nav_limit, LV_OBJ_FLAG_CLICKABLE);
     ui.nav_limit_value = make_label(ui.nav_limit, &lv_font_montserrat_28, kBlack, "70");
     lv_obj_center(ui.nav_limit_value);
+
+    // Exact horizontal mirror: speed limit x=248/61, fast-forward x=51/61
+    // on the 360px design canvas. Both are circular, equal-sized badges.
+    ui.nav_skip_button = lv_obj_create(page);
+    lv_obj_set_size(ui.nav_skip_button, px(61), px(61));
+    lv_obj_set_pos(ui.nav_skip_button, px(51), px(238));
+    lv_obj_set_style_radius(ui.nav_skip_button, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(ui.nav_skip_button, kGraphite, 0);
+    lv_obj_set_style_bg_opa(ui.nav_skip_button, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_color(ui.nav_skip_button, kSkipBlue, 0);
+    lv_obj_set_style_border_width(ui.nav_skip_button, px(6), 0);
+    lv_obj_set_style_pad_all(ui.nav_skip_button, 0, 0);
+    lv_obj_add_flag(ui.nav_skip_button, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(ui.nav_skip_button, skip_button_clicked, LV_EVENT_CLICKED, nullptr);
+    ui.nav_skip_symbol = make_label(ui.nav_skip_button,
+                                     &lv_font_montserrat_28, kWhite, ">>");
+    lv_obj_center(ui.nav_skip_symbol);
+    lv_obj_clear_flag(ui.nav_skip_symbol, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(ui.nav_skip_button, LV_OBJ_FLAG_HIDDEN);
 
     ui.nav_progress = lv_arc_create(page);
     lv_obj_set_size(ui.nav_progress, px(316), px(316));
@@ -2203,6 +2350,14 @@ extern "C" void moto_nav_ui_show_waypoint_reached(uint8_t index, uint8_t total) 
     lv_timer_resume(ui.nav_waypoint_timer);
 }
 
+extern "C" void moto_nav_ui_set_waypoint_skip_callback(
+    moto_waypoint_skip_callback_t callback, void *context) {
+    ui.waypoint_skip_callback = callback;
+    ui.waypoint_skip_context = context;
+    ui.waypoint_skip_armed = false;
+    ui.skip_last_request_ms = 0;
+}
+
 extern "C" void moto_nav_ui_clear_waypoint_reached(void) {
     if(ui.nav_waypoint_timer != nullptr) lv_timer_pause(ui.nav_waypoint_timer);
     if(ui.nav_waypoint_notice != nullptr)
@@ -2217,6 +2372,7 @@ extern "C" void moto_nav_ui_set_motion_state(const moto_ui_state_t *state) {
     if(ui.page == MOTO_UI_PAGE_NAVIGATION) {
         update_road_geometry(state);
         update_route_geometry(state);
+        update_waypoint_markers(state);
     } else if(ui.page == MOTO_UI_PAGE_COMPASS) {
         update_compass(state);
     }

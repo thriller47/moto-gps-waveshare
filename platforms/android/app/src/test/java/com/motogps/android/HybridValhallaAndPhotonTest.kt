@@ -2,6 +2,7 @@ package com.motogps.android
 
 import com.motogps.android.routing.OnlineValhallaRouter
 import com.motogps.android.viewmodel.PhotonPlaceSearch
+import com.motogps.android.viewmodel.PlaceSearchResult
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.*
@@ -27,7 +28,7 @@ class HybridValhallaAndPhotonTest {
         assertTrue(link.startsWith("https://photon.komoot.io/api/?q=passo+dello+stelvio"))
         // The Photon demo does not accept forced Italian response language.
         // Queries in Italian must work without sending lang=it.
-        assertTrue(link.contains("limit=8"))
+        assertTrue(link.contains("limit=30"))
         assertFalse(link.contains("lang="))
         assertTrue(link.contains("&lat=45.62&lon=8.85"))
         assertFalse(PhotonPlaceSearch.endpoint("Roma", null).contains("&lat="))
@@ -61,4 +62,37 @@ class HybridValhallaAndPhotonTest {
         assertTrue(places[0].address.contains("Via Roma 3"))
         assertTrue(places[0].displayArea.contains("Gallarate"))
     }
+    @Test fun onlineRankingPrefersNearbyViaRomaWhileKeepingExplicitCity() {
+        fun street(city: String, lat: Double, lon: Double): JSONObject =
+            JSONObject().put("type", "Feature")
+                .put("geometry", JSONObject().put("type", "Point")
+                    .put("coordinates", JSONArray().put(lon).put(lat)))
+                .put("properties", JSONObject()
+                    .put("name", "Via Roma")
+                    .put("street", "Via Roma")
+                    .put("city", city)
+                    .put("type", "street"))
+        val response = JSONObject().put("features", JSONArray()
+            .put(street("Roma", 41.902, 12.496))
+            .put(street("Torino", 45.070, 7.680))
+            .put(street("Gallarate", 45.660, 8.770)))
+        val near = PhotonPlaceSearch.rank(response, "Via Roma", 45.66 to 8.77)
+        assertEquals(listOf("Gallarate", "Torino", "Roma"),
+            near.map { it.displayArea.substringBefore(",").trim() })
+        val remote = PhotonPlaceSearch.rank(response, "Via Roma Torino", 45.66 to 8.77)
+        assertTrue(remote.first().displayArea.contains("Torino"))
+        // Without a GPS fix preserve server relevance ordering.
+        val noGps = PhotonPlaceSearch.rank(response, "Via Roma", null)
+        assertTrue(noGps.first().displayArea.contains("Roma"))
+    }
+
+
+    @Test fun searchDistanceLabelsUseMetersAndKilometers() {
+        val near = PlaceSearchResult("Via Roma", "", "Italia", 45.0, 8.0, 350.0)
+        val far = near.copy(distanceMeters = 1850.0)
+        assertEquals("350 m", near.distanceLabel)
+        assertEquals("1,9 km", far.distanceLabel)
+        assertEquals("", near.copy(distanceMeters = null).distanceLabel)
+    }
+
 }

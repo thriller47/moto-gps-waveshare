@@ -193,25 +193,28 @@ class MotoBLEManager(private val context: Context) {
     }
 
     private fun enqueueOperation(operation: () -> Unit) {
-        operationQueue.add(operation)
-        if (!operationInProgress) {
-            executeNextOperation()
+        val opToRun = synchronized(operationQueue) {
+            operationQueue.add(operation)
+            if (!operationInProgress) {
+                operationInProgress = true
+                operationQueue.removeAt(0)
+            } else {
+                null
+            }
         }
-    }
-
-    private fun executeNextOperation() {
-        if (operationQueue.isNotEmpty()) {
-            operationInProgress = true
-            val operation = operationQueue.removeAt(0)
-            operation()
-        } else {
-            operationInProgress = false
-        }
+        opToRun?.invoke()
     }
 
     private fun completeOperation() {
-        operationInProgress = false
-        executeNextOperation()
+        val nextOp = synchronized(operationQueue) {
+            if (operationQueue.isNotEmpty()) {
+                operationQueue.removeAt(0)
+            } else {
+                operationInProgress = false
+                null
+            }
+        }
+        nextOp?.invoke()
     }
 
     fun enqueueSendFramesTask(frames: Array<ByteArray>) {
@@ -252,7 +255,11 @@ class MotoBLEManager(private val context: Context) {
             return
         }
         val characteristic = writeCharacteristic ?: run {
-            synchronized(writeQueue) { writeInProgress = false }
+            synchronized(writeQueue) {
+                activeWriteFrame = null
+                activeMessageSequence = null
+                writeInProgress = false
+            }
             return
         }
 
@@ -310,8 +317,10 @@ class MotoBLEManager(private val context: Context) {
                 BluetoothProfile.STATE_CONNECTED -> {
                     connectedDevice = gatt.device
                     handshakeState = HandshakeState.IDLE
-                    operationQueue.clear()
-                    operationInProgress = false
+                    synchronized(operationQueue) {
+                        operationQueue.clear()
+                        operationInProgress = false
+                    }
                     synchronized(writeQueue) {
                         writeQueue.clear()
                         activeWriteFrame = null
@@ -320,7 +329,11 @@ class MotoBLEManager(private val context: Context) {
                     }
                     mainHandler.postDelayed({
                         enqueueOperation {
-                            gatt.discoverServices()
+                            val started = gatt.discoverServices()
+                            if (!started) {
+                                Log.e("MotoBLEManager", "gatt.discoverServices() returned false")
+                                completeOperation()
+                            }
                         }
                     }, 300)
                 }
@@ -340,10 +353,14 @@ class MotoBLEManager(private val context: Context) {
                     writeCharacteristic = null
                     readCharacteristic = null
                     connectedDevice = null
-                    operationQueue.clear()
-                    operationInProgress = false
+                    synchronized(operationQueue) {
+                        operationQueue.clear()
+                        operationInProgress = false
+                    }
                     synchronized(writeQueue) {
                         writeQueue.clear()
+                        activeWriteFrame = null
+                        activeMessageSequence = null
                         writeInProgress = false
                     }
                     try {
@@ -378,7 +395,11 @@ class MotoBLEManager(private val context: Context) {
 
                     mainHandler.postDelayed({
                         enqueueOperation {
-                            gatt.requestMtu(185)
+                            val started = gatt.requestMtu(185)
+                            if (!started) {
+                                Log.e("MotoBLEManager", "gatt.requestMtu(185) returned false")
+                                completeOperation()
+                            }
                         }
                     }, 300)
                 } else {
@@ -659,8 +680,10 @@ class MotoBLEManager(private val context: Context) {
         handshakeState = HandshakeState.IDLE
         cccdWritePending = false
         cccdRetryCount = 0
-        operationQueue.clear()
-        operationInProgress = false
+        synchronized(operationQueue) {
+            operationQueue.clear()
+            operationInProgress = false
+        }
         synchronized(writeQueue) {
             writeQueue.clear()
             activeWriteFrame = null

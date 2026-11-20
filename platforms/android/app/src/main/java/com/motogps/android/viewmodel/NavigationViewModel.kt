@@ -21,6 +21,7 @@ import com.motogps.android.map.HybridMapRepository
 import com.motogps.android.map.RoadContextJunctions
 import com.motogps.android.map.OpenFreeMapTileProbe
 import com.motogps.android.map.OpenFreeMapRouteCorridor
+import com.motogps.android.map.OpenFreeMapRoundaboutGeometry
 import com.motogps.android.map.SavedMapInfo
 import com.motogps.android.location.LocationFixFilter
 import com.motogps.android.location.NavigationFixFreshness
@@ -50,8 +51,15 @@ data class PlaceSearchResult(
     val address: String,
     val displayArea: String,
     val latitude: Double,
-    val longitude: Double
-)
+    val longitude: Double,
+    val distanceMeters: Double? = null
+) {
+    val distanceLabel: String
+        get() = distanceMeters?.takeIf { it.isFinite() && it >= 0 }?.let {
+            if (it < 1000.0) "${it.toInt()} m"
+            else String.format(Locale.ITALY, "%.1f km", it / 1000.0)
+        } ?: ""
+}
 
 data class RouteOption(
     val id: String,
@@ -448,6 +456,17 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     private var telemetryJob: Job? = null
 
     private var navigationJob: Job? = null
+    // A bit in the existing 16-bit navigation flags tells the device whether
+    // any intermediate stop remains. It is independent of the visible BLE
+    // geometry window, so the circular >> button is available even kilometres
+    // before a stop. Final destination is never skippable.
+    private fun sendNavigationSnapshotWithStops(snapshot: MotoBLENavigationSnapshot) {
+        val hasPendingStops = _isNavigating.value && !_hasArrived.value &&
+            activeWaypoints.size > nextWaypointIndex
+        bleManager.sendNavigationSnapshot(
+            snapshot.copy(hasPendingWaypoints = hasPendingStops))
+    }
+
     private var currentSnapshot: MotoBLENavigationSnapshot? = null
     private var currentGeometry: MotoBLERouteGeometry? = null
     private var lastWindowGapDiagnosticMs = 0L
@@ -472,7 +491,12 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         // the BLE payload remains the same 24-point moving window.
         ReplayTraceRecorder.fullRoute(route, turnPlan)
         ReplayTraceRecorder.route(window)
-        bleManager.sendRouteGeometry(window)
+        // The arrival is marker index 0 (blue); intermediate stops are 1..8
+        // (yellow). Both use the same snapped green route window; only the
+        // former can appear even on an itinerary without intermediate stops.
+        val markers = WaypointMarkerWindow.visible(
+            window, activeWaypoints.drop(nextWaypointIndex), activeDestination)
+        bleManager.sendRouteGeometry(window.copy(waypointMarkers = markers))
         val endpoint = route.points.lastOrNull()
         val endMeters = endpoint?.let {
             calculateDistanceMeters(lat, lon, it.latitudeE6 / 1e6, it.longitudeE6 / 1e6).toInt()
@@ -510,20 +534,73 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         }
     }
 
-    /** Prefer Photon v2 when valid; fallback online if the index is unusable.
-     * A valid offline search with zero results is NOT an online fallback. */
+    /** Attach straight-line distance to search items for both result lists.
+     * Do not show distance when the GPS fix is not available. */
+    private fun withSearchDistances(places: List<PlaceSearchResult>,
+                                    gps: Pair<Double, Double>?): List<PlaceSearchResult> {
+        val fix = gps?.takeIf {
+            it.first.isFinite() && it.second.isFinite() &&
+                it.first in -90.0..90.0 && it.second in -180.0..180.0
+        } ?: return places
+        val lat1 = Math.toRadians(fix.first)
+        val lon1 = Math.toRadians(fix.second)
+        return places.map { place ->
+            val dLat = Math.toRadians(place.latitude) - lat1
+            val dLon = Math.toRadians(place.longitude) - lon1
+            val a = kotlin.math.sin(dLat / 2).let { it * it } +
+                kotlin.math.cos(lat1) * kotlin.math.cos(Math.toRadians(place.latitude)) *
+                kotlin.math.sin(dLon / 2).let { it * it }
+            val distance = 6371000.0 * 2.0 *
+                kotlin.math.atan2(kotlin.math.sqrt(a.coerceIn(0.0, 1.0)),
+                    kotlin.math.sqrt((1.0 - a).coerceAtLeast(0.0)))
+            place.copy(distanceMeters = distance)
+        }
+    }
+
+    /** Category words are NOT place-name queries: offline and online both use
+     * OSM classification + GPS proximity. Never fall back to text "trattoria".
+     * Unqualified addresses and actual business names keep normal Photon FTS.
+     */
     private fun searchPhotonPlaces(query: String): List<PlaceSearchResult> {
         val gps = if (hasFirstFix) currentLocation.value else null
         val context = appContext
+        val categories = OfflinePoiCategorySearch.categories(query)
+        if (categories.isNotEmpty()) {
+            if (gps == null) {
+                Log.i("MotoGPS_Photon", "Categoria POI: attendo fix GPS")
+                return emptyList()
+            }
+            if (context != null && OfflinePoiCategorySearch.available(context)) {
+                try {
+                    val local = OfflinePoiCategorySearch.search(context, query, gps)
+                    if (local.isNotEmpty()) return withSearchDistances(local, gps)
+                } catch (e: Exception) {
+                    Log.w("MotoGPS_Photon", "OSM POI offline index unavailable", e)
+                }
+            }
+            return try {
+                withSearchDistances(PhotonPlaceSearch.searchCategories(categories, gps), gps)
+            } catch (e: Exception) {
+                // A failed category filter must NOT quietly turn into a textual
+                // search and return distant businesses whose name matches.
+                Log.w("MotoGPS_Photon", "Online OSM POI category search failed", e)
+                emptyList()
+            }
+        }
         if (context != null && OfflinePhotonPlaceSearch.installed(context)) {
             try {
-                return OfflinePhotonPlaceSearch.search(context, query, gps)
+                val local = OfflinePhotonPlaceSearch.search(context, query, gps)
+                if (local.isNotEmpty()) return withSearchDistances(local, gps)
             } catch (e: Exception) {
-                // Preserve online fallback, but expose the original SQLite cause.
                 Log.w("MotoGPS_Photon", "Offline Photon v2 search failed; using online", e)
             }
         }
-        return PhotonPlaceSearch.search(query, gps)
+        return try {
+            withSearchDistances(PhotonPlaceSearch.search(query, gps), gps)
+        } catch (e: Exception) {
+            Log.w("MotoGPS_Photon", "Online Photon fallback unavailable", e)
+            emptyList()
+        }
     }
 
     fun searchDestination(query: String) {
@@ -747,7 +824,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                 if (geometry != null) {
                     sendNearbyRouteGeometry(geometry)
                 }
-                bleManager.sendNavigationSnapshot(requireNotNull(currentSnapshot))
+                sendNavigationSnapshotWithStops(requireNotNull(currentSnapshot))
 
                 _isLoading.value = false
 
@@ -817,7 +894,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                             "gnss_stale=$gnssStale position=accepted_gps")
                     }
                     ReplayTraceRecorder.snapshot(activeSnap, lat, lon)
-                    bleManager.sendNavigationSnapshot(activeSnap)
+                    sendNavigationSnapshotWithStops(activeSnap)
 
                     // A stationary GPS provider may stop emitting fixes. Keep
                     // offline map lookup / online tile retry alive independently
@@ -938,7 +1015,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                 rerouteStability.accepted(SystemClock.elapsedRealtime(), lat, lon)
                 _routingSource.value = lastRoutingProvider
                 if (geometry != null) sendNearbyRouteGeometry(geometry)
-                bleManager.sendNavigationSnapshot(requireNotNull(currentSnapshot))
+                sendNavigationSnapshotWithStops(requireNotNull(currentSnapshot))
                 DiagnosticLog.event("WAYPOINT_SKIP",
                     "phase=success remaining=${activeWaypoints.size - nextWaypointIndex}")
             } catch (e: CancellationException) {
@@ -1015,7 +1092,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
             roundaboutExit = 0,
             instructionText = ""
         )
-        bleManager.sendNavigationSnapshot(stopSnapshot)
+        sendNavigationSnapshotWithStops(stopSnapshot)
 
         _routePreview.value = null
         _routeOptions.value = emptyList()
@@ -1223,7 +1300,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                 )
                 if (arrived != null) {
                     currentSnapshot = arrived
-                    bleManager.sendNavigationSnapshot(arrived)
+                    sendNavigationSnapshotWithStops(arrived)
                 }
                 if (destination.displayArea == "Tour circolare") {
                     try { discardTourCheckpoint() } catch (e: Exception) {
@@ -1308,13 +1385,27 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                     // Neither can remove the GPS-local reserve.
                     val analysis = RoadContextJunctions.analyze(
                         contextRoads, lat, lon, upcoming, nearbyRoute)
+                    // MotoMap's genuine OSM topology always wins. The
+                    // OpenFreeMap fallback only uses matching geometry endpoints,
+                    // never invented OSM identifiers or arbitrary crossings.
+                    val ofm = if (analysis.focus == null &&
+                        contextRoads.any { it.osmWayId == null && it.nodeIds.isEmpty() }) {
+                        OpenFreeMapRoundaboutGeometry.analyze(
+                            contextRoads, lat, lon, upcoming)
+                    } else null
+                    val focus = analysis.focus ?: ofm?.focus
+                    if (ofm != null) {
+                        DiagnosticLog.event("OFM_RING",
+                            "edges=${ofm.edges} loops=${ofm.circuits} rejected=${ofm.rejected} " +
+                            "focus=${if (ofm.focus != null) 1 else 0} " +
+                            "exits=${ofm.focus?.exits?.size ?: 0}")
+                    }
                     val sceneSelection = RoadContextSceneSelector.select(
-                        contextRoads, analysis.focus, lat, lon, upcoming, nearbyRoute)
+                        contextRoads, focus, lat, lon, upcoming, nearbyRoute)
                     sceneSelection.drawn.forEach { drawn ->
                         roadPolylines.add(MotoBLEMapRoadPolyline(
                             roadClass = drawn.road.roadClass, points = drawn.points))
                     }
-                    val focus = analysis.focus
                     DiagnosticLog.event("OSM_EXIT_CONT",
                         "ways=" + sceneSelection.continuedExitWays +
                         " branches=" + sceneSelection.continuedExitBranches +
@@ -1323,8 +1414,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                         " slots=" + sceneSelection.slots +
                         " points=" + sceneSelection.points)
                     DiagnosticLog.event("OSM_RING",
-                        "candidates=" + analysis.candidates +
-                        " qualified=" + analysis.qualified +
+                        "candidates=" + (analysis.candidates + (ofm?.circuits ?: 0)) +
+                        " qualified=" + (analysis.qualified + (if (ofm?.focus != null) 1 else 0)) +
                         " osm_tagged=" + (analysis.focus?.osmTagged ?: false) +
                         " focus=" + (focus?.key ?: "none") +
                         " score=" + (focus?.confidence ?: 0) +
@@ -1868,7 +1959,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                     SystemClock.elapsedRealtime(), acceptedLat, acceptedLon)
                 _routingSource.value = lastRoutingProvider
                 if (geometry != null) sendNearbyRouteGeometry(geometry)
-                bleManager.sendNavigationSnapshot(refreshed)
+                sendNavigationSnapshotWithStops(refreshed)
             } catch (e: Exception) {
                 DiagnosticLog.event("REROUTE_ERROR", e.message.orEmpty())
                 Log.w("NavigationVM", "Route recalculation failed: ${e.message}")
@@ -2170,7 +2261,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                         "stops_pending=${activeWaypoints.size - nextWaypointIndex}")
                 try {
                     if (replay.geometry) currentGeometry?.let { sendNearbyRouteGeometry(it) }
-                    currentSnapshot?.let { bleManager.sendNavigationSnapshot(it) }
+                    currentSnapshot?.let { sendNavigationSnapshotWithStops(it) }
                 } catch (e: Exception) {
                     DiagnosticLog.event("BLE_NAV_RESYNC_ERROR",
                         "exception=${e.javaClass.simpleName}")
@@ -2225,7 +2316,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                         roundaboutExit = 0,
                         instructionText = ""
                     )
-                    bleManager.sendNavigationSnapshot(idleSnapshot)
+                    sendNavigationSnapshotWithStops(idleSnapshot)
                 }
             }
         }

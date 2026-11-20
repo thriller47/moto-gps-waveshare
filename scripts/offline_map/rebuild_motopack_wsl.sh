@@ -12,7 +12,7 @@ Sorgenti predefiniti: /mnt/c/MotoGPS/PBF
   italy-latest.osm.pbf, italy.poly, photon-italy.jsonl.zst
 Destinazione predefinita: ~/motogps-build/ItaliaUnificata-20261118
 
-Ricrea MotoMap v4, Photon SQLite v2 e Valhalla V5 DAL PBF, quindi
+Ricrea MotoMap v4, Photon SQLite v2 con indice POI OSM e Valhalla V5 DAL PBF, quindi
 assembla/verifica MotoChatGPS-Italia.motopack. Il vecchio
 valhalla_italia_v5.tar.zst nella cartella sorgenti NON viene riutilizzato.
 La vecchia destinazione rimane intatta finche' il pacchetto nuovo non supera

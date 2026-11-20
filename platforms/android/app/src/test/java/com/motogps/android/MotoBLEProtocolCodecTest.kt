@@ -284,4 +284,139 @@ class MotoBLEProtocolCodecTest {
         }
         return sb.toString()
     }
+    @Test
+    fun pushDeviceFrameRejectsInvalidProtocolVersion() {
+        val payload = ByteArray(34)
+        payload[0] = 1 // revision
+        payload[1] = 1 // one record
+        val frame = ByteArray(12 + payload.size)
+        frame[0] = 0xB7.toByte() // MAGIC
+        frame[1] = 2 // invalid version != PROTOCOL_VERSION (1)
+        frame[2] = MotoBLEProtocolCodec.MSG_DIAGNOSTIC_BATCH
+        frame[3] = 3
+        frame[4] = 5
+        frame[8] = payload.size.toByte()
+        System.arraycopy(payload, 0, frame, 10, payload.size)
+        val crc = MotoBLEProtocolCodec.crc16CcittFalse(frame, frame.size - 2)
+        frame[frame.size - 2] = crc.toByte()
+        frame[frame.size - 1] = (crc ushr 8).toByte()
+
+        val result = codec.nativePushDeviceFrame(handle, frame, 1000)
+        org.junit.Assert.assertFalse(result.complete)
+        assertEquals(0, result.sequence)
+    }
+
+    @Test
+    fun testCodecStorageTxRxConcurrency() {
+        val threadCount = 4
+        val iterations = 500
+        val executor = java.util.concurrent.Executors.newFixedThreadPool(threadCount)
+        val errors = java.util.concurrent.ConcurrentLinkedQueue<Throwable>()
+
+        val payload = ByteArray(34)
+        payload[0] = 1
+        payload[1] = 1
+        payload[2] = 1
+        payload[6] = 50
+        payload[10] = 7
+        val frame = ByteArray(12 + payload.size)
+        frame[0] = 0xB7.toByte()
+        frame[1] = 1
+        frame[2] = MotoBLEProtocolCodec.MSG_DIAGNOSTIC_BATCH
+        frame[3] = 3
+        frame[4] = 1
+        frame[8] = payload.size.toByte()
+        System.arraycopy(payload, 0, frame, 10, payload.size)
+        val crc = MotoBLEProtocolCodec.crc16CcittFalse(frame, frame.size - 2)
+        frame[frame.size - 2] = crc.toByte()
+        frame[frame.size - 1] = (crc ushr 8).toByte()
+
+        val latch = java.util.concurrent.CountDownLatch(threadCount)
+        for (t in 0 until threadCount) {
+            executor.submit {
+                try {
+                    for (i in 0 until iterations) {
+                        if (t % 2 == 0) {
+                            codec.nativeEncodeHeartbeat(handle, 12345678L, 1000L + i)
+                        } else {
+                            codec.nativePushDeviceFrame(handle, frame, 1000L + i)
+                        }
+                    }
+                } catch (th: Throwable) {
+                    errors.add(th)
+                } finally {
+                    latch.countDown()
+                }
+            }
+        }
+
+        latch.await(5, java.util.concurrent.TimeUnit.SECONDS)
+        executor.shutdown()
+        assertTrue("Concurrency errors occurred: $errors", errors.isEmpty())
+    }
+
+    @Test
+    fun testMapScenePayloadConstraints() {
+        val origin = GeoPointE6(45_000_000, 9_000_000)
+
+        // 1. Road with < 2 points should be excluded
+        val invalidRoad1 = com.motogps.android.jni.MotoBLEMapRoadPolyline(
+            roadClass = 1,
+            points = listOf(origin)
+        )
+        // 2. Road with delta > 100_000 should be excluded
+        val invalidRoad2 = com.motogps.android.jni.MotoBLEMapRoadPolyline(
+            roadClass = 1,
+            points = listOf(origin, GeoPointE6(origin.latitudeE6 + 100_001, origin.longitudeE6))
+        )
+        // 3. Valid road
+        val validRoad = com.motogps.android.jni.MotoBLEMapRoadPolyline(
+            roadClass = 1,
+            points = listOf(origin, GeoPointE6(origin.latitudeE6 + 500, origin.longitudeE6 + 500))
+        )
+
+        // 4. Building with < 3 points should be excluded
+        val invalidBld1 = com.motogps.android.jni.MotoBLEMapBuildingFootprint(
+            buildingClass = 0,
+            points = listOf(origin, GeoPointE6(origin.latitudeE6 + 100, origin.longitudeE6))
+        )
+        // 5. Building closed (first == last) should be excluded
+        val invalidBld2 = com.motogps.android.jni.MotoBLEMapBuildingFootprint(
+            buildingClass = 0,
+            points = listOf(origin, GeoPointE6(origin.latitudeE6 + 100, origin.longitudeE6), origin)
+        )
+        // 6. Building with delta > 100_000 should be excluded
+        val invalidBld3 = com.motogps.android.jni.MotoBLEMapBuildingFootprint(
+            buildingClass = 0,
+            points = listOf(
+                origin,
+                GeoPointE6(origin.latitudeE6 + 100_001, origin.longitudeE6),
+                GeoPointE6(origin.latitudeE6 + 100, origin.longitudeE6 + 100)
+            )
+        )
+        // 7. Valid building (open, >= 3 points, within delta)
+        val validBld = com.motogps.android.jni.MotoBLEMapBuildingFootprint(
+            buildingClass = 0,
+            points = listOf(
+                origin,
+                GeoPointE6(origin.latitudeE6 + 100, origin.longitudeE6),
+                GeoPointE6(origin.latitudeE6 + 100, origin.longitudeE6 + 100)
+            )
+        )
+
+        val scene = com.motogps.android.jni.MotoBLEMapScene(
+            coordinateSystem = 2,
+            sceneRevision = 1L,
+            viewOrigin = origin,
+            radiusM = 500,
+            roads = listOf(invalidRoad1, invalidRoad2, validRoad),
+            buildings = listOf(invalidBld1, invalidBld2, invalidBld3, validBld)
+        )
+
+        val frames = codec.nativeEncodeMapScene(handle, scene)
+        assertTrue(frames.isNotEmpty())
+        val firstFrame = frames[0]
+        assertEquals(1.toByte(), firstFrame[10 + 16]) // road count should be exactly 1
+        assertEquals(1.toByte(), firstFrame[10 + 17]) // building count should be exactly 1
+    }
 }

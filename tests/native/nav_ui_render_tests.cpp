@@ -302,15 +302,17 @@ void test_turn_arrows_and_turn_distance_do_not_move_arrival_distance() {
   const Frame farther = capture();
   CHECK(farther.hash != left.hash); // 28pt label changes with turn distance.
 
-  // Only the left-hand 8 o'clock turn label changes here; the
-  // central and right-side destination area must be bit-identical.
+  // The turn label now sits below the arrival counter, not on the left.
+  // Preserve the upper central arrival band while its own text is unchanged.
   const int first_y = (245 * kWidth + 180) / 360;
-  const int first_x = (145 * kWidth + 180) / 360;
-  for (int y = first_y; y < kHeight; ++y) {
+  const int last_y = (315 * kWidth + 180) / 360;
+  const int first_x = (125 * kWidth + 180) / 360;
+  const int last_x = (235 * kWidth + 180) / 360;
+  for (int y = first_y; y < last_y; ++y) {
     const std::size_t first = (static_cast<std::size_t>(y) * kWidth +
-                               first_x) * (LV_COLOR_DEPTH / 8);
-    const std::size_t last = (static_cast<std::size_t>(y) + 1) *
-                              kWidth * (LV_COLOR_DEPTH / 8);
+                              first_x) * (LV_COLOR_DEPTH / 8);
+    const std::size_t last = (static_cast<std::size_t>(y) * kWidth +
+                             last_x) * (LV_COLOR_DEPTH / 8);
     CHECK(std::equal(right.bytes.begin() + first,
                      right.bytes.begin() + last,
                      left.bytes.begin() + first));
@@ -504,15 +506,17 @@ void test_no_turn_suppresses_false_arrow_without_losing_destination_distance() {
   const Frame no_turn = capture();
   CHECK(no_turn.hash != with_turn.hash);
 
-  // Only the left-hand 8 o'clock turn label changes here; the
-  // central and right-side destination area must be bit-identical.
+  // Turn distance is centred below the main distance; only the
+  // arrival-distance band above the turn label must remain identical.
   const int first_y = (245 * kWidth + 180) / 360;
-  const int first_x = (145 * kWidth + 180) / 360;
-  for (int y = first_y; y < kHeight; ++y) {
+  const int last_y = (315 * kWidth + 180) / 360;
+  const int first_x = (125 * kWidth + 180) / 360;
+  const int last_x = (235 * kWidth + 180) / 360;
+  for (int y = first_y; y < last_y; ++y) {
     const std::size_t first = (static_cast<std::size_t>(y) * kWidth +
-                               first_x) * (LV_COLOR_DEPTH / 8);
-    const std::size_t last = (static_cast<std::size_t>(y) + 1) *
-                              kWidth * (LV_COLOR_DEPTH / 8);
+                              first_x) * (LV_COLOR_DEPTH / 8);
+    const std::size_t last = (static_cast<std::size_t>(y) * kWidth +
+                             last_x) * (LV_COLOR_DEPTH / 8);
     CHECK(std::equal(with_turn.bytes.begin() + first,
                      with_turn.bytes.begin() + last,
                      no_turn.bytes.begin() + first));

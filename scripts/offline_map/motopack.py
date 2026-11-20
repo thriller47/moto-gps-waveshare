@@ -38,6 +38,25 @@ def validate_inputs(paths):
             raise ValueError("Unexpected Photon source")
         if db.execute("SELECT COUNT(*) FROM places").fetchone()[0] < 1:
             raise ValueError("Photon index empty")
+        # Existing Photon v2 remains supported; augmented packs additionally
+        # validate the OSM POI count and indexed category table.
+        poi_marker = db.execute(
+            "SELECT value FROM metadata WHERE key='poi_schema'").fetchone()
+        if poi_marker is not None:
+            if poi_marker != ("1",) or not db.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' "
+                    "AND name='poi_places'").fetchone():
+                raise ValueError("Invalid OSM POI schema")
+            count = db.execute(
+                "SELECT COUNT(*) FROM poi_places").fetchone()[0]
+            expected = db.execute(
+                "SELECT value FROM metadata WHERE key='poi_count'").fetchone()
+            if count <= 0 or expected != (str(count),):
+                raise ValueError("OSM POI count does not match Photon metadata")
+            if not db.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='index' "
+                    "AND name='poi_category_lat_lon'").fetchone():
+                raise ValueError("OSM POI spatial index missing")
     with paths["valhalla"].open("rb") as f:
         if f.read(4) != bytes.fromhex("28b52ffd"):
             raise ValueError("Valhalla must be .tar.zst")

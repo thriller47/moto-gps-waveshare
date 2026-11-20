@@ -10,6 +10,8 @@ data class GeoPointE6(
     val longitudeE6: Int
 )
 
+data class MotoBLEWaypointMarker(val index: Int, val point: GeoPointE6)
+
 data class MotoBLERouteGeometry(
     val coordinateSystem: Int = 2, // GCJ-02
     val routeToken: Long,
@@ -19,7 +21,8 @@ data class MotoBLERouteGeometry(
     val firstPointIndex: Int = 0,
     val totalPointCount: Int,
     val viewOrigin: GeoPointE6,
-    val points: List<GeoPointE6>
+    val points: List<GeoPointE6>,
+    val waypointMarkers: List<MotoBLEWaypointMarker> = emptyList()
 )
 
 data class MotoBLEMapRoadPolyline(
@@ -92,6 +95,9 @@ class MotoBLEProtocolCodec {
     }
 
     private class CodecStorage(var maxFrameSize: Int) {
+        val txLock = Any()
+        val rxLock = Any()
+
         var sequence: Int = 1
         var lastEncodedSequence: Int = 0
         var activeSequence: Int = 0
@@ -104,16 +110,16 @@ class MotoBLEProtocolCodec {
             maxFrameSize = maxFrameSize.coerceIn(FRAME_OVERHEAD + 1, MAX_BLE_ATTRIBUTE_VALUE_SIZE)
         }
 
-        fun nextSequence(): Int {
+        fun nextSequence(): Int = synchronized(txLock) {
             val seq = sequence
             sequence++
             if (sequence == 0 || sequence > 0xFFFF) {
                 sequence = 1
             }
-            return seq
+            seq
         }
 
-        fun resetInbound() {
+        fun resetInbound() = synchronized(rxLock) {
             activeSequence = 0
             activeMessageLength = 0
             activeType = 0
@@ -134,7 +140,9 @@ class MotoBLEProtocolCodec {
 
     fun nativeSetMaximumFrameSize(ptr: Long, maximumFrameSize: Int) {
         instances[ptr]?.let { storage ->
-            storage.maxFrameSize = maximumFrameSize.coerceIn(FRAME_OVERHEAD + 1, MAX_BLE_ATTRIBUTE_VALUE_SIZE)
+            synchronized(storage.txLock) {
+                storage.maxFrameSize = maximumFrameSize.coerceIn(FRAME_OVERHEAD + 1, MAX_BLE_ATTRIBUTE_VALUE_SIZE)
+            }
         }
     }
 
@@ -255,7 +263,7 @@ class MotoBLEProtocolCodec {
         if (frame.size < FRAME_OVERHEAD) {
             return MotoBLEInboundMessage(0, false, false, false, null, null, null, null)
         }
-        if (frame[0] != FRAME_MAGIC) {
+        if (frame[0] != FRAME_MAGIC || frame[1] != PROTOCOL_VERSION) {
             return MotoBLEInboundMessage(0, false, false, false, null, null, null, null)
         }
 
@@ -276,35 +284,6 @@ class MotoBLEProtocolCodec {
         val starts = (flags and FRAME_START) != 0
         val ends = (flags and FRAME_END) != 0
 
-        // Reset buffer if more than 500 ms elapsed since previous fragment
-        if (storage.activeSequence != 0 && storage.lastFragmentReceivedAtMs != 0L &&
-            receivedAtMs - storage.lastFragmentReceivedAtMs > 500L) {
-            storage.resetInbound()
-        }
-
-        if (starts) {
-            storage.resetInbound()
-            storage.activeSequence = sequence
-            storage.activeMessageLength = messageLength
-            storage.activeType = msgType
-            storage.lastFragmentReceivedAtMs = receivedAtMs
-        } else {
-            // Verify sequence matching and contiguous fragmentOffset
-            if (storage.activeSequence == 0 ||
-                storage.activeSequence != sequence ||
-                storage.activeType != msgType ||
-                fragmentOffset != storage.reassemblyBuffer.size) {
-                storage.resetInbound()
-                return MotoBLEInboundMessage(0, false, false, false, null, null, null, null)
-            }
-            storage.lastFragmentReceivedAtMs = receivedAtMs
-        }
-
-        val payloadSize = frame.size - FRAME_OVERHEAD
-        for (i in 0 until payloadSize) {
-            storage.reassemblyBuffer.add(frame[10 + i])
-        }
-
         var connStatus: MotoBLEConnectionStatus? = null
         var heartbeat: MotoBLEHeartbeat? = null
         var ack: MotoBLEAcknowledgement? = null
@@ -312,64 +291,95 @@ class MotoBLEProtocolCodec {
         var diagnosticRecords: List<MotoBLEDiagnosticRecord> = emptyList()
         var isComplete = false
 
-        if (ends) {
-            if (storage.reassemblyBuffer.size == storage.activeMessageLength) {
-            isComplete = true
-            val payload = storage.reassemblyBuffer.toByteArray()
-            val reader = Reader(payload)
+        synchronized(storage.rxLock) {
+            // Reset buffer if more than 500 ms elapsed since previous fragment
+            if (storage.activeSequence != 0 && storage.lastFragmentReceivedAtMs != 0L &&
+                receivedAtMs - storage.lastFragmentReceivedAtMs > 500L) {
+                storage.resetInbound()
+            }
 
-            if (reader.remaining() > 0) {
-                val rev = reader.readU8()
-                if (rev == PAYLOAD_REVISION.toInt()) {
-                    when (msgType) {
-                        MSG_CONNECTION_STATUS -> {
-                            if (reader.remaining() >= 16) {
-                                val role = reader.readU8()
-                                val state = reader.readU8()
-                                val minVer = reader.readU8()
-                                val maxVer = reader.readU8()
-                                val capabilities = reader.readU32()
-                                val sessionId = reader.readU32()
-                                val maxFrameSize = reader.readU16()
-                                val hbInterval = reader.readU16()
-                                connStatus = MotoBLEConnectionStatus(
-                                    role, state, minVer, maxVer, capabilities, sessionId, maxFrameSize, hbInterval
-                                )
-                            }
-                        }
-                        MSG_DIAGNOSTIC_BATCH -> {
-                            if (reader.remaining() >= 1) {
-                                val count = reader.readU8()
-                                if (count in 1..4 && reader.remaining() == count * 32) {
-                                    diagnosticRecords = List(count) {
-                                        val eventSequence = reader.readU32()
-                                        val uptimeMs = reader.readU32()
-                                        val event = reader.readU16()
-                                        val reserved = reader.readU16()
-                                        val values = List(5) { reader.readU32().toInt() }
-                                        MotoBLEDiagnosticRecord(eventSequence, uptimeMs, event, values, reserved)
-                                    }.filter { it.event in 1..7 && it.reserved == 0 }
+            if (starts) {
+                storage.resetInbound()
+                storage.activeSequence = sequence
+                storage.activeMessageLength = messageLength
+                storage.activeType = msgType
+                storage.lastFragmentReceivedAtMs = receivedAtMs
+            } else {
+                // Verify sequence matching and contiguous fragmentOffset
+                if (storage.activeSequence == 0 ||
+                    storage.activeSequence != sequence ||
+                    storage.activeType != msgType ||
+                    fragmentOffset != storage.reassemblyBuffer.size) {
+                    storage.resetInbound()
+                    return MotoBLEInboundMessage(0, false, false, false, null, null, null, null)
+                }
+                storage.lastFragmentReceivedAtMs = receivedAtMs
+            }
+
+            val payloadSize = frame.size - FRAME_OVERHEAD
+            for (i in 0 until payloadSize) {
+                storage.reassemblyBuffer.add(frame[10 + i])
+            }
+
+            if (ends) {
+                if (storage.reassemblyBuffer.size == storage.activeMessageLength) {
+                    isComplete = true
+                    val payload = storage.reassemblyBuffer.toByteArray()
+                    val reader = Reader(payload)
+
+                    if (reader.remaining() > 0) {
+                        val rev = reader.readU8()
+                        if (rev == PAYLOAD_REVISION.toInt()) {
+                            when (msgType) {
+                                MSG_CONNECTION_STATUS -> {
+                                    if (reader.remaining() >= 16) {
+                                        val role = reader.readU8()
+                                        val state = reader.readU8()
+                                        val minVer = reader.readU8()
+                                        val maxVer = reader.readU8()
+                                        val capabilities = reader.readU32()
+                                        val sessionId = reader.readU32()
+                                        val maxFrameSize = reader.readU16()
+                                        val hbInterval = reader.readU16()
+                                        connStatus = MotoBLEConnectionStatus(
+                                            role, state, minVer, maxVer, capabilities, sessionId, maxFrameSize, hbInterval
+                                        )
+                                    }
                                 }
-                            }
-                        }
-                        MSG_DEVICE_COMMAND -> {
-                            if (reader.remaining() >= 12) {
-                                val kind = reader.readU8()
-                                val cmdId = reader.readU16()
-                                val page = reader.readU8()
-                                val x = reader.readU16()
-                                val y = reader.readU16()
-                                val eventTimeMs = reader.readU32()
-                                command = MotoBLEDeviceCommand(
-                                    sequence, false, kind, cmdId, page, x, y, eventTimeMs
-                                )
+                                MSG_DIAGNOSTIC_BATCH -> {
+                                    if (reader.remaining() >= 1) {
+                                        val count = reader.readU8()
+                                        if (count in 1..4 && reader.remaining() == count * 32) {
+                                            diagnosticRecords = List(count) {
+                                                val eventSequence = reader.readU32()
+                                                val uptimeMs = reader.readU32()
+                                                val event = reader.readU16()
+                                                val reserved = reader.readU16()
+                                                val values = List(5) { reader.readU32().toInt() }
+                                                MotoBLEDiagnosticRecord(eventSequence, uptimeMs, event, values, reserved)
+                                            }.filter { it.event in 1..7 && it.reserved == 0 }
+                                        }
+                                    }
+                                }
+                                MSG_DEVICE_COMMAND -> {
+                                    if (reader.remaining() >= 12) {
+                                        val kind = reader.readU8()
+                                        val cmdId = reader.readU16()
+                                        val page = reader.readU8()
+                                        val x = reader.readU16()
+                                        val y = reader.readU16()
+                                        val eventTimeMs = reader.readU32()
+                                        command = MotoBLEDeviceCommand(
+                                            sequence, false, kind, cmdId, page, x, y, eventTimeMs
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
                 }
+                storage.resetInbound()
             }
-            }
-            storage.resetInbound()
         }
 
         return MotoBLEInboundMessage(
@@ -456,6 +466,8 @@ class MotoBLEProtocolCodec {
         if (snapshot.offRoute) flags = flags or 8
         if (snapshot.routeRequestInFlight) flags = flags or 32
         if (snapshot.trafficRequestInFlight) flags = flags or 64
+        if (snapshot.hasPendingWaypoints && snapshot.hasDestination &&
+            state in 3..4) flags = flags or 256 // NavigationHasPendingWaypoints
 
         // Match the shared C++ BLE protocol and the ESP32 bridge. An
         // instruction such as "Prosegui" is NOT an actionable maneuver:
@@ -536,7 +548,22 @@ class MotoBLEProtocolCodec {
             writer.writeSignedVarint(dLon)
             prev = pt
         }
-
+        // Optional v1 extension: legacy geometry remains byte-identical.
+        val markers = geometry.waypointMarkers
+        // 0 = blue final arrival; 1..8 = intermediate yellow stops.
+        if (markers.size > 9 || markers.any {
+                it.index !in 0..8 ||
+                kotlin.math.abs(it.point.latitudeE6.toLong()) > 85_000_000L ||
+                kotlin.math.abs(it.point.longitudeE6.toLong()) > 180_000_000L
+            }) return null
+        if (markers.isNotEmpty()) {
+            writer.writeU8(markers.size)
+            for (marker in markers) {
+                writer.writeU8(marker.index)
+                writer.writeS32(marker.point.latitudeE6)
+                writer.writeS32(marker.point.longitudeE6)
+            }
+        }
         return writer.toByteArray()
     }
 
@@ -549,17 +576,44 @@ class MotoBLEProtocolCodec {
         writer.writeS32(scene.viewOrigin.longitudeE6)
         writer.writeU16(scene.radiusM)
 
-        val roadsToEncode = scene.roads.take(24)
-        val buildingsToEncode = scene.buildings.take(16)
+        val validRoads = mutableListOf<MotoBLEMapRoadPolyline>()
+        var totalRoadPoints = 0
+        for (road in scene.roads) {
+            if (validRoads.size >= 24) break
+            if (road.points.size < 2) continue
+            if (totalRoadPoints + road.points.size > 192) continue
+            val allPointsValid = road.points.all { pt ->
+                kotlin.math.abs(pt.latitudeE6 - scene.viewOrigin.latitudeE6) <= 100_000 &&
+                kotlin.math.abs(pt.longitudeE6 - scene.viewOrigin.longitudeE6) <= 100_000
+            }
+            if (!allPointsValid) continue
+            validRoads.add(road)
+            totalRoadPoints += road.points.size
+        }
 
-        writer.writeU8(roadsToEncode.size)
-        writer.writeU8(buildingsToEncode.size)
+        val validBuildings = mutableListOf<MotoBLEMapBuildingFootprint>()
+        var totalBuildingPoints = 0
+        for (bld in scene.buildings) {
+            if (validBuildings.size >= 16) break
+            if (bld.points.size < 3) continue
+            if (bld.points.first() == bld.points.last()) continue
+            if (totalBuildingPoints + bld.points.size > 128) continue
+            val allPointsValid = bld.points.all { pt ->
+                kotlin.math.abs(pt.latitudeE6 - scene.viewOrigin.latitudeE6) <= 100_000 &&
+                kotlin.math.abs(pt.longitudeE6 - scene.viewOrigin.longitudeE6) <= 100_000
+            }
+            if (!allPointsValid) continue
+            validBuildings.add(bld)
+            totalBuildingPoints += bld.points.size
+        }
 
-        for (road in roadsToEncode) {
+        writer.writeU8(validRoads.size)
+        writer.writeU8(validBuildings.size)
+
+        for (road in validRoads) {
             writer.writeU8(road.roadClass)
-            val pts = road.points.take(192)
-            writer.writeU8(pts.size)
-            for (pt in pts) {
+            writer.writeU8(road.points.size)
+            for (pt in road.points) {
                 val dLat = pt.latitudeE6 - scene.viewOrigin.latitudeE6
                 val dLon = pt.longitudeE6 - scene.viewOrigin.longitudeE6
                 writer.writeSignedVarint(dLat)
@@ -567,11 +621,10 @@ class MotoBLEProtocolCodec {
             }
         }
 
-        for (bld in buildingsToEncode) {
+        for (bld in validBuildings) {
             writer.writeU8(bld.buildingClass)
-            val pts = bld.points.take(128)
-            writer.writeU8(pts.size)
-            for (pt in pts) {
+            writer.writeU8(bld.points.size)
+            for (pt in bld.points) {
                 val dLat = pt.latitudeE6 - scene.viewOrigin.latitudeE6
                 val dLon = pt.longitudeE6 - scene.viewOrigin.longitudeE6
                 writer.writeSignedVarint(dLat)
@@ -588,7 +641,7 @@ class MotoBLEProtocolCodec {
         payload: ByteArray,
         ackRequested: Boolean,
         urgent: Boolean
-    ): Array<ByteArray> {
+    ): Array<ByteArray> = synchronized(storage.txLock) {
         var baseFlags = 0
         if (ackRequested) baseFlags = baseFlags or ACK_REQUESTED
         if (urgent) baseFlags = baseFlags or URGENT
@@ -617,7 +670,7 @@ class MotoBLEProtocolCodec {
             }
         }
 
-        return frames.toTypedArray()
+        frames.toTypedArray()
     }
 
     private fun encodeFrame(
@@ -651,10 +704,10 @@ class MotoBLEProtocolCodec {
     }
 
     private class Writer {
-        private val list = mutableListOf<Byte>()
+        private val stream = java.io.ByteArrayOutputStream(256)
 
         fun writeU8(v: Int) {
-            list.add((v and 0xFF).toByte())
+            stream.write(v and 0xFF)
         }
 
         fun writeU16(v: Int) {
@@ -706,10 +759,10 @@ class MotoBLEProtocolCodec {
             }
             val bytes = bounded.toString().toByteArray(StandardCharsets.UTF_8)
             writeU8(bytes.size)
-            for (byte in bytes) list.add(byte)
+            stream.write(bytes)
         }
 
-        fun toByteArray(): ByteArray = list.toByteArray()
+        fun toByteArray(): ByteArray = stream.toByteArray()
     }
 
     private class Reader(private val bytes: ByteArray) {

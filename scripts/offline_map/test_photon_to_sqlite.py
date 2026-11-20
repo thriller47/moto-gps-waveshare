@@ -108,12 +108,22 @@ class TestPhotonSQLite(unittest.TestCase):
                 self.assertIsNotNone(match, "Android Photon search query missing")
                 sql = match.group(1)
                 result = db.execute(
-                    sql, ("via* roma* torino*", "Via Roma Torino",
-                          "Via Roma Torino", "Via Roma Torino")).fetchall()
+                    sql, ("via* roma* torino*",
+                          "1", "via roma torino", "1",
+                          "via roma torino", "via roma torino",
+                          "1", "45.07", "45.07", "7.68", "7.68",
+                          "0.707", "0.707")).fetchall()
                 self.assertEqual(len(result), 2)
                 self.assertEqual(result[0][3], "Torino")
                 self.assertEqual(result[0][4], "Piemonte")
                 self.assertEqual(result[0][0], "Via Roma")
+                # Without an explicit city, the nearby house number must
+                # precede the farther street centroid in the SQL shortlist.
+                nearby = db.execute(sql, (
+                    "via* roma*", "0", "via roma", "0", "via roma", "via roma",
+                    "1", "45.071", "45.071", "7.681", "7.681",
+                    "0.707", "0.707")).fetchall()
+                self.assertEqual(nearby[0][0], "Via Roma 12")
                 self.assertEqual(db.execute(
                     "SELECT COUNT(*) FROM places_fts WHERE places_fts MATCH ?",
                     ("passo* stelvio* bormio*",)).fetchone()[0], 1)

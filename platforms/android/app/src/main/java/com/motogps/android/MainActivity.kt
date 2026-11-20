@@ -57,7 +57,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     private var lastSentHeading = -1f
     private var lastSentHeadingTime = 0L
     private var lastBackPressTime = 0L
-    private var foregroundLocationCallback: ((Location) -> Unit)? = null
+    private val rotationMatrix = FloatArray(9)
+    private val inclinationMatrix = FloatArray(9)
+    private val orientationAngles = FloatArray(3)
     private var diagnosticMode by mutableStateOf(0)
     private var replayRecording by mutableStateOf(ReplayTraceRecorder.isRecording())
     private val diagnosticTimeoutHandler = Handler(Looper.getMainLooper())
@@ -207,6 +209,12 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     diagnosticTimeoutHandler.post(diagnosticRefresh)
                 }
             }
+            onDeviceCommandReceived = { command ->
+                if (command.kind == 21) { // Confirmed waypoint-marker request from ESP32
+                    DiagnosticLog.event("WAYPOINT_SKIP", "phase=device_command")
+                    viewModel.skipNextWaypoint()
+                }
+            }
             onDiagnosticBatchReceived = { records ->
                 DiagnosticLog.esp32Batch(records)
             }
@@ -257,6 +265,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             val routePreview = viewModel.routePreview.collectAsState().value
             val routeOptions = viewModel.routeOptions.collectAsState().value
             val routeWaypoints = viewModel.routeWaypoints.collectAsState().value
+            val nextWaypointToSkip = viewModel.nextWaypointToSkip.collectAsState().value
             val waypointSearchResults = viewModel.waypointSearchResults.collectAsState().value
             val waypointSearching = viewModel.waypointSearching.collectAsState().value
             val waypointSearchError = viewModel.waypointSearchError.collectAsState().value
@@ -308,6 +317,8 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     routePreview = routePreview,
                     routeOptions = routeOptions,
                     routeWaypoints = routeWaypoints,
+                    nextWaypointToSkip = nextWaypointToSkip,
+                    onSkipNextWaypoint = { viewModel.skipNextWaypoint() },
                     waypointSearchResults = waypointSearchResults,
                     waypointSearching = waypointSearching,
                     waypointSearchError = waypointSearchError,
@@ -336,6 +347,12 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     },
                     onStartNavigation = { place ->
                         viewModel.startNavigation(place)
+                    },
+                    onCorridorTileCount = {
+                        viewModel.corridorTileCount(this@MainActivity)
+                    },
+                    onDownloadCorridor = {
+                        viewModel.downloadOpenFreeMapCorridor(this@MainActivity)
                     },
                     onStopNavigation = {
                         viewModel.stopNavigation()
@@ -437,10 +454,6 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         // finish() is an actual app exit, not merely Home/background navigation.
         // Release GATT and callbacks so the next launch can reconnect to an
         // already powered-on ESP32 without an orphaned Android BLE session.
-        if (LocationForegroundService.onLocationUpdate === foregroundLocationCallback) {
-            LocationForegroundService.onLocationUpdate = null
-        }
-        foregroundLocationCallback = null
         diagnosticTimeoutHandler.removeCallbacks(diagnosticRefresh)
         // The retained ViewModel owns GATT and releases it from onCleared().
         // A display rotation destroys the Activity, not the navigation session.
@@ -478,11 +491,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         var azimuthDeg: Float? = null
 
         if (event.sensor.type == Sensor.TYPE_ROTATION_VECTOR) {
-            val rotationMatrix = FloatArray(9)
             SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
-            val orientation = FloatArray(3)
-            SensorManager.getOrientation(rotationMatrix, orientation)
-            val azimuthRad = orientation[0]
+            SensorManager.getOrientation(rotationMatrix, orientationAngles)
+            val azimuthRad = orientationAngles[0]
             azimuthDeg = ((Math.toDegrees(azimuthRad.toDouble()).toFloat() % 360f) + 360f) % 360f
         } else if (event.sensor.type == Sensor.TYPE_ACCELEROMETER) {
             System.arraycopy(event.values, 0, gravity, 0, 3)
@@ -493,19 +504,17 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         }
 
         if (azimuthDeg == null && hasGravity && hasGeomagnetic) {
-            val R = FloatArray(9)
-            val I = FloatArray(9)
-            if (SensorManager.getRotationMatrix(R, I, gravity, geomagnetic)) {
-                val orientation = FloatArray(3)
-                SensorManager.getOrientation(R, orientation)
-                val azimuthRad = orientation[0]
+            if (SensorManager.getRotationMatrix(rotationMatrix, inclinationMatrix, gravity, geomagnetic)) {
+                SensorManager.getOrientation(rotationMatrix, orientationAngles)
+                val azimuthRad = orientationAngles[0]
                 azimuthDeg = ((Math.toDegrees(azimuthRad.toDouble()).toFloat() % 360f) + 360f) % 360f
             }
         }
 
         if (azimuthDeg != null) {
             val now = System.currentTimeMillis()
-            if (Math.abs(azimuthDeg - lastSentHeading) >= 1.5f || now - lastSentHeadingTime >= 150L) {
+            val deltaDeg = if (lastSentHeading < 0f) 360f else kotlin.math.abs(((azimuthDeg - lastSentHeading + 540f) % 360f) - 180f)
+            if (deltaDeg >= 1.5f || now - lastSentHeadingTime >= 150L) {
                 lastSentHeading = azimuthDeg
                 lastSentHeadingTime = now
                 viewModel.updateDeviceHeading(azimuthDeg)
