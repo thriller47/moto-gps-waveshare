@@ -31,6 +31,16 @@ Questa roadmap distingue **da verificare**, **da sviluppare** e **già implement
 
 **Prossima azione:** preparare i test nativi di montaggio/inclinazione e la strumentazione numerica, senza cambiare i guadagni dell'attuale fusione.
 
+## Priorità 1 — Categorie POI ristorazione e alloggio (DA PROGETTARE/TESTARE)
+
+**Richiesta 20/11:** cercando genericamente «ristorante», «trattoria», «bar», «albergo», «hotel» o «motel», restituire i POI reali vicini in un unico elenco, senza richiedere il nome dell'esercizio. Gruppi proposti: ristorazione (restaurant, trattorie/osterie dove i tag lo permettono), sosta (bar, cafe, pub) e alloggi (hotel, motel, guest_house e altre categorie esplicitamente concordate). Evitare di confondere bar con una strada o hotel con parole nel nome di una via; preservare la ricerca libera per nome.
+
+**Diagnosi schema esistente:** `scripts/offline_map/photon_to_sqlite.py` salva `kind=address_type` nella tabella `places`, ma la FTS4 contentless `places_fts` indicizza **solo nome, strada, civico, città, regione e CAP**, non il tipo OSM. Una query FTS per «ristorante» non recupera un locale chiamato «La Pergola». Una scansione SQLite su `places.kind` senza un indice dedicato è potenzialmente molto pesante sui milioni di luoghi del database. Il metodo a marchi implementato per la benzina è un compromesso, **non** una ricerca esaustiva per categoria.
+
+**Intervento consigliato (non ancora implementato):** verificare quali tag effettivi sono preservati nel `photon-italy.jsonl.zst` (specialmente `address_type`, eventuali classe/tipo) e quali POI sono disponibili nell'`italy-latest.osm.pbf` (`amenity=restaurant/cafe/bar/pub/fuel`, `tourism=hotel/motel/guest_house`). Predisporre un indice categoriale leggero e indicizzato per vicinanza (SQLite con categoria + lat/lon + nome/località), preferibilmente integrato nel processo MotoPack con versione e test di compatibilità espliciti, senza rallentare le ricerche per indirizzo già funzionanti. Non inventare copertura delle trattorie o affittacamere se la sorgente non le distingue. Preservare il fallback Photon online e usare filtri di categoria remoti solo se supportati dall'endpoint in uso.
+
+**Test richiesti:** ricerca generica che recuperi un POI dal nome non descrittivo; casi con e senza fix GPS; disambiguazione con strade omonime; deduplica tra fonti e sotto-categorie; classifica vicino/lontano; ristoranti/bar/hotel in località montane e in città; query per nome che non venga trasformata automaticamente in categoria. Distinguere distanze in linea d'aria da deviazione di percorso. **Nessuna implementazione o build avviata per queste categorie.**
+
 ## Priorità 1 — Ricerca unificata distributori (IMPLEMENTATA IN PARTE, DA PROVARE)
 
 **Richiesta:** «distributore» deve restituire in un'unica lista i punti carburante già indicizzati con nome del marchio, senza dover cercare Eni, Q8, IP ecc. separatamente. Implementata in `OfflinePhotonPlaceSearch.kt` una query FTS4 unica, con alias generici e marchi italiani comuni, filtri contro falsi positivi e ordinamento GPS. Funziona con l'indice SQLite Photon v2 esistente, **senza rigenerare MotoPack**. Test JUnit aggiunti, non eseguiti; APK da compilare e collaudare.
