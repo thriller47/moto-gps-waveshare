@@ -1,6 +1,6 @@
 # Moto Chat GPS — Manuale operativo
 
-**Aggiornato:** 19 novembre 2026 (integrazione GPS/IMU, MotoPack e Turn Assist) · **Repository:** `thriller47/moto-gps-waveshare` · **Branch stabile di riferimento:** `valhalla`.
+**Aggiornato:** 20 novembre 2026 (diagnosi corridoio OpenFreeMap online, ricerca Photon, GPS/IMU e MotoPack) · **Repository:** `thriller47/moto-gps-waveshare` · **Branch stabile di riferimento:** `valhalla`.
 
 Queste sono le **procedure operative correnti**, per Waveshare ESP32-S3-Touch-AMOLED-1.75C e app Android. Le istruzioni distinguono **Windows PowerShell**, **CMD ESP-IDF** e **WSL Ubuntu-24.04**: i rispettivi comandi non sono intercambiabili. La porta USB `COM3` è un esempio da verificare sul PC.
 
@@ -125,6 +125,12 @@ Nella schermata iniziale la ricerca destinazione è l'azione principale, seguita
 **Nel branch `test/waypoint-markers-20261119`, non ancora nella baseline `valhalla`:** cercare una destinazione o una tappa interroga prima Photon SQLite v2 italiano; **se non restituisce risultati**, usa Photon online quando disponibile, anche per luoghi fuori Italia. I risultati offline sono ordinati con preferenza alle corrispondenze pertinenti vicine al GPS; quelli online richiedono fino a 30 candidati e applicano una preferenza geografica analoga, mostrando al massimo otto risultati. Quando il GPS è disponibile, la distanza mostrata è **in linea d'aria**, non chilometri di guida. Una città espressamente indicata (es. `Via Roma, Torino`) prevale sulla vicinanza.
 
 **Verifica ancora richiesta su APK finale:** `Via Roma` vicino, `Via Roma, Torino`, località estera, GPS assente e rete assente. Il database Photon non è garantito come indice esaustivo di categorie POI: trovare un marchio di distributore non dimostra la ricerca di tutti i distributori entro un raggio. Questa modifica non richiede rigenerare MotoPack.
+
+### Strade di contesto quando si naviga online senza MotoPack — branch test
+
+Valhalla **online** calcola il percorso ma **non fornisce da solo** le strade grigie dell'ESP32. Nella schermata di anteprima, dopo il calcolo, premere **Avvia navigazione**: se mancano tile del corridoio, l'app propone **Prepara strade OpenFreeMap** e permette **Avvia e scarica** oppure **Avvia senza download**. Lo scaricamento è un'azione esplicita, non parte automaticamente dal GPS; i file restano in cache per gli utilizzi successivi. La rotta verde può partire subito, mentre le strade grigie compaiono dopo la disponibilità dei dati. Il download ha limiti documentati di **3.000 tile / 50 MB**.
+
+**Bug riscontrato durante il test del 20/11 (senza MotoPack):** `MainActivity` non collegava i callback di conteggio tile e download, quindi il dialogo non compariva e il contesto restava vuoto. Corretto nel branch `test/waypoint-markers-20261119`, **da compilare e verificare sul dispositivo**. Per una nuova prova controllare se la UI propone il corridoio e se la diagnostica registra `OFM_COVERAGE` e `OFM_CORRIDOR`; `OSM_CONTEXT segments=0` da solo non certifica un errore del routing.
 
 ## 3. GitHub Actions e Android
 
