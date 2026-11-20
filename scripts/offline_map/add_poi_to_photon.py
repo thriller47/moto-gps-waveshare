@@ -18,6 +18,7 @@ import argparse
 import collections
 import math
 import sqlite3
+import tempfile
 from pathlib import Path
 
 CATEGORIES = {
@@ -124,8 +125,13 @@ def build(pbf, database):
                     sum(p[1] for p in coords) / len(coords))
 
         # locations=True resolves way nodes, including POIs mapped as building
-        # outlines. sparse_file_array is disk-oriented to limit WSL memory usage.
-        POIs().apply_file(str(source), locations=True, idx="sparse_file_array")
+        # outlines. A file-backed sparse index needs an explicit filename;
+        # keep it temporary and inside WSL to conserve RAM and allow cleanup.
+        with tempfile.TemporaryDirectory(prefix="motopoi-nodes-",
+                                         dir=target.parent) as scratch:
+            node_index = str(Path(scratch) / "nodes.idx")
+            POIs().apply_file(str(source), locations=True,
+                              idx="sparse_file_array," + node_index)
         if not sum(counts.values()):
             raise ValueError("No POIs found: verify source OSM PBF and tags")
         db.execute("INSERT INTO metadata(key,value) VALUES('poi_schema','1')")
