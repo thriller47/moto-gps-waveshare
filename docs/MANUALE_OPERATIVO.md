@@ -142,6 +142,32 @@ Valhalla **online** calcola il percorso ma **non fornisce da solo** le strade gr
 
 **Copertura mista Italia/Francia:** se hai MotoMap Italia installato e calcoli un itinerario oltre confine, la logica del corridoio verifica **tutta la rotta**, esclude dal conteggio le tile già coperte dal MotoMap e propone di scaricare solo quelle ancora mancanti, anche francesi. Un test specifico è stato aggiunto nel branch sperimentale ma non ancora eseguito. **Attenzione:** il download OpenFreeMap aggiunge solo strade di contesto grigie: non estende Valhalla V5 Italia, quindi i percorsi francesi necessitano di routing online salvo disponibilità di un grafo locale adeguato. Se il piano supera 3.000 tile o 50 MB, attualmente non esiste download automatico a tranche; suddividere il viaggio o predisporre dati offline appropriati. Il conteggio viene effettuato in anteprima e va verificata la fluidità su MotoMap grandi.
 
+### POI offline: carburante, ristoranti, bar e alloggi — nuova rigenerazione
+
+Nel branch di test la procedura **unica** di rigenerazione crea ora un indice di punti di interesse direttamente dentro `photon-italy-v2.sqlite`, usando **`italy-latest.osm.pbf`**: nodi e perimetri OSM con tag `amenity=fuel/restaurant/fast_food/cafe/bar/pub` e `tourism=hotel/motel/guest_house/hostel/apartment/chalet`. L'indice contiene categoria, sottotipo, nome (o un'etichetta generica) e coordinate; **non richiede un quarto file nel MotoPack né cambia lo schema principale Photon v2**. Il generatore usa `pyosmium` già previsto negli strumenti WSL e un indice su disco per i nodi delle geometrie.
+
+**Comando WSL (ambiente e PBF già configurati):**
+
+```bash
+cd ~/MotoGPS/moto-gps-waveshare
+git switch test/waypoint-markers-20261119
+git pull --ff-only origin test/waypoint-markers-20261119
+source ~/valhalla-env/bin/activate
+bash scripts/offline_map/rebuild_motopack_wsl.sh --threads 2
+```
+
+Lo script genera normalmente MotoMap, Photon + POI e Valhalla in staging, verifica il bundle e **sostituisce la cartella di output solo a lavoro completato**. Senza modifica del formato del MotoPack, `motopack.py verify` mantiene il controllo dei tre componenti. Per aggiungere i soli POI a **una nuova copia** di Photon v2 già pronta, senza ricostruire il resto, si può usare in alternativa:
+
+```bash
+python3 scripts/offline_map/add_poi_to_photon.py \
+  --pbf /mnt/c/MotoGPS/PBF/italy-latest.osm.pbf \
+  --sqlite /percorso/alla/copia/photon-italy-v2.sqlite
+```
+
+**Non puntare questo comando al Photon attualmente installato sul telefono o a un file di produzione senza backup**: lo script modifica il file SQLite indicato e rifiuta di eseguire una seconda aggiunta allo stesso indice.
+
+**Ricerca dopo aver installato il nuovo pacchetto con l'APK aggiornato:** `distributore`, `ristorante`, `trattoria`, `bar`, `caffetteria`, `albergo`, `hotel`, `motel` cercano POI per categoria in prossimità del fix GPS, indipendentemente dalla presenza del termine nel nome. Le categorie dipendono dai tag OSM effettivamente disponibili; `trattoria` include ristoranti in generale, `albergo` include anche alcune altre forme di ospitalità. La distanza mostrata è in linea d'aria. La ricerca per nome normale rimane invariata. **Il nuovo flusso non è ancora stato collaudato su un dataset italiano completo né sul telefono**: verificare prima SQLite, copertura POI, prestazioni, duplicati e import MotoPack.
+
 ## 3. GitHub Actions e Android
 
 [GitHub Actions — Project Build](https://github.com/thriller47/moto-gps-waveshare/actions/workflows/project-build.yml). Le job `native`, `android` ed `esp32` sono selettive; `skipped` non è equivalente a un test superato. Per il codice avviare **una sola CI consolidata alla fine**; una modifica al solo manuale non richiede build.
