@@ -31,6 +31,12 @@ Questa roadmap distingue **da verificare**, **da sviluppare** e **già implement
 
 **Prossima azione:** preparare i test nativi di montaggio/inclinazione e la strumentazione numerica, senza cambiare i guadagni dell'attuale fusione.
 
+## Priorità 1 — Ricerca unificata distributori (IMPLEMENTATA IN PARTE, DA PROVARE)
+
+**Richiesta:** «distributore» deve restituire in un'unica lista i punti carburante già indicizzati con nome del marchio, senza dover cercare Eni, Q8, IP ecc. separatamente. Implementata in `OfflinePhotonPlaceSearch.kt` una query FTS4 unica, con alias generici e marchi italiani comuni, filtri contro falsi positivi e ordinamento GPS. Funziona con l'indice SQLite Photon v2 esistente, **senza rigenerare MotoPack**. Test JUnit aggiunti, non eseguiti; APK da compilare e collaudare.
+
+**Verifiche:** cerca «distributore», «benzinaio», «stazione di servizio», «Eni» e «Q8» con indice locale; controlla prossimità, duplicati, POI non carburante e risultati lontani. **Non è copertura completa:** stazioni anonime, marchi diversi e località non presenti nel DB potrebbero sfuggire. Per un catalogo esaustivo serve esaminare il dump e indicizzare l'attributo OSM `amenity=fuel` (potrebbe implicare rigenerazione v2 o migrazione), non moltiplicare richieste al Photon pubblico. La variante online rimane la ricerca normale, da studiare separatamente rispettando fair use.
+
 ## Priorità 1 — Ricerca Photon locale e fallback online (IMPLEMENTATA, DA RICOLLAUDARE)
 
 Nel branch di test sono presenti: fallback a Photon online quando la ricerca SQLite v2 restituisce zero risultati; ranking offline con preferenza geografica; ricerca online fino a 30 candidati e ranking nell'app fino a 8 risultati; distanze in linea d'aria per risultati di destinazioni e tappe quando il GPS è disponibile.
