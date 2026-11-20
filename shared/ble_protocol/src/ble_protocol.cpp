@@ -478,6 +478,10 @@ Error validate(const MapScene& value) {
   return Error::None;
 }
 
+Error validate(const PowerPolicy& value) {
+  return value.coffee_timeout_minutes >= 1 && value.coffee_timeout_minutes <= 30
+             ? Error::None : Error::OutOfRange;
+}
 Error validate(const DiagnosticControl& value) {
   return value.mode <= 2 ? Error::None : Error::InvalidEnum;
 }
@@ -512,6 +516,8 @@ BytesResult encode_payload(const T& value) {
     writer.u32(value.session_id);
     writer.u16(value.max_frame_size);
     writer.u16(value.heartbeat_interval_ms);
+  } else if constexpr (std::is_same_v<T, PowerPolicy>) {
+    writer.u8(value.coffee_timeout_minutes);
   } else if constexpr (std::is_same_v<T, Heartbeat>) {
     writer.u32(value.session_id);
     writer.u32(value.monotonic_ms);
@@ -927,6 +933,16 @@ MessageResult decode_map_scene(ByteView payload) {
       }
       reader.require_end();
     }
+  }
+  return decoded_result(std::move(value), reader);
+}
+
+MessageResult decode_power_policy(ByteView payload) {
+  Reader reader(payload);
+  PowerPolicy value;
+  if (begin_payload(reader)) {
+    value.coffee_timeout_minutes = reader.u8();
+    reader.require_end();
   }
   return decoded_result(std::move(value), reader);
 }
@@ -1546,6 +1562,8 @@ MessageType message_type(const Message& message) noexcept {
           return MessageType::MapScene;
         } else if constexpr (std::is_same_v<T, DiagnosticControl>) {
           return MessageType::DiagnosticControl;
+        } else if constexpr (std::is_same_v<T, PowerPolicy>) {
+          return MessageType::PowerPolicy;
         } else if constexpr (std::is_same_v<T, DiagnosticBatch>) {
           return MessageType::DiagnosticBatch;
         } else {
@@ -1580,6 +1598,8 @@ MessageResult decode_message(MessageType type, ByteView payload) {
       return decode_diagnostic_control(payload);
     case MessageType::DiagnosticBatch:
       return decode_diagnostic_batch(payload);
+    case MessageType::PowerPolicy:
+      return decode_power_policy(payload);
   }
   return {{}, Error::UnknownMessageType, 0};
 }
