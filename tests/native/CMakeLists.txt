@@ -113,6 +113,13 @@ target_compile_definitions(ble_protocol_tests PRIVATE
   "MOTO_BLE_GOLDEN_FIXTURE=\"${CMAKE_CURRENT_LIST_DIR}/../../shared/protocol/fixtures/ble-navigation-v1.golden.txt\""
 )
 
+add_executable(coffee_pause_policy_tests coffee_pause_policy_tests.cpp)
+target_include_directories(coffee_pause_policy_tests PRIVATE
+  "${CMAKE_CURRENT_LIST_DIR}/../../platforms/esp32/main"
+)
+target_compile_features(coffee_pause_policy_tests PRIVATE cxx_std_17)
+add_test(NAME coffee_pause_policy_tests COMMAND coffee_pause_policy_tests)
+
 add_executable(connection_epoch_gate_tests connection_epoch_gate_tests.cpp)
 target_include_directories(connection_epoch_gate_tests PRIVATE
   "${CMAKE_CURRENT_LIST_DIR}/../../platforms/esp32/main"
