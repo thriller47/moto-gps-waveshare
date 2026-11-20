@@ -47,6 +47,7 @@ import com.motogps.android.viewmodel.SavedCircularTour
 import com.motogps.android.viewmodel.TourSession
 import com.motogps.android.viewmodel.RouteOption
 import org.json.JSONArray
+import kotlin.math.roundToInt
 import org.osmdroid.config.Configuration
 import org.osmdroid.events.MapEventsReceiver
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
@@ -593,6 +594,8 @@ fun NavigationScreen(
     onCircularTour: (Int, Int) -> Unit = { _, _ -> },
     onConnectRequest: () -> Unit,
     connectionState: String,
+    coffeeTimeoutMinutes: Int = 10,
+    onCoffeeTimeoutChange: (Int) -> Unit = {},
     isLoading: Boolean,
     searchResults: List<PlaceSearchResult>,
     routePreview: PlaceSearchResult?,
@@ -907,6 +910,7 @@ fun NavigationScreen(
     }
 
     var showMoreMenu by remember { mutableStateOf(false) }
+    var showCoffeeDialog by remember { mutableStateOf(false) }
     var showDiagnosticsDialog by remember { mutableStateOf(false) }
     var showInfoDialog by remember { mutableStateOf(false) }
     var showRoutePreferencesDialog by remember { mutableStateOf(false) }
@@ -947,6 +951,50 @@ fun NavigationScreen(
             preferences = routePreferences,
             onChange = onRoutePreferencesChange,
             onDismiss = { showRoutePreferencesDialog = false }
+        )
+    }
+
+    if (showCoffeeDialog) {
+        var draftMinutes by remember(showCoffeeDialog) {
+            mutableFloatStateOf(coffeeTimeoutMinutes.toFloat())
+        }
+        AlertDialog(
+            onDismissRequest = { showCoffeeDialog = false },
+            title = { Text("☕ Pausa caffè") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "Dopo 30 secondi senza Bluetooth lo schermo si spegne, " +
+                            "ma il dispositivo resta raggiungibile. Se torni " +
+                            "prima del limite, si riaccende e riprende la navigazione."
+                    )
+                    Text("Spegnimento dopo: ${draftMinutes.roundToInt()} minuti",
+                        style = MaterialTheme.typography.titleMedium)
+                    Slider(
+                        value = draftMinutes,
+                        onValueChange = { draftMinutes = it },
+                        valueRange = 1f..30f,
+                        steps = 28
+                    )
+                    Text(
+                        "Predefinito: 10 minuti · Massimo: 30 minuti. " +
+                            "Dopo lo spegnimento serve il pulsante fisico. " +
+                            "L'arrivo mantiene lo spegnimento dopo 2 minuti.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    onCoffeeTimeoutChange(draftMinutes.roundToInt().coerceIn(1, 30))
+                    showCoffeeDialog = false
+                }) { Text("Salva") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCoffeeDialog = false }) {
+                    Text("Annulla")
+                }
+            }
         )
     }
 
@@ -1091,6 +1139,8 @@ fun NavigationScreen(
                             }
                             DropdownMenu(expanded = showMoreMenu,
                                 onDismissRequest = { showMoreMenu = false }) {
+                                DropdownMenuItem(text = { Text("☕ Pausa caffè") },
+                                    onClick = { showMoreMenu = false; showCoffeeDialog = true })
                                 DropdownMenuItem(text = { Text("Mappe offline") },
                                     onClick = { showMoreMenu = false; showOfflineDialog = true })
                                 DropdownMenuItem(text = { Text("Diagnostica e replay GPS") },
@@ -1127,6 +1177,8 @@ fun NavigationScreen(
                             }
                             DropdownMenu(expanded = showMoreMenu,
                                 onDismissRequest = { showMoreMenu = false }) {
+                                DropdownMenuItem(text = { Text("☕ Pausa caffè") },
+                                    onClick = { showMoreMenu = false; showCoffeeDialog = true })
                                 DropdownMenuItem(text = { Text("Mappe offline") },
                                     onClick = { showMoreMenu = false; showOfflineDialog = true })
                                 DropdownMenuItem(text = { Text("Diagnostica e replay GPS") },
