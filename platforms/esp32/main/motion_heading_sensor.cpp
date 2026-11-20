@@ -168,6 +168,12 @@ esp_err_t MotionHeadingSensor::run() {
   int consecutive_failures = 0;
   next_sample_tick = xTaskGetTickCount();
   while (true) {
+    if (coffee_paused_.load(std::memory_order_relaxed)) {
+      vTaskDelay(pdMS_TO_TICKS(250));
+      // vTaskDelayUntil requires a fresh reference after a long pause.
+      next_sample_tick = xTaskGetTickCount();
+      continue;
+    }
     bool ready = false;
     esp_err_t result = qmi8658_is_data_ready(&device, &ready);
     if (result == ESP_OK && ready) {
