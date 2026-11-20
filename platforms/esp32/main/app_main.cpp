@@ -1,7 +1,9 @@
+#include <atomic>
 #include <cstdint>
 
 #include "ble_nav_transport_nimble.h"
 #include "board_port.h"
+#include "coffee_pause_policy.hpp"
 #include "esp_err.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -58,8 +60,11 @@ extern "C" void signal_request_mode(int radio) {
 namespace {
 constexpr char kTag[] = "moto_gps";
 constexpr std::uint64_t kPowerHoldMs = 3'000;
-constexpr std::uint64_t kAutoPowerOffMs = 120'000;
+// Arrival still powers down 120 seconds after arrival. BLE-loss coffee
+// deadlines are handled by CoffeePausePolicy below.
 constexpr std::uint64_t kBatteryPollMs = 30'000;
+
+std::atomic<bool> s_coffee_paused{false};
 
 moto::ble::AckStatus receive_phone_message(
     const moto::ble::ReassembledMessage& message, void* context) {
@@ -72,8 +77,10 @@ void update_phone_link(bool active, void* context) {
 
 void update_motion_heading(float heading_rate_dps, std::uint64_t sample_ms,
                            void* context) {
-  static_cast<PhoneNavBridge*>(context)->on_imu_sample(heading_rate_dps,
-                                                       sample_ms);
+  if (!s_coffee_paused.load(std::memory_order_relaxed)) {
+    static_cast<PhoneNavBridge*>(context)->on_imu_sample(heading_rate_dps,
+                                                         sample_ms);
+  }
 }
 
 void motion_tick_task(void* context) {
@@ -82,6 +89,11 @@ void motion_tick_task(void* context) {
   while (true) {
     const auto now_ms = static_cast<std::uint64_t>(esp_timer_get_time()) /
                         1'000U;
+    if (s_coffee_paused.load(std::memory_order_relaxed)) {
+      vTaskDelay(pdMS_TO_TICKS(250));
+      last_wake_time = xTaskGetTickCount();
+      continue;
+    }
     bridge->update_motion_tick();
     // A maximum of one small diagnostic BLE batch/second, only when
     // explicitly enabled by Android. OFF does no work and never writes flash.
@@ -141,40 +153,62 @@ void power_down(const char* reason) {
   esp_deep_sleep_start();
 }
 
+struct PowerMonitorContext {
+  PhoneNavBridge* bridge;
+  MotionHeadingSensor* sensor;
+};
+
 void power_monitor_task(void* context) {
-  auto* bridge = static_cast<PhoneNavBridge*>(context);
-  std::uint64_t pending_since = 0;
-  bool pending = false;
+  auto* power = static_cast<PowerMonitorContext*>(context);
+  auto* bridge = power->bridge;
+  CoffeePausePolicy policy;
   std::uint64_t last_battery_poll = 0;
+  bool paused = false;
   while (true) {
     // Consume the deferred radio command once, outside the LVGL lock.
     if (s_radio_restart_requested.exchange(false, std::memory_order_acq_rel)) {
       ESP_LOGI(kTag, "Radio mode requested from UI; restarting outside LVGL lock");
       signal_request_mode(1);
     }
-    const auto now = static_cast<std::uint64_t>(esp_timer_get_time()) / 1000U;
+
+    const auto now = static_cast<std::uint64_t>(esp_timer_get_time()) / 1'000U;
     const bool connected = bridge->phone_connected();
-    const bool should_shutdown = bridge->has_ever_connected() &&
-        (!connected || bridge->phone_arrived());
-    if (!should_shutdown) {
-      pending = false;
-    } else if (!pending) {
-      pending = true;
-      pending_since = now;
-      ESP_LOGI(kTag, "Auto power off countdown started (120 s): %s",
-               connected ? "arrival" : "phone disconnected");
-    } else if (now - pending_since >= kAutoPowerOffMs) {
-      if (bridge->has_ever_connected() &&
-          (!bridge->phone_connected() || bridge->phone_arrived()))
-        power_down("120s after arrival or BLE disconnection");
-      pending = false;
+    const auto state = policy.update(now, bridge->has_ever_connected(),
+                                     connected, bridge->phone_arrived(),
+                                     bridge->coffee_timeout_minutes());
+    if (state == CoffeePausePolicy::State::PowerOffAfterArrival) {
+      power_down("120s after arrival");
+    } else if (state == CoffeePausePolicy::State::PowerOffAfterLoss) {
+      power_down("coffee pause timeout after BLE disconnection");
     }
+
+    const bool want_pause = state == CoffeePausePolicy::State::Paused;
+    if (want_pause != paused) {
+      // Do NOT shut down NimBLE: advertising must remain available for
+      // Android's already tested automatic reconnect.
+      if (board_port_lock(250)) {
+        const auto err = board_port_set_display_awake(!want_pause);
+        board_port_unlock();
+        if (err == ESP_OK) {
+          paused = want_pause;
+          s_coffee_paused.store(paused, std::memory_order_relaxed);
+          power->sensor->set_coffee_paused(paused);
+          ESP_LOGI(kTag, "COFFEE_PAUSE state=%s timeout_min=%u",
+                   paused ? "entered" : "resumed",
+                   static_cast<unsigned>(bridge->coffee_timeout_minutes()));
+        } else {
+          ESP_LOGW(kTag, "COFFEE_PAUSE AMOLED change failed: %s",
+                   esp_err_to_name(err));
+        }
+      }
+    }
+
     if (last_battery_poll == 0 || now - last_battery_poll >= kBatteryPollMs) {
       last_battery_poll = now;
       int battery = -1;
       bool charging = false;
       const bool valid = board_port_read_battery(&battery, &charging);
-      if (board_port_lock(100)) {
+      if (!paused && board_port_lock(100)) {
         moto_nav_ui_set_battery(valid ? battery : -1, charging ? 1 : 0);
         board_port_unlock();
       }
@@ -408,8 +442,9 @@ extern "C" void app_main(void) {
     return;
   }
   ESP_LOGI(kTag, "BOOT_DIAG stage=renderer_ready");
+  static PowerMonitorContext power_monitor_context{&phone_bridge, &motion_sensor};
   if (xTaskCreate(power_monitor_task, "moto_auto_power", 3'072,
-                  &phone_bridge, 2, nullptr) != pdPASS) {
+                  &power_monitor_context, 2, nullptr) != pdPASS) {
     ESP_LOGW(kTag, "automatic power monitor could not start");
   }
 
