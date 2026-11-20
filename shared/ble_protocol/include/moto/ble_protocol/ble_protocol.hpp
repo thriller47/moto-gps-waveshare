@@ -122,6 +122,8 @@ enum class MessageType : std::uint8_t {
   DeviceCommand = 0x20,
   DiagnosticControl = 0x21,
   DiagnosticBatch = 0x22,
+  // Optional app setting. Older firmware ignores this new message type.
+  PowerPolicy = 0x23,
 };
 
 enum FrameFlag : std::uint8_t {
@@ -591,6 +593,15 @@ struct DiagnosticRecord {
   }
 };
 static_assert(sizeof(DiagnosticRecord) == 32, "diagnostic record ABI");
+// Time between an unexpected BLE loss and final power-off (1..30 min).
+// The 30-second display-only coffee pause remains fixed.
+struct PowerPolicy {
+  std::uint8_t coffee_timeout_minutes = 10;
+  bool operator==(const PowerPolicy& rhs) const noexcept {
+    return coffee_timeout_minutes == rhs.coffee_timeout_minutes;
+  }
+};
+
 struct DiagnosticBatch {
   std::vector<DiagnosticRecord> records;
   bool operator==(const DiagnosticBatch& rhs) const noexcept {
@@ -607,7 +618,8 @@ using Message = std::variant<ConnectionStatus,
                              MapScene,
                              DeviceCommand,
                              DiagnosticControl,
-                             DiagnosticBatch>;
+                             DiagnosticBatch,
+                             PowerPolicy>;
 
 using MessageResult = Result<Message>;
 
