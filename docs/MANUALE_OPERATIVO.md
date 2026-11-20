@@ -153,11 +153,26 @@ python3 -m unittest discover \
 
 Questo controlla lo script POI con dati sintetici; **non** è una prova di generazione completa sul PBF Italia. Per avviare la ricostruzione reale seguire la sezione 2. In caso di errori fermarsi prima di sostituire i dati esistenti. Gli strumenti POI e la procedura integrata sono ancora **da collaudare con l'intero dataset italiano** nel branch sperimentale.
 
-### Riconnessione BLE automatica dopo allontanamento (20 novembre 2026 — da collaudare)
+### Riconnessione BLE automatica dopo allontanamento (20 novembre 2026 — collaudata)
 
 Se la connessione tra telefono ed ESP32 si interrompe **involontariamente** (es. allontanamento con errore GATT 19, oppure altra perdita link), Android riprova la scansione del servizio BLE automaticamente. Il recupero applica scansioni di **12 secondi**, separate da pause crescenti di **1,5 / 3 / 6 / 12 / 30 secondi** (poi 30 secondi). Quando il collegamento torna disponibile, il normale handshake riattiva il precedente ripristino della rotta (geometria e snapshot) senza chiedere di avviare nuovamente la navigazione. La pressione volontaria di **Disconnetti** e la chiusura dell'app interrompono i tentativi; non invia richieste ripetute di avvio radio all'ESP32.
 
-**Test richiesto:** avviare una navigazione, allontanarsi finché BLE si disconnette, tornare entro il raggio BLE senza premere Connetti e controllare se si ristabilisce automaticamente la sessione. La diagnostica riporta `BLE_RECONNECT phase=lost`, `phase=scheduled delay_ms=...`, `phase=scan`, `phase=scan_timeout` o `phase=scan_failed`. Verificare anche che la disconnessione manuale **non** riavvii la scansione e che, al rientro, rotta e navigazione siano immediatamente disponibili. **Non ancora compilato né provato sul dispositivo**; modifica solo Android.
+**Test richiesto:** avviare una navigazione, allontanarsi finché BLE si disconnette, tornare entro il raggio BLE senza premere Connetti e controllare se si ristabilisce automaticamente la sessione. La diagnostica riporta `BLE_RECONNECT phase=lost`, `phase=scheduled delay_ms=...`, `phase=scan`, `phase=scan_timeout` o `phase=scan_failed`. Verificare anche che la disconnessione manuale **non** riavvii la scansione e che, al rientro, rotta e navigazione siano immediatamente disponibili. **Confermata dall'utente al primo tentativo su dispositivo**, senza necessità di ricollegarsi manualmente.
+
+### Pausa caffè — sviluppo sperimentale da collaudare (ESP32 + Android, 20/11/2026)
+
+**Branch di test:** `test/coffee-pause-20261120`. Il BLE Android si è già riconnesso da solo su strada; questa nuova funzione energetica **non è ancora stata compilata né provata fisicamente**.
+
+- Dall'app Android: **⋮ → ☕ Pausa caffè**. Selezionare un limite di **1–30 minuti** (predefinito **10 minuti**) e premere **Salva**. L'impostazione rimane nelle preferenze Android; viene inviata all'ESP32 mediante un messaggio BLE `PowerPolicy (0x23)` **dopo ogni handshake riuscito** e anche quando la si modifica durante una connessione. L'ESP trattiene il valore in RAM durante l'allontanamento, senza dipendere dal telefono; a ogni nuova accensione viene reimpostato a 10 minuti fino al primo collegamento Android.
+- Dopo **30 secondi senza connessione BLE** e dopo che c'è stata almeno una connessione: luminosità del CO5300 a zero (OLED nero), rendering IMU e campionamento software ridotti. **NimBLE resta attivo in advertising**, quindi Android può rilevare e riconnettere l'ESP. Non è deep sleep in questa fase; TE e controller display restano inizializzati per un risveglio rapido.
+- Se il BLE ritorna prima della scadenza: luminosità a 100, campionamento IMU regolare e ri-sincronizzazione navigazione dal telefono **senza riavviare la rotta**.
+- Se l'assenza BLE dura per il limite configurato, misurato **dall'inizio dell'assenza** (non da 30 secondi dopo), il dispositivo esegue lo **spegnimento AXP2101**, con fallback deep sleep come prima. Dopo lo spegnimento il BLE **non può riaccendere** il dispositivo: usare il pulsante fisico.
+- **Arrivo a destinazione:** conserva il precedente autospegnimento dopo **120 secondi** dall'arrivo, anche in caso di successiva disconnessione. Il pulsante PWR con pressione di **3 secondi** resta invariato.
+- Non viene inviato un comando ripetuto per avviare la radio. Un ESP32 con firmware precedente ignora il nuovo controllo opzionale e conserva il suo comportamento precedente.
+
+**Test consigliati:** aggiornare **sia APK sia firmware ESP32**, aprire la voce Pausa caffè e selezionare per esempio **1 minuto** per una prova rapida; con navigazione attiva allontanarsi, verificare schermo nero a ~30 s, rientrare prima di 1 min e verificare risveglio e rotta già pronta. Ripetere lasciando scadere 1 min e controllare lo spegnimento (senza aspettarsi risveglio BLE). Impostare 10/30 min per verificare la sincronizzazione configurazione. Riprovare anche arrivo a destinazione e pulsante manuale. Leggere log seriale ESP32 `COFFEE_PAUSE state=entered/resumed`, `Coffee pause auto-off timeout: N min`, `Power off requested: coffee pause timeout...` e diagnostica Android `BLE_POWER_POLICY`.
+
+**Nota consumi:** schermo nero e polling IMU più lento dovrebbero ridurre il consumo; **l'autonomia effettiva non è misurata** e va verificata con batteria/USB nelle diverse condizioni.
 
 ## 2. Rigenerazione completa MotoPack — procedura consigliata
 
