@@ -128,6 +128,38 @@ void test_power_monitor_tracks_arrival_and_phone_reconnection() {
   CHECK(bridge.has_ever_connected());
 }
 
+void test_coffee_timeout_settings_require_handshake_and_survive_disconnect() {
+  moto::nav::NavPresenter presenter;
+  PhoneNavBridge bridge(presenter);
+  CHECK(bridge.coffee_timeout_minutes() == 10);
+  CHECK(bridge.on_message(make_message(
+      moto::ble::PowerPolicy{30}, 1)) == moto::ble::AckStatus::InvalidState);
+  bridge.on_link_state(true);
+  CHECK(bridge.on_message(make_message(
+      moto::ble::PowerPolicy{30}, 2)) == moto::ble::AckStatus::InvalidState);
+  moto::ble::ConnectionStatus connected;
+  connected.role = moto::ble::EndpointRole::Phone;
+  connected.state = moto::ble::ConnectionState::Ready;
+  connected.session_id = 77;
+  connected.max_frame_size = 185;
+  CHECK(bridge.on_message(make_message(connected, 3)) ==
+        moto::ble::AckStatus::Ok);
+  CHECK(bridge.on_message(make_message(
+      moto::ble::PowerPolicy{30}, 4)) == moto::ble::AckStatus::Ok);
+  CHECK(bridge.coffee_timeout_minutes() == 30);
+  bridge.on_link_state(false);
+  CHECK(bridge.coffee_timeout_minutes() == 30);
+  CHECK(bridge.on_message(make_message(
+      moto::ble::PowerPolicy{5}, 5)) == moto::ble::AckStatus::InvalidState);
+  bridge.on_link_state(true);
+  connected.session_id = 78;
+  CHECK(bridge.on_message(make_message(connected, 6)) ==
+        moto::ble::AckStatus::Ok);
+  CHECK(bridge.on_message(make_message(
+      moto::ble::PowerPolicy{5}, 7)) == moto::ble::AckStatus::Ok);
+  CHECK(bridge.coffee_timeout_minutes() == 5);
+}
+
 void test_diagnostic_control_is_opt_in_and_requires_link() {
   moto::nav::NavPresenter presenter;
   PhoneNavBridge bridge(presenter);
@@ -618,6 +650,7 @@ int main() {
   test_waypoint_notice_deduplicates_and_clears_on_idle();
   test_diagnostic_control_is_opt_in_and_requires_link();
   test_power_monitor_tracks_arrival_and_phone_reconnection();
+  test_coffee_timeout_settings_require_handshake_and_survive_disconnect();
   test_ble_submission_never_waits_for_lvgl_and_retries_latest_state();
   test_phone_connection_lifecycle_reaches_the_ui();
   test_waypoint_skip_command_requires_active_stop();
