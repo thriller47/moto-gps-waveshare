@@ -657,8 +657,14 @@ class MotoBLEManager(private val context: Context) {
         disconnect(userRequested = false)
         onConnectionStateChange?.invoke("Ricerca in corso...")
         val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
-        val adapter = bluetoothManager.adapter ?: return
-        val scanner = adapter.bluetoothLeScanner ?: return
+        val adapter = bluetoothManager.adapter
+        val scanner = adapter?.bluetoothLeScanner
+        if (scanner == null) {
+            DiagnosticLog.event("BLE_RECONNECT", "phase=scanner_unavailable")
+            onConnectionStateChange?.invoke("Non connesso")
+            if (reconnectEnabled) scheduleReconnect()
+            return
+        }
 
         val filter = ScanFilter.Builder()
             .setServiceUuid(ParcelUuid(serviceUuid))
