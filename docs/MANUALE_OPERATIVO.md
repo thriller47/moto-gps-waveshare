@@ -153,6 +153,12 @@ python3 -m unittest discover \
 
 Questo controlla lo script POI con dati sintetici; **non** è una prova di generazione completa sul PBF Italia. Per avviare la ricostruzione reale seguire la sezione 2. In caso di errori fermarsi prima di sostituire i dati esistenti. Gli strumenti POI e la procedura integrata sono ancora **da collaudare con l'intero dataset italiano** nel branch sperimentale.
 
+### Riconnessione BLE automatica dopo allontanamento (20 novembre 2026 — da collaudare)
+
+Se la connessione tra telefono ed ESP32 si interrompe **involontariamente** (es. allontanamento con errore GATT 19, oppure altra perdita link), Android riprova la scansione del servizio BLE automaticamente. Il recupero applica scansioni di **12 secondi**, separate da pause crescenti di **1,5 / 3 / 6 / 12 / 30 secondi** (poi 30 secondi). Quando il collegamento torna disponibile, il normale handshake riattiva il precedente ripristino della rotta (geometria e snapshot) senza chiedere di avviare nuovamente la navigazione. La pressione volontaria di **Disconnetti** e la chiusura dell'app interrompono i tentativi; non invia richieste ripetute di avvio radio all'ESP32.
+
+**Test richiesto:** avviare una navigazione, allontanarsi finché BLE si disconnette, tornare entro il raggio BLE senza premere Connetti e controllare se si ristabilisce automaticamente la sessione. La diagnostica riporta `BLE_RECONNECT phase=lost`, `phase=scheduled delay_ms=...`, `phase=scan`, `phase=scan_timeout` o `phase=scan_failed`. Verificare anche che la disconnessione manuale **non** riavvii la scansione e che, al rientro, rotta e navigazione siano immediatamente disponibili. **Non ancora compilato né provato sul dispositivo**; modifica solo Android.
+
 ## 2. Rigenerazione completa MotoPack — procedura consigliata
 
 **Un unico comando in WSL** ricrea **MotoMap v4** (strade e copertura), **Photon SQLite v2 con POI OSM** (ricerca indirizzi, carburante, ristorazione e alloggi), **Valhalla V5** (grafo moto dal PBF aggiornato), quindi assembla e verifica il pacchetto `MotoChatGPS-Italia.motopack`. Usa lo script `scripts/offline_map/rebuild_motopack_wsl.sh`, presente nel branch sperimentale.
