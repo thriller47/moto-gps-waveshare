@@ -129,6 +129,31 @@ class MotoBLEManager(private val context: Context) {
         codecPtr = bleCodec.nativeInit(20) // Default ATT MTU 23 permits at most 20 attribute bytes
     }
 
+    @Volatile private var coffeeTimeoutMinutes: Int = context.getSharedPreferences(
+        "moto_power_preferences", Context.MODE_PRIVATE)
+        .getInt("coffee_minutes", 10).coerceIn(1, 30)
+
+    fun getCoffeeTimeoutMinutes(): Int = coffeeTimeoutMinutes
+
+    fun setCoffeeTimeoutMinutes(minutes: Int) {
+        val bounded = minutes.coerceIn(1, 30)
+        coffeeTimeoutMinutes = bounded
+        context.getSharedPreferences("moto_power_preferences", Context.MODE_PRIVATE)
+            .edit().putInt("coffee_minutes", bounded).apply()
+        DiagnosticLog.event("BLE_POWER_POLICY", "minutes=$bounded updated")
+        sendCoffeeTimeoutPolicy()
+    }
+
+    private fun sendCoffeeTimeoutPolicy() {
+        if (bluetoothGatt == null || handshakeState != HandshakeState.COMPLETED ||
+            codecPtr == 0L) return
+        val frames = bleCodec.nativeEncodePowerPolicy(codecPtr, coffeeTimeoutMinutes)
+        if (frames.isNotEmpty()) {
+            enqueueSendFramesTask(frames)
+            DiagnosticLog.event("BLE_POWER_POLICY", "minutes=$coffeeTimeoutMinutes sent")
+        }
+    }
+
     fun getCurrentSessionId(): Long = currentSessionId
 
     /** Used when the Activity is recreated: never reset a live BLE session. */
@@ -587,6 +612,7 @@ class MotoBLEManager(private val context: Context) {
                     enqueueSendFramesTask(frames)
                 } else if (handshakeState == HandshakeState.READY_SENT) {
                     handshakeState = HandshakeState.COMPLETED
+                    sendCoffeeTimeoutPolicy()
                     reconnectAttempt = 0
                     cancelReconnect()
                     mainHandler.post { onConnectionStateChange?.invoke("Connesso") }
