@@ -21,6 +21,7 @@ import com.motogps.android.map.HybridMapRepository
 import com.motogps.android.map.RoadContextJunctions
 import com.motogps.android.map.OpenFreeMapTileProbe
 import com.motogps.android.map.OpenFreeMapRouteCorridor
+import com.motogps.android.map.OpenFreeMapRoundaboutGeometry
 import com.motogps.android.map.SavedMapInfo
 import com.motogps.android.location.LocationFixFilter
 import com.motogps.android.location.NavigationFixFreshness
@@ -1368,13 +1369,27 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                     // Neither can remove the GPS-local reserve.
                     val analysis = RoadContextJunctions.analyze(
                         contextRoads, lat, lon, upcoming, nearbyRoute)
+                    // MotoMap's genuine OSM topology always wins. The
+                    // OpenFreeMap fallback only uses matching geometry endpoints,
+                    // never invented OSM identifiers or arbitrary crossings.
+                    val ofm = if (analysis.focus == null &&
+                        contextRoads.any { it.osmWayId == null && it.nodeIds.isEmpty() }) {
+                        OpenFreeMapRoundaboutGeometry.analyze(
+                            contextRoads, lat, lon, upcoming)
+                    } else null
+                    val focus = analysis.focus ?: ofm?.focus
+                    if (ofm != null) {
+                        DiagnosticLog.event("OFM_RING",
+                            "edges=${ofm.edges} loops=${ofm.circuits} rejected=${ofm.rejected} " +
+                            "focus=${if (ofm.focus != null) 1 else 0} " +
+                            "exits=${ofm.focus?.exits?.size ?: 0}")
+                    }
                     val sceneSelection = RoadContextSceneSelector.select(
-                        contextRoads, analysis.focus, lat, lon, upcoming, nearbyRoute)
+                        contextRoads, focus, lat, lon, upcoming, nearbyRoute)
                     sceneSelection.drawn.forEach { drawn ->
                         roadPolylines.add(MotoBLEMapRoadPolyline(
                             roadClass = drawn.road.roadClass, points = drawn.points))
                     }
-                    val focus = analysis.focus
                     DiagnosticLog.event("OSM_EXIT_CONT",
                         "ways=" + sceneSelection.continuedExitWays +
                         " branches=" + sceneSelection.continuedExitBranches +
@@ -1383,8 +1398,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                         " slots=" + sceneSelection.slots +
                         " points=" + sceneSelection.points)
                     DiagnosticLog.event("OSM_RING",
-                        "candidates=" + analysis.candidates +
-                        " qualified=" + analysis.qualified +
+                        "candidates=" + (analysis.candidates + (ofm?.circuits ?: 0)) +
+                        " qualified=" + (analysis.qualified + (if (ofm?.focus != null) 1 else 0)) +
                         " osm_tagged=" + (analysis.focus?.osmTagged ?: false) +
                         " focus=" + (focus?.key ?: "none") +
                         " score=" + (focus?.confidence ?: 0) +
