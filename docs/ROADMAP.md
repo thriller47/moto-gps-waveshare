@@ -31,6 +31,12 @@ Questa roadmap distingue **da verificare**, **da sviluppare** e **già implement
 
 **Prossima azione:** preparare i test nativi di montaggio/inclinazione e la strumentazione numerica, senza cambiare i guadagni dell'attuale fusione.
 
+## Priorità 1 — Parità del contesto stradale OpenFreeMap / MotoMap (DA TESTARE)
+
+**Motivazione:** prova online del 20/11: tile scaricate correttamente (99/99) ma rotonde spezzate e strade grigie che cambiano bruscamente. La versione MVT di OpenFreeMap non include identificativi OSM originali dei nodi, way o tag di giunzione; il selettore MotoMap non può comporre i suoi anelli topologici. **Intervento sperimentale:** `OpenFreeMapRoundaboutGeometry.kt` individua soltanto circuiti chiusi per coincidenza conservativa di estremi e con >=3 bracci; `NavigationViewModel` usa il fallback solo se il focus topologico originale è assente. Si riutilizza il normale budget BLE e si registra `OFM_RING`. Test sintetici aggiunti; **non ancora eseguiti**.
+
+**Colloqui necessari:** compilazione/test Android; replay della rotonda a 6 bracci; prova con dati reali OpenFreeMap e cambi ingresso; verifica che non vengano riconosciuti come anelli isolati quadrati, strade a livelli diversi o svincoli. Il resto delle strade grigie non gode ancora di isteresi: affrontare comparsa/scomparsa solo con misure sul replay e senza toccare la qualità già collaudata del contesto MotoMap. Non promettere parità completa prima delle prove.
+
 ## Priorità 1 — Indice OSM POI integrato nel MotoPack (IMPLEMENTATO, DA VALIDARE)
 
 **Aggiornamento ricerca carburanti 20/11:** rimossa la scorciatoia FTS a marchi `FuelStationSearch`; «distributore», «benzinaio» e «stazione di servizio» usano `poi_places.category=fuel` con il nuovo MotoPack e GPS disponibile. La ricerca di marchi singoli è normale ricerca Photon per nome, senza espansioni. Alias documentati nel manuale; test Android aggiornati ma non ancora eseguiti.
