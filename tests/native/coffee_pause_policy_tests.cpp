@@ -20,13 +20,14 @@ void test_default_coffee_and_reconnection() {
   CHECK(p.update(11'000, true, false, false, 10) == State::Awake);
   CHECK(p.update(40'999, true, false, false, 10) == State::Awake);
   CHECK(p.update(41'000, true, false, false, 10) == State::Paused);
-  CHECK(p.update(610'999, true, false, false, 10) == State::Paused);
-  CHECK(p.update(611'000, true, false, false, 10) == State::PowerOffAfterLoss);
-  // Reconnect inside a second session resets the missing-link deadline.
-  CHECK(p.update(30'000, true, true, false, 10) == State::Awake);
-  CHECK(p.update(31'000, true, false, false, 10) == State::Awake);
-  CHECK(p.update(61'000, true, false, false, 10) == State::Paused);
-  CHECK(p.update(630'999, true, false, false, 10) == State::Paused);
+  // Returning during the pause wakes the screen, and a later loss gets
+  // an entirely new countdown (not one inherited from the first loss).
+  CHECK(p.update(100'000, true, true, false, 10) == State::Awake);
+  CHECK(p.update(101'000, true, false, false, 10) == State::Awake);
+  CHECK(p.update(130'999, true, false, false, 10) == State::Awake);
+  CHECK(p.update(131'000, true, false, false, 10) == State::Paused);
+  CHECK(p.update(700'999, true, false, false, 10) == State::Paused);
+  CHECK(p.update(701'000, true, false, false, 10) == State::PowerOffAfterLoss);
 }
 
 void test_maximum_duration_and_bounds() {
