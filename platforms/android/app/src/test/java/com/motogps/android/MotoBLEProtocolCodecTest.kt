@@ -22,6 +22,27 @@ class MotoBLEProtocolCodecTest {
     }
 
     @Test
+    fun coffeePowerPolicyUsesOptionalMessageWithoutModifyingHeartbeat() {
+        for (minutes in listOf(1, 10, 30)) {
+            val frames = codec.nativeEncodePowerPolicy(handle, minutes)
+            assertEquals(1, frames.size)
+            val frame = frames[0]
+            assertEquals(MotoBLEProtocolCodec.MSG_POWER_POLICY, frame[2])
+            assertEquals(1.toByte(), frame[10]) // payload revision
+            assertEquals(minutes.toByte(), frame[11])
+            assertEquals(0x0B.toByte(), frame[3]) // START|END|URGENT
+            assertEquals(MotoBLEProtocolCodec.crc16CcittFalse(frame, frame.size - 2),
+                (frame[frame.size - 2].toInt() and 0xFF) or
+                    ((frame[frame.size - 1].toInt() and 0xFF) shl 8))
+        }
+        assertTrue(codec.nativeEncodePowerPolicy(handle, 0).isEmpty())
+        assertTrue(codec.nativeEncodePowerPolicy(handle, 31).isEmpty())
+        val heartbeat = codec.nativeEncodeHeartbeat(handle, 1, 100).single()
+        assertEquals(MotoBLEProtocolCodec.MSG_HEARTBEAT, heartbeat[2])
+        assertEquals(0.toByte(), heartbeat[19]) // reserved status flags
+    }
+
+    @Test
     fun diagnosticControlUsesDedicatedProtocolType() {
         for (mode in 0..2) {
             val frames = codec.nativeEncodeDiagnosticControl(handle, mode)
