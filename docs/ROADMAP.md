@@ -1,8 +1,12 @@
 # Moto Chat GPS — Roadmap operativa
 
-**Aggiornata:** 20 novembre 2026 · **Integrazione:** `valhalla` · **Sviluppo e verifiche:** `test/waypoint-markers-20261119`.
+**Aggiornata:** 20 novembre 2026 · **Integrazione:** `valhalla` · **Sviluppo e verifiche:** `test/coffee-pause-20261120`.
 
 Questa roadmap distingue **da verificare**, **da sviluppare** e **già implementato**. Non equivale a un esito dei test. Lo stato corrente e i riferimenti CI sono in [PROJECT_STATE.md](../PROJECT_STATE.md); le procedure sono nel [manuale operativo](MANUALE_OPERATIVO.md).
+
+## Modalità Pausa caffè — IMPLEMENTATA NEL BRANCH DI TEST, NON ANCORA COLLAUDATA
+
+**20/11/2026:** riconnessione Android dopo allontanamento verificata con successo dall'utente. Aggiunta sull'ESP32 policy di risparmio dopo 30 s senza BLE (luminosità OLED a zero, task IMU e interpolazione meno frequenti, NimBLE resta connesso/advertising), risveglio al nuovo BLE e spegnimento dopo limite **configurabile 1–30 minuti da Android (10 default)**. Comando BLE opzionale `PowerPolicy (0x23)` senza modificare i frame Heartbeat e NavigationSnapshot; mantiene autospegnimento all'arrivo (120 s) e pulsante (3 s). Test di policy, codec e bridge aggiunti ma **non eseguiti in CI**, nessun merge autorizzato per questa fase. Verificare su ESP32 reale: OLED, BLE, risveglio, scadenza, consumi, eventuale USB alimentato, nuovi timeout trasmessi per ogni sessione.
 
 ## Priorità 1 — Audit IMU QMI8658 per uso in moto (DA TESTARE)
 
