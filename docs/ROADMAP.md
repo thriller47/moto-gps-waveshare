@@ -8,6 +8,21 @@ Questa roadmap distingue **da verificare**, **da sviluppare** e **già implement
 
 **20/11/2026:** riconnessione Android dopo allontanamento verificata con successo dall'utente. Aggiunta sull'ESP32 policy di risparmio dopo 30 s senza BLE (luminosità OLED a zero, task IMU e interpolazione meno frequenti, NimBLE resta connesso/advertising), risveglio al nuovo BLE e spegnimento dopo limite **configurabile 1–30 minuti da Android (10 default)**. Comando BLE opzionale `PowerPolicy (0x23)` senza modificare i frame Heartbeat e NavigationSnapshot; mantiene autospegnimento all'arrivo (120 s) e pulsante (3 s). Test di policy, codec e bridge aggiunti ma **non eseguiti in CI**, nessun merge autorizzato per questa fase. Verificare su ESP32 reale: OLED, BLE, risveglio, scadenza, consumi, eventuale USB alimentato, nuovi timeout trasmessi per ogni sessione.
 
+## Prossimo sviluppo dopo Pausa caffè — inventario contenuti OSM del PBF italiano (DA FARE)
+
+**Richiesta del 20/11/2026:** prima di introdurre nuove funzioni, inventariare **i dati effettivamente presenti** in `C:\MotoGPS\PBF\italy-latest.osm.pbf`, verificando tag, quantità e copertura geografica. Distinguere chiaramente ciò che il PBF contiene, ciò che gli strumenti di generazione esportano e ciò che MotoMap v4, Valhalla V5 e Photon v2 rendono già disponibile all'app. Non presumere che la presenza di un tag nel dizionario OSM garantisca copertura o qualità nel file italiano.
+
+**Categorie da misurare** (con conteggio oggetti, esempi, frequenza degli attributi e dimensione dell'indice):
+1. **Autovelox fissi e velocità media/Tutor:** `highway=speed_camera`, `enforcement=average_speed`, direzione, strade associate, limiti di velocità; attenzione a dati incompleti, postazioni non attive e controlli della carreggiata opposta.
+2. **Fondo stradale e uso motociclistico:** `surface`, `smoothness`, `tracktype`, `motorcycle`, `motorcycle:conditional`, `maxspeed:conditional`, `incline`, `lit`; potenziale evoluzione dei profili Touring/Panoramico con classificazioni prudenti e senza inventare informazioni mancanti.
+3. **Sicurezza e manovre:** `hazard`, `traffic_calming`, passaggi a livello, barriere, `turn:lanes`, restrizioni di svolta.
+4. **Servizi moto e soste:** `amenity=fuel`, `shop=motorcycle`, `amenity=compressed_air`, `amenity=motorcycle_parking`, `amenity=cafe`, `amenity=restaurant`, `highway=rest_area`, acqua e toilette.
+5. **Turismo motociclistico:** `mountain_pass=yes`, `tourism=viewpoint`, parcheggi e punti di sosta panoramici lungo la rotta.
+
+**Metodo:** elaborazione locale del PBF in WSL tramite script riproducibile e report tabellare; nessuna chiamata Overpass. Prima inventario e valutazione di copertura/qualità, poi scelta di indici leggeri da aggiungere alla rigenerazione MotoPack. Sul telefono usare indici spaziali e filtro per **distanza dal percorso e direzione di marcia**; verso ESP32 trasmettere soltanto eventi/avvisi compatti, deduplicati e pertinenti, preservando budget BLE e leggibilità del display. Non trasformare dati statici OSM in falsi avvisi in tempo reale.
+
+**Ordine preferito dopo l'inventario:** (1) autovelox fissi, poi Tutor se geometrie/direzioni sufficienti; (2) qualità del fondo e restrizioni moto per Touring; (3) distributori lungo rotta; (4) passi e belvedere; (5) parcheggi moto/officine. **Nessuna implementazione o build autorizzata da questa nota**: avviare dopo verifica della Pausa caffè e conferma dell'utente.
+
 ## Priorità 1 — Audit IMU QMI8658 per uso in moto (DA TESTARE)
 
 **Motivazione:** i collaudi dinamici finora sono stati soprattutto in automobile. Sulla moto il Waveshare sarà **centrato sul manubrio, con display quasi orizzontale**; seguirà rollio e vibrazioni della moto. L'accensione potrebbe avvenire **sul cavalletto laterale**, con moto già inclinata. L'algoritmo attuale non deve confondere orientamento di montaggio, gravità e rotazione direzionale durante piega e uscita dalla curva.
@@ -95,7 +110,7 @@ Sul branch `test/waypoint-markers-20261119`: waypoint gialli numerati e arrivo `
 ## Priorità 2 — Estensioni da valutare, non già implementate
 
 - Ricerca POI geografica lungo rotta (distributori e punti panoramici): verificare categorie disponibili in Photon v2 e dati OSM del PBF; non assumere che una ricerca di "Eni" provi un indice `amenity=fuel` completo.
-- Modalità sosta/risveglio a basso consumo ("pausa caffè"): definire requisiti e comportamento BLE, separatamente dallo spegnimento automatico esistente.
+- Modalità sosta/risveglio a basso consumo ("pausa caffè"): **implementata in test, da collaudare su hardware e misurare nei consumi** (vedi sezione iniziale).
 - Esportazione/importazione GPX e traccia GPS realmente percorsa, se ancora richiesti, separati dai replay diagnostici.
 - Raffinamenti di contesto rotonde/svincoli e performance **solo in presenza di casi riproducibili**, senza riaprire regressioni già risolte.
 
