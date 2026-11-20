@@ -120,12 +120,6 @@ Nella schermata iniziale la ricerca destinazione è l'azione principale, seguita
 
 **Salta prossima tappa:** disponibile durante **qualsiasi** navigazione con almeno una tappa intermedia ancora pendente, non soltanto nei tour circolari. Toccare il pulsante e confermare da fermi: la tappa corrente viene esclusa solo dopo che Valhalla ha restituito una nuova rotta valida; tappe successive e **destinazione finale** vengono conservate. Sui tour circolari si aggiorna anche il checkpoint di ripresa. Sui percorsi ordinari non si crea un checkpoint circolare. Se ci si dirige direttamente all'arrivo senza tappe intermedie, il pulsante non compare. Sul branch attuale di test è presente anche il pulsante ESP32 **blu `>>`**, con doppio tocco di conferma, visibile quando ci sono tappe residue; il salto tappa di una revisione precedente è stato provato dall'utente. La validazione completa dopo l'ultimo hardening resta pendente. Non attribuire automaticamente questo comportamento a un firmware `valhalla` più vecchio.
 
-### Ricerca generica dei distributori — sviluppo nel branch test
-
-Per trovare stazioni carburante italiane senza conoscerne il marchio, nell'APK aggiornato del branch `test/waypoint-markers-20261119` cercare **distributore**, **benzinaio** oppure **stazione di servizio**. Quando è installato Photon SQLite v2, l'app cerca con un'unica interrogazione i marchi indicizzati più comuni, presenta una lista unica ordinata per vicinanza GPS e continua a consentire ricerche dirette come **Eni** o **Q8**. Non richiede rigenerazione MotoPack e non scarica dati autonomamente. La funzione è **ancora da compilare e provare**.
-
-Non confondere questa lista con un censimento completo di `amenity=fuel`: nomi non riconosciuti, distributori senza marchio e luoghi mancanti nel dump possono non essere mostrati. Senza Photon locale il fallback online conserva il comportamento ordinario e non esegue automaticamente una serie di interrogazioni ai singoli marchi sul server pubblico.
-
 ### Ricerca indirizzi e POI (offline prima, online come fallback)
 
 **Nel branch `test/waypoint-markers-20261119`, non ancora nella baseline `valhalla`:** cercare una destinazione o una tappa interroga prima Photon SQLite v2 italiano; **se non restituisce risultati**, usa Photon online quando disponibile, anche per luoghi fuori Italia. I risultati offline sono ordinati con preferenza alle corrispondenze pertinenti vicine al GPS; quelli online richiedono fino a 30 candidati e applicano una preferenza geografica analoga, mostrando al massimo otto risultati. Quando il GPS è disponibile, la distanza mostrata è **in linea d'aria**, non chilometri di guida. Una città espressamente indicata (es. `Via Roma, Torino`) prevale sulla vicinanza.
@@ -166,7 +160,20 @@ python3 scripts/offline_map/add_poi_to_photon.py \
 
 **Non puntare questo comando al Photon attualmente installato sul telefono o a un file di produzione senza backup**: lo script modifica il file SQLite indicato e rifiuta di eseguire una seconda aggiunta allo stesso indice.
 
-**Ricerca dopo aver installato il nuovo pacchetto con l'APK aggiornato:** `distributore`, `ristorante`, `trattoria`, `bar`, `caffetteria`, `albergo`, `hotel`, `motel` cercano POI per categoria in prossimità del fix GPS, indipendentemente dalla presenza del termine nel nome. Le categorie dipendono dai tag OSM effettivamente disponibili; `trattoria` include ristoranti in generale, `albergo` include anche alcune altre forme di ospitalità. La distanza mostrata è in linea d'aria. La ricerca per nome normale rimane invariata. **Il nuovo flusso non è ancora stato collaudato su un dataset italiano completo né sul telefono**: verificare prima SQLite, copertura POI, prestazioni, duplicati e import MotoPack.
+### Parole chiave per la ricerca POI offline
+
+Inserire **una delle parole o frasi riportate esattamente nella tabella** nel campo di ricerca destinazione o tappa. Maiuscole e accenti vengono normalizzati. Le parole sono riconosciute come categoria solo quando la query contiene l'alias, **senza aggiungere città o altre parole** (esempio: `bar` è una ricerca di categoria, `Bar Centrale` è una ricerca per nome).
+
+| Categoria | Parole chiave riconosciute nell'APK | Tipi OSM cercati |
+| --- | --- | --- |
+| **Carburante** | `distributore`, `distributori`, `benzinaio`, `benzinai`, `distributore benzina`, `distributori benzina`, `distributore carburante`, `distributori carburante`, `stazione di servizio`, `stazioni di servizio` | `amenity=fuel` |
+| **Ristoranti** | `ristorante`, `ristoranti`, `trattoria`, `trattorie`, `osteria`, `osterie` | `amenity=restaurant`, `amenity=fast_food` |
+| **Bar e caffetterie** | `bar`, `caffe`, `caffè`, `caffetteria`, `caffetterie`, `pub` | `amenity=bar`, `amenity=cafe`, `amenity=pub` |
+| **Pernottamento** | `albergo`, `alberghi`, `hotel`, `motel`, `pensione`, `pensioni`, `affittacamere`, `ostello`, `ostelli` | `tourism=hotel`, `tourism=motel`, `tourism=guest_house`, `tourism=hostel`, `tourism=apartment`, `tourism=chalet` |
+
+**Comportamento:** con **MotoPack rigenerato con l'indice POI**, l'APK aggiornato e un **fix GPS valido**, l'app cerca i POI della categoria nelle vicinanze e mostra fino a otto risultati per distanza geografica approssimata. Per esempio, cercare `distributore` restituisce tutti i `amenity=fuel` disponibili nell'indice, anche **senza marchio**, non un elenco fisso di Eni/IP/Q8. Cercare invece `Eni` o `Q8` resta una normale ricerca Photon per nome. I risultati possono essere scelti come destinazione o tappa; le distanze mostrate sono **in linea d'aria**.
+
+**Compatibilità:** con il vecchio Photon SQLite v2 senza `poi_places`, o senza GPS valido, la ricerca torna al normale Photon per testo; **non** esegue più interrogazioni speciali ai marchi e non garantisce un elenco completo dei distributori. Se il motore locale non trova risultati, l'app può utilizzare il Photon pubblico quando è disponibile una connessione. La ricerca per categoria copre i POI OSM presenti nel **PBF Italia**; non è un elenco di attività verificate come aperte né una ricerca lungo il percorso. `trattoria` cerca tutti i ristoranti del gruppo, `hotel` include altre tipologie di alloggio. La nuova funzione richiede ancora collaudo di APK, MotoPack e tempi di query sul dataset italiano completo.
 
 ## 3. GitHub Actions e Android
 
