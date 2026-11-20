@@ -381,6 +381,16 @@ moto::ble::AckStatus PhoneNavBridge::on_message(
             }
           }
           present_navigation();
+        } else if constexpr (std::is_same_v<T, moto::ble::PowerPolicy>) {
+          // One-shot setting from Android, retained across BLE disconnections.
+          // The protocol decoder has already validated the 1..30 minute range.
+          const std::lock_guard<std::mutex> lock(state_mutex_);
+          if (!link_active_ || phone_session_id_ == 0)
+            return moto::ble::AckStatus::InvalidState;
+          coffee_timeout_minutes_.store(value.coffee_timeout_minutes,
+                                        std::memory_order_relaxed);
+          ESP_LOGI(kTag, "Coffee pause auto-off timeout: %u min",
+                   static_cast<unsigned>(value.coffee_timeout_minutes));
         } else if constexpr (std::is_same_v<T, moto::ble::Heartbeat>) {
           std::uint32_t phone_session_id = 0;
           {
