@@ -228,7 +228,17 @@ internal object RoadContextSceneSelector {
                     RoadContextWindow.around(road.points, latitude, longitude, minOf(8, limit))
                 }
                 Role.EXIT -> {
-                    val connection = road.points.firstOrNull { it in focus?.junctionPoints.orEmpty() }
+                    val junctions = focus?.junctionPoints.orEmpty()
+                    val connection = if (focus?.key?.startsWith("ofm:") == true) {
+                        // MVT endpoints may differ slightly after tile clipping
+                        // and microdegree rounding. Geometry-only fallback uses
+                        // a strict 1.25 m endpoint match; never trust a crossing.
+                        listOf(road.points.first(), road.points.last()).firstOrNull { point ->
+                            junctions.any { metric.length(point, it) <= 1.25 }
+                        }
+                    } else {
+                        road.points.firstOrNull { it in junctions }
+                    }
                     RoadContextWindow.around(
                         exitExtensions[road]?.points ?: road.points,
                         connection?.latitudeE6?.div(1e6) ?: latitude,
