@@ -78,10 +78,11 @@ Eseguire **solo se `~/valhalla-env` non esiste già**:
 
 ```bash
 python3 --version
-test ! -e "$HOME/valhalla-env" || {
-  echo "valhalla-env esiste già: non lo sovrascrivo"; exit 1;
-}
-python3 -m venv "$HOME/valhalla-env"
+if [ -e "$HOME/valhalla-env" ]; then
+  echo "valhalla-env esiste già: non lo sovrascrivo"
+else
+  python3 -m venv "$HOME/valhalla-env"
+fi
 source "$HOME/valhalla-env/bin/activate"
 python -m pip install --upgrade pip wheel
 python -m pip install "pyvalhalla==3.9.1" osmium shapely
