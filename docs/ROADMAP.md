@@ -1,6 +1,6 @@
 # Moto Chat GPS — Roadmap operativa
 
-**Aggiornata:** 19 novembre 2026 · **Integrazione:** `valhalla` · **Sviluppo e verifiche:** `test/waypoint-markers-20261119`.
+**Aggiornata:** 20 novembre 2026 · **Integrazione:** `valhalla` · **Sviluppo e verifiche:** `test/waypoint-markers-20261119`.
 
 Questa roadmap distingue **da verificare**, **da sviluppare** e **già implementato**. Non equivale a un esito dei test. Lo stato corrente e i riferimenti CI sono in [PROJECT_STATE.md](../PROJECT_STATE.md); le procedure sono nel [manuale operativo](MANUALE_OPERATIVO.md).
 
@@ -38,6 +38,12 @@ Nel branch di test sono presenti: fallback a Photon online quando la ricerca SQL
 **Verifiche pendenti:** nuova ricerca "Via Roma" dalla stessa posizione, "Via Roma, Torino", destinazione estera assente dal DB Italia, POI di marca vs parola generica, GPS non disponibile, assenza rete, consistenza fra classificazione Photon online/offline. Verificare compilazione e test del **commit finale di codice**; una CI verde su commit precedente non valida i successivi `[skip ci]`. La prova utente precedente conferma solo il miglioramento iniziale dell'offline, non il ranking online nuovo.
 
 **Limiti da non mascherare:** massimo 30 candidati recuperati dall'endpoint online e 4.000 nella preselezione SQLite possono ancora perdere località se il servizio/indice non le restituisce. Non promettere ricerca geografica esaustiva dei distributori senza indice POI per categoria/prossimità.
+
+## Priorità 1 — Strade grigie senza MotoPack (FIX APPLICATO, DA TESTARE)
+
+**Test su strada 20/11, volutamente online senza MotoPack:** Valhalla online ha prodotto una rotta valida, ma il contesto è rimasto `OSM_CONTEXT segments=0` e il dialogo per scaricare il corridoio non è apparso. Nel codice `MainActivity` non passava `onCorridorTileCount` e `onDownloadCorridor` alla `NavigationScreen`: i default `{ 0 }` / `{ }` impedivano la proposta e l'azione. **Ripristinato il collegamento** nel commit `73b795c` del branch test.
+
+**Verifica pendente:** con MotoPack assente e connessione disponibile, calcolare la rotta, premere Avvia, verificare il dialogo «Prepara strade OpenFreeMap» con il conteggio; scegliere «Avvia e scarica» e controllare eventi `OFM_COVERAGE`, `OFM_CORRIDOR` e comparsa delle strade grigie anche in movimento. Verificare anche «Avvia senza download», annullamento e route con tile tutte già in cache. Non scaricare implicitamente mentre si guida; serve azione esplicita. **Nessuna build lanciata.**
 
 ## Priorità 1 — Ultima integrazione Android/ESP32 (DA COLLAUDARE)
 
