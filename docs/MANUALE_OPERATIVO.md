@@ -174,6 +174,19 @@ Se la connessione tra telefono ed ESP32 si interrompe **involontariamente** (es.
 
 **Nota consumi:** schermo nero e polling IMU più lento dovrebbero ridurre il consumo; **l'autonomia effettiva non è misurata** e va verificata con batteria/USB nelle diverse condizioni.
 
+## 1.2. Road DNA online — chiavi Geoapify e OpenTripMap (branch sperimentale)
+
+**Non e' richiesta alcuna chiave per la navigazione o per Road DNA offline.** Le funzioni qui sotto sono un'integrazione Android aggiunta il 21/11, ancora da compilare e collaudare su dispositivo reale. Non esiste una verifica live eseguita in questa sessione.
+
+1. Ottenere **chiavi personali** sui portali https://myprojects.geoapify.com e https://dev.opentripmap.org. Non inviarle in chat, non salvarle nel repository e non inserirle negli screenshot diagnostici.
+2. Nella nuova APK Android aprire **⋮ → API Road DNA**. Inserire la chiave Geoapify e premere **Salva**; ripetere per OpenTripMap. Lo stato conferma se ciascun provider e' configurato; usare **Verifica** per provare una richiesta HTTPS minima o **Elimina** per rimuovere la chiave. I campi sono mascherati, il valore non viene ripresentato dopo il salvataggio.
+3. Pianificare un itinerario, aprire **Road DNA · Guida e luoghi da scoprire** e leggere l'analisi locale. Solo con il tasto **Cerca online (su richiesta)** vengono inviate coordinate ai provider: a Geoapify un corridoio di 2 km attorno alla geometria Valhalla, a OpenTripMap fino a cinque punti campione lungo la rotta. Selezionare **Dettagli OpenTripMap** per richiedere la descrizione di un luogo specifico. Senza chiavi la ricerca non parte; con una sola chiave funziona solo il relativo provider.
+4. Controllare risultati, indicazione di copertura parziale e distanze in linea d'aria: non equivalgono a accessi stradali, deviazioni o visibilita' dei luoghi in moto. Non aggiungere ancora questi POI automaticamente come tappe.
+
+**Protezione delle credenziali:** Android Keystore + AES-GCM, file `noBackupFilesDir` esclusi dai backup Android, niente chiavi nel MotoPack, nei log o nel codice. Geoapify riceve `x-api-key` via HTTPS, OpenTripMap richiede `apikey` come parametro URL HTTPS. Evitare di registrare traffico completo o incollare link con chiavi. Nessuna chiamata periodica, nessun accesso a POI durante navigazione, nessun cambiamento ESP32/BLE.
+
+**Collaudo prima del merge:** test JUnit `RoadDnaOnlineTest.kt`; test manuale `Verifica` per entrambi i provider con le proprie credenziali, ricerca su itinerario reale (Sestriere/Lago Maggiore), cambio rotta durante caricamento, assenza rete, errore 401/429 e controllo che dati e URL con chiavi non entrino nella diagnostica. Una CI finale soltanto quando autorizzata.
+
 ## 2. Rigenerazione completa MotoPack — procedura consigliata
 
 **Un unico comando in WSL** ricrea **MotoMap v4** (strade e copertura), **Photon SQLite v2 con POI OSM** (ricerca indirizzi, carburante, ristorazione e alloggi), **Tourist SQLite v1** (Road DNA turistico) e **Valhalla V5** (grafo moto dal PBF aggiornato), quindi assembla e verifica il pacchetto `MotoChatGPS-Italia.motopack`. Usa lo script `scripts/offline_map/rebuild_motopack_wsl.sh`, presente nel branch sperimentale.
