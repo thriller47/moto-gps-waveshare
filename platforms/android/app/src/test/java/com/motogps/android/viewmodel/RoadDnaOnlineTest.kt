@@ -72,6 +72,18 @@ class RoadDnaOnlineTest {
         assertEquals("W123456", found[0].xid)
     }
 
+    @Test fun openTripMapSamplesByGeographicDistanceNotVertexCount() {
+        // Hundreds of vertices packed into the first few metres of a 10 km
+        // route must not use up the provider's five radius probes.
+        val route = (0..100).map { 45.0 to (7.0 + it * 0.0000001) } +
+            listOf(45.0 to 7.03, 45.0 to 7.06, 45.0 to 7.09, 45.0 to 7.12)
+        val indices = RoadDnaOnline.tripSampleIndices(route, 5)
+        assertEquals(5, indices.size)
+        assertEquals(0, indices.first())
+        assertEquals(route.lastIndex, indices.last())
+        assertTrue(indices[2] >= 101)
+    }
+
     @Test fun openTripMapApiKeyIsEncodedForQuery() {
         val url = RoadDnaOnline.tripRadiusUrl(45.0, 7.0, "sample key&test")
         assertTrue(url.contains("radius=2000"))
