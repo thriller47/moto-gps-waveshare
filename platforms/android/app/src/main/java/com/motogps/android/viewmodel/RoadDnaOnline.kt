@@ -391,7 +391,8 @@ internal object RoadDnaOnline {
         val wikiExtract = if (props != null && geoDescription(props).isBlank()) {
             wikipediaExtractForLinkedPlace(props)
         } else null
-        return parseGeoDetails(data, wikiExtract?.first, wikiExtract?.second)
+        return parseGeoDetails(data, wikiExtract?.first, wikiExtract?.second,
+            wikiExtract?.third)
     }
 
     private fun geoDetailProperties(data: JSONObject): JSONObject? {
@@ -411,16 +412,18 @@ internal object RoadDnaOnline {
         ).map { it.orEmpty().trim() }.firstOrNull { it.isNotEmpty() }.orEmpty()
     }
 
-    internal fun parseGeoDetails(data: JSONObject, wikipediaExtract: String? = null,
-                                 wikipediaPageUrl: String? = null): String {
+    internal fun parseGeoDetails(data: JSONObject, linkedText: String? = null,
+                                 linkedPageUrl: String? = null,
+                                 linkedSource: String = "Wikipedia"): String {
         val props = geoDetailProperties(data)
             ?: return "Geoapify non ha restituito una scheda per questo luogo."
         val lines = ArrayList<String>()
         val description = geoDescription(props)
         lines.add(when {
             description.isNotEmpty() -> description.take(1200)
-            !wikipediaExtract.isNullOrBlank() ->
-                "Da Wikipedia (estratto): " + wikipediaExtract.take(1200)
+            !linkedText.isNullOrBlank() ->
+                (if (linkedSource == "Wikidata") "Da Wikidata (descrizione breve): "
+                    else "Da Wikipedia (estratto): ") + linkedText.take(1200)
             else -> "Descrizione turistica non disponibile per questo luogo."
         })
         props.optString("formatted").trim().takeIf { it.isNotEmpty() }
@@ -428,14 +431,17 @@ internal object RoadDnaOnline {
         props.optString("website").trim().takeIf {
             it.startsWith("https://") || it.startsWith("http://")
         }?.let { lines.add("Sito web: " + it.take(500)) }
-        if (!wikipediaExtract.isNullOrBlank() && wikipediaPageUrl != null) {
-            lines.add("Fonte: Wikipedia (CC BY-SA 4.0) · " + wikipediaPageUrl)
+        if (!linkedText.isNullOrBlank() && linkedPageUrl != null) {
+            val attribution = if (linkedSource == "Wikidata")
+                "Wikidata (CC0)" else "Wikipedia (CC BY-SA 4.0)"
+            lines.add("Fonte: " + attribution + " · " + linkedPageUrl)
         }
         val wiki = props.optJSONObject("wiki_and_media")
         wiki?.optString("wikipedia")?.trim()?.takeIf { it.isNotEmpty() }
             ?.let { lines.add("Riferimento Wikipedia: " + it.take(250)) }
-        wiki?.optString("wikidata")?.trim()?.takeIf { it.isNotEmpty() }
-            ?.let { lines.add("Wikidata: " + it.take(80)) }
+        wiki?.optString("wikidata")?.trim()
+            ?.takeIf { Regex("^Q[1-9][0-9]{0,14}$").matches(it) }
+            ?.let { lines.add("Scheda Wikidata: https://www.wikidata.org/wiki/" + it) }
         return lines.joinToString("\n\n")
     }
 
@@ -484,31 +490,60 @@ internal object RoadDnaOnline {
         return null
     }
 
-    private fun wikipediaExtractForLinkedPlace(props: JSONObject): Pair<String, String>? {
-        val wiki = props.optJSONObject("wiki_and_media") ?: return null
+    /** Get a short description from an already-linked Wikidata item. */
+    internal fun wikidataShortDescription(data: JSONObject, itemId: String): String? {
+        val descriptions = data.optJSONObject("entities")
+            ?.optJSONObject(itemId)?.optJSONObject("descriptions") ?: return null
+        for (language in listOf("it", "en")) {
+            val value = descriptions.optJSONObject(language)
+                ?.optString("value").orEmpty().trim()
+            if (value.isNotEmpty()) return value.take(500)
+        }
+        return null
+    }
+
+    private fun linkedWikipediaSummary(url: String): Triple<String, String, String>? {
         return try {
-            var articleUrl = wikipediaSummaryUrl(wiki.optString("wikipedia"))
-            if (articleUrl == null) {
-                val qid = wiki.optString("wikidata").trim()
-                if (Regex("^Q[1-9][0-9]{0,14}$").matches(qid)) {
-                    val url = "https://www.wikidata.org/w/api.php?" +
-                        "action=wbgetentities&ids=" + qid + "&props=sitelinks" +
-                        "&sitefilter=itwiki%7Cenwiki&format=json"
-                    val data = JSONObject(fetch(url, userAgent = WIKIMEDIA_UA))
-                    val reference = wikidataWikipediaReference(data, qid)
-                    if (reference != null) articleUrl = wikipediaSummaryUrl(reference)
-                }
-            }
-            if (articleUrl == null) return null
-            val summary = JSONObject(fetch(articleUrl, userAgent = WIKIMEDIA_UA))
+            val summary = JSONObject(fetch(url, userAgent = WIKIMEDIA_UA))
             if (summary.optString("type") == "disambiguation") return null
             val excerpt = summary.optString("extract").trim()
-                .takeIf { it.isNotEmpty() }?.take(1200)
-            val pageUrl = articleUrl.replace("/api/rest_v1/page/summary/", "/wiki/")
-            if (excerpt == null) null else excerpt to pageUrl
+                .takeIf { it.isNotEmpty() }?.take(1200) ?: return null
+            val pageUrl = url.replace("/api/rest_v1/page/summary/", "/wiki/")
+            Triple(excerpt, pageUrl, "Wikipedia")
         } catch (_: Exception) {
-            // Optional encyclopedia fetch must not make Geoapify's data disappear.
-            // Never log request URLs, keys or response bodies.
+            null
+        }
+    }
+
+    /**
+     * A Wikidata QID identifies a real entity, but it may have no Wikipedia
+     * sitelink. In that case use the item's short description, not the bare QID.
+     * No name matching and no untrusted hosts.
+     */
+    private fun wikipediaExtractForLinkedPlace(props: JSONObject):
+        Triple<String, String, String>? {
+        val wiki = props.optJSONObject("wiki_and_media") ?: return null
+        wikipediaSummaryUrl(wiki.optString("wikipedia"))?.let { url ->
+            linkedWikipediaSummary(url)?.let { return it }
+        }
+        val qid = wiki.optString("wikidata").trim()
+        if (!Regex("^Q[1-9][0-9]{0,14}$").matches(qid)) return null
+        return try {
+            val url = "https://www.wikidata.org/w/api.php?" +
+                "action=wbgetentities&ids=" + qid +
+                "&props=sitelinks%7Cdescriptions&languages=it%7Cen" +
+                "&sitefilter=itwiki%7Cenwiki&format=json"
+            val entity = JSONObject(fetch(url, userAgent = WIKIMEDIA_UA))
+            val reference = wikidataWikipediaReference(entity, qid)
+            if (reference != null) {
+                wikipediaSummaryUrl(reference)?.let { article ->
+                    linkedWikipediaSummary(article)?.let { return it }
+                }
+            }
+            val short = wikidataShortDescription(entity, qid) ?: return null
+            Triple(short, "https://www.wikidata.org/wiki/" + qid, "Wikidata")
+        } catch (_: Exception) {
+            // Keep Geoapify's address intact if Wikidata is unavailable.
             null
         }
     }
