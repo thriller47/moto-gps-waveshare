@@ -107,6 +107,66 @@ class RoadDnaOnlineTest {
             .contains("Vista panoramica sulla valle"))
     }
 
+    @Test fun geoapifyDetailsUseInternationalAndHeritageDescriptions() {
+        val international = JSONObject().put("features", JSONArray().put(JSONObject()
+            .put("properties", JSONObject()
+                .put("feature_type", "details")
+                .put("description_international", JSONObject()
+                    .put("it", "Antica fortezza piemontese.")
+                    .put("en", "Historic fortress.")))))
+        assertTrue(RoadDnaOnline.parseGeoDetails(international)
+            .contains("Antica fortezza piemontese."))
+        val heritage = JSONObject().put("features", JSONArray().put(JSONObject()
+            .put("properties", JSONObject().put("feature_type", "details")
+                .put("heritage", JSONObject()
+                    .put("description", "Monumento tutelato.")))))
+        assertTrue(RoadDnaOnline.parseGeoDetails(heritage)
+            .contains("Monumento tutelato."))
+    }
+
+    @Test fun wikipediaExtractOnlyAppearsWhenRealDescriptionIsMissing() {
+        val absent = JSONObject().put("features", JSONArray().put(JSONObject()
+            .put("properties", JSONObject()
+                .put("feature_type", "details")
+                .put("formatted", "Piemonte, Italia"))))
+        val shown = RoadDnaOnline.parseGeoDetails(absent,
+            "Il castello sorge sulla cima della collina.")
+        assertTrue(shown.contains("Da Wikipedia (estratto): Il castello"))
+        assertFalse(shown.contains("Descrizione turistica non disponibile"))
+        val present = JSONObject().put("features", JSONArray().put(JSONObject()
+            .put("properties", JSONObject()
+                .put("feature_type", "details")
+                .put("description", "Testo verificato dal provider."))))
+        val rendered = RoadDnaOnline.parseGeoDetails(present, "Testo Wikipedia")
+        assertTrue(rendered.contains("Testo verificato dal provider."))
+        assertFalse(rendered.contains("Testo Wikipedia"))
+    }
+
+    @Test fun wikipediaSummaryUrlsAcceptOnlyLinkedTrustedHostsAndArticleNames() {
+        assertEquals(
+            "https://it.wikipedia.org/api/rest_v1/page/summary/Abbazia_di_Staffarda",
+            RoadDnaOnline.wikipediaSummaryUrl("it:Abbazia di Staffarda"))
+        assertEquals(
+            "https://en.wikipedia.org/api/rest_v1/page/summary/Castle_of_Cuneo",
+            RoadDnaOnline.wikipediaSummaryUrl(
+                "https://en.wikipedia.org/wiki/Castle_of_Cuneo"))
+        assertNull(RoadDnaOnline.wikipediaSummaryUrl("https://evil.example/wiki/Castle"))
+        assertNull(RoadDnaOnline.wikipediaSummaryUrl("https://it.wikipedia.org.evil/wiki/Castle"))
+        assertNull(RoadDnaOnline.wikipediaSummaryUrl("https://it.wikipedia.org/wiki/Castle?x=1"))
+        assertNull(RoadDnaOnline.wikipediaSummaryUrl("zz:Unknown"))
+        assertNull(RoadDnaOnline.wikipediaSummaryUrl("it:../admin"))
+    }
+
+    @Test fun wikidataFallbackUsesExactLinkedItemAndPrefersItalian() {
+        val data = JSONObject().put("entities", JSONObject()
+            .put("Q123", JSONObject().put("sitelinks", JSONObject()
+                .put("enwiki", JSONObject().put("title", "Castle"))
+                .put("itwiki", JSONObject().put("title", "Castello")))))
+        assertEquals("it:Castello",
+            RoadDnaOnline.wikidataWikipediaReference(data, "Q123"))
+        assertNull(RoadDnaOnline.wikidataWikipediaReference(data, "Q124"))
+    }
+
     @Test fun openTripMapDetailsDoNotPretendRawTagsAreADescription() {
         val response = JSONObject()
             .put("name", "Rocca")
