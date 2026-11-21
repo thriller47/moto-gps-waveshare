@@ -49,6 +49,7 @@ import com.motogps.android.viewmodel.TourSession
 import com.motogps.android.viewmodel.RouteOption
 import com.motogps.android.viewmodel.RoadDnaSummary
 import com.motogps.android.viewmodel.RoadDnaOnlineResult
+import com.motogps.android.viewmodel.RoadDnaOnlinePoi
 import org.json.JSONArray
 import kotlin.math.roundToInt
 import org.osmdroid.config.Configuration
@@ -641,7 +642,7 @@ fun NavigationScreen(
     roadDnaDetails: String? = null,
     roadDnaDetailsLoading: Boolean = false,
     onRoadDnaOnlineSearch: () -> Unit = {},
-    onRoadDnaDetails: (String) -> Unit = {},
+    onRoadDnaDetails: (RoadDnaOnlinePoi) -> Unit = {},
     geoapifyConfigured: Boolean = false,
     opentripmapConfigured: Boolean = false,
     roadDnaKeyStatus: String? = null,
@@ -773,10 +774,10 @@ fun NavigationScreen(
                                 Text("• " + poi.name + " · " + poi.source)
                                 Text(poi.category + " · circa " + poi.distanceMeters + " m dalla rotta",
                                     style = MaterialTheme.typography.labelSmall)
-                                val xid = poi.xid
-                                if (xid != null) {
-                                    TextButton(onClick = { onRoadDnaDetails(xid) }) {
-                                        Text("Dettagli OpenTripMap")
+                                if (opentripmapConfigured) {
+                                    TextButton(onClick = { onRoadDnaDetails(poi) }) {
+                                        Text(if (poi.xid != null) "Dettagli OpenTripMap"
+                                            else "Cerca scheda su OpenTripMap")
                                     }
                                 }
                             }
