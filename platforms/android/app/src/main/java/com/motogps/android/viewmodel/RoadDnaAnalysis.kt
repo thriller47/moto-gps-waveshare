@@ -15,11 +15,11 @@ import kotlin.math.sqrt
 /** Descriptive offline POI candidates along an ACTUAL Valhalla route.
  * Bounding boxes are approximate for areas; this never suggests access roads.
  */
-internal data class RoadDnaPoi(
+data class RoadDnaPoi(
     val name: String, val category: String, val approximateArea: Boolean,
     val distanceMeters: Int
 )
-internal data class RoadDnaSummary(
+data class RoadDnaSummary(
     val routeId: String,
     val curvature: String,
     val countByCategory: Map<String, Int>,
