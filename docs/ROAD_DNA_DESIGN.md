@@ -4,6 +4,18 @@
 
 **Nome nell'app: sempre «Road DNA».** Nelle stringhe visibili NON usare «DNA percorso» o «RoadDNA». Nomi interni coerenti: `RoadDna...`; chiavi persistite `road_dna_...`. Testi e indicazioni illustrati qui sono proposte UI, non funzionalità esistenti.
 
+## Integrazione sperimentale Geoapify + OpenTripMap (21/11/2026)
+
+**Codice presente nel branch, non ancora compilato né provato con credenziali live:**
+- Android: `viewmodel/RoadDnaOnline.kt` e `NavigationViewModel.kt`, `NavigationScreen.kt`, `MainActivity.kt`. Chiavi separate cifrate AES-256-GCM con Android Keystore e file privati sotto `noBackupFilesDir`; inserimento mascherato in `⋮ → API Road DNA`, salvataggio, eliminazione e verifica HTTPS manuale. Chiavi assenti per impostazione predefinita; nessuna chiave nel repo, log o backup.
+- **Geoapify:** pulsante `Cerca online` nella scheda Road DNA in anteprima; `POST https://api.geoapify.com/v2/places` con header `x-api-key`, `filter.type=polyline`, geometria Valhalla `LineString` in coordinate [lon, lat], buffer 2000 m; un massimo di tre spezzoni da 800 vertici e prima pagina di 100 risultati per spezzone. Non semplifica i vertici né fabbrica linee tra pezzi. Percorsi oltre budget e pagine sature sono dichiarati parziali. Categorie iniziali turistiche Geoapify.
+- **OpenTripMap:** fino a cinque ricerche `/0.1/it/places/radius` a 2 km su punti campionati della rotta, `limit=25`, `rate=2`. I risultati sono sempre indicati come **parziali** per il campionamento; un tasto `Dettagli OpenTripMap` per un `xid` avvia la seconda richiesta esplicita `/places/xid/{xid}`. Il provider richiede `apikey` nella query HTTPS, quindi non riportare URL completi nei log.
+- Limiti e sicurezza: niente network quando si apre la scheda (analisi offline separata); mostrare informativa di invio coordinate vicino al comando; timeout 8 s connessione/12 s lettura; risultati max 60, visibili max 20; posizioni filtrate entro 2 km geometrici, **non** distanza stradale o accessibilità. Richieste residue e risultati vecchi sono annullati/ignorati al cambio rotta; nessuna scrittura MotoPack e nessuna trasmissione BLE. Errori del provider senza URL/chiavi.
+- **Non fatto:** verifica live delle categorie e delle credenziali, licenze/quote dei propri piani, validazione di copertura su GPX reali, deduplicazione cross-provider basata su identità OSM verificabile, controllo accesso Valhalla per trasformare i POI in tappe. L'anteprima non deve trasformare automaticamente i centri di aree naturali in destinazioni.
+- Test di parsing/preparazione richieste aggiunti in `RoadDnaOnlineTest.kt`; **non eseguiti** in questa sessione. Eseguire i test e una sola CI finale dopo consenso.
+
+Riferimenti API ufficiali: https://apidocs.geoapify.com/how-to/place-discovery/places-in-custom-polygon/ e https://dev.opentripmap.org/product.
+
 ## Implementazione sperimentale Android nel branch Road DNA
 
 L'anteprima dell'itinerario Valhalla ora presenta una scheda «Road DNA» con curva indicativa e riepilogo dei POI turistici offline nel corridoio 2 km. Il ranking di Photon privilegia i nomi esatti dei luoghi rispetto a vie parziali; la ricerca turistico-nominale integra i risultati Photon con posizioni indicative non navigabili fino alla verifica di accesso Valhalla. Il nuovo MotoPack v2 e il lettore Android richiedono il quarto componente turistico SQLite, con controllo SHA-256 e versione schema. Le modifiche sono sperimentali e non garantiscono ancora una build Android corretta né una rigenerazione italiana riuscita. Il progetto **non** include ancora API key settings, Geoapify/OpenTripMap online, punto di partenza virtuale o deviazione verificata per i POI.
