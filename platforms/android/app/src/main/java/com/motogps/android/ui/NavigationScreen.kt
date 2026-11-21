@@ -721,6 +721,8 @@ fun NavigationScreen(
                                 "non per visibilità dalla strada. " +
                                 "Non rappresentano accessi stradali verificati.",
                                 style = MaterialTheme.typography.bodySmall)
+                            Text("Dati © OpenStreetMap contributors · ODbL 1.0",
+                                style = MaterialTheme.typography.labelSmall)
                         }
                     } else {
                         Text("Seleziona un itinerario Valhalla da analizzare.")
