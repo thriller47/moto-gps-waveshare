@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 from compare_sources import (
-    bbox, classify, meters_from_route, parse_route, route_matches, valid,
+    RouteSpatialIndex, bbox, classify, meters_from_route, parse_route, route_matches, valid,
 )
 
 
@@ -58,6 +58,21 @@ class RoadDnaSourceSmokeTests(unittest.TestCase):
         self.assertEqual(route_matches([(7.1, 45.0005)], routes, 2000, boxes),
                          ["giro"])
         self.assertEqual(route_matches([(7.1, 45.1)], routes, 2000, boxes), [])
+
+    def test_spatial_grid_matches_bruteforce_near_route(self):
+        route = [[7.0 + i * 0.0009, 45.0 + 0.001 * (i % 11)]
+                 for i in range(1500)]
+        idx = RouteSpatialIndex(route, 2000)
+        points = [(7.0, 45.0), (7.5, 45.015), (7.8, 45.0),
+                  (8.30, 45.024), (8.50, 45.08), (7.6, 45.1)]
+        for lon, lat in points:
+            self.assertEqual(meters_from_route(lon, lat, route) <= 2000,
+                             idx.near(lon, lat), (lon, lat))
+        routes = {"giro": route}
+        boxes = {"giro": bbox(route, 2000)}
+        near = route_matches([(7.5, 45.015)], routes, 2000, boxes,
+                             {"giro": idx})
+        self.assertEqual(["giro"], near)
 
     def test_invalid_coordinates(self):
         self.assertFalse(valid(190, 45))
