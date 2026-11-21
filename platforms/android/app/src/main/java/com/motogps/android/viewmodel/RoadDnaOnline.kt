@@ -21,6 +21,10 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import kotlin.math.min
+import kotlin.math.sin
+import kotlin.math.cos
+import kotlin.math.sqrt
+import kotlin.math.asin
 
 /**
  * Private AES-GCM encrypted keys under noBackupFilesDir. Never put the keys in
@@ -224,6 +228,36 @@ internal object RoadDnaOnline {
     private fun valid(lat: Double, lon: Double) = lat.isFinite() && lon.isFinite() &&
         lat in -90.0..90.0 && lon in -180.0..180.0
 
+    /** Five distance-distributed samples, not five vertex indices (which can
+     * cluster on dense switchback geometry). Full LineString is retained for Geoapify.
+     */
+    internal fun tripSampleIndices(points: List<Pair<Double, Double>>,
+                                   limit: Int = 5): List<Int> {
+        if (points.size <= limit) return points.indices.toList()
+        if (limit < 2) return listOf(0)
+        val cumulative = DoubleArray(points.size)
+        for (i in 1 until points.size) {
+            val a = points[i - 1]
+            val b = points[i]
+            val dLat = Math.toRadians(b.first - a.first)
+            val dLon = Math.toRadians(b.second - a.second)
+            val x = sin(dLat / 2) * sin(dLat / 2) +
+                cos(Math.toRadians(a.first)) * cos(Math.toRadians(b.first)) *
+                sin(dLon / 2) * sin(dLon / 2)
+            val meters = 12742000.0 * asin(sqrt(x.coerceIn(0.0, 1.0)))
+            cumulative[i] = cumulative[i - 1] + meters
+        }
+        val total = cumulative.last()
+        if (total <= 1.0) return listOf(0)
+        var cursor = 0
+        return (0 until limit).map { k ->
+            val target = total * k / (limit - 1)
+            while (cursor < points.lastIndex && cumulative[cursor] < target) cursor++
+            if (cursor > 0 && cumulative[cursor] - target > target - cumulative[cursor - 1])
+                cursor - 1 else cursor
+        }.distinct()
+    }
+
     private fun metersToRoute(point: RoadDnaOnlinePoi, route: List<Pair<Double, Double>>): Double =
         (1 until route.size).minOf { i ->
             RoadDnaAnalysis.distanceMeters(
@@ -287,9 +321,7 @@ internal object RoadDnaOnline {
         if (!tripKey.isNullOrBlank()) {
             // A few radius queries, not a continuous scan of the user's itinerary.
             // Sparse sampling means OpenTripMap coverage is always labelled partial.
-            val indices = (0 until min(5, route.size)).map { n ->
-                n * (route.size - 1) / (min(5, route.size) - 1)
-            }.distinct()
+            val indices = tripSampleIndices(route, 5)
             partial = true
             for (i in indices) {
                 try {
