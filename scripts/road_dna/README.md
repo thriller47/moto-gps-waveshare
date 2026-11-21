@@ -26,6 +26,10 @@ python3 -m unittest discover -s scripts/road_dna -p 'test_*.py' -v
 
 Sono test di parser GeoJSON/GPX, tag secondari e distanza dalla rotta. **Non** aprono il PBF, non eseguono richieste HTTP e non lanciano GitHub Actions.
 
+## Prestazioni PBF (correzione 21/11/2026)
+
+La versione iniziale ripassava **tutti i segmenti della rotta per ogni POI**: con quattro GPX lunghi poteva apparire bloccata per molti minuti. La versione aggiornata usa **un indice spaziale in memoria di soli segmenti delle quattro tracce** (non una nuova mappa), con progressi ogni 2 milioni di nodi OSM e messaggio prima del `VACUUM` SQLite. Conserva l'approssimazione sulla distanza in linea d'aria e le limitazioni sulle relazioni/multipoligoni; non sono dichiarati benchmark temporali misurati. Le modifiche allo script GitHub **non agiscono su un processo Python già avviato**. Per usare l'ottimizzazione, terminare consapevolmente la vecchia scansione, fare `git pull --ff-only origin valhalla` e scegliere una **nuova cartella `--output`**, perché il database SQLite viene creato da zero. Il comando non avvia CI, né modifica i dati installati.
+
 ## 1. Avvio offline: inventario PBF e dimensione SQLite
 
 In **WSL**, senza lanciare alcuna GitHub Action:
