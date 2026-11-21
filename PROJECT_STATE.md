@@ -83,6 +83,7 @@
 | P0 | Verifica incrociata ESP32+Android: BLE, radio, PWR 3 s, marker, heading, ricalcoli | Hardening recente da provare fisicamente |
 | P1 | CI finale native+Android+ESP32 sul commit consolidato | **Non avviata** dopo gli ultimi commit `[skip ci]` |
 | P2 | POI distributori lungo rotta / sosta a basso consumo / GPX | Idee da valutare, non dichiarare già implementate |
+| P1 | Android/Photon: ricerca non qualificata di **Sestriere** mostra prioritariamente vie omonime vicine invece della città; **Lago Maggiore** mostra vie omonime invece del lago. Audit su indice FTS locale, ranking e fallback Photon remoto: priorità a nome esatto di località/elementi naturali, senza perdere comportamento utile per indirizzi come Via Roma; test di regressione dedicati | **Bug segnalato 21/11/2026; causa probabile individuata, correzione non ancora implementata** |
 | P1 | Android: **scelta manuale del luogo di partenza** nella pianificazione rotta, distinta dalla posizione GPS corrente; mantenere opzione “posizione attuale” e non falsificare la navigazione live | **Richiesta 21/11/2026; da progettare e implementare** |
 | P1 | Android: **schermata impostazioni per inserire/modificare la chiave Geoapify e quella OpenTripMap**, con campi separati, input mascherato, prova di connessione e gestione errori; non inserire credenziali nel repository, log, backup o telemetria | **Richiesta 21/11/2026; da progettare e implementare** |
 
