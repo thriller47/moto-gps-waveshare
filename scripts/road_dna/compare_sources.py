@@ -268,7 +268,15 @@ def pbf_benchmark(pbf, db_path, routes, radius, max_way_refs=3_000_000):
     print("PBF pass 1/2: tourist nodes, tagged ways and relation counts...", flush=True)
 
     class FirstPass(osmium.SimpleHandler):
+        def __init__(self):
+            super().__init__()
+            self.nodes_seen = 0
+
         def node(self, obj):
+            self.nodes_seen += 1
+            if self.nodes_seen % 2_000_000 == 0:
+                print("PBF pass 1/2: {:,} nodes scanned".format(
+                    self.nodes_seen), flush=True)
             categories = classify(obj.tags)
             if categories and obj.location.valid():
                 store("n", int(obj.id), categories,
@@ -308,7 +316,15 @@ def pbf_benchmark(pbf, db_path, routes, radius, max_way_refs=3_000_000):
         found = {}
 
         class SecondPass(osmium.SimpleHandler):
+            def __init__(self):
+                super().__init__()
+                self.nodes_seen = 0
+
             def node(self, obj):
+                self.nodes_seen += 1
+                if self.nodes_seen % 2_000_000 == 0:
+                    print("PBF pass 2/2: {:,} nodes scanned; {:,} refs remaining".format(
+                        self.nodes_seen, len(needed_refs)), flush=True)
                 osm_id = int(obj.id)
                 if osm_id in needed_refs:
                     if obj.location.valid():
