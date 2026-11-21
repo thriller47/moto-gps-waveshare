@@ -645,6 +645,7 @@ fun NavigationScreen(
     onRouteOptionSelect: (Int) -> Unit,
     onRouteSelected: (PlaceSearchResult) -> Unit,
     onStartNavigation: (PlaceSearchResult) -> Unit,
+    onExportRouteGpx: () -> Unit = {},
     onStopNavigation: () -> Unit = {},
     onBackToSearch: () -> Unit,
     onImportOsmPack: () -> Unit = {},
@@ -1268,6 +1269,20 @@ fun NavigationScreen(
                             Icon(Icons.Default.Check, contentDescription = null)
                             Spacer(Modifier.width(8.dp))
                             Text("Salva questo tour")
+                        }
+                    }
+
+                    if (!isNavigating) {
+                        OutlinedButton(
+                            onClick = onExportRouteGpx,
+                            enabled = selectedRoute != null && geoPoints.size >= 2 && !isLoading,
+                            modifier = Modifier.fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 4.dp)
+                                .heightIn(min = 48.dp)
+                        ) {
+                            Icon(Icons.Default.Share, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Esporta GPX")
                         }
                     }
 
