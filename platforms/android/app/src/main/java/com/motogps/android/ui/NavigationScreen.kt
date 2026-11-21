@@ -1280,8 +1280,6 @@ fun NavigationScreen(
                                 .padding(horizontal = 16.dp, vertical = 4.dp)
                                 .heightIn(min = 48.dp)
                         ) {
-                            Icon(Icons.Default.Share, contentDescription = null)
-                            Spacer(Modifier.width(8.dp))
                             Text("Esporta GPX")
                         }
                     }
