@@ -149,12 +149,12 @@ def meters_from_route(lon, lat, route):
     return best
 
 
-def route_matches(positions, routes, radius):
+def route_matches(positions, routes, radius, boxes):
     matches = []
     if not positions:
         return matches
     for name, line in routes.items():
-        box = bbox(line, radius)
+        box = boxes[name]
         # Use way vertices, not solely centroid; still not a full
         # multipolygon intersection or correct entrance to an extensive area.
         near = False
@@ -176,6 +176,7 @@ def pbf_benchmark(pbf, db_path, routes, radius):
     counts = collections.Counter()
     relations = collections.Counter()
     by_route = {name: collections.Counter() for name in routes}
+    boxes = {name: bbox(line, radius) for name, line in routes.items()}
     db = sqlite3.connect(str(db_path))
     db.executescript("""CREATE TABLE poi(
       osm_type TEXT, osm_id INTEGER, category TEXT, name TEXT,
@@ -193,7 +194,7 @@ def pbf_benchmark(pbf, db_path, routes, radius):
             lon = sum(p[0] for p in positions) / len(positions)
             lat = sum(p[1] for p in positions) / len(positions)
             name = str(tag.get("name", tag.get("name:it", "")))[:160]
-            nearby = route_matches(positions, routes, radius)
+            nearby = route_matches(positions, routes, radius, boxes)
             for cat in categories:
                 counts[cat] += 1
                 db.execute(insert, (osm_type, int(obj.id), cat, name, lon, lat))
