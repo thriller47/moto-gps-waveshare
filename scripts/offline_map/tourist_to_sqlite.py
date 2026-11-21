@@ -94,7 +94,39 @@ def polygon_from_member_lines(outer_lines, inner_lines):
         return None
     return result
 
-def build(pbf, output, max_refs=3_000_000):
+
+class NodeRefFilter:
+    """32 MiB Bloom filter: disk SQLite resolves all positives exactly.
+
+    False positives cost SQLite lookups; false negatives are impossible.
+    Only bit membership is held in memory, not millions of Python integers.
+    """
+    BITS = 1 << 28
+    MASK = BITS - 1
+
+    def __init__(self):
+        self.bits = bytearray(self.BITS // 8)
+
+    def hashes(self, osm_id):
+        # SplitMix64-derived 64-bit pair, deterministic across Python runs.
+        mask64 = (1 << 64) - 1
+        x = (osm_id + 0x9e3779b97f4a7c15) & mask64
+        x = ((x ^ (x >> 30)) * 0xbf58476d1ce4e5b9) & mask64
+        x = ((x ^ (x >> 27)) * 0x94d049bb133111eb) & mask64
+        h1 = (x ^ (x >> 31)) & self.MASK
+        h2 = ((x >> 32) | 1) & self.MASK
+        return (h1, (h1 + h2) & self.MASK, (h1 + 2 * h2) & self.MASK)
+
+    def add(self, osm_id):
+        for h in self.hashes(osm_id):
+            self.bits[h >> 3] |= 1 << (h & 7)
+
+    def maybe(self, osm_id):
+        return all(self.bits[h >> 3] & (1 << (h & 7))
+                   for h in self.hashes(osm_id))
+
+
+def build(pbf, output):
     import osmium
     from shapely.geometry import LineString
     from shapely.ops import unary_union
@@ -112,12 +144,17 @@ def build(pbf, output, max_refs=3_000_000):
     relations = {}
     related_way_ids = set()
     relation_way_categories = collections.defaultdict(set)
-    needed_refs = set()
+    ref_filter = NodeRefFilter()
+    ref_rows = 0
     way_points = {}
     counts = collections.Counter()
     failures = collections.Counter()
     db = sqlite3.connect(pending)
+    db.execute("PRAGMA temp_store=FILE")
+    db.execute("PRAGMA cache_size=-32768")
     db.executescript(SCHEMA)
+    db.execute("""CREATE TABLE selected_nodes(
+                   id INTEGER PRIMARY KEY, lon REAL, lat REAL)""")
 
     def insert(kind, osm_id, categories, name, lon, lat, bounds, geometry_type, quality):
         if not all(math.isfinite(v) for v in (lon, lat, *bounds)):
@@ -159,11 +196,17 @@ def build(pbf, output, max_refs=3_000_000):
             if int(obj.id) not in related_way_ids and not classify(obj.tags):
                 return
             refs = [int(node.ref) for node in obj.nodes]
-            additional = set(refs) - needed_refs
-            if len(needed_refs) + len(additional) > max_refs:
-                raise RuntimeError("Too many selected OSM node refs: increase --max-refs "
-                                   "after checking available memory")
-            needed_refs.update(additional)
+            # Store referenced node IDs on disk, without an arbitrary RAM
+            # cap. A small Bloom filter screens unrelated nodes in pass 3.
+            nonlocal ref_rows
+            db.executemany("INSERT OR IGNORE INTO selected_nodes(id) VALUES(?)",
+                           ((ref,) for ref in refs))
+            for ref in refs:
+                ref_filter.add(ref)
+            ref_rows += len(refs)
+            if ref_rows // 2_000_000 != (ref_rows - len(refs)) // 2_000_000:
+                print("Selected {:,} raw node references...".format(ref_rows),
+                      flush=True)
             tags = {str(k): str(v) for k,v in obj.tags}
             db.execute("INSERT INTO candidate_way VALUES (?,?,?)",
                        (int(obj.id), json.dumps(tags), json.dumps(refs)))
@@ -176,30 +219,62 @@ def build(pbf, output, max_refs=3_000_000):
         print("Road DNA 2/3: tourist points and selected ways...", flush=True)
         Candidates().apply_file(str(source), locations=False)
         db.commit()
-        print("Selected {:,} node coordinates; resolving in pass 3/3...".format(
-              len(needed_refs)), flush=True)
-        locations = {}
+        selected_unique = db.execute("SELECT COUNT(*) FROM selected_nodes").fetchone()[0]
+        print("Selected {:,} unique referenced nodes on disk; "
+              "resolving in pass 3/3...".format(selected_unique), flush=True)
         class Coordinates(osmium.SimpleHandler):
+            def __init__(self):
+                super().__init__()
+                self.seen = 0
+                self.matched = 0
+
             def node(self, obj):
+                self.seen += 1
                 ref = int(obj.id)
-                if ref in needed_refs:
-                    if obj.location.valid():
-                        locations[ref] = (obj.location.lon, obj.location.lat)
-                    needed_refs.discard(ref)
-        if needed_refs:
+                if ref_filter.maybe(ref) and obj.location.valid():
+                    db.execute("UPDATE selected_nodes SET lon=?,lat=? WHERE id=?",
+                               (obj.location.lon, obj.location.lat, ref))
+                    self.matched += db.execute("SELECT changes()").fetchone()[0]
+                if self.seen % 5_000_000 == 0:
+                    print("Road DNA 3/3: {:,} nodes scanned, {:,} references "
+                          "resolved".format(self.seen, self.matched), flush=True)
+
+        if selected_unique:
             Coordinates().apply_file(str(source), locations=False)
-        print("Resolved {:,} coordinates; assembling polygons...".format(
-              len(locations)), flush=True)
+        db.commit()
+        resolved = db.execute(
+            "SELECT COUNT(*) FROM selected_nodes WHERE lon IS NOT NULL").fetchone()[0]
+        print("Resolved {:,}/{:,} unique node coordinates; "
+              "assembling polygons...".format(resolved, selected_unique),
+              flush=True)
+        if resolved != selected_unique:
+            raise RuntimeError("Missing {:,} referenced OSM node coordinates; "
+                               "not publishing incomplete index".format(
+                                   selected_unique - resolved))
+
+        # Extract by indexed SQL lookups per way. This trades random disk I/O
+        # for bounded RAM; only member ways of area relations are retained.
+        def read_way(refs):
+            locations = {}
+            for offset in range(0, len(refs), 500):
+                batch = list(dict.fromkeys(refs[offset:offset + 500]))
+                placeholders = ",".join("?" for _ in batch)
+                for node_id, lon, lat in db.execute(
+                        "SELECT id,lon,lat FROM selected_nodes WHERE id IN (" +
+                        placeholders + ")", batch):
+                    locations[node_id] = (lon, lat)
+            return [locations[ref] for ref in refs if ref in locations]
 
         for osm_id, tags_json, refs_json in db.execute(
                 "SELECT osm_id,tags_json,refs_json FROM candidate_way"):
             tags = json.loads(tags_json)
             refs = json.loads(refs_json)
-            line = [locations[ref] for ref in refs if ref in locations]
+            line = read_way(refs)
             if len(line) != len(refs) or len(line) < 2:
                 failures["unresolved_way"] += 1
                 continue
-            way_points[osm_id] = line
+            if osm_id in related_way_ids:
+                way_points[osm_id] = line
             categories = classify(tags)
             if not categories:
                 continue
@@ -245,6 +320,7 @@ def build(pbf, output, max_refs=3_000_000):
         if count == 0:
             raise RuntimeError("No tourist points indexed")
         db.execute("DROP TABLE candidate_way")
+        db.execute("DROP TABLE selected_nodes")
         db.execute("INSERT INTO tourist_metadata VALUES ('schema','road-dna-tourist-1')")
         db.execute("INSERT INTO tourist_metadata VALUES ('count',?)", (str(count),))
         db.execute("INSERT INTO tourist_metadata VALUES ('relation_count',?)",
@@ -270,9 +346,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pbf", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--max-refs", type=int, default=3_000_000)
-    args = parser.parse_args()
-    build(args.pbf, args.output, args.max_refs)
+     args = parser.parse_args()
+    build(args.pbf, args.output)
 
 if __name__ == "__main__":
     main()
