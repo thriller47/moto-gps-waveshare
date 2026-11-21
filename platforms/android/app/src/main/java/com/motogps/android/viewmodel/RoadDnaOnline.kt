@@ -109,7 +109,9 @@ data class RoadDnaOnlinePoi(
     val source: String,
     val latitude: Double,
     val longitude: Double,
-    val xid: String? = null
+    val xid: String? = null,
+    // Geoapify Places API identity: use exact place details rather than a nearby guess.
+    val geoPlaceId: String? = null
 )
 
 data class RoadDnaOnlineResult(
@@ -124,6 +126,7 @@ internal class RoadDnaProviderHttpException(val statusCode: Int) :
 
 internal object RoadDnaOnline {
     private const val GEO = "https://api.geoapify.com/v2/places"
+    private const val GEO_DETAILS = "https://api.geoapify.com/v2/place-details"
     // Use the documented OpenTripMap language endpoint. /it is not documented
     // for the Places API and can reject even a valid key.
     private const val OTM = "https://api.opentripmap.com/0.1/en/places"
@@ -211,7 +214,8 @@ internal object RoadDnaOnline {
             if (name.isBlank()) continue
             result.add(RoadDnaOnlinePoi(name.take(160),
                 p.optJSONArray("categories")?.optString(0).orEmpty().ifBlank { "turismo" },
-                0, "Geoapify", lat, lon))
+                0, "Geoapify", lat, lon,
+                geoPlaceId = p.optString("place_id").trim().takeIf { it.isNotEmpty() }))
         }
         return result
     }
@@ -379,16 +383,67 @@ internal object RoadDnaOnline {
         }
     }
 
+    /**
+     * For Geoapify places use their own exact place_id lookup; an OpenTripMap
+     * object at a similar location is not guaranteed to represent the same POI.
+     * One detail request is made only after the user selects a specific place.
+     */
     fun detailsForPoi(context: Context, place: RoadDnaOnlinePoi): String {
-        if (place.xid != null) return details(context, place.xid)
+        if (place.source == "OpenTripMap") {
+            return details(context, place.xid
+                ?: throw IllegalArgumentException("Identificativo OpenTripMap mancante"))
+        }
         require(place.source == "Geoapify") { "Origine del luogo non supportata" }
-        val key = RoadDnaApiKeys.read(context, "opentripmap")
-            ?: throw IllegalStateException("Chiave OpenTripMap non configurata")
-        val nearby = parseTrip(JSONArray(fetch(
-            tripRadiusUrl(place.latitude, place.longitude, key, radius = 300, rate = 1))))
-        val match = matchOpenTripMap(place, nearby)
-            ?: return "Nessuna scheda OpenTripMap associabile con sufficiente certezza."
-        return details(context, match.xid!!)
+        val id = place.geoPlaceId
+            ?: return "Geoapify non ha fornito un identificativo per la scheda di questo luogo."
+        require(id.length in 1..256 && id.all { it.isLetterOrDigit() || it in "-_" }) {
+            "Identificativo Geoapify non valido"
+        }
+        val key = RoadDnaApiKeys.read(context, "geoapify")
+            ?: throw IllegalStateException("Chiave Geoapify non configurata")
+        val url = GEO_DETAILS + "?id=" + URLEncoder.encode(id, "UTF-8")
+        // Geoapify accepts x-api-key; do not insert the key in the URL.
+        return parseGeoDetails(JSONObject(fetch(url, key)))
+    }
+
+    internal fun parseGeoDetails(data: JSONObject): String {
+        val features = data.optJSONArray("features")
+        val props = (0 until (features?.length() ?: 0)).asSequence()
+            .mapNotNull { features?.optJSONObject(it)?.optJSONObject("properties") }
+            .firstOrNull { it.optString("feature_type") == "details" }
+            ?: return "Geoapify non ha restituito una scheda per questo luogo."
+        val lines = ArrayList<String>()
+        val description = props.optString("description").trim()
+        lines.add(if (description.isNotEmpty()) description.take(1200)
+            else "Descrizione non disponibile nei dati Geoapify.")
+        props.optString("formatted").trim().takeIf { it.isNotEmpty() }
+            ?.let { lines.add("Indirizzo: " + it.take(300)) }
+        props.optString("website").trim().takeIf { it.startsWith("https://") || it.startsWith("http://") }
+            ?.let { lines.add("Sito web: " + it.take(500)) }
+        val wiki = props.optJSONObject("wiki_and_media")
+        wiki?.optString("wikipedia")?.trim()?.takeIf { it.isNotEmpty() }
+            ?.let { lines.add("Riferimento Wikipedia: " + it.take(250)) }
+        wiki?.optString("wikidata")?.trim()?.takeIf { it.isNotEmpty() }
+            ?.let { lines.add("Wikidata: " + it.take(80)) }
+        return lines.joinToString("\n\n")
+    }
+
+    internal fun parseTripDetails(data: JSONObject): String {
+        val description = data.optJSONObject("wikipedia_extracts")
+            ?.optString("text").orEmpty().trim().ifBlank {
+                data.optJSONObject("info")?.optString("descr").orEmpty().trim()
+            }
+        val lines = ArrayList<String>()
+        lines.add(if (description.isNotEmpty()) description.take(1200)
+            else "Descrizione non disponibile in OpenTripMap per questo luogo.")
+        data.optString("url").trim().takeIf { it.startsWith("https://") || it.startsWith("http://") }
+            ?.let { lines.add("Sito web: " + it.take(500)) }
+        data.optString("wikipedia").trim().takeIf {
+            it.startsWith("https://") || it.startsWith("http://")
+        }?.let { lines.add("Wikipedia: " + it.take(500)) }
+        data.optString("otm").trim().takeIf { it.startsWith("https://") || it.startsWith("http://") }
+            ?.let { lines.add("OpenTripMap: " + it.take(500)) }
+        return lines.joinToString("\n\n")
     }
 
     fun details(context: Context, xid: String): String {
@@ -399,11 +454,7 @@ internal object RoadDnaOnline {
             ?: throw IllegalStateException("Configura la chiave OpenTripMap")
         val url = OTM + "/xid/" + URLEncoder.encode(xid, "UTF-8") +
             "?apikey=" + URLEncoder.encode(key, "UTF-8")
-        val data = JSONObject(fetch(url))
-        return (data.optJSONObject("wikipedia_extracts")?.optString("text").orEmpty()
-            .ifBlank { data.optJSONObject("info")?.optString("descr").orEmpty() }
-            .ifBlank { data.optString("kinds").replace(",", ", ") }
-            .ifBlank { "Nessuna descrizione disponibile." }).take(1200)
+        return parseTripDetails(JSONObject(fetch(url)))
     }
 
     fun testKey(provider: String, value: String): Boolean {
