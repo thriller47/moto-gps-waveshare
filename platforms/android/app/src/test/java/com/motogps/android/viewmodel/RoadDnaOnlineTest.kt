@@ -101,6 +101,7 @@ class RoadDnaOnlineTest {
 
     @Test fun openTripMapApiKeyIsEncodedForQuery() {
         val url = RoadDnaOnline.tripRadiusUrl(45.0, 7.0, "sample key&test")
+        assertTrue(url.startsWith("https://api.opentripmap.com/0.1/en/places/radius?"))
         assertTrue(url.contains("radius=2000"))
         assertTrue(url.contains("limit=25"))
         assertTrue(url.contains("apikey=sample+key%26test"))
