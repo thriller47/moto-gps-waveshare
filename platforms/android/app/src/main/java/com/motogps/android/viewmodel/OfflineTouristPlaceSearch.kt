@@ -156,4 +156,70 @@ internal object OfflineTouristPlaceSearch {
             return output
         }
     }
+    /** Text discovery for named natural and cultural places. Unlike route
+     *  guidance, a polygon centroid is only an indicative search location.
+     *  This is intentionally separate from the Photon FTS ranking. */
+    fun searchNames(context: Context, query: String,
+                    gps: Pair<Double, Double>?, limit: Int = 8): List<PlaceSearchResult> {
+        val normalized = PhotonOfflineRanking.normalize(query)
+        if (normalized.length < 3 || normalized.length > 100 || limit !in 1..20) return emptyList()
+        val words = normalized.split(' ').filter { it.isNotBlank() }
+        val path = file(context)
+        if (!path.isFile) return emptyList()
+        val tokens = words.map { it.replace("%", "").replace("_", "") }
+        if (tokens.any { it.isEmpty() }) return emptyList()
+        // Scan only name candidates. LIKE is parameterized, never SQL interpolated.
+        val rawQuery = """
+            SELECT osm_type,osm_id,category,name,lat,lon,geometry_type
+              FROM tourist_poi
+             WHERE name <> '' AND name LIKE ? COLLATE NOCASE
+             LIMIT 600
+        """.trimIndent()
+        val results = ArrayList<PlaceSearchResult>()
+        SQLiteDatabase.openDatabase(path.absolutePath, null,
+            SQLiteDatabase.OPEN_READONLY).use { db ->
+            db.rawQuery(rawQuery, arrayOf("%" + tokens.joinToString("%") + "%")).use { cursor ->
+                val candidates = ArrayList<Pair<Int, PlaceSearchResult>>()
+                while (cursor.moveToNext()) {
+                    val placeName = cursor.getString(3)
+                    val placeNormalized = PhotonOfflineRanking.normalize(placeName)
+                    val exact = placeNormalized == normalized
+                    val begins = placeNormalized.startsWith(normalized + " ")
+                    if (!exact && !begins &&
+                        !words.all { it in placeNormalized.split(' ') }) continue
+                    val category = cursor.getString(2)
+                    val geometryType = cursor.getString(6)
+                    val lat = cursor.getDouble(4)
+                    val lon = cursor.getDouble(5)
+                    if (!lat.isFinite() || !lon.isFinite() ||
+                        lat !in -90.0..90.0 || lon !in -180.0..180.0) continue
+                    // Points can also lack a verified road access; all tourist
+                    // suggestions require selecting a nearby road/locality.
+                    val place = PlaceSearchResult(
+                        placeName, "", "$category · Road DNA · accesso stradale non verificato",
+                        lat, lon, requiresRoadAccess = true)
+                    candidates.add((if (exact) 0 else if (begins) 1 else 2) to place)
+                }
+                val lat0 = gps?.first?.takeIf { it.isFinite() } ?: 0.0
+                val lon0 = gps?.second?.takeIf { it.isFinite() } ?: 0.0
+                val seen = HashSet<String>()
+                candidates.sortWith(compareBy<Pair<Int, PlaceSearchResult>> { it.first }
+                    .thenBy {
+                        val dlat = it.second.latitude - lat0
+                        val dlon = it.second.longitude - lon0
+                        dlat * dlat + dlon * dlon *
+                            kotlin.math.cos(Math.toRadians(lat0)).let { c -> c * c }
+                    })
+                for ((_, place) in candidates) {
+                    val key = PhotonOfflineRanking.normalize(place.name) +
+                        ":" + (place.latitude * 1000).toInt() +
+                        ":" + (place.longitude * 1000).toInt()
+                    if (seen.add(key)) results.add(place)
+                    if (results.size >= limit) break
+                }
+            }
+        }
+        return results
+    }
+
 }
