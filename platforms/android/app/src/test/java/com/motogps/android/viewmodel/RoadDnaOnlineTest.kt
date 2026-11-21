@@ -176,7 +176,7 @@ class RoadDnaOnlineTest {
                 .put("en", JSONObject().put("language", "en")
                     .put("value", "hilltop castle near the road"))
                 .put("it", JSONObject().put("language", "it")
-                    .put("value", "castello su un colle"))))))
+                    .put("value", "castello su un colle")))))
         assertEquals("castello su un colle",
             RoadDnaOnline.wikidataShortDescription(data, "Q123"))
         assertNull(RoadDnaOnline.wikidataShortDescription(data, "Q124"))
