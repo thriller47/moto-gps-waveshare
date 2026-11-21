@@ -290,6 +290,11 @@ def build(pbf, output):
             if len(line) >= 4 and line[0] == line[-1]:
                 from shapely.geometry import Polygon
                 polygon = Polygon(line)
+                if not polygon.is_valid:
+                    # Polygon ring self-intersections occur in real OSM data.
+                    # Buffer(0) may repair them into a valid MultiPolygon;
+                    # never publish an invalid geometry as a verified area.
+                    polygon = polygon.buffer(0)
                 if polygon.is_empty or not polygon.is_valid or polygon.area <= 0:
                     failures["invalid_tourist_area_way"] += 1
                     continue
