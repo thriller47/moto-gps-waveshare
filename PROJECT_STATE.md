@@ -2,6 +2,8 @@
 
 ## STATO ATTUALE — RIPARTIRE DA QUI
 
+**22/11/2026 — Fix Kotlin compile Road DNA:** l'utente segnala `compileDebugKotlin` fallita a `RoadDnaOnline.kt:395` (`String?` passato a `String` per `linkedSource`). Sistemato fallback non nullo `wikiExtract?.third ?: "Wikipedia"` nel branch `feature/road-dna-motopack-v2`, commit `af39d4c`. Nessuna compilazione locale o CI lanciata; chiedere conferma build da Windows PowerShell con JDK 17.
+
 **22/11/2026 — Road DNA: Wikidata QID senza descrizione.** L'utente conferma che alcune schede Geoapify contengono soltanto indirizzo e un codice Wikidata `Q...`. Diagnosi: il precedente enrich cercava solo sitelink a Wikipedia, non la proprietà `descriptions` dell'elemento Wikidata. Correzione su `feature/road-dna-motopack-v2`: lookup in una sola richiesta `wbgetentities` con `props=sitelinks|descriptions` e lingue it/en; prima prova la pagina Wikipedia associata esattamente al QID, poi, se la pagina manca o la richiesta fallisce, recupera la breve descrizione del QID, italiana preferita, inglese come alternativa. UI mostra «Da Wikidata (descrizione breve)» con attribuzione CC0 e URL ufficiale, non spaccia più il QID per una descrizione. Nessuna associazione per nome; ulteriori richieste soltanto al tap dei dettagli. Se l'elemento non possiede una descrizione, continua a mostrare onestamente l'assenza di testo e il link Wikidata. Test JSON sintetici aggiunti; sistemate due asserzioni obsolete. **Ancora da compilare/verificare su Android reale; CI non avviata.**
 
 
