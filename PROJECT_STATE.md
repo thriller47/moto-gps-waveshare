@@ -56,6 +56,17 @@
 
 **Separazione funzionale:** MotoMap = contesto stradale; Valhalla = rotta verde; Photon = ricerca. I tre componenti sono distribuiti nel MotoPack ma hanno ruoli diversi. L'heading IMU è un supporto alla visualizzazione; non deve sostituire arbitrariamente il GPS autorevole per routing e manovre.
 
+## Sviluppo Android Road DNA — branch feature/road-dna-motopack-v2 (21/11/2026)
+
+- MotoPack v2 con 4 componenti e SHA-256 per ciascuno: MotoMap, Photon, Valhalla, Tourist SQLite; importatore Android aggiornato, verifica finale anche del turistico. Importazione di ogni componente singolarmente atomica, **non transazione globale**.
+- Ricerca Photon: cache SQLite read-only protetta da ReentrantReadWriteLock, signal di cancellazione delle query, nessun risultato obsoleto dopo nuova ricerca, nomi esatti di città/località prima di vie omonime, mantenuta la priorità GPS per indirizzi espliciti.
+- Ricerca integrata con nomi turistici Road DNA; coordinate indicative vietate come destinazioni automatiche finché manca controllo accesso strada; priorità a città esatte su candidati turistici/stradali.
+- Road DNA in anteprima: analisi della geometria Valhalla scelta, classe curve indicativa, POI candidati entro 2 km, aree per bounding box con avviso possibile falso positivo; niente mappa nuova/BLE/ESP32/rete.
+- Android UI «Mappe offline» visualizza la quarta componente. Aggiunti test sorgente per Sestriere, Lago Maggiore, Via Roma e geometria Road DNA.
+- Generator Road DNA aggiornato per aree OSM anche se way chiuse, non solo relazioni. Il PBF completo **non è stato ancora validato dopo queste modifiche**.
+- **NESSUNA CI Android/native/ESP32 eseguita né autorizzata** dopo gli ultimi commit. Da verificare compilazione Kotlin/Compose, test unitari, build PBF e importazione reale prima di dichiarare pronto.
+- Restano fuori da questo ciclo: account/API key Geoapify e OpenTripMap, analisi online esplicita, punto di partenza virtuale e verifica accessi Valhalla per aggiungere POI come tappe.
+
 ## Decisione Road DNA / MotoPack (21 novembre 2026)
 
 - **Richiesta esplicita:** nuovo MotoPack con POI turistici offline completi, senza requisito di compatibilità del formato bundle precedente; solo dopo integrazione Android e prove.
