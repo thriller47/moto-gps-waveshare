@@ -111,6 +111,7 @@ def build(pbf, output, max_refs=3_000_000):
 
     relations = {}
     related_way_ids = set()
+    relation_way_categories = collections.defaultdict(set)
     needed_refs = set()
     way_points = {}
     counts = collections.Counter()
@@ -144,6 +145,8 @@ def build(pbf, output, max_refs=3_000_000):
                 return
             relations[int(obj.id)] = (categories, label(obj.tags), members)
             related_way_ids.update(ref for ref, _ in members)
+            for ref, _ in members:
+                relation_way_categories[ref].update(categories)
 
     class Candidates(osmium.SimpleHandler):
         def node(self, obj):
@@ -202,11 +205,7 @@ def build(pbf, output, max_refs=3_000_000):
                 continue
             # Do not publish tagged geometry from a multipolygon member as
             # an independent attraction when relation covers the category.
-            duplicate = set()
-            for rel_cats, _, members in relations.values():
-                if any(ref == osm_id for ref, _ in members):
-                    duplicate.update(rel_cats)
-            categories = sorted(set(categories) - duplicate)
+            categories = sorted(set(categories) - relation_way_categories[osm_id])
             if not categories:
                 continue
             shape = LineString(line)
@@ -237,9 +236,11 @@ def build(pbf, output, max_refs=3_000_000):
                 insert("r", rel_id, categories, name, point.x, point.y,
                        geom.bounds, "area", "representative")
 
-        if any(failures.values()):
+        critical = {key: value for key, value in failures.items()
+                    if key not in ("unsupported_relation_type", "relation_without_way_members")}
+        if critical:
             raise RuntimeError("Tourist areas incomplete: {}. "
-                               "Not publishing this dataset.".format(dict(failures)))
+                               "Not publishing this dataset.".format(critical))
         count = db.execute("SELECT COUNT(*) FROM tourist_poi").fetchone()[0]
         if count == 0:
             raise RuntimeError("No tourist points indexed")
@@ -248,6 +249,10 @@ def build(pbf, output, max_refs=3_000_000):
         db.execute("INSERT INTO tourist_metadata VALUES ('count',?)", (str(count),))
         db.execute("INSERT INTO tourist_metadata VALUES ('relation_count',?)",
                    (str(len(relations)),))
+        db.execute("INSERT INTO tourist_metadata VALUES ('unsupported_relation_types',?)",
+                   (str(failures["unsupported_relation_type"]),))
+        db.execute("INSERT INTO tourist_metadata VALUES ('relation_without_way_members',?)",
+                   (str(failures["relation_without_way_members"]),))
         db.commit()
         db.execute("VACUUM")
         db.close()
