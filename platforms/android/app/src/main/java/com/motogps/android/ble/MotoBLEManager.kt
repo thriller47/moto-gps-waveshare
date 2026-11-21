@@ -75,10 +75,10 @@ class MotoBLEManager(private val context: Context) {
     // The user's Connect action opts into recovery until explicit Disconnect/close.
     // Scan windows keep Android from scanning continuously while out of range.
     @Volatile private var reconnectEnabled = false
-    private var reconnectAttempt = 0
+    @Volatile private var reconnectAttempt = 0
     // Remember only a peripheral that completed our protocol handshake.
     @Volatile private var lastReadyDevice: BluetoothDevice? = null
-    private var preferSystemReconnect = true
+    @Volatile private var preferSystemReconnect = true
     private val connectionTimeout = Runnable {
         if (!closed && reconnectEnabled && bluetoothGatt != null &&
             handshakeState != HandshakeState.COMPLETED) {
@@ -90,10 +90,12 @@ class MotoBLEManager(private val context: Context) {
     private val reconnectRunnable = Runnable {
         if (!closed && reconnectEnabled && bluetoothGatt == null && !isScanning) {
             val known = lastReadyDevice
-            if (known != null && preferSystemReconnect) {
+            if (known != null && BleReconnectPolicy.useSystemConnect(true, preferSystemReconnect)) {
                 // System-managed autoConnect does not depend on foreground
                 // scan callbacks arriving during a short application window.
                 preferSystemReconnect = false
+                // Reset old codec/MTU/queues just as a fresh scan does.
+                disconnect(userRequested = false)
                 DiagnosticLog.event("BLE_RECONNECT", "phase=system_connect attempt=${reconnectAttempt}")
                 onConnectionStateChange?.invoke("Riconnessione in corso...")
                 connectToDevice(known, automatic = true)
@@ -678,9 +680,10 @@ class MotoBLEManager(private val context: Context) {
         }
 
         override fun onScanFailed(errorCode: Int) {
-            isScanning = false
-            mainHandler.removeCallbacks(scanWindowTimeout)
             mainHandler.post {
+                if (!isScanning || bluetoothGatt != null || closed) return@post
+                isScanning = false
+                mainHandler.removeCallbacks(scanWindowTimeout)
                 onConnectionStateChange?.invoke("Non connesso")
                 if (reconnectEnabled) {
                     DiagnosticLog.event("BLE_RECONNECT",
@@ -794,6 +797,12 @@ class MotoBLEManager(private val context: Context) {
         stopHeartbeat()
         stopScan()
         mainHandler.removeCallbacksAndMessages(null)
+        // A second recovery/Connect action must not cancel the previous
+        // GATT's close fallback without actually closing that session.
+        pendingDisconnectGatt?.let {
+            try { it.close() } catch (_: Exception) {}
+            pendingDisconnectGatt = null
+        }
         val gatt = bluetoothGatt
         bluetoothGatt = null
         writeCharacteristic = null
