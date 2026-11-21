@@ -691,14 +691,54 @@ fun NavigationScreen(
     onUnifiedDiagnosticModeChange: (Int) -> Unit = {}
 ) {
     var showRoadDnaDialog by remember { mutableStateOf(false) }
-    if (showRoadDnaDialog) {
+    var selectedRoadDnaPoi by remember { mutableStateOf<RoadDnaOnlinePoi?>(null) }
+    val roadDnaListScroll = rememberScrollState()
+    if (showRoadDnaDialog && selectedRoadDnaPoi != null) {
+        val poi = selectedRoadDnaPoi!!
+        AlertDialog(
+            onDismissRequest = { selectedRoadDnaPoi = null },
+            title = { Text("Scheda OpenTripMap") },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth()
+                        .heightIn(max = 430.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(poi.name, style = MaterialTheme.typography.titleMedium)
+                    Text("Risultato da ${poi.source}",
+                        style = MaterialTheme.typography.bodySmall)
+                    when {
+                        roadDnaDetailsLoading -> {
+                            CircularProgressIndicator()
+                            Text(if (poi.xid != null) "Caricamento scheda OpenTripMap…"
+                                else "Ricerca di una scheda OpenTripMap corrispondente…")
+                        }
+                        roadDnaDetails != null -> Text(roadDnaDetails)
+                        else -> Text("Preparazione della scheda…")
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { selectedRoadDnaPoi = null }) {
+                    Text("Torna ai risultati")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    selectedRoadDnaPoi = null
+                    showRoadDnaDialog = false
+                }) { Text("Chiudi") }
+            }
+        )
+    }
+    if (showRoadDnaDialog && selectedRoadDnaPoi == null) {
         AlertDialog(
             onDismissRequest = { showRoadDnaDialog = false },
             title = { Text("Road DNA") },
             text = {
                 Column(
                     modifier = Modifier.fillMaxWidth()
-                        .heightIn(max = 430.dp).verticalScroll(rememberScrollState()),
+                        .heightIn(max = 430.dp).verticalScroll(roadDnaListScroll),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     if (roadDnaLoading) {
@@ -775,7 +815,10 @@ fun NavigationScreen(
                                 Text(poi.category + " · circa " + poi.distanceMeters + " m dalla rotta",
                                     style = MaterialTheme.typography.labelSmall)
                                 if (opentripmapConfigured) {
-                                    TextButton(onClick = { onRoadDnaDetails(poi) }) {
+                                    TextButton(onClick = {
+                                        selectedRoadDnaPoi = poi
+                                        onRoadDnaDetails(poi)
+                                    }) {
                                         Text(if (poi.xid != null) "Dettagli OpenTripMap"
                                             else "Cerca scheda su OpenTripMap")
                                     }
@@ -785,12 +828,7 @@ fun NavigationScreen(
                         if (roadDnaOnline.places.size > 20)
                             Text("Mostrati i primi 20 risultati.")
                     }
-                    if (roadDnaDetailsLoading) CircularProgressIndicator()
-                    if (roadDnaDetails != null) {
-                        HorizontalDivider()
-                        Text("Scheda OpenTripMap", style = MaterialTheme.typography.titleSmall)
-                        Text(roadDnaDetails)
-                    }
+                    // Details open in a focused dialog, never below the 20 POI rows.
                 }
             },
             confirmButton = {
