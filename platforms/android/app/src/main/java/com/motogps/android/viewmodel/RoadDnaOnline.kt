@@ -14,8 +14,6 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
-import java.text.Normalizer
-import java.util.Locale
 import java.nio.charset.StandardCharsets
 import java.security.KeyStore
 import javax.crypto.Cipher
@@ -357,30 +355,6 @@ internal object RoadDnaOnline {
             partial, errors.joinToString("; ").ifBlank {
                 if (partial) "Risultati parziali: limiti API o campionamento" else "Ricerca completata"
             })
-    }
-
-    private fun comparableName(value: String): String =
-        Normalizer.normalize(value.lowercase(Locale.ROOT), Normalizer.Form.NFKD)
-            .replace(Regex("\\p{M}+"), "")
-            .replace(Regex("[^a-z0-9]+"), " ").trim()
-
-    /** Selected Geoapify POIs can be enriched via OpenTripMap only when both
-     * name AND coordinates match. Never assign an unrelated nearby xid.
-     */
-    internal fun matchOpenTripMap(place: RoadDnaOnlinePoi,
-                                  candidates: List<RoadDnaOnlinePoi>): RoadDnaOnlinePoi? {
-        val name = comparableName(place.name)
-        if (name.length < 3) return null
-        return candidates.filter {
-            it.xid != null && comparableName(it.name) == name &&
-                RoadDnaAnalysis.distanceMeters(
-                    place.latitude to place.longitude,
-                    it.latitude to it.longitude, it.latitude to it.longitude) <= 200.0
-        }.minByOrNull {
-            RoadDnaAnalysis.distanceMeters(
-                place.latitude to place.longitude,
-                it.latitude to it.longitude, it.latitude to it.longitude)
-        }
     }
 
     /**
