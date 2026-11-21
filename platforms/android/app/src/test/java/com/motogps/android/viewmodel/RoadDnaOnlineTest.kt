@@ -74,6 +74,63 @@ class RoadDnaOnlineTest {
         assertEquals("W123456", found[0].xid)
     }
 
+    @Test fun geoapifyRanksSpecificTouringCategoriesNotOnlyFirstGenericCategory() {
+        val response = JSONObject().put("features", JSONArray()
+            .put(JSONObject().put("geometry", JSONObject()
+                .put("coordinates", JSONArray().put(7.5).put(45.1)))
+                .put("properties", JSONObject()
+                    .put("name", "Forte panoramico")
+                    .put("categories", JSONArray()
+                        .put("tourism.sights")
+                        .put("tourism.sights.fort"))))
+            .put(JSONObject().put("geometry", JSONObject()
+                .put("coordinates", JSONArray().put(7.51).put(45.11)))
+                .put("properties", JSONObject()
+                    .put("name", "Targa in piazza")
+                    .put("categories", JSONArray()
+                        .put("tourism.sights")
+                        .put("tourism.sights.memorial.monument")))))
+        val pois = RoadDnaOnline.parseGeo(response)
+        assertEquals(2, pois.size)
+        assertEquals("tourism.sights.fort", pois[0].category)
+        assertTrue(RoadDnaOnline.interestScore(pois[0]) >= 90)
+        assertEquals(0, RoadDnaOnline.interestScore(pois[1]))
+        assertEquals(listOf("Forte panoramico"),
+            RoadDnaOnline.recommendedPlaces(pois).map { it.name })
+    }
+
+    @Test fun opentripmapUsesAllKindsAndExcludesMinorMonuments() {
+        val response = JSONArray().put(JSONObject()
+            .put("name", "Castello sulla collina").put("xid", "N123")
+            .put("kinds", "interesting_places,castles,historic")
+            .put("point", JSONObject().put("lat", 45.1).put("lon", 7.5)))
+            .put(JSONObject()
+                .put("name", "Piccola statua").put("xid", "N124")
+                .put("kinds", "interesting_places,monuments_and_memorials,statues")
+                .put("point", JSONObject().put("lat", 45.12).put("lon", 7.52)))
+        val pois = RoadDnaOnline.parseTrip(response)
+        assertEquals(2, pois.size)
+        assertEquals(3, pois[0].categoryTags.size)
+        assertTrue(RoadDnaOnline.interestScore(pois[0]) >= 95)
+        assertEquals(0, RoadDnaOnline.interestScore(pois[1]))
+        assertEquals(listOf("Castello sulla collina"),
+            RoadDnaOnline.recommendedPlaces(pois).map { it.name })
+    }
+
+    @Test fun touringRankingBeatsProximityWithoutDeletingOtherPlaces() {
+        val plaque = RoadDnaOnlinePoi("Lapide", "tourism.sights.memorial", 25,
+            "Geoapify", 45.0, 7.0)
+        val generic = RoadDnaOnlinePoi("Luogo generico", "tourism.attraction", 10,
+            "Geoapify", 45.0, 7.0)
+        val lake = RoadDnaOnlinePoi("Lago", "lakes", 900,
+            "OpenTripMap", 45.0, 7.0, "L1")
+        val ranked = RoadDnaOnline.rankPlaces(listOf(plaque, generic, lake))
+        assertEquals("Lago", ranked.first().name)
+        assertEquals(3, ranked.size)
+        assertEquals(listOf("Lago"), RoadDnaOnline.recommendedPlaces(ranked)
+            .map { it.name })
+    }
+
     @Test fun openTripMapSamplesByGeographicDistanceNotVertexCount() {
         // Hundreds of vertices packed into the first few metres of a 10 km
         // route must not use up the provider's five radius probes.
