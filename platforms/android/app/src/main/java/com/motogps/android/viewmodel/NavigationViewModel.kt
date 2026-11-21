@@ -420,6 +420,155 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     private var roadDnaRequestId = 0L
     private var roadDnaCancelSignal: CancellationSignal? = null
 
+    private val _roadDnaOnline = MutableStateFlow<RoadDnaOnlineResult?>(null)
+    val roadDnaOnline: StateFlow<RoadDnaOnlineResult?> = _roadDnaOnline
+    private val _roadDnaOnlineLoading = MutableStateFlow(false)
+    val roadDnaOnlineLoading: StateFlow<Boolean> = _roadDnaOnlineLoading
+    private val _roadDnaOnlineError = MutableStateFlow<String?>(null)
+    val roadDnaOnlineError: StateFlow<String?> = _roadDnaOnlineError
+    private val _roadDnaDetails = MutableStateFlow<String?>(null)
+    val roadDnaDetails: StateFlow<String?> = _roadDnaDetails
+    private val _roadDnaDetailsLoading = MutableStateFlow(false)
+    val roadDnaDetailsLoading: StateFlow<Boolean> = _roadDnaDetailsLoading
+    private val _geoapifyConfigured = MutableStateFlow(
+        appContext?.let { RoadDnaApiKeys.present(it, "geoapify") } ?: false)
+    val geoapifyConfigured: StateFlow<Boolean> = _geoapifyConfigured
+    private val _opentripmapConfigured = MutableStateFlow(
+        appContext?.let { RoadDnaApiKeys.present(it, "opentripmap") } ?: false)
+    val opentripmapConfigured: StateFlow<Boolean> = _opentripmapConfigured
+    private val _roadDnaKeyStatus = MutableStateFlow<String?>(null)
+    val roadDnaKeyStatus: StateFlow<String?> = _roadDnaKeyStatus
+    private val _roadDnaKeyBusy = MutableStateFlow(false)
+    val roadDnaKeyBusy: StateFlow<Boolean> = _roadDnaKeyBusy
+    private var roadDnaOnlineJob: Job? = null
+    private var roadDnaDetailJob: Job? = null
+    private var roadDnaKeyJob: Job? = null
+    private var roadDnaOnlineRequestId = 0L
+
+    private fun refreshKeyStatus(context: Context) {
+        _geoapifyConfigured.value = RoadDnaApiKeys.present(context, "geoapify")
+        _opentripmapConfigured.value = RoadDnaApiKeys.present(context, "opentripmap")
+    }
+
+    fun saveRoadDnaKey(provider: String, value: String) {
+        val context = appContext ?: return
+        roadDnaKeyJob?.cancel()
+        roadDnaKeyJob = viewModelScope.launch {
+            _roadDnaKeyBusy.value = true
+            _roadDnaKeyStatus.value = null
+            try {
+                withContext(Dispatchers.IO) { RoadDnaApiKeys.save(context, provider, value) }
+                refreshKeyStatus(context)
+                _roadDnaKeyStatus.value = "Chiave salvata in modo cifrato sul dispositivo."
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                _roadDnaKeyStatus.value = "Impossibile salvare la chiave."
+            } finally {
+                _roadDnaKeyBusy.value = false
+            }
+        }
+    }
+
+    fun deleteRoadDnaKey(provider: String) {
+        val context = appContext ?: return
+        roadDnaKeyJob?.cancel()
+        roadDnaKeyJob = viewModelScope.launch {
+            _roadDnaKeyBusy.value = true
+            try {
+                withContext(Dispatchers.IO) { RoadDnaApiKeys.clear(context, provider) }
+                refreshKeyStatus(context)
+                _roadDnaKeyStatus.value = "Chiave eliminata."
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                _roadDnaKeyStatus.value = "Impossibile eliminare la chiave."
+            } finally {
+                _roadDnaKeyBusy.value = false
+            }
+        }
+    }
+
+    fun testRoadDnaKey(provider: String) {
+        val context = appContext ?: return
+        roadDnaKeyJob?.cancel()
+        roadDnaKeyJob = viewModelScope.launch {
+            _roadDnaKeyBusy.value = true
+            _roadDnaKeyStatus.value = "Verifica connessione in corso…"
+            try {
+                withContext(Dispatchers.IO) {
+                    val key = RoadDnaApiKeys.read(context, provider)
+                        ?: throw IllegalStateException("Chiave assente")
+                    RoadDnaOnline.testKey(provider, key)
+                }
+                _roadDnaKeyStatus.value = "Connessione ${provider} riuscita."
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Never surface a thrown URL containing an OpenTripMap API key.
+                _roadDnaKeyStatus.value =
+                    "Verifica non riuscita. Controlla rete, chiave e limiti API."
+            } finally {
+                _roadDnaKeyBusy.value = false
+            }
+        }
+    }
+
+    /** Explicit user action: real Valhalla geometry goes online only here. */
+    fun searchRoadDnaOnline() {
+        val option = _routeOptions.value.getOrNull(_selectedRouteIndex.value) ?: return
+        val context = appContext ?: return
+        val geometry = RoadDnaAnalysis.geometry(option.rawRouteJson)
+        roadDnaOnlineJob?.cancel()
+        roadDnaDetailJob?.cancel()
+        val request = ++roadDnaOnlineRequestId
+        _roadDnaOnline.value = null
+        _roadDnaDetails.value = null
+        _roadDnaOnlineError.value = null
+        roadDnaOnlineJob = viewModelScope.launch {
+            _roadDnaOnlineLoading.value = true
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    RoadDnaOnline.search(context, geometry)
+                }
+                if (request == roadDnaOnlineRequestId &&
+                    _routeOptions.value.getOrNull(_selectedRouteIndex.value) === option)
+                    _roadDnaOnline.value = result
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                if (request == roadDnaOnlineRequestId)
+                    _roadDnaOnlineError.value =
+                        "Ricerca online non riuscita: verifica le chiavi e la connessione."
+            } finally {
+                if (request == roadDnaOnlineRequestId)
+                    _roadDnaOnlineLoading.value = false
+            }
+        }
+    }
+
+    fun loadRoadDnaDetails(xid: String) {
+        val context = appContext ?: return
+        val request = roadDnaOnlineRequestId
+        roadDnaDetailJob?.cancel()
+        roadDnaDetailJob = viewModelScope.launch {
+            _roadDnaDetails.value = null
+            _roadDnaDetailsLoading.value = true
+            try {
+                val detail = withContext(Dispatchers.IO) { RoadDnaOnline.details(context, xid) }
+                if (request == roadDnaOnlineRequestId) _roadDnaDetails.value = detail
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                if (request == roadDnaOnlineRequestId)
+                    _roadDnaDetails.value = "Dettagli OpenTripMap non disponibili."
+            } finally {
+                if (request == roadDnaOnlineRequestId)
+                    _roadDnaDetailsLoading.value = false
+            }
+        }
+    }
+
     /** Road DNA is optional and never alters routing, BLE, or ESP32 scene. */
     fun analyzeSelectedRoadDna() {
         val option = _routeOptions.value.getOrNull(_selectedRouteIndex.value) ?: return
@@ -454,6 +603,14 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     }
 
     private fun invalidateRoadDna() {
+        roadDnaOnlineRequestId++
+        roadDnaOnlineJob?.cancel()
+        roadDnaDetailJob?.cancel()
+        _roadDnaOnline.value = null
+        _roadDnaOnlineError.value = null
+        _roadDnaOnlineLoading.value = false
+        _roadDnaDetails.value = null
+        _roadDnaDetailsLoading.value = false
         roadDnaRequestId++
         roadDnaCancelSignal?.cancel()
         roadDnaCancelSignal = null
