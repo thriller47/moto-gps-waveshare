@@ -1,8 +1,12 @@
 # Road DNA — progettazione tecnica (Android)
 
-**Stato (21 novembre 2026):** progettazione aggiornabile, **integrazione finale non ancora implementata** · **Branch:** `valhalla`. Dopo il benchmark reale su quattro percorsi, l'utente ha scelto un nuovo MotoPack **senza vincolo di retrocompatibilità**, completo di POI turistici offline; quindi Road DNA locale prioritario, Geoapify e OpenTripMap opzionali. Non dichiarare pronto l'import Android prima del codice e dei test.
+**Stato del branch sperimentale (21 novembre 2026):** codice Android offline in integrazione, **non compilato/testato in CI** · **Branch:** `feature/road-dna-motopack-v2`. Dopo il benchmark reale su quattro percorsi, l'utente ha scelto un nuovo MotoPack **senza vincolo di retrocompatibilità**, completo di POI turistici offline; quindi Road DNA locale prioritario, Geoapify e OpenTripMap opzionali. Non dichiarare pronto l'import Android prima del codice e dei test.
 
 **Nome nell'app: sempre «Road DNA».** Nelle stringhe visibili NON usare «DNA percorso» o «RoadDNA». Nomi interni coerenti: `RoadDna...`; chiavi persistite `road_dna_...`. Testi e indicazioni illustrati qui sono proposte UI, non funzionalità esistenti.
+
+## Implementazione sperimentale Android nel branch Road DNA
+
+L'anteprima dell'itinerario Valhalla ora presenta una scheda «Road DNA» con curva indicativa e riepilogo dei POI turistici offline nel corridoio 2 km. Il ranking di Photon privilegia i nomi esatti dei luoghi rispetto a vie parziali; la ricerca turistico-nominale integra i risultati Photon con posizioni indicative non navigabili fino alla verifica di accesso Valhalla. Il nuovo MotoPack v2 e il lettore Android richiedono il quarto componente turistico SQLite, con controllo SHA-256 e versione schema. Le modifiche sono sperimentali e non garantiscono ancora una build Android corretta né una rigenerazione italiana riuscita. Il progetto **non** include ancora API key settings, Geoapify/OpenTripMap online, punto di partenza virtuale o deviazione verificata per i POI.
 
 ## Decisione successiva al benchmark PBF e online (21/11/2026)
 
