@@ -561,9 +561,10 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         val request = roadDnaOnlineRequestId
         val selected = ++roadDnaDetailRequestId
         roadDnaDetailJob?.cancel()
+        // Clear the previous POI immediately, before the detail dialog composes.
+        _roadDnaDetails.value = null
+        _roadDnaDetailsLoading.value = true
         roadDnaDetailJob = viewModelScope.launch {
-            _roadDnaDetails.value = null
-            _roadDnaDetailsLoading.value = true
             try {
                 val detail = withContext(Dispatchers.IO) {
                     RoadDnaOnline.detailsForPoi(context, place)
@@ -572,9 +573,17 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                     _roadDnaDetails.value = place.name + ": " + detail
             } catch (e: CancellationException) {
                 throw e
+            } catch (e: RoadDnaProviderHttpException) {
+                if (request == roadDnaOnlineRequestId && selected == roadDnaDetailRequestId)
+                    _roadDnaDetails.value = when (e.statusCode) {
+                        401, 403 -> "OpenTripMap ha rifiutato la richiesta (HTTP ${e.statusCode})."
+                        404 -> "Questa scheda OpenTripMap non è disponibile (HTTP 404)."
+                        429 -> "Limite richieste OpenTripMap raggiunto (HTTP 429)."
+                        else -> "Dettagli OpenTripMap non disponibili (HTTP ${e.statusCode})."
+                    }
             } catch (_: Exception) {
                 if (request == roadDnaOnlineRequestId && selected == roadDnaDetailRequestId)
-                    _roadDnaDetails.value = "Dettagli OpenTripMap non disponibili."
+                    _roadDnaDetails.value = "Dettagli OpenTripMap non disponibili: errore di rete o risposta inattesa."
             } finally {
                 if (request == roadDnaOnlineRequestId && selected == roadDnaDetailRequestId)
                     _roadDnaDetailsLoading.value = false
