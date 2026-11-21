@@ -5,6 +5,7 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import org.json.JSONArray
 import org.json.JSONObject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import java.io.File
@@ -274,7 +275,7 @@ internal object RoadDnaOnline {
                     completed = true
                     if ((data.optJSONArray("features")?.length() ?: 0) >= 100)
                         partial = true // First page was full; do not pretend it is exhaustive.
-                } catch (e: InterruptedException) {
+                } catch (e: CancellationException) {
                     throw e
                 } catch (_: Exception) {
                     errors.add("Geoapify non disponibile")
@@ -297,7 +298,7 @@ internal object RoadDnaOnline {
                     val received = parseTrip(JSONArray(fetch(tripRadiusUrl(lat, lon, tripKey))))
                     addCandidates(places, received, route)
                     completed = true
-                } catch (e: InterruptedException) {
+                } catch (e: CancellationException) {
                     throw e
                 } catch (_: Exception) {
                     errors.add("OpenTripMap non disponibile")
