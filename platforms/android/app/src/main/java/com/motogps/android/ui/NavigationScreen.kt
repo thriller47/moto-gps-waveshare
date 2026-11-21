@@ -1367,7 +1367,7 @@ fun NavigationScreen(
                             .padding(horizontal = 16.dp, vertical = 2.dp)
                             .heightIn(min = 44.dp)
                     ) {
-                        Icon(Icons.Default.Explore, contentDescription = null)
+                        Icon(Icons.Default.Search, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Road DNA · Guida e luoghi da scoprire")
                     }
