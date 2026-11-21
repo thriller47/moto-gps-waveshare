@@ -174,6 +174,19 @@ Se la connessione tra telefono ed ESP32 si interrompe **involontariamente** (es.
 
 **Nota consumi:** schermo nero e polling IMU più lento dovrebbero ridurre il consumo; **l'autonomia effettiva non è misurata** e va verificata con batteria/USB nelle diverse condizioni.
 
+### Esportare una traccia Valhalla in GPX (branch sperimentale, DA COMPILARE/COLLAUDARE)
+
+**Branch:** `test/gpx-export-20261121`, non ancora integrato in `valhalla`. È una funzione **solo Android**: non richiede flash ESP32 né modifica al MotoPack. Prima prova reale da effettuare con APK di test **quando l'utente richiede la build**.
+
+1. Creare nell'app un percorso normale o circolare con le tappe desiderate; attendere il calcolo della **anteprima Valhalla**. Non occorre avviare la navigazione.
+2. Se sono presenti alternative, selezionare quella desiderata; in anteprima premere **Esporta GPX**. Il pulsante resta disabilitato se Valhalla non fornisce geometria valida (almeno due punti).
+3. Android apre **Salva file** (`ACTION_CREATE_DOCUMENT` tramite `CreateDocument("application/gpx+xml")`) e propone `MotoChatGPS_<destinazione>.gpx`. Scegliere Documenti/Download o altra destinazione e confermare; comparirà il messaggio «GPX salvato correttamente» oppure un errore.
+4. Collegare il telefono al PC e copiare il file in `C:\MotoGPS\RoadDNA\`; in WSL: `/mnt/c/MotoGPS/RoadDNA/`. In alternativa si può caricare il file sulla macchina con una condivisione personale.
+5. Il GPX 1.1 è una **traccia `<trk>/<trkseg>/<trkpt>`** che conserva tutti i vertici della rotta calcolata su Android (non solo quelli inviati via BLE); metadati con nome; coordinate nel corretto ordine `lat`/`lon`. Non contiene tempo/quote inventati. Non vengono fabbricati segmenti fra partenza e destinazione in caso di errore Valhalla.
+6. Per Road DNA scegliere itinerari turistici differenti, **non usare necessariamente le tracce reali casa–lavoro**. Lo script di confronto accetta questi GPX direttamente come `--route`, vedere `scripts/road_dna/README.md`.
+
+**Test richiesti dopo la prima build autorizzata:** percorso normale, circolare, con tappe; riapertura tour salvato (Valhalla ricalcola la geometria), esportazione senza avviare navigazione, esito annullamento picker, file GPX aperto da un visualizzatore esterno, numero vertici di almeno un percorso lungo e confronto con la polilinea dell'anteprima. `RouteGpxExporterTest` aggiunto, **non eseguito**. Tutti i commit in questo branch usano `[skip ci]`; nessuna nuova build autorizzata da questa istruzione.
+
 ## 2. Rigenerazione completa MotoPack — procedura consigliata
 
 **Un unico comando in WSL** ricrea **MotoMap v4** (strade e copertura), **Photon SQLite v2 con POI OSM** (ricerca indirizzi, carburante, ristorazione e alloggi), **Valhalla V5** (grafo moto dal PBF aggiornato), quindi assembla e verifica il pacchetto `MotoChatGPS-Italia.motopack`. Usa lo script `scripts/offline_map/rebuild_motopack_wsl.sh`, presente nel branch sperimentale.
