@@ -689,6 +689,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         destinationSearchJob?.cancel()
         activeSearchSignal?.cancel()
         activeSearchSignal = null
+        _isLoading.value = false
         if (query.isBlank()) return
 
         // Coordinates typed as "lat, lon" bypass Photon entirely.
