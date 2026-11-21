@@ -14,6 +14,8 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
+import java.text.Normalizer
+import java.util.Locale
 import java.nio.charset.StandardCharsets
 import java.security.KeyStore
 import javax.crypto.Cipher
@@ -145,10 +147,15 @@ internal object RoadDnaOnline {
             .put("offset", 0)
     }
 
-    internal fun tripRadiusUrl(lat: Double, lon: Double, apiKey: String): String =
-        OTM + "/radius?radius=2000&lon=" + lon + "&lat=" + lat +
-            "&rate=2&limit=25&format=json&apikey=" +
+    internal fun tripRadiusUrl(lat: Double, lon: Double, apiKey: String,
+                               radius: Int = 2000, limit: Int = 25,
+                               rate: Int = 2): String {
+        require(valid(lat, lon) && radius in 1..2000 && limit in 1..25 &&
+            rate in 1..2)
+        return OTM + "/radius?radius=" + radius + "&lon=" + lon + "&lat=" + lat +
+            "&rate=" + rate + "&limit=" + limit + "&format=json&apikey=" +
             URLEncoder.encode(apiKey, "UTF-8")
+    }
 
     private fun fetch(url: String, key: String? = null, body: String? = null): String {
         val conn = URL(url).openConnection() as HttpURLConnection
@@ -344,6 +351,42 @@ internal object RoadDnaOnline {
             partial, errors.joinToString("; ").ifBlank {
                 if (partial) "Risultati parziali: limiti API o campionamento" else "Ricerca completata"
             })
+    }
+
+    private fun comparableName(value: String): String =
+        Normalizer.normalize(value.lowercase(Locale.ROOT), Normalizer.Form.NFKD)
+            .replace(Regex("\\p{M}+"), "")
+            .replace(Regex("[^a-z0-9]+"), " ").trim()
+
+    /** Selected Geoapify POIs can be enriched via OpenTripMap only when both
+     * name AND coordinates match. Never assign an unrelated nearby xid.
+     */
+    internal fun matchOpenTripMap(place: RoadDnaOnlinePoi,
+                                  candidates: List<RoadDnaOnlinePoi>): RoadDnaOnlinePoi? {
+        val name = comparableName(place.name)
+        if (name.length < 3) return null
+        return candidates.filter {
+            it.xid != null && comparableName(it.name) == name &&
+                RoadDnaAnalysis.distanceMeters(
+                    place.latitude to place.longitude,
+                    it.latitude to it.longitude, it.latitude to it.longitude) <= 200.0
+        }.minByOrNull {
+            RoadDnaAnalysis.distanceMeters(
+                place.latitude to place.longitude,
+                it.latitude to it.longitude, it.latitude to it.longitude)
+        }
+    }
+
+    fun detailsForPoi(context: Context, place: RoadDnaOnlinePoi): String {
+        if (place.xid != null) return details(context, place.xid)
+        require(place.source == "Geoapify") { "Origine del luogo non supportata" }
+        val key = RoadDnaApiKeys.read(context, "opentripmap")
+            ?: throw IllegalStateException("Chiave OpenTripMap non configurata")
+        val nearby = parseTrip(JSONArray(fetch(
+            tripRadiusUrl(place.latitude, place.longitude, key, radius = 300, rate = 1))))
+        val match = matchOpenTripMap(place, nearby)
+            ?: return "Nessuna scheda OpenTripMap associabile con sufficiente certezza."
+        return details(context, match.xid!!)
     }
 
     fun details(context: Context, xid: String): String {
