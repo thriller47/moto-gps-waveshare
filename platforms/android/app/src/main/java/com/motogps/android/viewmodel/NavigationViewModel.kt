@@ -417,41 +417,51 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     private val _roadDnaError = MutableStateFlow<String?>(null)
     val roadDnaError: StateFlow<String?> = _roadDnaError
     private var roadDnaJob: Job? = null
+    private var roadDnaRequestId = 0L
+    private var roadDnaCancelSignal: CancellationSignal? = null
 
     /** Road DNA is optional and never alters routing, BLE, or ESP32 scene. */
     fun analyzeSelectedRoadDna() {
         val option = _routeOptions.value.getOrNull(_selectedRouteIndex.value) ?: return
         val context = appContext ?: return
-        roadDnaJob?.cancel()
-        _roadDnaSummary.value = null
-        _roadDnaError.value = null
+        invalidateRoadDna()
+        val request = roadDnaRequestId
+        val signal = CancellationSignal()
+        roadDnaCancelSignal = signal
         roadDnaJob = viewModelScope.launch {
             _roadDnaLoading.value = true
             try {
                 val report = withContext(Dispatchers.IO) {
-                    RoadDnaAnalysis.analyze(context, option)
+                    RoadDnaAnalysis.analyze(context, option, signal)
                 }
-                // A newly selected or recalculated route invalidates this report.
-                if (_routeOptions.value.getOrNull(_selectedRouteIndex.value) === option)
+                if (roadDnaRequestId == request &&
+                    _routeOptions.value.getOrNull(_selectedRouteIndex.value) === option)
                     _roadDnaSummary.value = report
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _roadDnaError.value = "Road DNA: " +
-                    (e.message ?: "impossibile analizzare l'itinerario")
+                if (roadDnaRequestId == request) {
+                    _roadDnaError.value = "Road DNA: " +
+                        (e.message ?: "impossibile analizzare l'itinerario")
+                }
             } finally {
-                _roadDnaLoading.value = false
+                if (roadDnaRequestId == request) {
+                    _roadDnaLoading.value = false
+                    roadDnaCancelSignal = null
+                }
             }
         }
     }
 
     private fun invalidateRoadDna() {
+        roadDnaRequestId++
+        roadDnaCancelSignal?.cancel()
+        roadDnaCancelSignal = null
         roadDnaJob?.cancel()
         _roadDnaSummary.value = null
         _roadDnaError.value = null
         _roadDnaLoading.value = false
     }
-
 
     private val _isNavigating = MutableStateFlow(false)
     val isNavigating: StateFlow<Boolean> = _isNavigating
