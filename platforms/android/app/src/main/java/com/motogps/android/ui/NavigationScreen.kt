@@ -51,6 +51,7 @@ import com.motogps.android.viewmodel.RouteOption
 import com.motogps.android.viewmodel.RoadDnaSummary
 import com.motogps.android.viewmodel.RoadDnaOnlineResult
 import com.motogps.android.viewmodel.RoadDnaOnlinePoi
+import com.motogps.android.viewmodel.RoadDnaOnline
 import org.json.JSONArray
 import kotlin.math.roundToInt
 import org.osmdroid.config.Configuration
@@ -693,11 +694,15 @@ fun NavigationScreen(
 ) {
     var showRoadDnaDialog by remember { mutableStateOf(false) }
     var showRoadDnaResults by remember { mutableStateOf(false) }
+    var showAllRoadDnaPlaces by remember { mutableStateOf(false) }
     var selectedRoadDnaPoi by remember { mutableStateOf<RoadDnaOnlinePoi?>(null) }
     val roadDnaListScroll = rememberScrollState()
     val roadDnaResultsScroll = rememberLazyListState()
     LaunchedEffect(roadDnaOnline) {
-        if (roadDnaOnline != null) roadDnaResultsScroll.scrollToItem(0)
+        if (roadDnaOnline != null) showAllRoadDnaPlaces = false
+    }
+    LaunchedEffect(roadDnaOnline, showAllRoadDnaPlaces) {
+        roadDnaResultsScroll.scrollToItem(0)
     }
     if (showRoadDnaDialog && selectedRoadDnaPoi != null) {
         val poi = selectedRoadDnaPoi!!
@@ -753,8 +758,31 @@ fun NavigationScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         val places = roadDnaOnline.places
-                        Text("${places.size} luoghi trovati",
+                        val recommended = RoadDnaOnline.recommendedPlaces(places)
+                        val visiblePlaces = if (showAllRoadDnaPlaces) places
+                            else recommended.take(15)
+                        Text("${places.size} luoghi trovati · " +
+                            "${recommended.size} di interesse per la moto",
                             style = MaterialTheme.typography.titleSmall)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilterChip(
+                                selected = !showAllRoadDnaPlaces,
+                                onClick = { showAllRoadDnaPlaces = false },
+                                label = { Text("Consigliati (${recommended.size})") }
+                            )
+                            FilterChip(
+                                selected = showAllRoadDnaPlaces,
+                                onClick = { showAllRoadDnaPlaces = true },
+                                label = { Text("Tutti (${places.size})") }
+                            )
+                        }
+                        Text(
+                            if (showAllRoadDnaPlaces)
+                                "Elenco completo, inclusi monumenti minori, targhe e statue."
+                            else "Massimo 15 tappe di interesse: panorami, castelli, " +
+                                "natura e siti storici. Per gli altri luoghi usa Tutti.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
                         Text(
                             "Geoapify ${places.count { it.source == "Geoapify" }}" +
                                 " · OpenTripMap ${places.count { it.source == "OpenTripMap" }}",
@@ -764,13 +792,20 @@ fun NavigationScreen(
                             style = MaterialTheme.typography.bodySmall)
                         if (places.isEmpty()) {
                             Text("Nessun luogo turistico trovato lungo il percorso.")
+                        } else if (visiblePlaces.isEmpty()) {
+                            Text("Nessuna tappa di particolare interesse identificata. " +
+                                "Tocca Tutti per consultare anche i luoghi minori.")
                         } else {
+                            if (!showAllRoadDnaPlaces && recommended.size > 15) {
+                                Text("Mostrati i 15 consigliati più rilevanti.",
+                                    style = MaterialTheme.typography.labelSmall)
+                            }
                             LazyColumn(
                                 state = roadDnaResultsScroll,
                                 modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp),
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                itemsIndexed(places) { index, poi ->
+                                itemsIndexed(visiblePlaces) { index, poi ->
                                     Column {
                                         Text("${index + 1}. ${poi.name}",
                                             style = MaterialTheme.typography.titleSmall)
@@ -879,6 +914,7 @@ fun NavigationScreen(
                     } else {
                         Button(
                             onClick = {
+                                showAllRoadDnaPlaces = false
                                 showRoadDnaResults = true
                                 onRoadDnaOnlineSearch()
                             },
