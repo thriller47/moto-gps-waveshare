@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # WSL-only, end-to-end builder: OSM PBF + matching POLY + Photon JSONL(.zst)
-# => MotoMap v4, Valhalla V5, Photon SQLite v2 with OSM POIs, verified .motopack.
+# => MotoMap v4, Valhalla V5, Photon SQLite v2, Road DNA tourist SQLite v1.
 set -euo pipefail
 
 usage() {
@@ -71,6 +71,7 @@ for source in "$PBF" "$POLY" "$PHOTON"; do
   case "$source" in "$OUT"/*) echo "Source must not be inside the output directory: $source" >&2; exit 2;; esac
 done
 MAP="$OUT/italy-v4.motomap.zip"
+TOURIST="$OUT/tourist-italy-v1.sqlite"
 DB="$OUT/photon-italy-v2.sqlite"
 VAL_DIR="$OUT/ValhallaItaliaV5"
 GRAPH="$VAL_DIR/valhalla_tiles.tar.zst"
@@ -78,7 +79,7 @@ PACK="$OUT/MotoChatGPS-Italia.motopack"
 [[ ! -e "$PACK" && ! -e "$PACK.part" ]] || { echo "Package output already exists: $PACK" >&2; exit 2; }
 
 step() { printf '\n===== %s =====\n' "$1"; }
-step '1/4 MotoMap v4 (PBF + POLY)'
+step '1/5 MotoMap v4 (PBF + POLY)'
 if [[ -e "$MAP" ]]; then
   $RESUME || { echo "Unexpected existing MotoMap: $MAP" >&2; exit 2; }
   echo "Reusing $MAP"
@@ -88,7 +89,7 @@ else
   mv -- "$MAP.part" "$MAP"
 fi
 
-step '2/4 Photon v2 (JSONL dump)'
+step '2/5 Photon v2 (JSONL dump)'
 if [[ -e "$DB" ]]; then
   $RESUME || { echo "Unexpected existing Photon: $DB" >&2; exit 2; }
   echo "Reusing $DB"
@@ -147,7 +148,27 @@ else
   fi
 fi
 
-step '3/4 Valhalla motorcycle graph V5'
+step '3/5 Road DNA tourist SQLite v1 (PBF: 3 passes, polygon validation)'
+if [[ -e "$TOURIST" ]]; then
+  $RESUME || { echo "Unexpected existing Road DNA index: $TOURIST" >&2; exit 2; }
+  "$PYTHON" - "$TOURIST" <<'PY'
+import sqlite3
+import sys
+with sqlite3.connect(sys.argv[1]) as db:
+    assert db.execute("PRAGMA user_version").fetchone()[0] == 1
+    assert db.execute("SELECT value FROM tourist_metadata WHERE key='schema'").fetchone() == ("road-dna-tourist-1",)
+    count = db.execute("SELECT COUNT(*) FROM tourist_poi").fetchone()[0]
+    assert count > 0
+    assert db.execute("SELECT value FROM tourist_metadata WHERE key='count'").fetchone() == (str(count),)
+    assert db.execute("PRAGMA integrity_check").fetchone() == ("ok",)
+PY
+  echo "Reusing verified tourist index $TOURIST"
+else
+  [[ ! -e "$TOURIST.part" ]] || { echo "Road DNA generation left incomplete .part: $TOURIST.part" >&2; exit 2; }
+  "$PYTHON" "$SCRIPT_DIR/tourist_to_sqlite.py" --pbf "$PBF" --output "$TOURIST"
+fi
+
+step '4/5 Valhalla motorcycle graph V5'
 if [[ -s "$GRAPH" ]]; then
   $RESUME || { echo "Unexpected existing graph: $GRAPH" >&2; exit 2; }
   echo "Reusing $GRAPH"
@@ -159,7 +180,7 @@ else
   bash "$SCRIPT_DIR/build_valhalla_moto_v5.sh" "$PBF" "$VAL_DIR" --zstd --threads "$THREADS"
 fi
 
-step '4/4 Package + SHA-256 verification'
-"$PYTHON" "$SCRIPT_DIR/motopack.py" build --motomap "$MAP" --valhalla "$GRAPH" --photon "$DB" -o "$PACK"
+step '5/5 Package + SHA-256 verification'
+"$PYTHON" "$SCRIPT_DIR/motopack.py" build --motomap "$MAP" --valhalla "$GRAPH" --photon "$DB" --tourist "$TOURIST" -o "$PACK"
 "$PYTHON" "$SCRIPT_DIR/motopack.py" verify "$PACK"
 echo "READY: $PACK"
