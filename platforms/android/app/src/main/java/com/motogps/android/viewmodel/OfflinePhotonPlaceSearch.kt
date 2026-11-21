@@ -3,11 +3,13 @@ package com.motogps.android.viewmodel
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.net.Uri
+import android.os.CancellationSignal
 import android.provider.OpenableColumns
 import java.io.File
 import java.io.IOException
 import java.text.Normalizer
 import java.util.Locale
+import java.util.concurrent.locks.ReentrantReadWriteLock
 import kotlin.math.cos
 
 /** SQLite FTS4 index generated from the Photon/Nominatim Italian JSONL dump. */
@@ -15,13 +17,59 @@ internal object OfflinePhotonPlaceSearch {
     private const val DATABASE = "photon-italy.sqlite"
     private const val MAX_BYTES = 6L * 1024L * 1024L * 1024L
     private const val VERSION = 2
+    // Reuse the mmap-backed database for searches, but never replace or delete
+    // it while a query holds the read lock.
+    private val dbLock = ReentrantReadWriteLock()
+    private var cachedDb: SQLiteDatabase? = null
+    private var cachedPath: String? = null
+    private var cachedMtime = -1L
+
+    private fun closeCacheLocked() {
+        runCatching { cachedDb?.close() }
+        cachedDb = null
+        cachedPath = null
+        cachedMtime = -1L
+    }
+
+    private fun <T> withReadOnlyDb(context: Context, query: (SQLiteDatabase) -> T): T {
+        val target = file(context)
+        if (!target.isFile || target.length() == 0L) throw IOException("Indice Photon non installato")
+        val path = target.absolutePath
+        val mtime = target.lastModified()
+        val read = dbLock.readLock()
+        read.lock()
+        try {
+            val db = cachedDb
+            if (db != null && db.isOpen && cachedPath == path && cachedMtime == mtime) {
+                return query(db)
+            }
+        } finally {
+            read.unlock()
+        }
+        // Cache miss: open once under write lock; a later read can run in parallel.
+        val write = dbLock.writeLock()
+        write.lock()
+        try {
+            var db = cachedDb
+            if (db == null || !db.isOpen || cachedPath != path || cachedMtime != mtime) {
+                closeCacheLocked()
+                db = SQLiteDatabase.openDatabase(path, null, SQLiteDatabase.OPEN_READONLY)
+                cachedDb = db
+                cachedPath = path
+                cachedMtime = mtime
+            }
+            return query(db!!)
+        } finally {
+            write.unlock()
+        }
+    }
+
     fun file(context: Context): File = File(context.filesDir, "photon/" + DATABASE)
     fun installed(context: Context): Boolean {
         val target = file(context)
         if (!target.isFile || target.length() == 0L) return false
         return try {
-            SQLiteDatabase.openDatabase(target.absolutePath, null,
-                SQLiteDatabase.OPEN_READONLY).use { it.version == VERSION }
+            withReadOnlyDb(context) { it.version == VERSION }
         } catch (_: Exception) {
             false
         }
@@ -92,24 +140,41 @@ internal object OfflinePhotonPlaceSearch {
                         throw IOException("Nessun luogo indicizzato")
                 }
             }
-            if (backup.exists() && !backup.delete()) throw IOException("Backup Photon occupato")
+            val write = dbLock.writeLock()
+            write.lock()
+            try {
+                closeCacheLocked()
+                if (backup.exists() && !backup.delete()) throw IOException("Backup Photon occupato")
             if (target.exists() && !target.renameTo(backup))
                 throw IOException("Impossibile proteggere il vecchio indice")
             if (!part.renameTo(target)) {
                 if (backup.exists()) backup.renameTo(target)
                 throw IOException("Impossibile attivare il nuovo indice Photon")
             }
-            if (backup.exists()) backup.delete()
+                if (backup.exists()) backup.delete()
+            } finally {
+                write.unlock()
+            }
             return target.length()
         } finally {
             if (part.exists()) part.delete()
         }
     }
 
-    fun delete(context: Context): Boolean = file(context).let { !it.exists() || it.delete() }
+    fun delete(context: Context): Boolean {
+        val write = dbLock.writeLock()
+        write.lock()
+        return try {
+            closeCacheLocked()
+            file(context).let { !it.exists() || it.delete() }
+        } finally {
+            write.unlock()
+        }
+    }
 
     /** An installed index always takes priority over the remote Photon service. */
-    fun search(context: Context, query: String, gps: Pair<Double, Double>?): List<PlaceSearchResult> {
+    fun search(context: Context, query: String, gps: Pair<Double, Double>?,
+               cancellationSignal: CancellationSignal? = null): List<PlaceSearchResult> {
         val target = file(context)
         if (!target.isFile) throw IOException("Indice Photon non installato")
         val match = tokenize(query)
@@ -145,15 +210,14 @@ internal object OfflinePhotonPlaceSearch {
         val lat = validGps?.first ?: 0.0
         val lon = validGps?.second ?: 0.0
         val longitudeScale = cos(Math.toRadians(lat))
-        SQLiteDatabase.openDatabase(target.absolutePath, null,
-            SQLiteDatabase.OPEN_READONLY).use { db ->
+        withReadOnlyDb(context) { db ->
             db.rawQuery(sql, arrayOf(match,
                 if (cityQualified) "1" else "0", normalized,
                 if (cityQualified) "1" else "0",
                 normalized, normalized,
                 if (validGps != null) "1" else "0",
                 lat.toString(), lat.toString(), lon.toString(), lon.toString(),
-                longitudeScale.toString(), longitudeScale.toString())).use { rows ->
+                longitudeScale.toString(), longitudeScale.toString()), cancellationSignal).use { rows ->
                 while (rows.moveToNext()) {
                     candidates.add(PhotonOfflineRanking.Candidate(
                         rows.getString(0), rows.getString(1), rows.getString(2),
@@ -203,71 +267,68 @@ internal object PhotonOfflineRanking {
             it.first.isFinite() && it.second.isFinite() &&
                 it.first in -90.0..90.0 && it.second in -180.0..180.0
         }
-        // Explicit locations override proximity, including "Via Roma Torino"
-        // without a comma. For generic searches, nearby strong matches win.
-        val qualifiedCity = candidates.any { candidate ->
-            val city = normalize(candidate.city)
-            val name = normalize(candidate.name)
-            val street = normalize(candidate.street)
+        // Explicit city qualifiers beat GPS distance. For ordinary searches
+        // an exact city/landmark beats nearby streets with the same words.
+        // Street-prefix queries retain proximity priority for house numbers.
+        val norms = candidates.map { candidate ->
+            Triple(normalize(candidate.name), normalize(candidate.street),
+                   normalize(candidate.city))
+        }
+        val qualifiedCity = candidates.indices.any { index ->
+            val (name, street, city) = norms[index]
             city.isNotBlank() && q.endsWith(" " + city) &&
                 (q.startsWith(name + " ") ||
                     (street.isNotBlank() && q.startsWith(street + " ")))
         }
-        fun matchQuality(candidate: Candidate): Int {
-            val name = normalize(candidate.name)
-            val street = normalize(candidate.street)
-            val city = normalize(candidate.city)
+        data class Scored(val candidate: Candidate, val quality: Int,
+                          val distance: Double, val kindOrder: Int)
+        val scored = candidates.mapIndexed { i, candidate ->
+            val (name, street, city) = norms[i]
             val nw = name.split(' ').toSet()
             val cw = city.split(' ').toSet()
-            val full = nw + cw + normalize(candidate.region).split(' ') +
+            val full = nw + cw +
+                normalize(candidate.region).split(' ') +
                 normalize(candidate.house).split(' ')
-            val base = when {
-                q == name -> 0
-                city.isNotBlank() && q.endsWith(" " + city) &&
-                    (q.startsWith(name + " ") || q.startsWith(street + " ")) -> 1
-                city.isNotBlank() && q.endsWith(" " + city) &&
+            val exact = name == q
+            val nameTokens = queryWords.all { it in nw }
+            val roadKind = candidate.kind in setOf("street", "house")
+            val quality = when {
+                qualifiedCity && city.isNotBlank() && q == "$name $city" -> 0
+                qualifiedCity && city.isNotBlank() && q.endsWith(" $city") &&
+                    (q.startsWith("$name ") || q.startsWith("$street ")) -> 1
+                qualifiedCity && city.isNotBlank() && q.endsWith(" $city") &&
                     queryWords.all { it in (nw + cw) } -> 2
-                queryWords.all { it in nw } -> 3
-                queryWords.all { it in full } -> 8
-                else -> 15
+                qualifiedCity -> 8
+                roadQuery && roadKind && nameTokens -> 0
+                !roadQuery && exact && candidate.kind in setOf("city", "locality") -> 0
+                !roadQuery && exact && !roadKind -> 1
+                !roadQuery && exact -> 2
+                !roadQuery && nameTokens && !roadKind -> 3
+                nameTokens -> 4
+                queryWords.all { it in full } -> 5
+                else -> 9
             }
-            return base + if (!roadQuery && candidate.kind in setOf("street", "house")) 2 else 0
-        }
-        fun genericMatchGroup(candidate: Candidate): Int {
-            val nameWords = normalize(candidate.name).split(' ').toSet()
-            val strong = queryWords.all { it in nameWords }
-            return when {
-                strong && roadQuery && candidate.kind in setOf("street", "house") -> 0
-                strong -> 1
-                else -> 2
-            }
-        }
-        val ranked = candidates.sortedWith(compareBy<Candidate> { candidate ->
-            if (qualifiedCity) matchQuality(candidate)
-            else genericMatchGroup(candidate)
-        }.thenBy { candidate ->
-            if (validGps == null) 0.0
-            else {
+            val distance = if (validGps == null) 0.0 else {
                 val dLat = candidate.lat - validGps.first
                 val dLon = candidate.lon - validGps.second
                 val scale = cos(Math.toRadians(validGps.first))
                 dLat * dLat + dLon * dLon * scale * scale
             }
-        }.thenBy { matchQuality(it) }
-            .thenBy { candidate ->
-                when (candidate.kind) {
-                    "city", "locality" -> 0
-                    "other" -> 1
-                    "street" -> 2
-                    else -> 3
-                }
-            }.thenByDescending { it.importance }
-            .thenBy { it.name.length })
-        /*
-         * Previous ordering sorted exact names before nearby addresses, so
-         * a distant "Via Roma" could outrank a nearby "Via Roma 12".
-         * Keep the location override only for explicitly qualified searches.
-         */
+            val kindOrder = when (candidate.kind) {
+                "city", "locality" -> 0
+                "other" -> 1
+                "street" -> 2
+                else -> 3
+            }
+            Scored(candidate, quality, distance, kindOrder)
+        }.sortedWith(
+            compareBy<Scored> { it.quality }
+                .thenBy { it.distance }
+                .thenBy { it.kindOrder }
+                .thenByDescending { it.candidate.importance }
+                .thenBy { it.candidate.name.length }
+        )
+        val ranked = scored.map { it.candidate }
         val result = ArrayList<Candidate>(limit)
         val seen = HashSet<String>()
         for (place in ranked) {
