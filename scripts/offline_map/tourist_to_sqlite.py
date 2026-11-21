@@ -284,13 +284,26 @@ def build(pbf, output):
             categories = sorted(set(categories) - relation_way_categories[osm_id])
             if not categories:
                 continue
-            shape = LineString(line)
-            if shape.length == 0:
-                failures["zero_length_way"] += 1
-                continue
-            point = shape.interpolate(0.5, normalized=True)
-            insert("w", osm_id, categories, label(tags), point.x, point.y,
-                   shape.bounds, "way", "representative")
+            # A closed tourist way is an AREA (e.g. lake), not an
+            # arbitrary point at the midpoint of the boundary. Using its
+            # bounding box allows Road DNA to find large lakes near a route.
+            if len(line) >= 4 and line[0] == line[-1]:
+                from shapely.geometry import Polygon
+                polygon = Polygon(line)
+                if polygon.is_empty or not polygon.is_valid or polygon.area <= 0:
+                    failures["invalid_tourist_area_way"] += 1
+                    continue
+                point = polygon.representative_point()
+                insert("w", osm_id, categories, label(tags), point.x, point.y,
+                       polygon.bounds, "area", "representative")
+            else:
+                shape = LineString(line)
+                if shape.length == 0:
+                    failures["zero_length_way"] += 1
+                    continue
+                point = shape.interpolate(0.5, normalized=True)
+                insert("w", osm_id, categories, label(tags), point.x, point.y,
+                       shape.bounds, "way", "representative")
 
         for rel_id, (categories, name, members) in relations.items():
             outer, inner = [], []
