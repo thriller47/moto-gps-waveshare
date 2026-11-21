@@ -164,8 +164,15 @@ with sqlite3.connect(sys.argv[1]) as db:
 PY
   echo "Reusing verified tourist index $TOURIST"
 else
-  [[ ! -e "$TOURIST.part" ]] || { echo "Road DNA generation left incomplete .part: $TOURIST.part" >&2; exit 2; }
-  "$PYTHON" "$SCRIPT_DIR/tourist_to_sqlite.py" --pbf "$PBF" --output "$TOURIST"
+  # The tourist generator owns its durable SQLite checkpoint.  --resume
+  # must reach it instead of rejecting the .part file at this level.
+  if [[ -e "$TOURIST.part" && "$RESUME" != true ]]; then
+    echo "Road DNA checkpoint exists: $TOURIST.part. Use --resume." >&2
+    exit 2
+  fi
+  tourist_args=(--pbf "$PBF" --output "$TOURIST")
+  if $RESUME; then tourist_args+=(--resume); fi
+  "$PYTHON" "$SCRIPT_DIR/tourist_to_sqlite.py" "${tourist_args[@]}"
 fi
 
 step '4/5 Valhalla motorcycle graph V5'
