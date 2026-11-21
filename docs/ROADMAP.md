@@ -1,14 +1,12 @@
 # Moto Chat GPS — Roadmap operativa
 
-**Aggiornata:** 21 novembre 2026 · **Integrazione:** `valhalla` · **Sviluppo e verifiche:** `test/coffee-pause-20261120`.
+**Aggiornata:** 21 novembre 2026 · **Integrazione:** `valhalla` · **Collaudo concluso:** `test/coffee-pause-20261120`.
 
 Questa roadmap distingue **da verificare**, **da sviluppare** e **già implementato**. Non equivale a un esito dei test. Lo stato corrente e i riferimenti CI sono in [PROJECT_STATE.md](../PROJECT_STATE.md); le procedure sono nel [manuale operativo](MANUALE_OPERATIVO.md).
 
-## Modalità Pausa caffè — TIMER COLLAUDATO, RICONNESSIONE DA VERIFICARE
+## Modalità Pausa caffè — COLLAUDATA
 
-**21/11/2026:** primo collaudo utente positivo per spegnimento alla scadenza; prima della scadenza l'ESP32 torna operativo con connessione manuale da Android. Riconnessione automatica mancante. Introdotto recupero Android tramite `autoConnect` sul dispositivo già noto, con finestra di 30 s, scansione filtrata alternativa e watchdog handshake di 20 s. Nessuna modifica al firmware o alle soglie. Nuova prova richiesta (prima con app visibile, poi con telefono bloccato); se il problema persiste acquisire diagnostica Android/ESP32. Nessuna build avviata per questa correzione.
-
-**20/11/2026:** riconnessione Android dopo allontanamento verificata con successo dall'utente. Aggiunta sull'ESP32 policy di risparmio dopo 30 s senza BLE (luminosità OLED a zero, task IMU e interpolazione meno frequenti, NimBLE resta connesso/advertising), risveglio al nuovo BLE e spegnimento dopo limite **configurabile 1–30 minuti da Android (10 default)**. Comando BLE opzionale `PowerPolicy (0x23)` senza modificare i frame Heartbeat e NavigationSnapshot; mantiene autospegnimento all'arrivo (120 s) e pulsante (3 s). Test di policy, codec e bridge aggiunti ma **non eseguiti in CI**, nessun merge autorizzato per questa fase. Verificare su ESP32 reale: OLED, BLE, risveglio, scadenza, consumi, eventuale USB alimentato, nuovi timeout trasmessi per ogni sessione.
+**21/11/2026:** l'utente conferma il timer, lo spegnimento finale e il ripristino automatico BLE dopo il fix Android, anche con schermo del telefono spento. Integrazione in valhalla approvata senza lanciare altre build. OLED oscurato dopo 30 s; BLE disponibile, timeout da Android 1–30 minuti (10 default), arrivo 120 s e PWR 3 s invariati. Recupero via autoConnect, scansione alternativa e watchdog handshake. Rimane da misurare il consumo reale a batteria; non assumere risparmio quantificato o esito CI completo dal solo collaudo.
 
 ## Prossimo sviluppo dopo Pausa caffè — inventario contenuti OSM del PBF italiano (DA FARE)
 
@@ -114,7 +112,7 @@ Sul branch `test/waypoint-markers-20261119`: waypoint gialli numerati e arrivo `
 ## Priorità 2 — Estensioni da valutare, non già implementate
 
 - Ricerca POI geografica lungo rotta (distributori e punti panoramici): verificare categorie disponibili in Photon v2 e dati OSM del PBF; non assumere che una ricerca di "Eni" provi un indice `amenity=fuel` completo.
-- Modalità sosta/risveglio a basso consumo ("pausa caffè"): **implementata in test, da collaudare su hardware e misurare nei consumi** (vedi sezione iniziale).
+- Modalità sosta/risveglio a basso consumo ("pausa caffè"): **collaudata su hardware, consumi da misurare** (vedi sezione iniziale).
 - Esportazione/importazione GPX e traccia GPS realmente percorsa, se ancora richiesti, separati dai replay diagnostici.
 - Raffinamenti di contesto rotonde/svincoli e performance **solo in presenza di casi riproducibili**, senza riaprire regressioni già risolte.
 
