@@ -276,6 +276,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             val routePreviewError = viewModel.routePreviewError.collectAsState().value
             val routePreferences = viewModel.routePreferences.collectAsState().value
             val selectedRouteIndex = viewModel.selectedRouteIndex.collectAsState().value
+            val roadDnaSummary = viewModel.roadDnaSummary.collectAsState().value
+            val roadDnaLoading = viewModel.roadDnaLoading.collectAsState().value
+            val roadDnaError = viewModel.roadDnaError.collectAsState().value
             val isNavigating = viewModel.isNavigating.collectAsState().value
             val hasArrived = viewModel.hasArrived.collectAsState().value
             val currentLocation = viewModel.currentLocation.collectAsState().value
@@ -343,6 +346,10 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                         viewModel.updateRoutePreferences(this@MainActivity, it)
                     },
                     selectedRouteIndex = selectedRouteIndex,
+                    roadDnaSummary = roadDnaSummary,
+                    roadDnaLoading = roadDnaLoading,
+                    roadDnaError = roadDnaError,
+                    onRoadDnaAnalyze = { viewModel.analyzeSelectedRoadDna() },
                     isNavigating = isNavigating,
                     hasArrived = hasArrived,
                     currentLocation = currentLocation,
