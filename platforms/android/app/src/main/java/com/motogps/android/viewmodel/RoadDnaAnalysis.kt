@@ -2,6 +2,7 @@ package com.motogps.android.viewmodel
 
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
+import android.os.CancellationSignal
 import org.json.JSONObject
 import kotlin.math.PI
 import kotlin.math.abs
@@ -192,7 +193,8 @@ internal object RoadDnaAnalysis {
         }
     }
 
-    fun analyze(context: Context, option: RouteOption): RoadDnaSummary {
+    fun analyze(context: Context, option: RouteOption,
+                cancelled: CancellationSignal? = null): RoadDnaSummary {
         val points = geometry(option.rawRouteJson)
         if (points.size < 2) throw IllegalArgumentException("Geometria Valhalla assente")
         val curvature = curves(points)
@@ -214,7 +216,7 @@ internal object RoadDnaAnalysis {
                    AND max_lon >= ? AND min_lon <= ?
             """.trimIndent(), arrayOf(
                 b[0].toString(), b[1].toString(),
-                b[2].toString(), b[3].toString())).use { rows ->
+                b[2].toString(), b[3].toString()), cancelled).use { rows ->
                 while (rows.moveToNext()) {
                     val category = rows.getString(0)
                     val name = rows.getString(1).orEmpty()
