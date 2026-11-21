@@ -232,9 +232,10 @@ def build(pbf, output):
                 self.seen += 1
                 ref = int(obj.id)
                 if ref_filter.maybe(ref) and obj.location.valid():
-                    db.execute("UPDATE selected_nodes SET lon=?,lat=? WHERE id=?",
-                               (obj.location.lon, obj.location.lat, ref))
-                    self.matched += db.execute("SELECT changes()").fetchone()[0]
+                    cursor = db.execute(
+                        "UPDATE selected_nodes SET lon=?,lat=? WHERE id=?",
+                        (obj.location.lon, obj.location.lat, ref))
+                    self.matched += max(0, cursor.rowcount)
                 if self.seen % 5_000_000 == 0:
                     print("Road DNA 3/3: {:,} nodes scanned, {:,} references "
                           "resolved".format(self.seen, self.matched), flush=True)
