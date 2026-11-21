@@ -392,7 +392,7 @@ internal object RoadDnaOnline {
             wikipediaExtractForLinkedPlace(props)
         } else null
         return parseGeoDetails(data, wikiExtract?.first, wikiExtract?.second,
-            wikiExtract?.third)
+            wikiExtract?.third ?: "Wikipedia")
     }
 
     private fun geoDetailProperties(data: JSONObject): JSONObject? {
