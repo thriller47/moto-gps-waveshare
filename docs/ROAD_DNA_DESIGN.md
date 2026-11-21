@@ -1,8 +1,35 @@
 # Road DNA — progettazione tecnica (Android)
 
-**Stato:** progetto approvato nel nome, **non implementato** · **Data:** 21 novembre 2026 · **Branch:** `valhalla`.
+**Stato (21 novembre 2026):** progettazione aggiornabile, **integrazione finale non ancora implementata** · **Branch:** `valhalla`. Dopo il benchmark reale su quattro percorsi, l'utente ha scelto un nuovo MotoPack **senza vincolo di retrocompatibilità**, completo di POI turistici offline; quindi Road DNA locale prioritario, Geoapify e OpenTripMap opzionali. Non dichiarare pronto l'import Android prima del codice e dei test.
 
 **Nome nell'app: sempre «Road DNA».** Nelle stringhe visibili NON usare «DNA percorso» o «RoadDNA». Nomi interni coerenti: `RoadDna...`; chiavi persistite `road_dna_...`. Testi e indicazioni illustrati qui sono proposte UI, non funzionalità esistenti.
+
+## Decisione successiva al benchmark PBF e online (21/11/2026)
+
+**Decisione utente:** rigenerare una sola volta un **MotoPack nuovo e completo**, senza dover conservare il formato bundle precedente, e **poi integrare il nuovo formato nell'app Android**. Il formato definitivo, nome/versioni dei componenti e procedura di import vanno definiti e testati prima della rigenerazione; la decisione non significa che un pacchetto nuovo sia già stato costruito.
+
+**Evidenza misurata sul PBF italiano:** `tourist-pois-proxy.sqlite` autonomo da **27.529.216 byte** (26,3 MiB), 16 categorie turistiche; relazioni OSM non georeferenziate (**incluse 236 relazioni lago, 755 riserva e 2.172 parco**), nessuna way scartata nella scansione selettiva. I POI categorizzati possono ripetersi tra categorie, e il valore non misura ancora il costo dentro MotoPack. Benchmark su quattro rotte reali: Geoapify prima pagina fino a 100 risultati, OpenTripMap solo tre aree campione; **non confrontare i conteggi come inventari esaustivi**.
+
+**Componenti proposti del nuovo MotoPack:**
+- Motomap v4: tile cartografiche e visualizzazione, nessun cambiamento finché non necessario.
+- Valhalla V5: routing moto, profili e grafo offline invariati se verificati.
+- Photon: SQLite ricercabile per città/indirizzi; correggere precedenza dei nomi esatti di città e luoghi geografici sulle vie omonime, senza degradare la ricerca di indirizzi.
+- **Tourist/Road DNA**: SQLite dedicato oppure tabelle integrate nel DB Photon (decisione dopo benchmark sul lettore Android), con ID e tipo OSM, categoria, sottotipo, nome multilingua dove presente, coordinate indicative, geometria/centroide quando applicabile, provenienza e segnalazione di affidabilità. Indici spaziali e antimeridiano/latitudine robusti. Non usare centri di aree vaste come destinazioni raggiungibili senza verifica Valhalla.
+
+**Criteri per dichiararlo completo:**
+1. Coprire nodi, way e relazioni multipoligonali rilevanti; test dedicati per laghi, aree protette e parchi, e controllo dei casi senza coordinate o relazione non montabile.
+2. De-duplicare rappresentazioni node/way/relation della stessa attrazione senza cancellare entità davvero distinte; mantenere i riferimenti OSM per verifiche.
+3. Validare correttamente schema, categorie, checksum SHA-256, record count e integrità del bundle; verificare la possibilità di riprendere una generazione fallita senza perdere dati.
+4. Rigenerare i componenti a partire dalle **stesse sorgenti PBF/Photon** in `C:\\MotoGPS\\PBF`, non combinare dataset vecchi senza etichettare differenze di provenienza.
+5. Android: aggiornare parser/import, controllo versione, query locali sul corridoio della rotta e scheda Road DNA nell'anteprima; Geoapify/OpenTripMap **solo su richiesta** con chiavi conservate in modo sicuro; nessuna credenziale nel pacchetto.
+6. Testare su **Sestriere** e **Lago Maggiore**, più quattro rotte GPX (montagna, costa, cultura e laghi), false corrispondenze e possibili centri non raggiungibili.
+7. **Una sola build CI finale, soltanto dopo autorizzazione esplicita**; evitare un nuovo MotoPack installato che Android corrente non può leggere.
+
+**Sequenza operativa concordata:** specifica/schema e test generatori → estrazione multipoligoni/indici completi → nuova ricostruzione WSL in cartella distinta → validazione/checksum e dimensioni effettive → importer e funzioni Android → collaudo → CI finale autorizzata. Nessuna necessità di aggiornare ESP32 o BLE per la sola ricerca turistica.
+
+**Ulteriori richieste Android già registrate:** partenza di itinerario selezionabile e distinta dal GPS reale, impostazioni chiavi Geoapify e OpenTripMap, correzione dei risultati Photon dove vie vicine sopravanzano città o laghi.
+
+**Nota storica:** i paragrafi successivi descrivono il **prototipo precedente, prevalentemente online**, e possono contenere vincoli ora superati (come “nessun nuovo indice nel MotoPack”). Per le decisioni implementative prevale questa sezione.
 
 ## 1. Scopo e vincoli
 
