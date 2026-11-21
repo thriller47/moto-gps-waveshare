@@ -5,12 +5,13 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import org.json.JSONArray
 import org.json.JSONObject
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
-import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets
 import java.security.KeyStore
 import javax.crypto.Cipher
@@ -244,7 +245,7 @@ internal object RoadDnaOnline {
         }
     }
 
-    fun search(context: Context, route: List<Pair<Double, Double>>): RoadDnaOnlineResult {
+    suspend fun search(context: Context, route: List<Pair<Double, Double>>): RoadDnaOnlineResult {
         require(route.size >= 2) { "Geometria percorso mancante" }
         val geoKey = RoadDnaApiKeys.read(context, "geoapify")
         val tripKey = RoadDnaApiKeys.read(context, "opentripmap")
@@ -265,7 +266,7 @@ internal object RoadDnaOnline {
             if (index < route.size - 1) partial = true
             for (chunk in chunks) {
                 try {
-                    if (Thread.currentThread().isInterrupted) throw InterruptedException()
+                    currentCoroutineContext().ensureActive()
                     val body = geoBody(chunk).toString()
                     val data = JSONObject(fetch(GEO, geoKey, body))
                     val received = parseGeo(data)
@@ -291,7 +292,7 @@ internal object RoadDnaOnline {
             partial = true
             for (i in indices) {
                 try {
-                    if (Thread.currentThread().isInterrupted) throw InterruptedException()
+                    currentCoroutineContext().ensureActive()
                     val (lat, lon) = route[i]
                     val received = parseTrip(JSONArray(fetch(tripRadiusUrl(lat, lon, tripKey))))
                     addCandidates(places, received, route)
