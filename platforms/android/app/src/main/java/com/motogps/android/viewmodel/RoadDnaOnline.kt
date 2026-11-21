@@ -3,6 +3,7 @@ package com.motogps.android.viewmodel
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
+import android.util.AtomicFile
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlinx.coroutines.CancellationException
@@ -58,19 +59,15 @@ internal object RoadDnaApiKeys {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, key(provider))
         val bytes = cipher.iv + cipher.doFinal(trimmed.toByteArray(StandardCharsets.UTF_8))
-        val target = file(context, provider)
-        val tmp = File(context.noBackupFilesDir, target.name + ".tmp")
+        val atomic = AtomicFile(file(context, provider))
+        val stream = atomic.startWrite()
         try {
-            tmp.outputStream().use { it.write(bytes); it.fdSyncIfPossible() }
-            if (!tmp.renameTo(target)) throw IOException("Salvataggio non riuscito")
-        } finally {
-            tmp.delete()
+            stream.write(bytes)
+            atomic.finishWrite(stream)
+        } catch (e: Exception) {
+            atomic.failWrite(stream)
+            throw e
         }
-    }
-
-    // fsync is best effort: output stream closure still checks for IO errors.
-    private fun java.io.FileOutputStream.fdSyncIfPossible() {
-        try { fd.sync() } catch (_: IOException) { }
     }
 
     @Synchronized fun read(context: Context, provider: String): String? {
