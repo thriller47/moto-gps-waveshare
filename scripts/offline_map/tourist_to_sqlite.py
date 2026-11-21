@@ -347,7 +347,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pbf", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
-     args = parser.parse_args()
+    args = parser.parse_args()
     build(args.pbf, args.output)
 
 if __name__ == "__main__":
