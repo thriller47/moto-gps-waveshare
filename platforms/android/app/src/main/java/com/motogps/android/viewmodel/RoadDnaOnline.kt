@@ -111,7 +111,9 @@ data class RoadDnaOnlinePoi(
     val longitude: Double,
     val xid: String? = null,
     // Geoapify Places API identity: use exact place details rather than a nearby guess.
-    val geoPlaceId: String? = null
+    val geoPlaceId: String? = null,
+    // Full classifications are necessary: the first category can be generic.
+    val categoryTags: List<String> = emptyList()
 )
 
 data class RoadDnaOnlineResult(
@@ -217,10 +219,18 @@ internal object RoadDnaOnline {
             val p = item.optJSONObject("properties") ?: continue
             val name = p.optString("name").trim()
             if (name.isBlank()) continue
-            result.add(RoadDnaOnlinePoi(name.take(160),
-                p.optJSONArray("categories")?.optString(0).orEmpty().ifBlank { "turismo" },
+            val allCategories = p.optJSONArray("categories")
+            val tags = if (allCategories == null) emptyList() else
+                (0 until allCategories.length()).mapNotNull { j ->
+                    allCategories.optString(j).trim().takeIf { it.isNotEmpty() }
+                }
+            // Prefer the most specific type over a generic parent category.
+            val category = tags.maxByOrNull { it.count { c -> c == '.' } }
+                ?: "turismo"
+            result.add(RoadDnaOnlinePoi(name.take(160), category,
                 0, "Geoapify", lat, lon,
-                geoPlaceId = p.optString("place_id").trim().takeIf { it.isNotEmpty() }))
+                geoPlaceId = p.optString("place_id").trim().takeIf { it.isNotEmpty() },
+                categoryTags = tags))
         }
         return result
     }
@@ -236,12 +246,72 @@ internal object RoadDnaOnline {
             val name = item.optString("name").trim()
             val xid = item.optString("xid").trim()
             if (name.isEmpty() || xid.isEmpty()) continue
+            val kinds = item.optString("kinds").split(',')
+                .map { it.trim() }.filter { it.isNotEmpty() }
             result.add(RoadDnaOnlinePoi(name.take(160),
-                item.optString("kinds").substringBefore(",").take(50),
-                0, "OpenTripMap", lat, lon, xid))
+                kinds.firstOrNull().orEmpty().ifBlank { "turismo" }.take(50),
+                0, "OpenTripMap", lat, lon, xid, categoryTags = kinds))
         }
         return result
     }
+
+    /**
+     * Editorial motorcycle-touring relevance, computed offline from API
+     * categories. It is NOT a provider star rating or a verified detour length.
+     * Small memorials, plaques, individual statues and fountains stay accessible
+     * under "Tutti", not in the recommended shortlist.
+     */
+    internal fun interestScore(place: RoadDnaOnlinePoi): Int {
+        val tags = (place.categoryTags + place.category)
+            .map { it.trim().lowercase(java.util.Locale.ROOT) }
+            .filter { it.isNotEmpty() }
+        fun has(vararg keywords: String): Boolean = keywords.any { key ->
+            tags.any { it == key || it.startsWith(key + ".") }
+        }
+
+        // Highly specific low-value labels override generic "tourism.sights".
+        if (has("tourism.sights.memorial", "tourism.attraction.artwork",
+                "tourism.attraction.fountain", "tourism.attraction.clock",
+                "tourism.sights.place_of_worship.chapel",
+                "memorials", "monuments_and_memorials", "statues",
+                "sculptures", "artwork", "fountains", "wayside_crosses",
+                "wayside_shrines", "commemorative_plaques",
+                "plaques", "small_monuments", "historic.memorial")) return 0
+
+        val priority = when {
+            has("tourism.attraction.viewpoint", "view_points", "viewpoints",
+                "mountain_peaks", "peaks", "waterfalls", "lakes",
+                "geological_formations", "canyons", "natural_springs") -> 100
+            has("tourism.sights.castle", "tourism.sights.fort",
+                "tourism.sights.ruines", "tourism.sights.archaeological_site",
+                "castles", "fortifications", "ruins", "archaeology",
+                "archaeological_sites", "fortresses") -> 95
+            has("national_park", "national_parks", "nature_reserves",
+                "natural_reserves", "caves", "caves_and_grottos",
+                "mountain_passes", "scenic_roads") -> 90
+            has("museums", "cultural_museums", "tourism.sights.monastery",
+                "tourism.sights.place_of_worship.cathedral",
+                "cathedrals", "monasteries", "abbeys",
+                "tourism.sights.lighthouse", "lighthouses") -> 80
+            has("tourism.sights.tower", "tourism.sights.city_gate",
+                "tourism.sights.manor", "palaces", "historic_districts",
+                "historic_settlements", "gardens_and_parks") -> 70
+            else -> 0
+        }
+        if (priority > 0) return priority +
+            (if (place.source == "OpenTripMap") 5 else 0)
+        // OpenTripMap currently queries named POIs at rate=2: they are useful
+        // fallback suggestions, but generic Geoapify results are not.
+        return if (place.source == "OpenTripMap") 65 else 10
+    }
+
+    internal fun recommendedPlaces(places: List<RoadDnaOnlinePoi>): List<RoadDnaOnlinePoi> =
+        places.filter { interestScore(it) >= 65 }
+
+    internal fun rankPlaces(places: List<RoadDnaOnlinePoi>): List<RoadDnaOnlinePoi> =
+        places.sortedWith(compareByDescending<RoadDnaOnlinePoi> { interestScore(it) }
+            .thenBy { it.distanceMeters }
+            .thenBy { it.name })
 
     private fun valid(lat: Double, lon: Double) = lat.isFinite() && lon.isFinite() &&
         lat in -90.0..90.0 && lon in -180.0..180.0
@@ -358,7 +428,9 @@ internal object RoadDnaOnline {
         }
         if (!completed) throw IOException(
             if (errors.isNotEmpty()) errors.joinToString("; ") else "Nessun provider disponibile")
-        return RoadDnaOnlineResult(places.values.sortedBy { it.distanceMeters }.take(60),
+        val ranked = rankPlaces(places.values.toList())
+        if (ranked.size > 60) partial = true
+        return RoadDnaOnlineResult(ranked.take(60),
             partial, errors.joinToString("; ").ifBlank {
                 if (partial) "Risultati parziali: limiti API o campionamento" else "Ricerca completata"
             })
