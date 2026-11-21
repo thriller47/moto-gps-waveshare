@@ -220,83 +220,178 @@ def route_matches(positions, routes, radius, boxes, indexes=None):
     return matches
 
 
-def pbf_benchmark(pbf, db_path, routes, radius):
+
+class RouteSpatialIndex:
+    """Grid of route segments, so each POI checks nearby segments only.
+
+    Equirectangular metres local to the route; suitable for candidate searches,
+    not a routing detour, visibility test or precision cadastral geometry.
+    """
+    def __init__(self, line, radius):
+        self.lon0, self.lat0 = line[0]
+        self.scale_x = 111_320 * math.cos(math.radians(
+            sum(p[1] for p in line) / len(line)))
+        self.scale_y = 111_320
+        self.radius = radius
+        self.radius_sq = radius * radius
+        self.cell = max(1000, radius)
+        self.bounds = bbox(line, radius)
+        self.segments = []
+        self.grid = collections.defaultdict(list)
+        projected = [self.xy(lon, lat) for lon, lat in line]
+        for a, b in zip(projected, projected[1:]):
+            segment_id = len(self.segments)
+            self.segments.append((*a, *b))
+            min_x = math.floor((min(a[0], b[0]) - radius) / self.cell)
+            max_x = math.floor((max(a[0], b[0]) + radius) / self.cell)
+            min_y = math.floor((min(a[1], b[1]) - radius) / self.cell)
+            max_y = math.floor((max(a[1], b[1]) + radius) / self.cell)
+            for gx in range(min_x, max_x + 1):
+                for gy in range(min_y, max_y + 1):
+                    self.grid[(gx, gy)].append(segment_id)
+
+    def xy(self, lon, lat):
+        return ((lon - self.lon0) * self.scale_x,
+                (lat - self.lat0) * self.scale_y)
+
+    def near(self, lon, lat):
+        if not (self.bounds[0] <= lon <= self.bounds[2] and
+                self.bounds[1] <= lat <= self.bounds[3]):
+            return False
+        x, y = self.xy(lon, lat)
+        cell = (math.floor(x / self.cell), math.floor(y / self.cell))
+        for index in self.grid.get(cell, ()):
+            ax, ay, bx, by = self.segments[index]
+            dx, dy = bx - ax, by - ay
+            t = (max(0., min(1., ((x - ax) * dx + (y - ay) * dy) /
+                 (dx * dx + dy * dy))) if dx or dy else 0.)
+            if (x - ax - t * dx) ** 2 + (y - ay - t * dy) ** 2 <= self.radius_sq:
+                return True
+        return False
+
+
+def pbf_benchmark(pbf, db_path, routes, radius, max_way_refs=3_000_000):
+    """Two OSM scans, no huge all-Italy node-location .idx file.
+
+    First pass: index geolocated tourist nodes and record only tourist-way
+    node references. Second pass: resolve those selected nodes in memory and
+    index tourist ways. Relations cannot be located without a multipolygon
+    assembler and are reported separately rather than silently dropped.
+    """
     try:
         import osmium
     except ImportError as exc:
         raise RuntimeError("Install pyosmium in WSL: pip install osmium") from exc
+
     counts = collections.Counter()
     relations = collections.Counter()
+    unresolved_ways = collections.Counter()
     by_route = {name: collections.Counter() for name in routes}
-    boxes = {name: bbox(line, radius) for name, line in routes.items()}
-    indexes = {name: RouteSpatialIndex(line, radius)
+    spatial = {name: RouteSpatialIndex(line, radius)
                for name, line in routes.items()}
-    print("Road DNA: indici spaziali preparati per", len(indexes),
-          "itinerari; inizio scansione PBF...", flush=True)
+    needed_refs = set()
     db = sqlite3.connect(str(db_path))
+    db.execute("PRAGMA temp_store=FILE")
     db.executescript("""CREATE TABLE poi(
       osm_type TEXT, osm_id INTEGER, category TEXT, name TEXT,
       lon REAL, lat REAL, PRIMARY KEY(osm_type,osm_id,category));
-      CREATE INDEX poi_category_location ON poi(category,lat,lon);""")
-    insert = "INSERT OR IGNORE INTO poi VALUES(?,?,?,?,?,?)"
-    class Handler(osmium.SimpleHandler):
-        def __init__(self):
-            super().__init__()
-            self.nodes_seen = 0
-            self.next_report = 2_000_000
+      CREATE TEMP TABLE pending_ways(
+      osm_id INTEGER PRIMARY KEY, name TEXT, categories TEXT, refs TEXT);""")
+    statement = "INSERT OR IGNORE INTO poi VALUES(?,?,?,?,?,?)"
 
-        def add(self, osm_type, obj, positions):
-            tag = obj.tags
-            categories = classify(tag)
-            if not categories or not positions:
-                return
-            # The record location is illustrative; for large polygons the
-            # mean of vertices may not represent a useful destination.
-            lon = sum(p[0] for p in positions) / len(positions)
-            lat = sum(p[1] for p in positions) / len(positions)
-            name = str(tag.get("name", tag.get("name:it", "")))[:160]
-            nearby = route_matches(positions, routes, radius, boxes, indexes)
-            for cat in categories:
-                counts[cat] += 1
-                db.execute(insert, (osm_type, int(obj.id), cat, name, lon, lat))
-                for route_name in nearby:
-                    by_route[route_name][cat] += 1
+    def store(osm_type, osm_id, categories, name, positions):
+        if not positions:
+            for category in categories:
+                unresolved_ways[category] += 1
+            return
+        lon = sum(p[0] for p in positions) / len(positions)
+        lat = sum(p[1] for p in positions) / len(positions)
+        matched = [route_name for route_name, idx in spatial.items()
+                   if any(idx.near(x, y) for x, y in positions)]
+        for category in categories:
+            counts[category] += 1
+            db.execute(statement, (osm_type, osm_id, category, name, lon, lat))
+            for route_name in matched:
+                by_route[route_name][category] += 1
+
+    print("PBF pass 1/2: tourist nodes, tagged ways and relation counts...", flush=True)
+
+    class FirstPass(osmium.SimpleHandler):
         def node(self, obj):
-            self.nodes_seen += 1
-            if self.nodes_seen >= self.next_report:
-                print("Road DNA: letti", self.nodes_seen,
-                      "nodi OSM; POI", sum(counts.values()), flush=True)
-                self.next_report += 2_000_000
-            if obj.location.valid():
-                self.add("n", obj, [(obj.location.lon, obj.location.lat)])
+            categories = classify(obj.tags)
+            if categories and obj.location.valid():
+                store("n", int(obj.id), categories,
+                      str(obj.tags.get("name", obj.tags.get("name:it", "")))[:160],
+                      [(obj.location.lon, obj.location.lat)])
+
         def way(self, obj):
-            if not classify(obj.tags):
+            categories = classify(obj.tags)
+            if not categories:
                 return
-            positions = [(n.location.lon, n.location.lat)
-                         for n in obj.nodes if n.location.valid()]
-            if positions:
-                self.add("w", obj, positions)
+            refs = [int(n.ref) for n in obj.nodes]
+            missing = set(refs).difference(needed_refs)
+            if not refs or len(needed_refs) + len(missing) > max_way_refs:
+                for category in categories:
+                    unresolved_ways[category] += 1
+                return
+            needed_refs.update(missing)
+            db.execute("INSERT OR REPLACE INTO pending_ways VALUES (?,?,?,?)",
+                       (int(obj.id),
+                        str(obj.tags.get("name", obj.tags.get("name:it", "")))[:160],
+                        ",".join(sorted(categories)),
+                        ",".join(str(ref) for ref in refs)))
+
         def relation(self, obj):
-            # No location without multipolygon assembly; DO NOT assign this
-            # relation to a route nor count it as part of the spatial index.
-            for cat in classify(obj.tags):
-                relations[cat] += 1
+            for category in classify(obj.tags):
+                relations[category] += 1
+
     try:
-        with tempfile.TemporaryDirectory(prefix="road-dna-", dir=db_path.parent) as temp:
-            Handler().apply_file(str(pbf), locations=True,
-                                 idx="sparse_file_array," + str(Path(temp) / "nodes.idx"))
+        FirstPass().apply_file(str(pbf), locations=False)
         db.commit()
-        print("Road DNA: scansione PBF terminata; ottimizzazione SQLite...",
+        pending_count = db.execute("SELECT COUNT(*) FROM pending_ways").fetchone()[0]
+        print("PBF pass 1/2 complete: {} way objects, {} distinct referenced nodes; "
+              "{} ways skipped due to memory cap or missing nodes".format(
+                  pending_count, len(needed_refs), sum(unresolved_ways.values())),
               flush=True)
+        print("PBF pass 2/2: resolving selected way-node coordinates...", flush=True)
+        found = {}
+
+        class SecondPass(osmium.SimpleHandler):
+            def node(self, obj):
+                osm_id = int(obj.id)
+                if osm_id in needed_refs:
+                    if obj.location.valid():
+                        found[osm_id] = (obj.location.lon, obj.location.lat)
+                    needed_refs.discard(osm_id)
+
+        if needed_refs:
+            SecondPass().apply_file(str(pbf), locations=False)
+        print("Resolved {} unique nodes; processing tourist ways...".format(len(found)),
+              flush=True)
+        for osm_id, name, cat_string, ref_string in db.execute(
+                "SELECT osm_id, name, categories, refs FROM pending_ways"):
+            categories = cat_string.split(",")
+            positions = [found[int(ref)] for ref in ref_string.split(",")
+                         if int(ref) in found]
+            store("w", osm_id, categories, name, positions)
+
+        db.execute("DROP TABLE pending_ways")
+        db.commit()
+        print("Building compact spatial index...", flush=True)
+        db.execute("CREATE INDEX poi_category_location ON poi(category,lat,lon)")
+        db.commit()
         db.execute("VACUUM")
     finally:
         db.close()
     return {"indexed_nodes_and_ways": dict(counts),
             "unlocated_relations_italy": dict(relations),
+            "unlocated_or_skipped_ways_italy": dict(unresolved_ways),
             "route_counts_approx": {k: dict(v) for k, v in by_route.items()},
             "standalone_sqlite_bytes": db_path.stat().st_size,
             "size_note": "Standalone proxy only; NOT measured MotoPack growth. "
-                         "Large multipolygons/relations undercounted."}
+                         "Two PBF scans, bounded set of way node IDs, no giant "
+                         "disk location index. Unlocated relations and ways "
+                         "are excluded from corridor counts."}
 
 
 def fetch_json(url, key, body=None):
