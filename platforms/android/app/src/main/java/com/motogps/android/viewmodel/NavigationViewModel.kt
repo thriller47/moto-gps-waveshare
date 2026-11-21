@@ -409,6 +409,48 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
 
     private val _selectedRouteIndex = MutableStateFlow(0)
     val selectedRouteIndex: StateFlow<Int> = _selectedRouteIndex
+    private val _roadDnaSummary = MutableStateFlow<RoadDnaSummary?>(null)
+    val roadDnaSummary: StateFlow<RoadDnaSummary?> = _roadDnaSummary
+    private val _roadDnaLoading = MutableStateFlow(false)
+    val roadDnaLoading: StateFlow<Boolean> = _roadDnaLoading
+    private val _roadDnaError = MutableStateFlow<String?>(null)
+    val roadDnaError: StateFlow<String?> = _roadDnaError
+    private var roadDnaJob: Job? = null
+
+    /** Road DNA is optional and never alters routing, BLE, or ESP32 scene. */
+    fun analyzeSelectedRoadDna() {
+        val option = _routeOptions.value.getOrNull(_selectedRouteIndex.value) ?: return
+        val context = appContext ?: return
+        roadDnaJob?.cancel()
+        _roadDnaSummary.value = null
+        _roadDnaError.value = null
+        roadDnaJob = viewModelScope.launch {
+            _roadDnaLoading.value = true
+            try {
+                val report = withContext(Dispatchers.IO) {
+                    RoadDnaAnalysis.analyze(context, option)
+                }
+                // A newly selected or recalculated route invalidates this report.
+                if (_routeOptions.value.getOrNull(_selectedRouteIndex.value) === option)
+                    _roadDnaSummary.value = report
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _roadDnaError.value = "Road DNA: " +
+                    (e.message ?: "impossibile analizzare l'itinerario")
+            } finally {
+                _roadDnaLoading.value = false
+            }
+        }
+    }
+
+    private fun invalidateRoadDna() {
+        roadDnaJob?.cancel()
+        _roadDnaSummary.value = null
+        _roadDnaError.value = null
+        _roadDnaLoading.value = false
+    }
+
 
     private val _isNavigating = MutableStateFlow(false)
     val isNavigating: StateFlow<Boolean> = _isNavigating
@@ -708,6 +750,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     }
 
     fun previewRoute(place: PlaceSearchResult) {
+        invalidateRoadDna()
         if (place.requiresRoadAccess) {
             _errorMessage.value = "Road DNA: posizione indicativa. L'accesso stradale " +
                 "non è verificato: cerca una strada o località vicina per navigare."
@@ -747,11 +790,13 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
 
     fun selectRouteOption(index: Int) {
         if (index in _routeOptions.value.indices) {
+            invalidateRoadDna()
             _selectedRouteIndex.value = index
         }
     }
 
     fun clearRoutePreview() {
+        invalidateRoadDna()
         resumeOriginSession = null
         _hasArrived.value = false
         arrivalDetector.reset()
