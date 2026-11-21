@@ -44,6 +44,7 @@ class RoadDnaOnlineTest {
                     .put(7.15).put(45.15)))
                 .put("properties", JSONObject()
                     .put("name", "Belvedere")
+                    .put("place_id", "abcdef012345")
                     .put("categories", JSONArray().put("tourism.attraction.viewpoint"))))
             .put(JSONObject()
                 .put("geometry", JSONObject().put("coordinates", JSONArray()
@@ -53,6 +54,7 @@ class RoadDnaOnlineTest {
         assertEquals(1, found.size)
         assertEquals("Belvedere", found[0].name)
         assertEquals("Geoapify", found[0].source)
+        assertEquals("abcdef012345", found[0].geoPlaceId)
         assertEquals(45.15, found[0].latitude, 0.000001)
     }
 
@@ -97,6 +99,42 @@ class RoadDnaOnlineTest {
             "OpenTripMap", 45.0002, 7.0001, "W3")
         assertEquals("W3", RoadDnaOnline.matchOpenTripMap(original,
             listOf(wrongPlace, wrongName, matched))?.xid)
+    }
+
+    @Test fun geoapifyDetailsUseActualPlaceDataAndMissingDescriptionIsHonest() {
+        val response = JSONObject().put("features", JSONArray()
+            .put(JSONObject().put("properties", JSONObject()
+                .put("feature_type", "details")
+                .put("formatted", "Belvedere, Piemonte, Italia")
+                .put("website", "https://example.org/belvedere")
+                .put("wiki_and_media", JSONObject().put("wikidata", "Q123")))))
+        val rendered = RoadDnaOnline.parseGeoDetails(response)
+        assertTrue(rendered.contains("Descrizione non disponibile"))
+        assertTrue(rendered.contains("Belvedere, Piemonte"))
+        assertTrue(rendered.contains("https://example.org/belvedere"))
+        assertTrue(rendered.contains("Wikidata: Q123"))
+        assertFalse(rendered.contains("undefined"))
+        val withDescription = JSONObject().put("features", JSONArray()
+            .put(JSONObject().put("properties", JSONObject()
+                .put("feature_type", "details")
+                .put("description", "Vista panoramica sulla valle."))))
+        assertTrue(RoadDnaOnline.parseGeoDetails(withDescription)
+            .contains("Vista panoramica sulla valle"))
+    }
+
+    @Test fun openTripMapDetailsDoNotPretendRawTagsAreADescription() {
+        val response = JSONObject()
+            .put("name", "Rocca")
+            .put("kinds", "natural,rocks,interesting_places")
+            .put("otm", "https://opentripmap.com/en/card/N123")
+        val rendered = RoadDnaOnline.parseTripDetails(response)
+        assertTrue(rendered.contains("Descrizione non disponibile"))
+        assertTrue(rendered.contains("https://opentripmap.com/en/card/N123"))
+        assertFalse(rendered.contains("natural,rocks"))
+        val described = JSONObject().put("wikipedia_extracts",
+            JSONObject().put("text", "Rocca di origine medievale."))
+        assertTrue(RoadDnaOnline.parseTripDetails(described)
+            .contains("Rocca di origine medievale."))
     }
 
     @Test fun openTripMapApiKeyIsEncodedForQuery() {
