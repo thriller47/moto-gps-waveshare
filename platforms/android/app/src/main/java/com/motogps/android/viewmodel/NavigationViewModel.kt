@@ -401,6 +401,19 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
 
     private val _routeOptions = MutableStateFlow<List<RouteOption>>(emptyList())
     val routeOptions: StateFlow<List<RouteOption>> = _routeOptions
+
+    // The document picker may recreate MainActivity (rotation). Keep the exact
+    // GPX selected at click time until it returns, rather than exporting a
+    // different route if the preview is recalculated in the meantime.
+    private var pendingGpxExport: String? = null
+
+    fun stageGpxExport(content: String) {
+        pendingGpxExport = content
+    }
+
+    fun takeGpxExport(): String? = pendingGpxExport.also {
+        pendingGpxExport = null
+    }
     private val _routePreviewError = MutableStateFlow<String?>(null)
     val routePreviewError: StateFlow<String?> = _routePreviewError
     private val _routingSource = MutableStateFlow<String?>(null)
