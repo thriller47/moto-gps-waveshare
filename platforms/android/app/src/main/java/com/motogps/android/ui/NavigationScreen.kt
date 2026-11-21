@@ -723,17 +723,12 @@ fun NavigationScreen(
                     }
                 }
             },
+            // Closing a place detail never dismisses or clears the parent
+            // results list. Back/outside tap has the same behavior.
             confirmButton = {
                 TextButton(onClick = { selectedRoadDnaPoi = null }) {
                     Text("Torna ai risultati")
                 }
-            },
-            dismissButton = {
-                TextButton(onClick = {
-                    selectedRoadDnaPoi = null
-                    showRoadDnaResults = false
-                    showRoadDnaDialog = false
-                }) { Text("Chiudi") }
             }
         )
     }
@@ -1607,7 +1602,11 @@ fun NavigationScreen(
                     OutlinedButton(
                         onClick = {
                             showRoadDnaDialog = true
-                            onRoadDnaAnalyze()
+                            // Reopening Road DNA must preserve already fetched online
+                            // results. Route changes invalidate them in the ViewModel.
+                            if (roadDnaOnline == null && !roadDnaOnlineLoading) {
+                                onRoadDnaAnalyze()
+                            }
                         },
                         enabled = !isNavigating && !isLoading &&
                             routeOptions.getOrNull(selectedRouteIndex) != null,
