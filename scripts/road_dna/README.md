@@ -17,6 +17,15 @@ Le denominazioni sono proposte di test, **non geometrie già presenti**. I GPX d
 
 Esempio di cartella Windows: `C:\MotoGPS\RoadDNA\`. Mettervi `montagna.gpx`, `lago.gpx`, `costa.gpx` ecc.
 
+## Controlli locali leggeri (senza compilazioni)
+
+```bash
+cd ~/MotoGPS/moto-gps-waveshare
+python3 -m unittest discover -s scripts/road_dna -p 'test_*.py' -v
+```
+
+Sono test di parser GeoJSON/GPX, tag secondari e distanza dalla rotta. **Non** aprono il PBF, non eseguono richieste HTTP e non lanciano GitHub Actions.
+
 ## 1. Avvio offline: inventario PBF e dimensione SQLite
 
 In **WSL**, senza lanciare alcuna GitHub Action:
