@@ -1,6 +1,6 @@
 # Moto Chat GPS — Manuale operativo
 
-**Aggiornato:** 20 novembre 2026 (diagnosi corridoio OpenFreeMap online, ricerca Photon, GPS/IMU e MotoPack) · **Repository:** `thriller47/moto-gps-waveshare` · **Branch stabile di riferimento:** `valhalla`.
+**Aggiornato:** 21 novembre 2026 (diagnosi corridoio OpenFreeMap online, ricerca Photon, GPS/IMU e MotoPack) · **Repository:** `thriller47/moto-gps-waveshare` · **Branch stabile di riferimento:** `valhalla`.
 
 Queste sono le **procedure operative correnti**, per Waveshare ESP32-S3-Touch-AMOLED-1.75C e app Android. Le istruzioni distinguono **Windows PowerShell**, **CMD ESP-IDF** e **WSL Ubuntu-24.04**: i rispettivi comandi non sono intercambiabili. La porta USB `COM3` è un esempio da verificare sul PC.
 
@@ -159,9 +159,9 @@ Se la connessione tra telefono ed ESP32 si interrompe **involontariamente** (es.
 
 **Test richiesto:** avviare una navigazione, allontanarsi finché BLE si disconnette, tornare entro il raggio BLE senza premere Connetti e controllare se si ristabilisce automaticamente la sessione. La diagnostica riporta `BLE_RECONNECT phase=lost`, `phase=scheduled delay_ms=...`, `phase=scan`, `phase=scan_timeout` o `phase=scan_failed`. Verificare anche che la disconnessione manuale **non** riavvii la scansione e che, al rientro, rotta e navigazione siano immediatamente disponibili. **Confermata dall'utente al primo tentativo su dispositivo**, senza necessità di ricollegarsi manualmente.
 
-### Pausa caffè — sviluppo sperimentale da collaudare (ESP32 + Android, 20/11/2026)
+### Pausa caffè — timer collaudato, recupero automatico da verificare (21/11/2026)
 
-**Branch di test:** `test/coffee-pause-20261120`. Il BLE Android si è già riconnesso da solo su strada; questa nuova funzione energetica **non è ancora stata compilata né provata fisicamente**.
+**Branch di test:** `test/coffee-pause-20261120`. Il 21/11 l'utente ha confermato spegnimento alla scadenza e ripristino mediante connessione manuale prima del limite. Rimane da verificare il recupero automatico: la nuova correzione riguarda soltanto Android. Alterna `autoConnect` nativo per 30 s verso l'ultimo dispositivo noto e scansione filtrata di 12 s; un handshake incompleto viene chiuso dopo massimo 20 s dalla connessione e ritentato con backoff. Eventi aggiuntivi `BLE_RECONNECT phase=system_connect/connect_timeout/connect_failed/ready`.
 
 - Dall'app Android: **⋮ → ☕ Pausa caffè**. Selezionare un limite di **1–30 minuti** (predefinito **10 minuti**) e premere **Salva**. L'impostazione rimane nelle preferenze Android; viene inviata all'ESP32 mediante un messaggio BLE `PowerPolicy (0x23)` **dopo ogni handshake riuscito** e anche quando la si modifica durante una connessione. L'ESP trattiene il valore in RAM durante l'allontanamento, senza dipendere dal telefono; a ogni nuova accensione viene reimpostato a 10 minuti fino al primo collegamento Android.
 - Dopo **30 secondi senza connessione BLE** e dopo che c'è stata almeno una connessione: luminosità del CO5300 a zero (OLED nero), rendering IMU e campionamento software ridotti. **NimBLE resta attivo in advertising**, quindi Android può rilevare e riconnettere l'ESP. Non è deep sleep in questa fase; TE e controller display restano inizializzati per un risveglio rapido.
