@@ -505,10 +505,17 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                 _roadDnaKeyStatus.value = "Connessione ${provider} riuscita."
             } catch (e: CancellationException) {
                 throw e
+            } catch (e: RoadDnaProviderHttpException) {
+                // Safe numeric status only: the OpenTripMap URL embeds the key.
+                _roadDnaKeyStatus.value = when (e.statusCode) {
+                    401, 403 -> "Chiave $provider rifiutata dal servizio (HTTP ${e.statusCode})."
+                    429 -> "Limite richieste $provider raggiunto (HTTP 429)."
+                    else -> "Servizio $provider: risposta HTTP ${e.statusCode}."
+                }
             } catch (_: Exception) {
-                // Never surface a thrown URL containing an OpenTripMap API key.
+                // Never surface exception messages or URLs containing API keys.
                 _roadDnaKeyStatus.value =
-                    "Verifica non riuscita. Controlla rete, chiave e limiti API."
+                    "Verifica non riuscita: problema di rete o risposta inattesa del servizio."
             } finally {
                 _roadDnaKeyBusy.value = false
             }
