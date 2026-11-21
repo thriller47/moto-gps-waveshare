@@ -2,6 +2,9 @@
 
 ## STATO ATTUALE — RIPARTIRE DA QUI
 
+**21/11/2026 — Road DNA: fix chiusura dettagli e persistenza risultati.** L'utente conferma che la finestra risultati dedicata è migliore, ma «Chiudi» su una descrizione chiudeva anche l'elenco e perdeva la ricerca. Diagnosi: il dismissButton del dialog dettagli settava `selectedRoadDnaPoi=null`, `showRoadDnaResults=false`, `showRoadDnaDialog=false`; alla riapertura `onRoadDnaAnalyze()` invocava `invalidateRoadDna()` e svuotava `_roadDnaOnline`. Correzione UI: nella scheda dettagli resta soltanto «Torna ai risultati» (back/tap esterno stesso effetto); posizione di scorrimento conservata. Riaprendo Road DNA, l'analisi viene lanciata solo se non ci sono risultati online né ricerca in corso; cambio rotta continua a invalidare i dati tramite ViewModel. Nessuna CI avviata, ricompilazione/prova reale da eseguire.
+
+
 **21/11/2026 — Road DNA online: elenco risultati in finestra separata.** Durante collaudo Android l'utente nota che i POI sono elencati sotto «Cerca online», quasi invisibili, e compare «Mostrati i primi 20 risultati». Corretto `NavigationScreen.kt`: tap su «Cerca online» apre immediatamente dialog modale «Luoghi lungo il percorso» con stato caricamento, eventuale errore, conteggio e fonti; `LazyColumn` scorrevole mostra tutti i POI effettivamente restituiti (`RoadDnaOnline.search` conserva il proprio limite massimo di 60) e apre una scheda dettagli separata; «Torna ai risultati» ripristina elenco e scroll, «Torna a Road DNA» apre la schermata principale. Dalla schermata principale pulsante «Apri risultati (N)» permette di riaprire la finestra; eliminato il vecchio elenco inline e il taglio grafico a 20. Nessuna modifica al routing o alle chiamate API. Da verificare via rebuild Android e prova manuale; commit `[skip ci]`, nessuna CI avviata.
 
 
