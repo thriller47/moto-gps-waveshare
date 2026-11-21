@@ -286,6 +286,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             val downloadProgress = viewModel.downloadProgress.collectAsState().value
             val isDownloadingMap = viewModel.isDownloadingMap.collectAsState().value
             val photonInstalledBytes = viewModel.photonInstalledBytes.collectAsState().value
+            val roadDnaInstalledBytes = viewModel.roadDnaInstalledBytes.collectAsState().value
             val photonImporting = viewModel.photonImporting.collectAsState().value
             val photonStatus = viewModel.photonStatus.collectAsState().value
             val valhallaInstalledBytes = viewModel.valhallaInstalledBytes.collectAsState().value
@@ -389,6 +390,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     downloadProgress = downloadProgress,
                     isDownloadingMap = isDownloadingMap,
                     photonInstalledBytes = photonInstalledBytes,
+                    roadDnaInstalledBytes = roadDnaInstalledBytes,
                     photonImporting = photonImporting,
                     photonStatus = photonStatus,
                     onImportPhoton = {
