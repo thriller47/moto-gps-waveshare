@@ -52,7 +52,8 @@ data class PlaceSearchResult(
     val displayArea: String,
     val latitude: Double,
     val longitude: Double,
-    val distanceMeters: Double? = null
+    val distanceMeters: Double? = null,
+    val requiresRoadAccess: Boolean = false
 ) {
     val distanceLabel: String
         get() = distanceMeters?.takeIf { it.isFinite() && it >= 0 }?.let {
@@ -587,14 +588,36 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                 emptyList()
             }
         }
+        val touristHits = if (context != null) try {
+            OfflineTouristPlaceSearch.searchNames(context, query, gps)
+        } catch (e: Exception) {
+            Log.w("MotoGPS_Photon", "Tourist name search unavailable", e)
+            emptyList()
+        } else emptyList()
         if (context != null && OfflinePhotonPlaceSearch.installed(context)) {
             try {
                 val local = OfflinePhotonPlaceSearch.search(context, query, gps)
-                if (local.isNotEmpty()) return withSearchDistances(local, gps)
+                if (local.isNotEmpty() || touristHits.isNotEmpty()) {
+                    // Exact city/place names always lead; a nearby partial street
+                    // must not hide an exact named lake or destination.
+                    val q = PhotonOfflineRanking.normalize(query)
+                    val exactLocal = local.filter {
+                        PhotonOfflineRanking.normalize(it.name) == q &&
+                            !it.name.startsWith("Via ", ignoreCase = true) &&
+                            !it.name.startsWith("Viale ", ignoreCase = true)
+                    }
+                    val merged = exactLocal + touristHits +
+                        local.filterNot { it in exactLocal }
+                    return withSearchDistances(merged.distinctBy {
+                        PhotonOfflineRanking.normalize(it.name) + "|" +
+                            it.latitude.toString() + "|" + it.longitude.toString()
+                    }.take(8), gps)
+                }
             } catch (e: Exception) {
                 Log.w("MotoGPS_Photon", "Offline Photon v2 search failed; using online", e)
             }
         }
+        if (touristHits.isNotEmpty()) return withSearchDistances(touristHits, gps)
         return try {
             withSearchDistances(PhotonPlaceSearch.search(query, gps), gps)
         } catch (e: Exception) {
@@ -685,6 +708,11 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     }
 
     fun previewRoute(place: PlaceSearchResult) {
+        if (place.requiresRoadAccess) {
+            _errorMessage.value = "Road DNA: posizione indicativa. L'accesso stradale " +
+                "non è verificato: cerca una strada o località vicina per navigare."
+            return
+        }
         routePreviewJob?.cancel()
         DiagnosticLog.event("ROUTE_PREVIEW", "begin stops=${_routeWaypoints.value.size}")
         _routePreview.value = place
