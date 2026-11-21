@@ -56,6 +56,15 @@
 
 **Separazione funzionale:** MotoMap = contesto stradale; Valhalla = rotta verde; Photon = ricerca. I tre componenti sono distribuiti nel MotoPack ma hanno ruoli diversi. L'heading IMU è un supporto alla visualizzazione; non deve sostituire arbitrariamente il GPS autorevole per routing e manovre.
 
+## Decisione Road DNA / MotoPack (21 novembre 2026)
+
+- **Richiesta esplicita:** nuovo MotoPack con POI turistici offline completi, senza requisito di compatibilità del formato bundle precedente; solo dopo integrazione Android e prove.
+- **Benchmark completato:** `tourist-pois-proxy.sqlite` 27.529.216 byte, 16 categorie; relazioni OSM non ancora localizzate (laghi, parchi, riserve inclusi). Geoapify e OpenTripMap testati online ma non con pari copertura.
+- **Scelta architetturale:** indicizzazione turistica offline come fonte primaria di Road DNA; servizi Geoapify e OpenTripMap opzionali su richiesta, credenziali salvate soltanto in Android.
+- **Vincolo di qualità:** non dichiarare il nuovo MotoPack completo finché i grandi multipoligoni OSM e la ricerca di destinazioni come Sestriere/Lago Maggiore non sono validati. Non riutilizzare il `tourist-pois-proxy.sqlite` sperimentale come dataset definitivo.
+- **Sequenza:** definire e verificare generatori/schema → rigenerare su WSL dell'utente in nuova cartella → adeguare importer e ricerca Android → collaudare → solo una build CI finale autorizzata.
+- Specifica dettagliata e criteri di collaudo: [docs/ROAD_DNA_DESIGN.md](docs/ROAD_DNA_DESIGN.md).
+
 ## Decisioni vincolanti
 
 - **Navigazione visiva:** rotta verde e strade grigie; niente frecce ordinarie di svolta/rotonda, niente pagine musica, bussola o velocità ripristinate; zoom geometrico contestuale; badge limite di velocità; distanza all'arrivo ben visibile e distanza alla svolta sotto di essa.
