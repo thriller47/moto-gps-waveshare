@@ -71,3 +71,22 @@ python3 scripts/offline_map/tourist_to_sqlite.py \\
 ```
 
 This is an **index-only test**, not the final unified MotoPack build. Do not install the experimental pack on Android yet.
+
+## Android integration in the experimental branch (21/11/2026)
+
+- MotoPack v2 requires the Road DNA tourist SQLite as a fourth SHA-256-verified component; Android checks all four and presents Road DNA installed size in the offline maps screen.
+- Photon SQLite search now caches the read-only handle behind a read/write lock, provides an optional SQLite cancellation signal, cancels superseded searches and ranks exact cities and landmarks above nearby partial street matches. Prefix street searches continue to favor nearby addresses.
+- Tourist offline search supplements Photon by matching named areas and attractions; results that have not passed a road-access check are explicitly non-routable, even when their representative coordinate is available.
+- Preview screen has a **Road DNA** dialog for the actual selected Valhalla route: provisional curvature classification and an offline 2-km tourist corridor with per-category candidate counts and examples. Uses a route segment grid; areas intersect by approximate bounding box and therefore may contain false positives. No claimed panorama visibility or detour.
+- Analysis runs on Dispatchers.IO, stops when the route changes and does not alter Valhalla routing, BLE or the ESP32. It has no automatic network calls.
+- Added local unit test sources for Sestriere, Lago Maggiore and real route geometry. **Not yet compiled or run by CI**, and the complete Italian PBF index has **not** been validated after the disk-backed reference fix.
+- **Not implemented in this change set:** Geoapify/OpenTripMap account key settings and online enrichment, user-selected virtual starting point, verified access-road detours, adding tourist areas directly as waypoints, transactional all-component rollback. These remain separate follow-ups.
+
+### Release gates
+
+1. Run offline map unit tests in WSL and complete a fresh national index build with no unresolved required polygon geometries; inspect counts and representative large lakes/reserves.
+2. Run one final Android/native/ESP32 CI only **after explicit authorization**, fix any issues. Verify all new Kotlin and Compose types compile.
+3. Import MotoPack v2 on a test Android phone with adequate free space and check installation of all four components; never assume an Android build was tested because files were committed.
+4. Real-device QA: Sestriere, Lago Maggiore, Via Roma + Torino qualifier, route changes while Road DNA query is running, cache replacement, routes with no tourist POIs and large areas with indicative bounds.
+5. Keep the existing known-good MotoPack and APK until all checks are green.
+
