@@ -5,6 +5,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -691,8 +692,13 @@ fun NavigationScreen(
     onUnifiedDiagnosticModeChange: (Int) -> Unit = {}
 ) {
     var showRoadDnaDialog by remember { mutableStateOf(false) }
+    var showRoadDnaResults by remember { mutableStateOf(false) }
     var selectedRoadDnaPoi by remember { mutableStateOf<RoadDnaOnlinePoi?>(null) }
     val roadDnaListScroll = rememberScrollState()
+    val roadDnaResultsScroll = rememberLazyListState()
+    LaunchedEffect(roadDnaOnline) {
+        if (roadDnaOnline != null) roadDnaResultsScroll.scrollToItem(0)
+    }
     if (showRoadDnaDialog && selectedRoadDnaPoi != null) {
         val poi = selectedRoadDnaPoi!!
         AlertDialog(
@@ -730,7 +736,89 @@ fun NavigationScreen(
             }
         )
     }
-    if (showRoadDnaDialog && selectedRoadDnaPoi == null) {
+    // One dialog at a time: overview -> results -> selected-place details.
+    if (showRoadDnaDialog && showRoadDnaResults && selectedRoadDnaPoi == null) {
+        AlertDialog(
+            onDismissRequest = { showRoadDnaResults = false },
+            title = { Text("Luoghi lungo il percorso") },
+            text = {
+                when {
+                    roadDnaOnlineLoading -> Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        CircularProgressIndicator()
+                        Text("Ricerca turistica in corso…")
+                    }
+                    roadDnaOnlineError != null ->
+                        Text(roadDnaOnlineError, color = MaterialTheme.colorScheme.error)
+                    roadDnaOnline == null -> Text("Preparazione dei risultati…")
+                    else -> Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        val places = roadDnaOnline.places
+                        Text("${places.size} luoghi trovati",
+                            style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            "Geoapify ${places.count { it.source == "Geoapify" }}" +
+                                " · OpenTripMap ${places.count { it.source == "OpenTripMap" }}",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        Text(roadDnaOnline.message,
+                            style = MaterialTheme.typography.bodySmall)
+                        if (places.isEmpty()) {
+                            Text("Nessun luogo turistico trovato lungo il percorso.")
+                        } else {
+                            LazyColumn(
+                                state = roadDnaResultsScroll,
+                                modifier = Modifier.fillMaxWidth().heightIn(max = 450.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                itemsIndexed(places) { index, poi ->
+                                    Column {
+                                        Text("${index + 1}. ${poi.name}",
+                                            style = MaterialTheme.typography.titleSmall)
+                                        Text("${poi.source} · ${poi.category} · " +
+                                            "circa ${poi.distanceMeters} m dalla rotta",
+                                            style = MaterialTheme.typography.bodySmall)
+                                        val detailsAvailable = when (poi.source) {
+                                            "Geoapify" ->
+                                                geoapifyConfigured && poi.geoPlaceId != null
+                                            "OpenTripMap" ->
+                                                opentripmapConfigured && poi.xid != null
+                                            else -> false
+                                        }
+                                        if (detailsAvailable) {
+                                            TextButton(onClick = {
+                                                selectedRoadDnaPoi = poi
+                                                onRoadDnaDetails(poi)
+                                            }) { Text("Dettagli ${poi.source}") }
+                                        } else {
+                                            Text("Scheda dettagli non disponibile",
+                                                style = MaterialTheme.typography.labelSmall)
+                                        }
+                                        HorizontalDivider()
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showRoadDnaResults = false }) {
+                    Text("Torna a Road DNA")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showRoadDnaResults = false
+                    showRoadDnaDialog = false
+                }) { Text("Chiudi") }
+            }
+        )
+    }
+    if (showRoadDnaDialog && !showRoadDnaResults && selectedRoadDnaPoi == null) {
         AlertDialog(
             onDismissRequest = { showRoadDnaDialog = false },
             title = { Text("Road DNA") },
@@ -794,7 +882,10 @@ fun NavigationScreen(
                         Text("Nessuna chiave configurata. Apri ⋮ → API Road DNA.")
                     } else {
                         Button(
-                            onClick = onRoadDnaOnlineSearch,
+                            onClick = {
+                                showRoadDnaResults = true
+                                onRoadDnaOnlineSearch()
+                            },
                             enabled = !roadDnaOnlineLoading && !isNavigating &&
                                 routeOptions.getOrNull(selectedRouteIndex) != null
                         ) { Text("Cerca online (su richiesta)") }
@@ -806,37 +897,13 @@ fun NavigationScreen(
                     if (roadDnaOnlineError != null)
                         Text(roadDnaOnlineError, color = MaterialTheme.colorScheme.error)
                     if (roadDnaOnline != null) {
-                        Text(roadDnaOnline.message, style = MaterialTheme.typography.bodySmall)
-                        if (roadDnaOnline.places.isEmpty()) Text("Nessun risultato online.")
-                        else Text(
-                            "Fonti nei risultati: Geoapify ${roadDnaOnline.places.count { it.source == "Geoapify" }}" +
-                                " · OpenTripMap ${roadDnaOnline.places.count { it.source == "OpenTripMap" }}",
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                        for (poi in roadDnaOnline.places.take(20)) {
-                            Column {
-                                Text("• " + poi.name + " · " + poi.source)
-                                Text(poi.category + " · circa " + poi.distanceMeters + " m dalla rotta",
-                                    style = MaterialTheme.typography.labelSmall)
-                                val hasDetails = when (poi.source) {
-                                    "Geoapify" -> geoapifyConfigured && poi.geoPlaceId != null
-                                    "OpenTripMap" -> opentripmapConfigured && poi.xid != null
-                                    else -> false
-                                }
-                                if (hasDetails) {
-                                    TextButton(onClick = {
-                                        selectedRoadDnaPoi = poi
-                                        onRoadDnaDetails(poi)
-                                    }) {
-                                        Text("Dettagli ${poi.source}")
-                                    }
-                                }
-                            }
+                        val count = roadDnaOnline.places.size
+                        Text("${count} luoghi disponibili nella finestra dei risultati.",
+                            style = MaterialTheme.typography.bodySmall)
+                        OutlinedButton(onClick = { showRoadDnaResults = true }) {
+                            Text("Apri risultati (${count})")
                         }
-                        if (roadDnaOnline.places.size > 20)
-                            Text("Mostrati i primi 20 risultati.")
                     }
-                    // Details open in a focused dialog, never below the 20 POI rows.
                 }
             },
             confirmButton = {
