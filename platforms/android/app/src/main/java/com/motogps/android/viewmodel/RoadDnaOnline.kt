@@ -391,7 +391,7 @@ internal object RoadDnaOnline {
         val wikiExtract = if (props != null && geoDescription(props).isBlank()) {
             wikipediaExtractForLinkedPlace(props)
         } else null
-        return parseGeoDetails(data, wikiExtract)
+        return parseGeoDetails(data, wikiExtract?.first, wikiExtract?.second)
     }
 
     private fun geoDetailProperties(data: JSONObject): JSONObject? {
@@ -411,7 +411,8 @@ internal object RoadDnaOnline {
         ).map { it.orEmpty().trim() }.firstOrNull { it.isNotEmpty() }.orEmpty()
     }
 
-    internal fun parseGeoDetails(data: JSONObject, wikipediaExtract: String? = null): String {
+    internal fun parseGeoDetails(data: JSONObject, wikipediaExtract: String? = null,
+                                 wikipediaPageUrl: String? = null): String {
         val props = geoDetailProperties(data)
             ?: return "Geoapify non ha restituito una scheda per questo luogo."
         val lines = ArrayList<String>()
@@ -427,6 +428,9 @@ internal object RoadDnaOnline {
         props.optString("website").trim().takeIf {
             it.startsWith("https://") || it.startsWith("http://")
         }?.let { lines.add("Sito web: " + it.take(500)) }
+        if (!wikipediaExtract.isNullOrBlank() && wikipediaPageUrl != null) {
+            lines.add("Fonte: Wikipedia (CC BY-SA 4.0) · " + wikipediaPageUrl)
+        }
         val wiki = props.optJSONObject("wiki_and_media")
         wiki?.optString("wikipedia")?.trim()?.takeIf { it.isNotEmpty() }
             ?.let { lines.add("Riferimento Wikipedia: " + it.take(250)) }
@@ -480,7 +484,7 @@ internal object RoadDnaOnline {
         return null
     }
 
-    private fun wikipediaExtractForLinkedPlace(props: JSONObject): String? {
+    private fun wikipediaExtractForLinkedPlace(props: JSONObject): Pair<String, String>? {
         val wiki = props.optJSONObject("wiki_and_media") ?: return null
         return try {
             var articleUrl = wikipediaSummaryUrl(wiki.optString("wikipedia"))
@@ -498,7 +502,10 @@ internal object RoadDnaOnline {
             if (articleUrl == null) return null
             val summary = JSONObject(fetch(articleUrl, userAgent = WIKIMEDIA_UA))
             if (summary.optString("type") == "disambiguation") return null
-            summary.optString("extract").trim().takeIf { it.isNotEmpty() }?.take(1200)
+            val excerpt = summary.optString("extract").trim()
+                .takeIf { it.isNotEmpty() }?.take(1200)
+            val pageUrl = articleUrl.replace("/api/rest_v1/page/summary/", "/wiki/")
+            if (excerpt == null) null else excerpt to pageUrl
         } catch (_: Exception) {
             // Optional encyclopedia fetch must not make Geoapify's data disappear.
             // Never log request URLs, keys or response bodies.
