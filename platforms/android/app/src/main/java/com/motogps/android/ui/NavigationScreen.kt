@@ -46,6 +46,7 @@ import com.motogps.android.viewmodel.PlaceSearchResult
 import com.motogps.android.viewmodel.SavedCircularTour
 import com.motogps.android.viewmodel.TourSession
 import com.motogps.android.viewmodel.RouteOption
+import com.motogps.android.viewmodel.RoadDnaSummary
 import org.json.JSONArray
 import kotlin.math.roundToInt
 import org.osmdroid.config.Configuration
@@ -623,6 +624,10 @@ fun NavigationScreen(
     onRemoveWaypoint: (Int) -> Unit = {},
     onMoveWaypoint: (Int, Int) -> Unit = { _, _ -> },
     selectedRouteIndex: Int,
+    roadDnaSummary: RoadDnaSummary? = null,
+    roadDnaLoading: Boolean = false,
+    roadDnaError: String? = null,
+    onRoadDnaAnalyze: () -> Unit = {},
     routingSource: String? = null,
     routePreviewError: String? = null,
     routePreferences: RoutePreferences = RoutePreferences(),
@@ -662,6 +667,65 @@ fun NavigationScreen(
     diagnosticMode: Int = 0,
     onUnifiedDiagnosticModeChange: (Int) -> Unit = {}
 ) {
+    var showRoadDnaDialog by remember { mutableStateOf(false) }
+    if (showRoadDnaDialog) {
+        AlertDialog(
+            onDismissRequest = { showRoadDnaDialog = false },
+            title = { Text("Road DNA") },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth()
+                        .heightIn(max = 430.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (roadDnaLoading) {
+                        CircularProgressIndicator()
+                        Text("Analisi offline della rotta Valhalla selezionata…")
+                    } else if (roadDnaError != null) {
+                        Text(roadDnaError, color = MaterialTheme.colorScheme.error)
+                    } else if (roadDnaSummary != null) {
+                        Text("Guida", style = MaterialTheme.typography.titleMedium)
+                        Text("Curve: " + roadDnaSummary.curvature)
+                        Text("Geometria: " + roadDnaSummary.routeVertices + " vertici Valhalla")
+                        HorizontalDivider()
+                        Text("Da scoprire", style = MaterialTheme.typography.titleMedium)
+                        if (!roadDnaSummary.indexAvailable) {
+                            Text("Indice turistico Road DNA non installato. " +
+                                "Importa il nuovo MotoPack v2.")
+                        } else {
+                            Text("Candidati per categoria nel corridoio indicativo di 2 km:")
+                            for ((category, count) in roadDnaSummary.countByCategory
+                                .entries.sortedByDescending { it.value }.take(12)) {
+                                Text(category + ": " + count)
+                            }
+                            if (roadDnaSummary.countByCategory.isEmpty())
+                                Text("Nessun luogo classificato nel corridoio.")
+                            if (roadDnaSummary.examples.isNotEmpty()) {
+                                HorizontalDivider()
+                                Text("Alcuni luoghi vicini",
+                                    style = MaterialTheme.typography.titleSmall)
+                                for (p in roadDnaSummary.examples.take(12)) {
+                                    Text("• " + p.name + " · " + p.category +
+                                        (if (p.approximateArea)
+                                            " (area, posizione indicativa)" else ""))
+                                }
+                            }
+                            Text("I conteggi sono indicativi: le aree sono " +
+                                "selezionate anche per ingombro geografico, " +
+                                "non per visibilità dalla strada. " +
+                                "Non rappresentano accessi stradali verificati.",
+                                style = MaterialTheme.typography.bodySmall)
+                        }
+                    } else {
+                        Text("Seleziona un itinerario Valhalla da analizzare.")
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showRoadDnaDialog = false }) { Text("Chiudi") }
+            }
+        )
+    }
     var showCircularTourDialog by remember { mutableStateOf(false) }
     var circularDistanceKm by remember { mutableFloatStateOf(100f) }
     var circularOrientation by remember { mutableIntStateOf(0) }
@@ -1281,6 +1345,22 @@ fun NavigationScreen(
                         Icon(Icons.Default.Add, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Tappe intermedie (${routeWaypoints.size})")
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            showRoadDnaDialog = true
+                            onRoadDnaAnalyze()
+                        },
+                        enabled = !isNavigating && !isLoading &&
+                            routeOptions.getOrNull(selectedRouteIndex) != null,
+                        modifier = Modifier.fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 2.dp)
+                            .heightIn(min = 44.dp)
+                    ) {
+                        Icon(Icons.Default.Explore, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Road DNA · Guida e luoghi da scoprire")
                     }
 
                     OutlinedButton(
