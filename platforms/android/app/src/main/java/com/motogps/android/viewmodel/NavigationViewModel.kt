@@ -570,20 +570,20 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                     RoadDnaOnline.detailsForPoi(context, place)
                 }
                 if (request == roadDnaOnlineRequestId && selected == roadDnaDetailRequestId)
-                    _roadDnaDetails.value = place.name + ": " + detail
+                    _roadDnaDetails.value = detail
             } catch (e: CancellationException) {
                 throw e
             } catch (e: RoadDnaProviderHttpException) {
                 if (request == roadDnaOnlineRequestId && selected == roadDnaDetailRequestId)
                     _roadDnaDetails.value = when (e.statusCode) {
-                        401, 403 -> "OpenTripMap ha rifiutato la richiesta (HTTP ${e.statusCode})."
-                        404 -> "Questa scheda OpenTripMap non è disponibile (HTTP 404)."
-                        429 -> "Limite richieste OpenTripMap raggiunto (HTTP 429)."
-                        else -> "Dettagli OpenTripMap non disponibili (HTTP ${e.statusCode})."
+                        401, 403 -> "${place.source} ha rifiutato la richiesta (HTTP ${e.statusCode})."
+                        404 -> "Questa scheda ${place.source} non è disponibile (HTTP 404)."
+                        429 -> "Limite richieste ${place.source} raggiunto (HTTP 429)."
+                        else -> "Dettagli ${place.source} non disponibili (HTTP ${e.statusCode})."
                     }
             } catch (_: Exception) {
                 if (request == roadDnaOnlineRequestId && selected == roadDnaDetailRequestId)
-                    _roadDnaDetails.value = "Dettagli OpenTripMap non disponibili: errore di rete o risposta inattesa."
+                    _roadDnaDetails.value = "Dettagli ${place.source} non disponibili: errore di rete o risposta inattesa."
             } finally {
                 if (request == roadDnaOnlineRequestId && selected == roadDnaDetailRequestId)
                     _roadDnaDetailsLoading.value = false
