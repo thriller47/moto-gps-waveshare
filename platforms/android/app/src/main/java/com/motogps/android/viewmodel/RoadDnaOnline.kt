@@ -12,6 +12,8 @@ import kotlinx.coroutines.ensureActive
 import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
+import java.net.URI
+import java.net.URLDecoder
 import java.net.URL
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
@@ -132,6 +134,9 @@ internal object RoadDnaOnline {
     private const val MAX_GEO_CHUNKS = 3
     private const val GEO_VERTICES_PER_CHUNK = 800
     private const val MAX_RESPONSE = 2_000_000
+    // Wikimedia requires an identifiable User-Agent.
+    private const val WIKIMEDIA_UA =
+        "MotoChatGPS/0.2 (https://github.com/thriller47/moto-gps-waveshare)"
 
     internal fun geoBody(points: List<Pair<Double, Double>>): JSONObject {
         require(points.size in 2..GEO_VERTICES_PER_CHUNK)
@@ -164,13 +169,15 @@ internal object RoadDnaOnline {
             URLEncoder.encode(apiKey, "UTF-8")
     }
 
-    private fun fetch(url: String, key: String? = null, body: String? = null): String {
+    private fun fetch(url: String, key: String? = null, body: String? = null,
+                      userAgent: String? = null): String {
         val conn = URL(url).openConnection() as HttpURLConnection
         try {
             conn.connectTimeout = 8000
             conn.readTimeout = 12000
             conn.instanceFollowRedirects = false
             conn.setRequestProperty("Accept", "application/json")
+            if (userAgent != null) conn.setRequestProperty("User-Agent", userAgent)
             if (key != null) conn.setRequestProperty("x-api-key", key)
             if (body != null) {
                 conn.requestMethod = "POST"
@@ -377,29 +384,126 @@ internal object RoadDnaOnline {
             ?: throw IllegalStateException("Chiave Geoapify non configurata")
         val url = GEO_DETAILS + "?id=" + URLEncoder.encode(id, "UTF-8")
         // Geoapify accepts x-api-key; do not insert the key in the URL.
-        return parseGeoDetails(JSONObject(fetch(url, key)))
+        val data = JSONObject(fetch(url, key))
+        val props = geoDetailProperties(data)
+        // Only for this selected POI and only when Geoapify has no text.
+        // The place is linked by the provider, never matched by its name.
+        val wikiExtract = if (props != null && geoDescription(props).isBlank()) {
+            wikipediaExtractForLinkedPlace(props)
+        } else null
+        return parseGeoDetails(data, wikiExtract)
     }
 
-    internal fun parseGeoDetails(data: JSONObject): String {
-        val features = data.optJSONArray("features")
-        val props = (0 until (features?.length() ?: 0)).asSequence()
-            .mapNotNull { features?.optJSONObject(it)?.optJSONObject("properties") }
+    private fun geoDetailProperties(data: JSONObject): JSONObject? {
+        val features = data.optJSONArray("features") ?: return null
+        return (0 until features.length()).asSequence()
+            .mapNotNull { features.optJSONObject(it)?.optJSONObject("properties") }
             .firstOrNull { it.optString("feature_type") == "details" }
+    }
+
+    private fun geoDescription(props: JSONObject): String {
+        val international = props.optJSONObject("description_international")
+        return sequenceOf(
+            props.optString("description"),
+            international?.optString("it"),
+            international?.optString("en"),
+            props.optJSONObject("heritage")?.optString("description")
+        ).map { it.orEmpty().trim() }.firstOrNull { it.isNotEmpty() }.orEmpty()
+    }
+
+    internal fun parseGeoDetails(data: JSONObject, wikipediaExtract: String? = null): String {
+        val props = geoDetailProperties(data)
             ?: return "Geoapify non ha restituito una scheda per questo luogo."
         val lines = ArrayList<String>()
-        val description = props.optString("description").trim()
-        lines.add(if (description.isNotEmpty()) description.take(1200)
-            else "Descrizione non disponibile nei dati Geoapify.")
+        val description = geoDescription(props)
+        lines.add(when {
+            description.isNotEmpty() -> description.take(1200)
+            !wikipediaExtract.isNullOrBlank() ->
+                "Da Wikipedia (estratto): " + wikipediaExtract.take(1200)
+            else -> "Descrizione turistica non disponibile per questo luogo."
+        })
         props.optString("formatted").trim().takeIf { it.isNotEmpty() }
             ?.let { lines.add("Indirizzo: " + it.take(300)) }
-        props.optString("website").trim().takeIf { it.startsWith("https://") || it.startsWith("http://") }
-            ?.let { lines.add("Sito web: " + it.take(500)) }
+        props.optString("website").trim().takeIf {
+            it.startsWith("https://") || it.startsWith("http://")
+        }?.let { lines.add("Sito web: " + it.take(500)) }
         val wiki = props.optJSONObject("wiki_and_media")
         wiki?.optString("wikipedia")?.trim()?.takeIf { it.isNotEmpty() }
             ?.let { lines.add("Riferimento Wikipedia: " + it.take(250)) }
         wiki?.optString("wikidata")?.trim()?.takeIf { it.isNotEmpty() }
             ?.let { lines.add("Wikidata: " + it.take(80)) }
         return lines.joinToString("\n\n")
+    }
+
+    /**
+     * Only linked OSM references may become Wikipedia URLs.
+     * Rebuild the URL on a whitelisted host; never use an arbitrary source URL.
+     */
+    internal fun wikipediaSummaryUrl(reference: String): String? {
+        val value = reference.trim()
+        if (value.isEmpty() || value.length > 320) return null
+        val (lang, title) = if (value.startsWith("https://")) {
+            val uri = try { URI(value) } catch (_: Exception) { return null }
+            val host = uri.host?.lowercase() ?: return null
+            val l = host.substringBefore(".wikipedia.org")
+            if (host != l + ".wikipedia.org" || uri.rawQuery != null ||
+                uri.rawFragment != null || uri.userInfo != null ||
+                !uri.rawPath.startsWith("/wiki/")) return null
+            val rawTitle = uri.rawPath.removePrefix("/wiki/")
+            l to try {
+                URLDecoder.decode(rawTitle.replace("+", "%2B"), "UTF-8")
+            } catch (_: Exception) { return null }
+        } else {
+            val sep = value.indexOf(':')
+            if (sep <= 0) return null
+            value.substring(0, sep) to value.substring(sep + 1)
+        }
+        if (lang !in setOf("it", "en", "fr", "de", "es")) return null
+        val article = title.trim().replace('_', ' ')
+        if (article.isEmpty() || article.length > 200 ||
+            article.any { it.isISOControl() || it in "#?[]{}|<>" } ||
+            article.startsWith("/") || article.startsWith(".")) return null
+        val encoded = URLEncoder.encode(article.replace(' ', '_'), "UTF-8")
+            .replace("+", "%20")
+        return "https://" + lang + ".wikipedia.org/api/rest_v1/page/summary/" + encoded
+    }
+
+    /** Choose an exact Italian Wikipedia sitelink, then English; no name search. */
+    internal fun wikidataWikipediaReference(data: JSONObject, itemId: String): String? {
+        val sitelinks = data.optJSONObject("entities")
+            ?.optJSONObject(itemId)?.optJSONObject("sitelinks") ?: return null
+        for (language in listOf("it", "en")) {
+            val title = sitelinks.optJSONObject(language + "wiki")
+                ?.optString("title").orEmpty().trim()
+            if (title.isNotEmpty()) return language + ":" + title
+        }
+        return null
+    }
+
+    private fun wikipediaExtractForLinkedPlace(props: JSONObject): String? {
+        val wiki = props.optJSONObject("wiki_and_media") ?: return null
+        return try {
+            var articleUrl = wikipediaSummaryUrl(wiki.optString("wikipedia"))
+            if (articleUrl == null) {
+                val qid = wiki.optString("wikidata").trim()
+                if (Regex("^Q[1-9][0-9]{0,14}$").matches(qid)) {
+                    val url = "https://www.wikidata.org/w/api.php?" +
+                        "action=wbgetentities&ids=" + qid + "&props=sitelinks" +
+                        "&sitefilter=itwiki%7Cenwiki&format=json"
+                    val data = JSONObject(fetch(url, userAgent = WIKIMEDIA_UA))
+                    val reference = wikidataWikipediaReference(data, qid)
+                    if (reference != null) articleUrl = wikipediaSummaryUrl(reference)
+                }
+            }
+            if (articleUrl == null) return null
+            val summary = JSONObject(fetch(articleUrl, userAgent = WIKIMEDIA_UA))
+            if (summary.optString("type") == "disambiguation") return null
+            summary.optString("extract").trim().takeIf { it.isNotEmpty() }?.take(1200)
+        } catch (_: Exception) {
+            // Optional encyclopedia fetch must not make Geoapify's data disappear.
+            // Never log request URLs, keys or response bodies.
+            null
+        }
     }
 
     internal fun parseTripDetails(data: JSONObject): String {
