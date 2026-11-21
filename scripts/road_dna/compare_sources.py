@@ -221,55 +221,6 @@ def route_matches(positions, routes, radius, boxes, indexes=None):
 
 
 
-class RouteSpatialIndex:
-    """Grid of route segments, so each POI checks nearby segments only.
-
-    Equirectangular metres local to the route; suitable for candidate searches,
-    not a routing detour, visibility test or precision cadastral geometry.
-    """
-    def __init__(self, line, radius):
-        self.lon0, self.lat0 = line[0]
-        self.scale_x = 111_320 * math.cos(math.radians(
-            sum(p[1] for p in line) / len(line)))
-        self.scale_y = 111_320
-        self.radius = radius
-        self.radius_sq = radius * radius
-        self.cell = max(1000, radius)
-        self.bounds = bbox(line, radius)
-        self.segments = []
-        self.grid = collections.defaultdict(list)
-        projected = [self.xy(lon, lat) for lon, lat in line]
-        for a, b in zip(projected, projected[1:]):
-            segment_id = len(self.segments)
-            self.segments.append((*a, *b))
-            min_x = math.floor((min(a[0], b[0]) - radius) / self.cell)
-            max_x = math.floor((max(a[0], b[0]) + radius) / self.cell)
-            min_y = math.floor((min(a[1], b[1]) - radius) / self.cell)
-            max_y = math.floor((max(a[1], b[1]) + radius) / self.cell)
-            for gx in range(min_x, max_x + 1):
-                for gy in range(min_y, max_y + 1):
-                    self.grid[(gx, gy)].append(segment_id)
-
-    def xy(self, lon, lat):
-        return ((lon - self.lon0) * self.scale_x,
-                (lat - self.lat0) * self.scale_y)
-
-    def near(self, lon, lat):
-        if not (self.bounds[0] <= lon <= self.bounds[2] and
-                self.bounds[1] <= lat <= self.bounds[3]):
-            return False
-        x, y = self.xy(lon, lat)
-        cell = (math.floor(x / self.cell), math.floor(y / self.cell))
-        for index in self.grid.get(cell, ()):
-            ax, ay, bx, by = self.segments[index]
-            dx, dy = bx - ax, by - ay
-            t = (max(0., min(1., ((x - ax) * dx + (y - ay) * dy) /
-                 (dx * dx + dy * dy))) if dx or dy else 0.)
-            if (x - ax - t * dx) ** 2 + (y - ay - t * dy) ** 2 <= self.radius_sq:
-                return True
-        return False
-
-
 def pbf_benchmark(pbf, db_path, routes, radius, max_way_refs=3_000_000):
     """Two OSM scans, no huge all-Italy node-location .idx file.
 
