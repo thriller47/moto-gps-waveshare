@@ -130,8 +130,11 @@ class RoadDnaOnlineTest {
                 .put("feature_type", "details")
                 .put("formatted", "Piemonte, Italia"))))
         val shown = RoadDnaOnline.parseGeoDetails(absent,
-            "Il castello sorge sulla cima della collina.")
+            "Il castello sorge sulla cima della collina.",
+            "https://it.wikipedia.org/wiki/Castello")
         assertTrue(shown.contains("Da Wikipedia (estratto): Il castello"))
+        assertTrue(shown.contains("Wikipedia (CC BY-SA 4.0)"))
+        assertTrue(shown.contains("https://it.wikipedia.org/wiki/Castello"))
         assertFalse(shown.contains("Descrizione turistica non disponibile"))
         val present = JSONObject().put("features", JSONArray().put(JSONObject()
             .put("properties", JSONObject()
