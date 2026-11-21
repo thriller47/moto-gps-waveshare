@@ -25,6 +25,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -47,6 +48,7 @@ import com.motogps.android.viewmodel.SavedCircularTour
 import com.motogps.android.viewmodel.TourSession
 import com.motogps.android.viewmodel.RouteOption
 import com.motogps.android.viewmodel.RoadDnaSummary
+import com.motogps.android.viewmodel.RoadDnaOnlineResult
 import org.json.JSONArray
 import kotlin.math.roundToInt
 import org.osmdroid.config.Configuration
@@ -633,6 +635,20 @@ fun NavigationScreen(
     roadDnaLoading: Boolean = false,
     roadDnaError: String? = null,
     onRoadDnaAnalyze: () -> Unit = {},
+    roadDnaOnline: RoadDnaOnlineResult? = null,
+    roadDnaOnlineLoading: Boolean = false,
+    roadDnaOnlineError: String? = null,
+    roadDnaDetails: String? = null,
+    roadDnaDetailsLoading: Boolean = false,
+    onRoadDnaOnlineSearch: () -> Unit = {},
+    onRoadDnaDetails: (String) -> Unit = {},
+    geoapifyConfigured: Boolean = false,
+    opentripmapConfigured: Boolean = false,
+    roadDnaKeyStatus: String? = null,
+    roadDnaKeyBusy: Boolean = false,
+    onSaveRoadDnaKey: (String, String) -> Unit = { _, _ -> },
+    onDeleteRoadDnaKey: (String) -> Unit = {},
+    onTestRoadDnaKey: (String) -> Unit = {},
     routingSource: String? = null,
     routePreviewError: String? = null,
     routePreferences: RoutePreferences = RoutePreferences(),
@@ -726,6 +742,53 @@ fun NavigationScreen(
                         }
                     } else {
                         Text("Seleziona un itinerario Valhalla da analizzare.")
+                    }
+                    HorizontalDivider()
+                    Text("Ricerca turistica online", style = MaterialTheme.typography.titleMedium)
+                    Text("Solo premendo Cerca online: il percorso viene inviato a Geoapify " +
+                        "per cercare luoghi entro 2 km. OpenTripMap riceve fino a 5 punti " +
+                        "campione lungo la rotta. Distanze in linea d'aria, non deviazioni " +
+                        "stradali; risultati non esaustivi.",
+                        style = MaterialTheme.typography.bodySmall)
+                    if (!geoapifyConfigured && !opentripmapConfigured) {
+                        Text("Nessuna chiave configurata. Apri ⋮ → API Road DNA.")
+                    } else {
+                        Button(
+                            onClick = onRoadDnaOnlineSearch,
+                            enabled = !roadDnaOnlineLoading && !isNavigating &&
+                                routeOptions.getOrNull(selectedRouteIndex) != null
+                        ) { Text("Cerca online (su richiesta)") }
+                    }
+                    if (roadDnaOnlineLoading) {
+                        CircularProgressIndicator()
+                        Text("Ricerca online in corso…")
+                    }
+                    if (roadDnaOnlineError != null)
+                        Text(roadDnaOnlineError, color = MaterialTheme.colorScheme.error)
+                    if (roadDnaOnline != null) {
+                        Text(roadDnaOnline.message, style = MaterialTheme.typography.bodySmall)
+                        if (roadDnaOnline.places.isEmpty()) Text("Nessun risultato online.")
+                        for (poi in roadDnaOnline.places.take(20)) {
+                            Column {
+                                Text("• " + poi.name + " · " + poi.source)
+                                Text(poi.category + " · circa " + poi.distanceMeters + " m dalla rotta",
+                                    style = MaterialTheme.typography.labelSmall)
+                                val xid = poi.xid
+                                if (xid != null) {
+                                    TextButton(onClick = { onRoadDnaDetails(xid) }) {
+                                        Text("Dettagli OpenTripMap")
+                                    }
+                                }
+                            }
+                        }
+                        if (roadDnaOnline.places.size > 20)
+                            Text("Mostrati i primi 20 risultati.")
+                    }
+                    if (roadDnaDetailsLoading) CircularProgressIndicator()
+                    if (roadDnaDetails != null) {
+                        HorizontalDivider()
+                        Text("Scheda OpenTripMap", style = MaterialTheme.typography.titleSmall)
+                        Text(roadDnaDetails)
                     }
                 }
             },
@@ -982,6 +1045,72 @@ fun NavigationScreen(
     }
 
     var showMoreMenu by remember { mutableStateOf(false) }
+    var showRoadDnaKeysDialog by remember { mutableStateOf(false) }
+    if (showRoadDnaKeysDialog) {
+        var geoDraft by remember(showRoadDnaKeysDialog) { mutableStateOf("") }
+        var tripDraft by remember(showRoadDnaKeysDialog) { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showRoadDnaKeysDialog = false },
+            title = { Text("API Road DNA") },
+            text = {
+                Column(Modifier.fillMaxWidth().heightIn(max = 490.dp)
+                    .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Chiavi personali, conservate cifrate sul dispositivo " +
+                        "ed escluse dal backup. Non vengono incluse nei log.")
+                    HorizontalDivider()
+                    Text(if (geoapifyConfigured) "Geoapify · configurata"
+                        else "Geoapify · non configurata")
+                    OutlinedTextField(
+                        value = geoDraft, onValueChange = { geoDraft = it },
+                        label = { Text("Chiave Geoapify") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        singleLine = true, modifier = Modifier.fillMaxWidth())
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        TextButton(onClick = {
+                            onSaveRoadDnaKey("geoapify", geoDraft); geoDraft = ""
+                        }, enabled = geoDraft.isNotBlank() && !roadDnaKeyBusy) {
+                            Text("Salva")
+                        }
+                        TextButton(onClick = { onTestRoadDnaKey("geoapify") },
+                            enabled = geoapifyConfigured && !roadDnaKeyBusy) { Text("Verifica") }
+                        TextButton(onClick = { onDeleteRoadDnaKey("geoapify") },
+                            enabled = geoapifyConfigured && !roadDnaKeyBusy) { Text("Elimina") }
+                    }
+                    HorizontalDivider()
+                    Text(if (opentripmapConfigured) "OpenTripMap · configurata"
+                        else "OpenTripMap · non configurata")
+                    OutlinedTextField(
+                        value = tripDraft, onValueChange = { tripDraft = it },
+                        label = { Text("Chiave OpenTripMap") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        singleLine = true, modifier = Modifier.fillMaxWidth())
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        TextButton(onClick = {
+                            onSaveRoadDnaKey("opentripmap", tripDraft); tripDraft = ""
+                        }, enabled = tripDraft.isNotBlank() && !roadDnaKeyBusy) {
+                            Text("Salva")
+                        }
+                        TextButton(onClick = { onTestRoadDnaKey("opentripmap") },
+                            enabled = opentripmapConfigured && !roadDnaKeyBusy) { Text("Verifica") }
+                        TextButton(onClick = { onDeleteRoadDnaKey("opentripmap") },
+                            enabled = opentripmapConfigured && !roadDnaKeyBusy) { Text("Elimina") }
+                    }
+                    if (roadDnaKeyBusy) CircularProgressIndicator()
+                    if (roadDnaKeyStatus != null) Text(roadDnaKeyStatus)
+                    Text("OpenTripMap richiede la chiave come parametro HTTPS; " +
+                        "non viene mai stampata nell'app. Limita la quota delle chiavi " +
+                        "nei rispettivi pannelli provider.",
+                        style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showRoadDnaKeysDialog = false }) {
+                    Text("Chiudi")
+                }
+            }
+        )
+    }
     var showCoffeeDialog by remember { mutableStateOf(false) }
     var showDiagnosticsDialog by remember { mutableStateOf(false) }
     var showInfoDialog by remember { mutableStateOf(false) }
@@ -1216,6 +1345,8 @@ fun NavigationScreen(
                                     onClick = { showMoreMenu = false; showCoffeeDialog = true })
                                 DropdownMenuItem(text = { Text("Mappe offline") },
                                     onClick = { showMoreMenu = false; showOfflineDialog = true })
+                                DropdownMenuItem(text = { Text("API Road DNA") },
+                                    onClick = { showMoreMenu = false; showRoadDnaKeysDialog = true })
                                 DropdownMenuItem(text = { Text("Diagnostica e replay GPS") },
                                     onClick = { showMoreMenu = false; showDiagnosticsDialog = true })
                                 DropdownMenuItem(text = { Text("Esporta diagnostica") },
@@ -1254,6 +1385,8 @@ fun NavigationScreen(
                                     onClick = { showMoreMenu = false; showCoffeeDialog = true })
                                 DropdownMenuItem(text = { Text("Mappe offline") },
                                     onClick = { showMoreMenu = false; showOfflineDialog = true })
+                                DropdownMenuItem(text = { Text("API Road DNA") },
+                                    onClick = { showMoreMenu = false; showRoadDnaKeysDialog = true })
                                 DropdownMenuItem(text = { Text("Diagnostica e replay GPS") },
                                     onClick = { showMoreMenu = false; showDiagnosticsDialog = true })
                                 DropdownMenuItem(text = { Text("Esporta diagnostica") },
