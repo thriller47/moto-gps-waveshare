@@ -2,6 +2,7 @@ package com.motogps.android.viewmodel
 
 import android.content.Context
 import android.net.Uri
+import android.os.CancellationSignal
 import com.motogps.android.map.MotomapPackImporter
 import android.location.Location
 import android.os.SystemClock
@@ -604,7 +605,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
      * OSM classification + GPS proximity. Never fall back to text "trattoria".
      * Unqualified addresses and actual business names keep normal Photon FTS.
      */
-    private fun searchPhotonPlaces(query: String): List<PlaceSearchResult> {
+    private fun searchPhotonPlaces(query: String,
+                                   signal: CancellationSignal? = null): List<PlaceSearchResult> {
         val gps = if (hasFirstFix) currentLocation.value else null
         val context = appContext
         val categories = OfflinePoiCategorySearch.categories(query)
@@ -638,7 +640,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         } else emptyList()
         if (context != null && OfflinePhotonPlaceSearch.installed(context)) {
             try {
-                val local = OfflinePhotonPlaceSearch.search(context, query, gps)
+                val local = OfflinePhotonPlaceSearch.search(context, query, gps, signal)
                 if (local.isNotEmpty() || touristHits.isNotEmpty()) {
                     // Exact city/place names always lead; a nearby partial street
                     // must not hide an exact named lake or destination.
@@ -668,7 +670,13 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         }
     }
 
+    private var destinationSearchJob: Job? = null
+    private var activeSearchSignal: CancellationSignal? = null
+
     fun searchDestination(query: String) {
+        destinationSearchJob?.cancel()
+        activeSearchSignal?.cancel()
+        activeSearchSignal = null
         if (query.isBlank()) return
 
         // Coordinates typed as "lat, lon" bypass Photon entirely.
@@ -681,23 +689,34 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
             return
         }
 
-        viewModelScope.launch {
+        val signal = CancellationSignal()
+        activeSearchSignal = signal
+        destinationSearchJob = viewModelScope.launch {
             _isLoading.value = true
             _errorMessage.value = null
             _routePreview.value = null
 
             try {
                 val results = withContext(Dispatchers.IO) {
-                    searchPhotonPlaces(query)
+                    searchPhotonPlaces(query, signal)
                 }
+                if (activeSearchSignal !== signal) return@launch
                 _searchResults.value = results
                 if (results.isEmpty()) {
                     _errorMessage.value = "Nessun risultato trovato per '$query'"
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                _errorMessage.value = "Errore durante la ricerca: ${e.message}"
+                if (activeSearchSignal === signal) {
+                    _errorMessage.value = "Errore durante la ricerca: " +
+                        (e.message ?: "query non disponibile")
+                }
             } finally {
-                _isLoading.value = false
+                if (activeSearchSignal === signal) {
+                    _isLoading.value = false
+                    activeSearchSignal = null
+                }
             }
         }
     }
