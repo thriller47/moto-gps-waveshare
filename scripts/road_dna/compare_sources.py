@@ -130,7 +130,7 @@ def bbox(points, meters):
     lons = [p[0] for p in points]
     lats = [p[1] for p in points]
     delta_lat = meters / 111_000
-    delta_lon = delta_lat / max(.15, math.cos(math.radians(sum(lats) / len(lats))))
+    delta_lon = delta_lat / max(.15, math.cos(math.radians(max(abs(v) for v in lats))))
     return (min(lons) - delta_lon, min(lats) - delta_lat,
             max(lons) + delta_lon, max(lats) + delta_lat)
 
@@ -162,8 +162,8 @@ class RouteSpatialIndex:
         self.radius = radius
         self.cells = collections.defaultdict(list)
         lat_pad = radius / 111_000
-        mid_lat = sum(point[1] for point in route) / len(route)
-        lon_pad = radius / (111_000 * max(.15, math.cos(math.radians(mid_lat))))
+        max_lat = max(abs(point[1]) for point in route)
+        lon_pad = radius / (111_000 * max(.15, math.cos(math.radians(max_lat))))
         grid = self.CELL_DEGREES
         for i, ((lon1, lat1), (lon2, lat2)) in enumerate(zip(route, route[1:])):
             min_x = math.floor((min(lon1, lon2) - lon_pad) / grid)
