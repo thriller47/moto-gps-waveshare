@@ -731,6 +731,7 @@ fun NavigationScreen(
             dismissButton = {
                 TextButton(onClick = {
                     selectedRoadDnaPoi = null
+                    showRoadDnaResults = false
                     showRoadDnaDialog = false
                 }) { Text("Chiudi") }
             }
@@ -771,7 +772,7 @@ fun NavigationScreen(
                         } else {
                             LazyColumn(
                                 state = roadDnaResultsScroll,
-                                modifier = Modifier.fillMaxWidth().heightIn(max = 450.dp),
+                                modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp),
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 itemsIndexed(places) { index, poi ->
