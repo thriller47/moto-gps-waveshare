@@ -74,7 +74,7 @@ internal object RoadDnaApiKeys {
         check(provider)
         val encrypted = file(context, provider)
         if (!encrypted.isFile) return null
-        val bytes = encrypted.readBytes()
+        val bytes = AtomicFile(encrypted).openRead().use { it.readBytes() }
         if (bytes.size !in 29..2048) throw IOException("Chiave salvata non leggibile")
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.DECRYPT_MODE, key(provider), GCMParameterSpec(
@@ -88,8 +88,7 @@ internal object RoadDnaApiKeys {
 
     @Synchronized fun clear(context: Context, provider: String) {
         check(provider)
-        val target = file(context, provider)
-        if (target.exists() && !target.delete()) throw IOException("Eliminazione non riuscita")
+        AtomicFile(file(context, provider)).delete()
     }
 }
 
