@@ -45,6 +45,9 @@ In una seconda fase, solo per luoghi selezionati: ingresso/accesso stradale veri
 
 ## 4. Ricerca geografica e limiti del provider
 
+**Alternativa scoperta 21/11/2026:** [ROAD_DNA_DATA_SOURCES.md](ROAD_DNA_DATA_SOURCES.md) confronta Geoapify (Places API **POST con LineString + buffer** e 3000 crediti/giorno sul piano gratuito), OpenTripMap (POI turistici arricchiti, free non-commerciale 5000 richieste/giorno), TomTom along-route legacy, Wikidata e l'**estensione dell'indice `poi_places` già presente in Photon SQLite v2** senza aumentare MotoMap/Valhalla. Geoapify è il candidato più diretto per la ricerca sul corridoio e potrebbe sostituire le bbox campionate previste sotto. Nessuna decisione di integrazione né validazione live ancora eseguita.
+
+
 **Verifica Photon del 21/11/2026:** [PHOTON_ROAD_DNA_REVIEW.md](PHOTON_ROAD_DNA_REVIEW.md) documenta API, filtri `include`/`bbox`, struttura GeoJSON, limiti d'uso pubblici e differenza fra tag principali e secondari. Il server pubblico dichiara uso ragionevole ma **nessuna quota numerica garantita**; i 50 risultati sono il default configurabile del software, non una garanzia dell'istanza. In particolare `osm.natural.water` **non** permette di filtrare con certezza solo `water=lake`, e `osm.amenity.public_bath` **non** prova `bath:type=thermal`. Nessun endpoint che cerchi lungo una polilinea; i risultati parziali non vanno usati per un voto turistico esaustivo. Prova live su `photon.komoot.io` ancora da eseguire (accesso diretto non disponibile negli strumenti di verifica); nessun risultato inventato.
 
 
