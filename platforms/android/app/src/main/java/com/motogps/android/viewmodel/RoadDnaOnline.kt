@@ -89,6 +89,10 @@ internal object RoadDnaApiKeys {
     @Synchronized fun clear(context: Context, provider: String) {
         check(provider)
         AtomicFile(file(context, provider)).delete()
+        // Also destroy the unused encryption key; deleting the ciphertext alone
+        // does not fully implement the user's "Elimina chiave" action.
+        val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        store.deleteEntry("moto_road_dna_$provider")
     }
 }
 
