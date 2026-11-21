@@ -1908,6 +1908,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
             OfflinePhotonPlaceSearch.file(context).length() else 0L
         _valhallaInstalledBytes.value = OfflineValhallaRouter.tileFile(context)
             .let { if (it.isFile) it.length() else 0L }
+        _roadDnaInstalledBytes.value = OfflineTouristPlaceSearch.file(context)
+            .let { if (it.isFile) it.length() else 0L }
         val list = getOrCreateRepo(context).listSavedMaps()
         _savedMaps.value = list
     }
