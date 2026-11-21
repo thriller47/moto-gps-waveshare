@@ -444,6 +444,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     private var roadDnaDetailJob: Job? = null
     private var roadDnaKeyJob: Job? = null
     private var roadDnaOnlineRequestId = 0L
+    private var roadDnaDetailRequestId = 0L
 
     private fun refreshKeyStatus(context: Context) {
         _geoapifyConfigured.value = RoadDnaApiKeys.present(context, "geoapify")
@@ -521,6 +522,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         val geometry = RoadDnaAnalysis.geometry(option.rawRouteJson)
         roadDnaOnlineJob?.cancel()
         roadDnaDetailJob?.cancel()
+        roadDnaDetailRequestId++
         val request = ++roadDnaOnlineRequestId
         _roadDnaOnline.value = null
         _roadDnaDetails.value = null
@@ -547,23 +549,27 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         }
     }
 
-    fun loadRoadDnaDetails(xid: String) {
+    fun loadRoadDnaDetails(place: RoadDnaOnlinePoi) {
         val context = appContext ?: return
         val request = roadDnaOnlineRequestId
+        val selected = ++roadDnaDetailRequestId
         roadDnaDetailJob?.cancel()
         roadDnaDetailJob = viewModelScope.launch {
             _roadDnaDetails.value = null
             _roadDnaDetailsLoading.value = true
             try {
-                val detail = withContext(Dispatchers.IO) { RoadDnaOnline.details(context, xid) }
-                if (request == roadDnaOnlineRequestId) _roadDnaDetails.value = detail
+                val detail = withContext(Dispatchers.IO) {
+                    RoadDnaOnline.detailsForPoi(context, place)
+                }
+                if (request == roadDnaOnlineRequestId && selected == roadDnaDetailRequestId)
+                    _roadDnaDetails.value = place.name + ": " + detail
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
-                if (request == roadDnaOnlineRequestId)
+                if (request == roadDnaOnlineRequestId && selected == roadDnaDetailRequestId)
                     _roadDnaDetails.value = "Dettagli OpenTripMap non disponibili."
             } finally {
-                if (request == roadDnaOnlineRequestId)
+                if (request == roadDnaOnlineRequestId && selected == roadDnaDetailRequestId)
                     _roadDnaDetailsLoading.value = false
             }
         }
@@ -604,6 +610,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
 
     private fun invalidateRoadDna() {
         roadDnaOnlineRequestId++
+        roadDnaDetailRequestId++
         roadDnaOnlineJob?.cancel()
         roadDnaDetailJob?.cancel()
         _roadDnaOnline.value = null
