@@ -45,7 +45,11 @@ In una seconda fase, solo per luoghi selezionati: ingresso/accesso stradale veri
 
 ## 4. Ricerca geografica e limiti del provider
 
-**Prototipo proposto:** interfaccia `RoadDnaPlacesProvider`, adattatore iniziale Photon per **alcuni** tag realmente supportati. Photon offre ricerca per categoria e bbox e l'app ne usa già il modello, ma il server pubblico è una demo con uso ragionevole, numero di risultati limitato e nessuna garanzia di completezza per lunghi corridoi o categorie composte. Il suo endpoint **non è un inventario esaustivo** di tutti gli elementi OSM.
+**Verifica Photon del 21/11/2026:** [PHOTON_ROAD_DNA_REVIEW.md](PHOTON_ROAD_DNA_REVIEW.md) documenta API, filtri `include`/`bbox`, struttura GeoJSON, limiti d'uso pubblici e differenza fra tag principali e secondari. Il server pubblico dichiara uso ragionevole ma **nessuna quota numerica garantita**; i 50 risultati sono il default configurabile del software, non una garanzia dell'istanza. In particolare `osm.natural.water` **non** permette di filtrare con certezza solo `water=lake`, e `osm.amenity.public_bath` **non** prova `bath:type=thermal`. Nessun endpoint che cerchi lungo una polilinea; i risultati parziali non vanno usati per un voto turistico esaustivo. Prova live su `photon.komoot.io` ancora da eseguire (accesso diretto non disponibile negli strumenti di verifica); nessun risultato inventato.
+
+
+
+**Prototipo proposto e ancora da validare:** interfaccia `RoadDnaPlacesProvider`, adattatore iniziale Photon per **alcuni** tag realmente supportati. Photon offre ricerca per categoria e bbox e l'app ne usa già il modello, ma il server pubblico è una demo con uso ragionevole, numero di risultati limitato e nessuna garanzia di completezza per lunghi corridoi o categorie composte. Il suo endpoint **non è un inventario esaustivo** di tutti gli elementi OSM.
 
 1. Campionare la **polilinea selezionata** a intervalli sulla distanza di percorrenza, non fare una singola bbox di una rotta lunga e sinuosa.
 2. Per ciascun campione costruire una bbox piccola e sovrapposta alle adiacenti; deduplicare campioni/box. Raggio di prima prova: 3 km, **configurazione di prototipo, non parametro definitivo**.
