@@ -279,6 +279,15 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             val roadDnaSummary = viewModel.roadDnaSummary.collectAsState().value
             val roadDnaLoading = viewModel.roadDnaLoading.collectAsState().value
             val roadDnaError = viewModel.roadDnaError.collectAsState().value
+            val roadDnaOnline = viewModel.roadDnaOnline.collectAsState().value
+            val roadDnaOnlineLoading = viewModel.roadDnaOnlineLoading.collectAsState().value
+            val roadDnaOnlineError = viewModel.roadDnaOnlineError.collectAsState().value
+            val roadDnaDetails = viewModel.roadDnaDetails.collectAsState().value
+            val roadDnaDetailsLoading = viewModel.roadDnaDetailsLoading.collectAsState().value
+            val geoapifyConfigured = viewModel.geoapifyConfigured.collectAsState().value
+            val opentripmapConfigured = viewModel.opentripmapConfigured.collectAsState().value
+            val roadDnaKeyStatus = viewModel.roadDnaKeyStatus.collectAsState().value
+            val roadDnaKeyBusy = viewModel.roadDnaKeyBusy.collectAsState().value
             val isNavigating = viewModel.isNavigating.collectAsState().value
             val hasArrived = viewModel.hasArrived.collectAsState().value
             val currentLocation = viewModel.currentLocation.collectAsState().value
@@ -351,6 +360,22 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     roadDnaLoading = roadDnaLoading,
                     roadDnaError = roadDnaError,
                     onRoadDnaAnalyze = { viewModel.analyzeSelectedRoadDna() },
+                    roadDnaOnline = roadDnaOnline,
+                    roadDnaOnlineLoading = roadDnaOnlineLoading,
+                    roadDnaOnlineError = roadDnaOnlineError,
+                    roadDnaDetails = roadDnaDetails,
+                    roadDnaDetailsLoading = roadDnaDetailsLoading,
+                    onRoadDnaOnlineSearch = { viewModel.searchRoadDnaOnline() },
+                    onRoadDnaDetails = { viewModel.loadRoadDnaDetails(it) },
+                    geoapifyConfigured = geoapifyConfigured,
+                    opentripmapConfigured = opentripmapConfigured,
+                    roadDnaKeyStatus = roadDnaKeyStatus,
+                    roadDnaKeyBusy = roadDnaKeyBusy,
+                    onSaveRoadDnaKey = { provider, value ->
+                        viewModel.saveRoadDnaKey(provider, value)
+                    },
+                    onDeleteRoadDnaKey = { viewModel.deleteRoadDnaKey(it) },
+                    onTestRoadDnaKey = { viewModel.testRoadDnaKey(it) },
                     isNavigating = isNavigating,
                     hasArrived = hasArrived,
                     currentLocation = currentLocation,
