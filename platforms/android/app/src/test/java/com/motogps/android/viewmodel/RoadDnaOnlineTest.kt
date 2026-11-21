@@ -94,10 +94,10 @@ class RoadDnaOnlineTest {
                 .put("website", "https://example.org/belvedere")
                 .put("wiki_and_media", JSONObject().put("wikidata", "Q123")))))
         val rendered = RoadDnaOnline.parseGeoDetails(response)
-        assertTrue(rendered.contains("Descrizione non disponibile"))
+        assertTrue(rendered.contains("Descrizione turistica non disponibile"))
         assertTrue(rendered.contains("Belvedere, Piemonte"))
         assertTrue(rendered.contains("https://example.org/belvedere"))
-        assertTrue(rendered.contains("Wikidata: Q123"))
+        assertTrue(rendered.contains("https://www.wikidata.org/wiki/Q123"))
         assertFalse(rendered.contains("undefined"))
         val withDescription = JSONObject().put("features", JSONArray()
             .put(JSONObject().put("properties", JSONObject()
@@ -168,6 +168,40 @@ class RoadDnaOnlineTest {
         assertEquals("it:Castello",
             RoadDnaOnline.wikidataWikipediaReference(data, "Q123"))
         assertNull(RoadDnaOnline.wikidataWikipediaReference(data, "Q124"))
+    }
+
+    @Test fun wikidataDescriptionWithoutWikipediaArticleIsUsable() {
+        val data = JSONObject().put("entities", JSONObject()
+            .put("Q123", JSONObject().put("descriptions", JSONObject()
+                .put("en", JSONObject().put("language", "en")
+                    .put("value", "hilltop castle near the road"))
+                .put("it", JSONObject().put("language", "it")
+                    .put("value", "castello su un colle"))))))
+        assertEquals("castello su un colle",
+            RoadDnaOnline.wikidataShortDescription(data, "Q123"))
+        assertNull(RoadDnaOnline.wikidataShortDescription(data, "Q124"))
+
+        val withoutItalian = JSONObject().put("entities", JSONObject()
+            .put("Q123", JSONObject().put("descriptions", JSONObject()
+                .put("en", JSONObject().put("value", "historic monument")))))
+        assertEquals("historic monument",
+            RoadDnaOnline.wikidataShortDescription(withoutItalian, "Q123"))
+        assertNull(RoadDnaOnline.wikidataShortDescription(JSONObject(), "Q123"))
+    }
+
+    @Test fun wikidataDescriptionIsAttributedAndNotMislabelledAsWikipedia() {
+        val data = JSONObject().put("features", JSONArray().put(JSONObject()
+            .put("properties", JSONObject()
+                .put("feature_type", "details")
+                .put("formatted", "Piemonte, Italia")
+                .put("wiki_and_media", JSONObject().put("wikidata", "Q123")))))
+        val rendered = RoadDnaOnline.parseGeoDetails(
+            data, "castello su un colle", "https://www.wikidata.org/wiki/Q123",
+            "Wikidata")
+        assertTrue(rendered.contains("Da Wikidata (descrizione breve): castello su un colle"))
+        assertTrue(rendered.contains("Wikidata (CC0)"))
+        assertFalse(rendered.contains("Da Wikipedia (estratto)"))
+        assertTrue(rendered.contains("Indirizzo: Piemonte, Italia"))
     }
 
     @Test fun openTripMapDetailsDoNotPretendRawTagsAreADescription() {
