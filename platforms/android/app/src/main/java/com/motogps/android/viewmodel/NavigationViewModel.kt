@@ -478,6 +478,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     private var mapDownloadJob: Job? = null
     private val _photonInstalledBytes = MutableStateFlow(0L)
     val photonInstalledBytes: StateFlow<Long> = _photonInstalledBytes
+    private val _roadDnaInstalledBytes = MutableStateFlow(0L)
+    val roadDnaInstalledBytes: StateFlow<Long> = _roadDnaInstalledBytes
     private val _photonImporting = MutableStateFlow(false)
     val photonImporting: StateFlow<Boolean> = _photonImporting
     private val _photonStatus = MutableStateFlow<String?>(null)
@@ -1841,13 +1843,20 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                 refreshSavedMaps(context)
                 val graphInstalled = OfflineValhallaRouter.hasTiles(context.applicationContext)
                 val photonInstalled = OfflinePhotonPlaceSearch.installed(context.applicationContext)
-                if (!graphInstalled || !photonInstalled) {
-                    throw java.io.IOException("Verifica finale: Valhalla o Photon non disponibile")
+                val touristInstalled = withContext(Dispatchers.IO) {
+                    OfflineTouristPlaceSearch.installed(context.applicationContext)
                 }
+                if (!graphInstalled || !photonInstalled || !touristInstalled) {
+                    throw java.io.IOException(
+                        "Verifica finale: Valhalla, Photon o Road DNA non disponibile")
+                }
+                _roadDnaInstalledBytes.value =
+                    OfflineTouristPlaceSearch.file(context.applicationContext).length()
+                invalidateRoadDna()
                 _valhallaStatus.value = "Grafo Valhalla installato dal pacchetto unificato"
                 _photonStatus.value = "Indice Photon installato dal pacchetto unificato"
                 _downloadProgress.value = 1f
-                _downloadStatus.value = "MotoMap, Photon e Valhalla installati"
+                _downloadStatus.value = "MotoMap, Photon, Road DNA e Valhalla installati"
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
