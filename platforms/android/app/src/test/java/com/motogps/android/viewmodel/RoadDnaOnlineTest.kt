@@ -84,6 +84,21 @@ class RoadDnaOnlineTest {
         assertTrue(indices[2] >= 101)
     }
 
+    @Test fun geoapifyEnrichmentNeedsSameNameAndNearbyLocation() {
+        val original = RoadDnaOnlinePoi("Cittadèlla Storica",
+            "tourism.sights.castle", 10, "Geoapify", 45.0, 7.0)
+        val wrongPlace = RoadDnaOnlinePoi("Cittadella Storica", "castles", 0,
+            "OpenTripMap", 46.0, 7.0, "W1")
+        val wrongName = RoadDnaOnlinePoi("Cittadella Nuova", "castles", 0,
+            "OpenTripMap", 45.0, 7.0, "W2")
+        assertNull(RoadDnaOnline.matchOpenTripMap(original,
+            listOf(wrongPlace, wrongName)))
+        val matched = RoadDnaOnlinePoi("Cittadella Storica", "castles", 0,
+            "OpenTripMap", 45.0002, 7.0001, "W3")
+        assertEquals("W3", RoadDnaOnline.matchOpenTripMap(original,
+            listOf(wrongPlace, wrongName, matched))?.xid)
+    }
+
     @Test fun openTripMapApiKeyIsEncodedForQuery() {
         val url = RoadDnaOnline.tripRadiusUrl(45.0, 7.0, "sample key&test")
         assertTrue(url.contains("radius=2000"))
