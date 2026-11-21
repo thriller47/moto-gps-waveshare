@@ -176,7 +176,7 @@ Se la connessione tra telefono ed ESP32 si interrompe **involontariamente** (es.
 
 ## 2. Rigenerazione completa MotoPack — procedura consigliata
 
-**Un unico comando in WSL** ricrea **MotoMap v4** (strade e copertura), **Photon SQLite v2 con POI OSM** (ricerca indirizzi, carburante, ristorazione e alloggi), **Valhalla V5** (grafo moto dal PBF aggiornato), quindi assembla e verifica il pacchetto `MotoChatGPS-Italia.motopack`. Usa lo script `scripts/offline_map/rebuild_motopack_wsl.sh`, presente nel branch sperimentale.
+**Un unico comando in WSL** ricrea **MotoMap v4** (strade e copertura), **Photon SQLite v2 con POI OSM** (ricerca indirizzi, carburante, ristorazione e alloggi), **Tourist SQLite v1** (Road DNA turistico) e **Valhalla V5** (grafo moto dal PBF aggiornato), quindi assembla e verifica il pacchetto `MotoChatGPS-Italia.motopack`. Usa lo script `scripts/offline_map/rebuild_motopack_wsl.sh`, presente nel branch sperimentale.
 
 **Sorgenti attuali in `C:\MotoGPS\PBF`:**
 
@@ -201,22 +201,51 @@ Se `ls` non trova lo script, aggiornare il branch come nella sezione 1. Per il b
 **Cartella di output predefinita:**
 
 ```text
-/home/mod/motogps-build/ItaliaUnificata-20261118/
+/home/mod/motogps-build/ItaliaUnificata-RoadDNA-v2/
 ├── italy-v4.motomap.zip
 ├── photon-italy-v2.sqlite
+├── tourist-italy-v1.sqlite
 ├── ValhallaItaliaV5/
 │   └── valhalla_tiles.tar.zst
 └── MotoChatGPS-Italia.motopack
 ```
 
-Lo script scrive prima su filesystem **Linux WSL**, in una cartella temporanea; **solo dopo verifica SHA-256** sostituisce la cartella finale esistente. In caso di errore ordinario preserva quella precedente; se trova file estranei fra gli output, si ferma senza cancellarli. Richiede spazio per vecchia e nuova generazione contemporaneamente, oltre ai grafi Valhalla temporanei. Non usare `sudo`, `rm -rf` o `--resume` al posto di questa procedura. Per un'altra destinazione: `--out "$HOME/motogps-build/ItaliaUnificata-Nuova" --threads 2`.
+Lo script scrive prima su filesystem **Linux WSL**, in una cartella temporanea; **solo dopo verifica SHA-256** sostituisce la cartella finale esistente. In caso di errore preserva sia l'output precedente sia lo staging interrotto per il successivo `--resume`; se trova file estranei fra gli output, si ferma senza cancellarli. Richiede spazio per vecchia e nuova generazione contemporaneamente, oltre ai grafi Valhalla temporanei. Non usare `sudo` o `rm -rf` per ripartire. Per un'altra destinazione: `--out "$HOME/motogps-build/ItaliaUnificata-Nuova" --threads 2`.
 
 **Verifica al termine** (non affermare che la nuova generazione sia valida solo perché MotoMap ha stampato il numero di tile):
 
 ```bash
 python3 scripts/offline_map/motopack.py verify \
-  "$HOME/motogps-build/ItaliaUnificata-20261118/MotoChatGPS-Italia.motopack"
-ls -lh "$HOME/motogps-build/ItaliaUnificata-20261118/"
+  "$HOME/motogps-build/ItaliaUnificata-RoadDNA-v2/MotoChatGPS-Italia.motopack"
+ls -lh "$HOME/motogps-build/ItaliaUnificata-RoadDNA-v2/"
+```
+
+### Ripresa dopo un errore durante Road DNA (21/11/2026)
+
+Se il terminale si arresta con `relation_missing_member_way` dopo avere risolto milioni di nodi, alcune relation OSM hanno membri assenti dall'estratto PBF. Il generatore aggiornato **salta solo quelle relazioni**, non pubblica un poligono incompleto e registra `relation_coverage=partial`, `relation_missing_member_way` e i primi ID saltati nella tabella `tourist_metadata`. Controllare poi laghi e aree protette sui percorsi di interesse; non dichiarare copertura turistica assoluta.
+
+Aggiornare prima lo stesso branch Road DNA; dal repository WSL con `valhalla-env` attivo:
+
+```bash
+git switch feature/road-dna-motopack-v2
+git pull --ff-only origin feature/road-dna-motopack-v2
+PYTHONPATH=scripts/offline_map python3 -m unittest discover -s scripts/offline_map -p 'test_tourist_to_sqlite.py' -v
+bash scripts/offline_map/rebuild_motopack_wsl.sh --threads 2 --resume
+```
+
+Il wrapper individua la cartella di staging della destinazione (se presente), verifica l'identità dei file sorgenti e riutilizza i componenti completi. Quando `tourist-italy-v1.sqlite.part` contiene un checkpoint nuovo e valido, la ripresa ricostruisce **soltanto i poligoni**, senza rieseguire i tre passaggi PBF. Se la generazione fallita è stata eseguita con la *vecchia* versione dello script, il `.part` e lo staging potrebbero essere stati cancellati automaticamente: in questo caso `--resume` avvia una nuova generazione o riutilizza solamente i file finali ancora esistenti. Non è possibile recuperare dal terminale le coordinate temporanee già eliminate.
+
+Per il builder diretto su una cartella di output permanente, ripetere **gli stessi** `--pbf`, `--poly`, `--photon`, `--out` e aggiungere `--resume` a `build_motopack_wsl.sh`. Non rinominare un vecchio `.part` per aggirare il controllo di provenienza. In caso di checkpoint parziale (prima della fine della terza passata), va ispezionato e va iniziata una nuova generazione in una directory diversa.
+
+A pacchetto generato, verificare la copertura registrata:
+
+```bash
+python3 - "$HOME/motogps-build/ItaliaUnificata-RoadDNA-v2/tourist-italy-v1.sqlite" <<'PY'
+import sqlite3, sys
+with sqlite3.connect(sys.argv[1]) as db:
+    print(dict(db.execute("SELECT key,value FROM tourist_metadata")))
+    print("integrity:", db.execute("PRAGMA integrity_check").fetchone()[0])
+PY
 ```
 
 La verifica attesa è `OK: MotoMap v4 + Valhalla V5 + Photon v2`, accompagnata dall'esito finale `PRONTO` dello script.
