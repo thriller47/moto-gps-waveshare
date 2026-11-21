@@ -768,12 +768,12 @@ fun NavigationScreen(
                             FilterChip(
                                 selected = !showAllRoadDnaPlaces,
                                 onClick = { showAllRoadDnaPlaces = false },
-                                label = { Text("Consigliati (${recommended.size})") }
+                                label = { Text("Consigliati") }
                             )
                             FilterChip(
                                 selected = showAllRoadDnaPlaces,
                                 onClick = { showAllRoadDnaPlaces = true },
-                                label = { Text("Tutti (${places.size})") }
+                                label = { Text("Tutti") }
                             )
                         }
                         Text(
