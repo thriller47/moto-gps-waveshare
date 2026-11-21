@@ -4,10 +4,19 @@ No Italian PBF, network, Android build or GitHub Actions required.
 """
 import unittest
 
-from tourist_to_sqlite import classify, polygon_from_member_lines
+from tourist_to_sqlite import NodeRefFilter, classify, polygon_from_member_lines
 
 
 class TouristIndexTests(unittest.TestCase):
+    def test_disk_reference_bloom_has_no_false_negatives(self):
+        refs = [1, 2, 1234, 10_000_000_001, 99_999_999_999]
+        bloom = NodeRefFilter()
+        for ref in refs:
+            bloom.add(ref)
+        for ref in refs:
+            self.assertTrue(bloom.maybe(ref))
+        self.assertFalse(bloom.maybe(55_555_555_555))
+
     def test_secondary_water_tag(self):
         self.assertEqual(classify({"natural": "water", "water": "lake"}), ["lago"])
         self.assertEqual(classify({"natural": "water", "water": "reservoir"}), [])
