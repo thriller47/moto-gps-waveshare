@@ -33,6 +33,12 @@ I dati tariffari sono quelli pubblicati al 21/11/2026 e possono cambiare. Il pre
 
 **Soluzione alternativa:** file add-on `motopoi-italy.sqlite` opzionale, se Photon v2 cresce troppo; è comunque distribuibile accanto al MotoPack senza rigenerare MotoMap/Valhalla. In entrambi i casi non stiamo importando «tutte le 28 macro-categorie OSM», ma **solo categorie concordate e dati necessari**.
 
+## Confronto riproducibile preparato (21/11/2026)
+
+Strumento WSL: [`scripts/road_dna/compare_sources.py`](../scripts/road_dna/compare_sources.py); istruzioni ed esempi: [`scripts/road_dna/README.md`](../scripts/road_dna/README.md). Lettura del PBF italiano e conteggio categorie node/way, censimento separato delle relazioni senza geometria, database turistico SQLite di prova, distanze approssimative a tracce GPX/GeoJSON stradali. Geoapify `POST polyline` e tre campioni a raggio OpenTripMap sono **opzionali**: richiedono `--online` e chiavi in variabili d'ambiente. Registrano espressamente i risultati parziali, senza dichiarare equivalenza di copertura dei provider. Nessuna sorgente dati/credenziale o traccia GPX dell'utente è stata caricata sul repository.
+
+**Stato effettivo:** non è stato possibile eseguire il benchmark sul PBF locale di Windows né fare chiamate autenticante ai provider da questa sessione. Quindi **non esistono ancora conteggi misurati, prezzi per tour, rapporto di copertura né dimensioni finali in MiB**. Il codice CLI è preparato, ma non ha ancora un collaudo PBF reale; la prima esecuzione serve anche a individuarne eventuali difetti.
+
 ## Scelta pratica e prossimi test
 
 **Scelta consigliata provvisoria: Road DNA locale per guida + Geoapify per «Da scoprire» + dettagli OpenTripMap/Wikimedia su click; fallback futuro POI turistici compatti nel bundle se servizi online si rivelano troppo dipendenti, costosi o incompleti.** Geoapify nasce soprattutto dai dati OSM; il fallback non può correggere la mancanza di un luogo che nessuno ha mappato, ma conserva tag secondari, multipoligoni e stabilità offline se l'importatore è completo.
