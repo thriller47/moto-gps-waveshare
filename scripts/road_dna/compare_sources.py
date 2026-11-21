@@ -149,7 +149,57 @@ def meters_from_route(lon, lat, route):
     return best
 
 
-def route_matches(positions, routes, radius, boxes):
+class RouteSpatialIndex:
+    """Small spatial grid of route segments: avoids O(POIs * route vertices).
+
+    A local projection is still an approximate distance, NOT a road detour.
+    Each segment is assigned to grid cells touching its padded bounding box.
+    """
+    CELL_DEGREES = 0.03
+
+    def __init__(self, route, radius):
+        self.route = route
+        self.radius = radius
+        self.cells = collections.defaultdict(list)
+        lat_pad = radius / 111_000
+        mid_lat = sum(point[1] for point in route) / len(route)
+        lon_pad = radius / (111_000 * max(.15, math.cos(math.radians(mid_lat))))
+        grid = self.CELL_DEGREES
+        for i, ((lon1, lat1), (lon2, lat2)) in enumerate(zip(route, route[1:])):
+            min_x = math.floor((min(lon1, lon2) - lon_pad) / grid)
+            max_x = math.floor((max(lon1, lon2) + lon_pad) / grid)
+            min_y = math.floor((min(lat1, lat2) - lat_pad) / grid)
+            max_y = math.floor((max(lat1, lat2) + lat_pad) / grid)
+            for gx in range(min_x, max_x + 1):
+                for gy in range(min_y, max_y + 1):
+                    self.cells[(gx, gy)].append(i)
+
+    def near(self, lon, lat):
+        candidate_ids = self.cells.get(
+            (math.floor(lon / self.CELL_DEGREES),
+             math.floor(lat / self.CELL_DEGREES)), ())
+        if not candidate_ids:
+            return False
+        scale_x = 111_320 * math.cos(math.radians(lat))
+        scale_y = 111_320
+        radius_squared = self.radius * self.radius
+        for i in candidate_ids:
+            x1, y1 = self.route[i]
+            x2, y2 = self.route[i + 1]
+            ax = (x1 - lon) * scale_x
+            ay = (y1 - lat) * scale_y
+            dx = (x2 - x1) * scale_x
+            dy = (y2 - y1) * scale_y
+            squared = dx * dx + dy * dy
+            t = max(0., min(1., -(ax * dx + ay * dy) / squared)) if squared > 0 else 0.
+            px = ax + t * dx
+            py = ay + t * dy
+            if px * px + py * py <= radius_squared:
+                return True
+        return False
+
+
+def route_matches(positions, routes, radius, boxes, indexes=None):
     matches = []
     if not positions:
         return matches
@@ -160,7 +210,9 @@ def route_matches(positions, routes, radius, boxes):
         near = False
         for lon, lat in positions:
             if box[0] <= lon <= box[2] and box[1] <= lat <= box[3]:
-                if meters_from_route(lon, lat, line) <= radius:
+                close = (indexes[name].near(lon, lat) if indexes is not None
+                         else meters_from_route(lon, lat, line) <= radius)
+                if close:
                     near = True
                     break
         if near:
@@ -177,6 +229,10 @@ def pbf_benchmark(pbf, db_path, routes, radius):
     relations = collections.Counter()
     by_route = {name: collections.Counter() for name in routes}
     boxes = {name: bbox(line, radius) for name, line in routes.items()}
+    indexes = {name: RouteSpatialIndex(line, radius)
+               for name, line in routes.items()}
+    print("Road DNA: indici spaziali preparati per", len(indexes),
+          "itinerari; inizio scansione PBF...", flush=True)
     db = sqlite3.connect(str(db_path))
     db.executescript("""CREATE TABLE poi(
       osm_type TEXT, osm_id INTEGER, category TEXT, name TEXT,
@@ -184,6 +240,11 @@ def pbf_benchmark(pbf, db_path, routes, radius):
       CREATE INDEX poi_category_location ON poi(category,lat,lon);""")
     insert = "INSERT OR IGNORE INTO poi VALUES(?,?,?,?,?,?)"
     class Handler(osmium.SimpleHandler):
+        def __init__(self):
+            super().__init__()
+            self.nodes_seen = 0
+            self.next_report = 2_000_000
+
         def add(self, osm_type, obj, positions):
             tag = obj.tags
             categories = classify(tag)
@@ -194,13 +255,18 @@ def pbf_benchmark(pbf, db_path, routes, radius):
             lon = sum(p[0] for p in positions) / len(positions)
             lat = sum(p[1] for p in positions) / len(positions)
             name = str(tag.get("name", tag.get("name:it", "")))[:160]
-            nearby = route_matches(positions, routes, radius, boxes)
+            nearby = route_matches(positions, routes, radius, boxes, indexes)
             for cat in categories:
                 counts[cat] += 1
                 db.execute(insert, (osm_type, int(obj.id), cat, name, lon, lat))
                 for route_name in nearby:
                     by_route[route_name][cat] += 1
         def node(self, obj):
+            self.nodes_seen += 1
+            if self.nodes_seen >= self.next_report:
+                print("Road DNA: letti", self.nodes_seen,
+                      "nodi OSM; POI", sum(counts.values()), flush=True)
+                self.next_report += 2_000_000
             if obj.location.valid():
                 self.add("n", obj, [(obj.location.lon, obj.location.lat)])
         def way(self, obj):
@@ -220,6 +286,8 @@ def pbf_benchmark(pbf, db_path, routes, radius):
             Handler().apply_file(str(pbf), locations=True,
                                  idx="sparse_file_array," + str(Path(temp) / "nodes.idx"))
         db.commit()
+        print("Road DNA: scansione PBF terminata; ottimizzazione SQLite...",
+              flush=True)
         db.execute("VACUUM")
     finally:
         db.close()
