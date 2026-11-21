@@ -697,7 +697,7 @@ fun NavigationScreen(
         val poi = selectedRoadDnaPoi!!
         AlertDialog(
             onDismissRequest = { selectedRoadDnaPoi = null },
-            title = { Text("Scheda OpenTripMap") },
+            title = { Text("Scheda ${poi.source}") },
             text = {
                 Column(
                     modifier = Modifier.fillMaxWidth()
@@ -710,8 +710,7 @@ fun NavigationScreen(
                     when {
                         roadDnaDetailsLoading -> {
                             CircularProgressIndicator()
-                            Text(if (poi.xid != null) "Caricamento scheda OpenTripMap…"
-                                else "Ricerca di una scheda OpenTripMap corrispondente…")
+                            Text("Caricamento dettagli ${poi.source}…")
                         }
                         roadDnaDetails != null -> Text(roadDnaDetails)
                         else -> Text("Preparazione della scheda…")
@@ -809,18 +808,27 @@ fun NavigationScreen(
                     if (roadDnaOnline != null) {
                         Text(roadDnaOnline.message, style = MaterialTheme.typography.bodySmall)
                         if (roadDnaOnline.places.isEmpty()) Text("Nessun risultato online.")
+                        else Text(
+                            "Fonti nei risultati: Geoapify ${roadDnaOnline.places.count { it.source == "Geoapify" }}" +
+                                " · OpenTripMap ${roadDnaOnline.places.count { it.source == "OpenTripMap" }}",
+                            style = MaterialTheme.typography.bodySmall
+                        )
                         for (poi in roadDnaOnline.places.take(20)) {
                             Column {
                                 Text("• " + poi.name + " · " + poi.source)
                                 Text(poi.category + " · circa " + poi.distanceMeters + " m dalla rotta",
                                     style = MaterialTheme.typography.labelSmall)
-                                if (opentripmapConfigured) {
+                                val hasDetails = when (poi.source) {
+                                    "Geoapify" -> geoapifyConfigured && poi.geoPlaceId != null
+                                    "OpenTripMap" -> opentripmapConfigured && poi.xid != null
+                                    else -> false
+                                }
+                                if (hasDetails) {
                                     TextButton(onClick = {
                                         selectedRoadDnaPoi = poi
                                         onRoadDnaDetails(poi)
                                     }) {
-                                        Text(if (poi.xid != null) "Dettagli OpenTripMap"
-                                            else "Cerca scheda su OpenTripMap")
+                                        Text("Dettagli ${poi.source}")
                                     }
                                 }
                             }
