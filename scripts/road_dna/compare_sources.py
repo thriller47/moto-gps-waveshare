@@ -66,6 +66,23 @@ def valid(lon, lat):
 
 
 def parse_route(path):
+    # GPX track/route is accepted without third-party converters.
+    if Path(path).suffix.lower() == ".gpx":
+        from xml.etree import ElementTree as ET
+        root = ET.parse(path).getroot()
+        for wanted in ("trkpt", "rtept"):
+            coords = []
+            for item in root.iter():
+                if item.tag.rsplit("}", 1)[-1] != wanted:
+                    continue
+                lon, lat = float(item.attrib["lon"]), float(item.attrib["lat"])
+                if not valid(lon, lat):
+                    raise ValueError(f"{path}: invalid GPX track coordinate")
+                if not coords or coords[-1] != [lon, lat]:
+                    coords.append([lon, lat])
+            if len(coords) >= 2:
+                return coords
+        raise ValueError(f"{path}: no GPX track with at least 2 points")
     root = json.loads(Path(path).read_text(encoding="utf-8"))
     if root.get("type") == "FeatureCollection":
         geoms = [x["geometry"] for x in root.get("features", [])]
@@ -246,8 +263,14 @@ def geoapify_benchmark(line, radius, key):
     features = result.get("features", [])
     ids = {(f.get("properties") or {}).get("place_id", i)
            for i, f in enumerate(features)}
+    categories = collections.Counter()
+    for feature in features:
+        for category in (feature.get("properties") or {}).get("categories", []):
+            if category in GEOAPIFY:
+                categories[category] += 1
     return {"status": "partial_limit_hit" if len(features) >= 100 else "ok",
-            "count": len(ids), "duration_sec": round(time.monotonic() - t0, 2),
+            "count": len(ids), "categories_returned": dict(categories),
+            "duration_sec": round(time.monotonic() - t0, 2),
             "queries": 1, "note": "Geoapify near-route, not road detour; "
                                 "1 page of 100 only (not exhaustive)."}
 
@@ -262,7 +285,8 @@ def opentripmap_benchmark(line, radius, key):
         for lon, lat in positions:
             from urllib.parse import urlencode
             params = urlencode({"lat": lat, "lon": lon, "radius": radius,
-                                "limit": 100, "format": "json", "apikey": key})
+                                "limit": 100, "format": "json", "kinds": "interesting_places",
+                                "apikey": key})
             result = fetch_json("https://api.opentripmap.com/0.1/en/places/radius?" + params,
                                 key)
             if not isinstance(result, list):
