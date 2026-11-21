@@ -34,7 +34,7 @@ python3 scripts/offline_map/tourist_to_sqlite.py \
   --output ~/motogps-build/tourist-italy-v1.sqlite
 ```
 
-This command only builds a separate tourist SQLite file. It does not rebuild or overwrite the old MotoPack. The generator refuses an existing destination and fails without publishing a partial index. Memory use is bounded by `--max-refs` (3 million by default), but actual RAM and runtime remain unmeasured.
+This command only builds a separate tourist SQLite file. It does not rebuild or overwrite the old MotoPack. The generator refuses an existing destination and fails without publishing a partial index. The initial experimental version failed on the real Italy PBF after exceeding 3 million selected OSM node references. The revised version stores selected references in a temporary on-disk SQLite table, uses a 32 MiB Bloom filter for the third OSM pass, and removes the 3-million in-RAM cap. The temporary `.part` file can grow substantially while processing and is removed on failure; final output is vacuumed before publishing. Actual duration and peak disk/RAM remain unmeasured on Italy PBF.
 
 ## Full rebuild (NOT yet validated end-to-end)
 
@@ -48,3 +48,26 @@ After the index and Android verification are complete, the WSL wrapper runs Moto
 - Dedup by relation membership is implemented, but semantic duplicates with unrelated OSM identities need further validation.
 - Android imports individual components atomically, not the whole MotoPack transactionally; full rollback/swap needs hardening.
 - No claim of full production readiness or CI success before execution of the relevant tests.
+
+## Recovery from the 3-million-reference failure (21/11/2026)
+
+The earlier failure `Too many selected OSM node refs` happened in pass 2/3 and is a deliberate resource safeguard, not corrupted OSM input. New code replaces it with disk-backed selected references; no `--max-refs` argument is required or accepted.
+
+```bash
+cd ~/MotoGPS/moto-gps-waveshare
+git switch feature/road-dna-motopack-v2
+git pull --ff-only origin feature/road-dna-motopack-v2
+source ~/valhalla-env/bin/activate
+python3 -m unittest discover -s scripts/offline_map -p 'test_tourist_to_sqlite.py' -v
+ls -lh ~/motogps-build/tourist-italy-v1.sqlite* 2>/dev/null || true
+```
+
+If `tourist-italy-v1.sqlite.part` remains from an interrupted process, only remove that exact file **after confirming no generator is running**. Do not remove `tourist-italy-v1.sqlite` if a successful index exists. Restart with:
+
+```bash
+python3 scripts/offline_map/tourist_to_sqlite.py \\
+  --pbf /mnt/c/MotoGPS/PBF/italy-latest.osm.pbf \\
+  --output ~/motogps-build/tourist-italy-v1.sqlite
+```
+
+This is an **index-only test**, not the final unified MotoPack build. Do not install the experimental pack on Android yet.
