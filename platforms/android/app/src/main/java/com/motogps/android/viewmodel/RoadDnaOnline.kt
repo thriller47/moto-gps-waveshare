@@ -118,9 +118,15 @@ data class RoadDnaOnlineResult(
     val message: String
 )
 
+/** HTTP status only: never include a provider URL, which may contain an API key. */
+internal class RoadDnaProviderHttpException(val statusCode: Int) :
+    IOException("Provider HTTP $statusCode")
+
 internal object RoadDnaOnline {
     private const val GEO = "https://api.geoapify.com/v2/places"
-    private const val OTM = "https://api.opentripmap.com/0.1/it/places"
+    // Use the documented OpenTripMap language endpoint. /it is not documented
+    // for the Places API and can reject even a valid key.
+    private const val OTM = "https://api.opentripmap.com/0.1/en/places"
     private const val BUFFER_METERS = 2000
     private const val MAX_GEO_CHUNKS = 3
     private const val GEO_VERTICES_PER_CHUNK = 800
@@ -172,12 +178,8 @@ internal object RoadDnaOnline {
                 conn.outputStream.use { it.write(body.toByteArray(StandardCharsets.UTF_8)) }
             }
             // Never include conn.url, request headers or response bodies in errors.
-            when (conn.responseCode) {
-                in 200..299 -> Unit
-                401, 403 -> throw IOException("Chiave API non autorizzata")
-                429 -> throw IOException("Limite richieste del provider (429)")
-                else -> throw IOException("Servizio temporaneamente non disponibile (HTTP ${conn.responseCode})")
-            }
+            val httpStatus = conn.responseCode
+            if (httpStatus !in 200..299) throw RoadDnaProviderHttpException(httpStatus)
             conn.inputStream.use { stream ->
                 val bytes = ByteArray(MAX_RESPONSE + 1)
                 var read = 0
