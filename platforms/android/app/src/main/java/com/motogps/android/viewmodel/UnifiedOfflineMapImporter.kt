@@ -12,7 +12,7 @@ import org.json.JSONObject
 
 /**
  * Unified offline package. Verify every component before invoking any of the
- * existing (individually atomic) installers. This does NOT make the three
+ * existing (individually atomic) installers. This does NOT make the four
  * installers collectively atomic; an installer failure can leave mixed data.
  */
 internal object UnifiedOfflineMapImporter {
@@ -118,9 +118,6 @@ internal object UnifiedOfflineMapImporter {
             progress("Installazione Photon...")
             OfflinePhotonPlaceSearch.install(context, Uri.fromFile(staged.getValue("photon")))
             if (cancelled()) throw java.util.concurrent.CancellationException("Importazione annullata")
-            if (cancelled()) throw java.util.concurrent.CancellationException("Importazione annullata")
-            progress("Installazione Road DNA...")
-            OfflineTouristPlaceSearch.install(context, Uri.fromFile(staged.getValue("tourist")))
             progress("Installazione Valhalla...")
             val graphBytes = ValhallaGraphImporter.install(
                 context, Uri.fromFile(staged.getValue("valhalla")),
@@ -129,7 +126,10 @@ internal object UnifiedOfflineMapImporter {
             )
             if (graphBytes <= 0L) throw IOException("Valhalla non installato")
             progress("Valhalla installato (${graphBytes / 1048576L} MiB)")
-            progress("Pacchetto offline installato")
+            if (cancelled()) throw java.util.concurrent.CancellationException("Importazione annullata")
+            progress("Installazione Road DNA...")
+            OfflineTouristPlaceSearch.install(context, Uri.fromFile(staged.getValue("tourist")))
+            progress("MotoPack v2 installato (MotoMap, Photon, Valhalla, Road DNA)")
         } finally {
             staged.values.forEach { it.delete() }
             if (dir.exists() && dir.listFiles().isNullOrEmpty()) dir.delete()
