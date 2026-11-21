@@ -35,6 +35,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import com.motogps.android.ble.MotoBLEManager
+import com.motogps.android.routing.RouteGpxExporter
+import java.io.IOException
 import com.motogps.android.location.LocationForegroundService
 import com.motogps.android.ui.MotoChatDarkColorScheme
 import com.motogps.android.ui.NavigationScreen
@@ -146,6 +148,36 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         }
     }
 
+    /** Save the exact route selected in the preview, without starting GPS navigation. */
+    private fun exportSelectedRouteGpx() {
+        val option = viewModel.routeOptions.value.getOrNull(viewModel.selectedRouteIndex.value)
+        val destination = viewModel.routePreview.value
+        if (option == null || destination == null || viewModel.isNavigating.value) {
+            Toast.makeText(this, "Calcola un percorso prima di esportarlo",
+                Toast.LENGTH_SHORT).show()
+            return
+        }
+        val title = if (destination.displayArea == "Tour circolare") "Tour circolare"
+            else destination.name
+        lifecycleScope.launch {
+            try {
+                val gpx = withContext(Dispatchers.Default) {
+                    RouteGpxExporter.encode(option.rawRouteJson, title)
+                }
+                if (!isFinishing && !isDestroyed) {
+                    viewModel.stageGpxExport(gpx)
+                    createRouteGpxLauncher.launch(RouteGpxExporter.suggestedFileName(title))
+                }
+            } catch (e: Exception) {
+                if (!isFinishing && !isDestroyed) {
+                    Toast.makeText(this@MainActivity,
+                        "Impossibile esportare GPX: " + e.message,
+                        Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
     private val viewModel: NavigationViewModel by viewModels {
         // Keep the same BLE manager as the retained ViewModel across rotation.
         NavigationViewModelFactory(applicationContext)
@@ -159,6 +191,37 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             startLocationUpdates()
         } else {
             Toast.makeText(this, "Permessi necessari per la connessione BLE e GPS", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private val createRouteGpxLauncher = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/gpx+xml")
+    ) { uri ->
+        val gpx = viewModel.takeGpxExport()
+        if (uri == null) return@registerForActivityResult
+        if (gpx == null) {
+            Toast.makeText(this, "Percorso non più disponibile: ripeti l'esportazione",
+                Toast.LENGTH_LONG).show()
+            return@registerForActivityResult
+        }
+        lifecycleScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    val stream = contentResolver.openOutputStream(uri, "wt")
+                        ?: throw IOException("Il documento scelto non è scrivibile")
+                    stream.use { it.write(gpx.toByteArray(Charsets.UTF_8)) }
+                }
+                if (!isFinishing && !isDestroyed) {
+                    Toast.makeText(this@MainActivity, "GPX salvato correttamente",
+                        Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                if (!isFinishing && !isDestroyed) {
+                    Toast.makeText(this@MainActivity,
+                        "Salvataggio GPX non riuscito: " + e.message,
+                        Toast.LENGTH_LONG).show()
+                }
+            }
         }
     }
 
@@ -356,6 +419,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     onStartNavigation = { place ->
                         viewModel.startNavigation(place)
                     },
+                    onExportRouteGpx = { exportSelectedRouteGpx() },
                     onCorridorTileCount = {
                         viewModel.corridorTileCount(this@MainActivity)
                     },
