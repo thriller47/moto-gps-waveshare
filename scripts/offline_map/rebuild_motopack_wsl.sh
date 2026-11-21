@@ -6,7 +6,7 @@ set -euo pipefail
 usage() {
   cat <<'HELP'
 Uso (WSL Ubuntu, ambiente valhalla-env attivo):
-  bash scripts/offline_map/rebuild_motopack_wsl.sh [--out CARTELLA] [--threads 2] [--src CARTELLA_PBF] [--python python3]
+  bash scripts/offline_map/rebuild_motopack_wsl.sh [--out CARTELLA] [--threads 2] [--src CARTELLA_PBF] [--python python3] [--resume]
 
 Sorgenti predefiniti: /mnt/c/MotoGPS/PBF
   italy-latest.osm.pbf, italy.poly, photon-italy.jsonl.zst
@@ -20,6 +20,9 @@ la verifica. Alla fine viene sostituita (backup temporaneo cancellato).
 L'output preesistente puo' contenere solo i cinque artefatti generati;
 per non perdere dati estranei, lo script rifiuta cartelle con altri file.
 Servono temporaneamente spazio per VECCHIA e NUOVA build insieme.
+In caso di errore la cartella di staging viene conservata; --resume
+riutilizza i componenti completi e riparte dal checkpoint turistico se valido.
+L'output precedente non viene toccato prima della verifica finale.
 HELP
 }
 
@@ -27,6 +30,7 @@ SRC="/mnt/c/MotoGPS/PBF"
 OUT="$HOME/motogps-build/ItaliaUnificata-RoadDNA-v2"
 THREADS=2
 PYTHON=python3
+RESUME=false
 while (($#)); do
   case "$1" in
     --src|--out|--threads|--python)
@@ -38,6 +42,7 @@ while (($#)); do
         --python) PYTHON=$2;;
       esac
       shift 2;;
+    --resume) RESUME=true; shift;;
     -h|--help) usage; exit 0;;
     *) echo "Opzione sconosciuta: $1" >&2; usage >&2; exit 2;;
   esac
@@ -88,34 +93,71 @@ cleanup() {
   if [[ -n "$BACKUP" && -d "$BACKUP" && ! -e "$OUT" ]]; then
     mv -- "$BACKUP" "$OUT" || echo "ATTENZIONE: ripristina manualmente $BACKUP -> $OUT" >&2
   fi
-  if [[ -n "$STAGE" && -d "$STAGE" ]]; then
-    rm -rf -- "$STAGE" || echo "ATTENZIONE: cartella temporanea ancora presente: $STAGE" >&2
-  fi
   if (( code != 0 )); then
     echo "Ricostruzione non completata (codice $code). L'output precedente non e' stato eliminato." >&2
+    if [[ -n "$STAGE" && -d "$STAGE" ]]; then
+      echo "Staging conservato per --resume: $STAGE" >&2
+    fi
   fi
 }
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-STAGE=$(mktemp -d -- "$PARENT/.$BASE.build.XXXXXXXX")
-# The integrated builder requires its output path not to exist yet.
-rmdir -- "$STAGE"
+# Only use a stage created for this output; do not overwrite unrelated data.
+shopt -s nullglob
+stages=( "$PARENT/.$BASE.build."* )
+shopt -u nullglob
+if (( ${#stages[@]} > 0 )) && [[ "$RESUME" != true ]]; then
+  echo "Staging precedente presente: ${stages[*]}. Usa --resume." >&2
+  exit 2
+fi
+if (( ${#stages[@]} > 1 )); then
+  echo "Piu' staging trovati: seleziona e conserva solo quello corretto prima di --resume." >&2
+  exit 2
+fi
+if (( ${#stages[@]} == 1 )); then
+  STAGE=${stages[0]}
+  [[ -d "$STAGE" && ! -L "$STAGE" ]] || { echo "Staging non valido: $STAGE" >&2; exit 2; }
+  [[ -f "$STAGE/.road-dna-stage-sources" ]] || {
+    echo "Staging senza marker verificabile: $STAGE" >&2; exit 2;
+  }
+else
+  STAGE=$(mktemp -d -- "$PARENT/.$BASE.build.XXXXXXXX")
+fi
+
+# Paths, sizes and mtimes prevent accidentally mixing different input editions.
+source_stamp=$(for file in italy-latest.osm.pbf italy.poly photon-italy.jsonl.zst; do
+  printf '%s %s\n' "$SRC/$file" "$(stat -c '%s:%Y' -- "$SRC/$file")"
+done)
+if [[ -e "$STAGE/.road-dna-stage-sources" ]]; then
+  [[ "$(cat -- "$STAGE/.road-dna-stage-sources")" == "$source_stamp" ]] || {
+    echo "Sorgenti cambiate rispetto allo staging: impossibile --resume." >&2
+    exit 2
+  }
+else
+  printf '%s\n' "$source_stamp" > "$STAGE/.road-dna-stage-sources"
+fi
+
 echo "Sorgenti:    $SRC"
 echo "Destinazione: $OUT"
+echo "Staging:     $STAGE"
 echo "Thread:      $THREADS"
-echo "Ricreo tutti e tre i componenti; l'archivio Valhalla precedente non viene usato."
+echo "Genero MotoMap v4, Photon v2, Road DNA turistico v1 e Valhalla V5."
 
-bash "$BUILDER" \
-  --pbf "$SRC/italy-latest.osm.pbf" \
-  --poly "$SRC/italy.poly" \
-  --photon "$SRC/photon-italy.jsonl.zst" \
-  --out "$STAGE" --threads "$THREADS" --python "$PYTHON"
+if [[ ! -e "$STAGE/MotoChatGPS-Italia.motopack" ]]; then
+  bash "$BUILDER" \
+    --pbf "$SRC/italy-latest.osm.pbf" \
+    --poly "$SRC/italy.poly" \
+    --photon "$SRC/photon-italy.jsonl.zst" \
+    --out "$STAGE" --threads "$THREADS" --python "$PYTHON" --resume
+fi
 
 # The integrated builder already verifies SHA-256, but verify again before publication.
 "$PYTHON" "$SCRIPT_DIR/motopack.py" verify "$STAGE/MotoChatGPS-Italia.motopack"
 chmod 755 -- "$STAGE"
+# The marker belongs to staging only, not to the published map directory.
+rm -- "$STAGE/.road-dna-stage-sources"
 if [[ -d "$OUT" ]]; then
   BACKUP=$(mktemp -d -- "$PARENT/.$BASE.old.XXXXXXXX")
   rmdir -- "$BACKUP"
