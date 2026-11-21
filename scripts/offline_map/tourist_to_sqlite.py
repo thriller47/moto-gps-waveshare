@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Build Road DNA tourist SQLite from Italy OSM PBF without a giant node index.
 
-Three streaming passes:
+Three streaming passes (checkpointed before polygon assembly):
   1. Select tagged multipolygon relations and their member ways.
   2. Index tourist nodes and collect tagged/referenced way node IDs.
   3. Resolve only the selected node coordinates.
 Relations are assembled from outer and inner way linework with Shapely.
-If polygon geometry cannot be assembled, fail rather than publish an
-apparently complete index. No network or MotoPack writes.
+Relations with absent PBF member ways are omitted and counted explicitly:
+never fabricate an area from a truncated boundary. --resume uses a validated
+SQLite .part checkpoint to skip all three PBF passes. No network/pack writes.
 """
 import argparse
 import collections
@@ -52,7 +53,7 @@ CREATE TABLE tourist_poi(
   PRIMARY KEY(osm_type,osm_id,category)
 );
 CREATE TABLE tourist_metadata(key TEXT PRIMARY KEY,value TEXT NOT NULL);
-CREATE TEMP TABLE candidate_way(
+CREATE TABLE candidate_way(
   osm_id INTEGER PRIMARY KEY, tags_json TEXT NOT NULL, refs_json TEXT NOT NULL
 );
 CREATE INDEX tourist_category_lat_lon ON tourist_poi(category,lat,lon);
@@ -95,6 +96,20 @@ def polygon_from_member_lines(outer_lines, inner_lines):
     return result
 
 
+def relation_member_lines(members, way_points):
+    """Reject a *whole* truncated relation, never a partial polygon/hole."""
+    outer, inner, missing = [], [], []
+    for way_id, role in members:
+        line = way_points.get(way_id)
+        if line is None:
+            missing.append(way_id)
+        elif role == "inner":
+            inner.append(line)
+        else:
+            outer.append(line)
+    return outer, inner, missing
+
+
 class NodeRefFilter:
     """32 MiB Bloom filter: disk SQLite resolves all positives exactly.
 
@@ -126,7 +141,7 @@ class NodeRefFilter:
                    for h in self.hashes(osm_id))
 
 
-def build(pbf, output):
+def build(pbf, output, resume=False):
     import osmium
     from shapely.geometry import LineString
     from shapely.ops import unary_union
@@ -138,8 +153,11 @@ def build(pbf, output):
         raise FileExistsError(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
     pending = dest.with_name(dest.name + ".part")
-    if pending.exists():
-        raise FileExistsError(pending)
+    if pending.exists() and not resume:
+        raise FileExistsError("{} exists; rerun with --resume".format(pending))
+    recovering = pending.exists()
+    stat = source.stat()
+    source_signature = json.dumps([str(source.resolve()), stat.st_size, stat.st_mtime_ns])
 
     relations = {}
     related_way_ids = set()
@@ -149,12 +167,21 @@ def build(pbf, output):
     way_points = {}
     counts = collections.Counter()
     failures = collections.Counter()
+    missing_relation_examples = []
     db = sqlite3.connect(pending)
     db.execute("PRAGMA temp_store=FILE")
     db.execute("PRAGMA cache_size=-32768")
-    db.executescript(SCHEMA)
-    db.execute("""CREATE TABLE selected_nodes(
-                   id INTEGER PRIMARY KEY, lon REAL, lat REAL)""")
+    if not recovering:
+        db.executescript(SCHEMA)
+        db.execute("""CREATE TABLE selected_nodes(
+                       id INTEGER PRIMARY KEY, lon REAL, lat REAL)""")
+        db.execute("""CREATE TABLE selected_relations(
+                       osm_id INTEGER PRIMARY KEY, categories_json TEXT NOT NULL,
+                       name TEXT NOT NULL, members_json TEXT NOT NULL)""")
+        db.execute("CREATE TABLE build_checkpoint(key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        db.executemany("INSERT INTO build_checkpoint VALUES (?,?)",
+                       (("source", source_signature), ("phase", "collecting")))
+        db.commit()
 
     def insert(kind, osm_id, categories, name, lon, lat, bounds, geometry_type, quality):
         if not all(math.isfinite(v) for v in (lon, lat, *bounds)):
@@ -181,6 +208,9 @@ def build(pbf, output):
                 failures["relation_without_way_members"] += 1
                 return
             relations[int(obj.id)] = (categories, label(obj.tags), members)
+            db.execute("INSERT INTO selected_relations VALUES (?,?,?,?)",
+                       (int(obj.id), json.dumps(categories), label(obj.tags),
+                        json.dumps(members)))
             related_way_ids.update(ref for ref, _ in members)
             for ref, _ in members:
                 relation_way_categories[ref].update(categories)
@@ -212,48 +242,79 @@ def build(pbf, output):
                        (int(obj.id), json.dumps(tags), json.dumps(refs)))
 
     try:
-        print("Road DNA 1/3: scanning tagged tourist relations...", flush=True)
-        Relations().apply_file(str(source), locations=False)
-        print("Selected {} area relations and {} member ways".format(
-              len(relations), len(related_way_ids)), flush=True)
-        print("Road DNA 2/3: tourist points and selected ways...", flush=True)
-        Candidates().apply_file(str(source), locations=False)
-        db.commit()
-        selected_unique = db.execute("SELECT COUNT(*) FROM selected_nodes").fetchone()[0]
-        print("Selected {:,} unique referenced nodes on disk; "
-              "resolving in pass 3/3...".format(selected_unique), flush=True)
-        class Coordinates(osmium.SimpleHandler):
-            def __init__(self):
-                super().__init__()
-                self.seen = 0
-                self.matched = 0
-
-            def node(self, obj):
-                self.seen += 1
-                ref = int(obj.id)
-                if ref_filter.maybe(ref) and obj.location.valid():
-                    cursor = db.execute(
-                        "UPDATE selected_nodes SET lon=?,lat=? WHERE id=?",
-                        (obj.location.lon, obj.location.lat, ref))
-                    self.matched += max(0, cursor.rowcount)
-                if self.seen % 5_000_000 == 0:
-                    print("Road DNA 3/3: {:,} nodes scanned, {:,} references "
-                          "resolved".format(self.seen, self.matched), flush=True)
-
-        if selected_unique:
-            Coordinates().apply_file(str(source), locations=False)
-        db.commit()
-        resolved = db.execute(
-            "SELECT COUNT(*) FROM selected_nodes WHERE lon IS NOT NULL").fetchone()[0]
-        print("Resolved {:,}/{:,} unique node coordinates; "
-              "assembling polygons...".format(resolved, selected_unique),
-              flush=True)
-        if resolved != selected_unique:
-            raise RuntimeError("Missing {:,} referenced OSM node coordinates; "
-                               "not publishing incomplete index".format(
-                                   selected_unique - resolved))
-
-        # Extract by indexed SQL lookups per way. This trades random disk I/O
+        if recovering:
+            try:
+                checkpoint = dict(db.execute("SELECT key,value FROM build_checkpoint"))
+                if checkpoint.get("phase") != "coordinates_ready":
+                    raise RuntimeError("Checkpoint not complete; cannot resume polygon assembly")
+                if checkpoint.get("source") != source_signature:
+                    raise RuntimeError("PBF changed since checkpoint; refuse stale coordinate data")
+                selected_unique = db.execute("SELECT COUNT(*) FROM selected_nodes").fetchone()[0]
+                resolved = db.execute(
+                    "SELECT COUNT(*) FROM selected_nodes WHERE lon IS NOT NULL AND lat IS NOT NULL"
+                ).fetchone()[0]
+                if resolved != selected_unique or selected_unique == 0:
+                    raise RuntimeError("Incomplete saved node coordinates")
+                for rel_id, categories_json, name, members_json in db.execute(
+                        "SELECT osm_id,categories_json,name,members_json FROM selected_relations"):
+                    categories, members = json.loads(categories_json), json.loads(members_json)
+                    relations[rel_id] = (categories, name, members)
+                    related_way_ids.update(way_id for way_id, _ in members)
+                    for way_id, _ in members:
+                        relation_way_categories[way_id].update(categories)
+            except sqlite3.DatabaseError as exc:
+                raise RuntimeError("Invalid .part checkpoint; inspect it before a fresh rebuild") from exc
+            # Node POIs were stored in pass 2. Remove only partially assembled ways/relations.
+            db.execute("DELETE FROM tourist_poi WHERE osm_type IN ('w','r')")
+            db.commit()
+            print("Road DNA resume: {:,} node coordinates ready; assembling polygons "
+                  "without repeating PBF scans...".format(resolved), flush=True)
+        else:
+            print("Road DNA 1/3: scanning tagged tourist relations...", flush=True)
+            Relations().apply_file(str(source), locations=False)
+            print("Selected {} area relations and {} member ways".format(
+                  len(relations), len(related_way_ids)), flush=True)
+            print("Road DNA 2/3: tourist points and selected ways...", flush=True)
+            Candidates().apply_file(str(source), locations=False)
+            db.commit()
+            selected_unique = db.execute("SELECT COUNT(*) FROM selected_nodes").fetchone()[0]
+            print("Selected {:,} unique referenced nodes on disk; "
+                  "resolving in pass 3/3...".format(selected_unique), flush=True)
+            class Coordinates(osmium.SimpleHandler):
+                def __init__(self):
+                    super().__init__()
+                    self.seen = 0
+                    self.matched = 0
+    
+                def node(self, obj):
+                    self.seen += 1
+                    ref = int(obj.id)
+                    if ref_filter.maybe(ref) and obj.location.valid():
+                        cursor = db.execute(
+                            "UPDATE selected_nodes SET lon=?,lat=? WHERE id=?",
+                            (obj.location.lon, obj.location.lat, ref))
+                        self.matched += max(0, cursor.rowcount)
+                    if self.seen % 5_000_000 == 0:
+                        print("Road DNA 3/3: {:,} nodes scanned, {:,} references "
+                              "resolved".format(self.seen, self.matched), flush=True)
+    
+            if selected_unique:
+                Coordinates().apply_file(str(source), locations=False)
+            db.commit()
+            resolved = db.execute(
+                "SELECT COUNT(*) FROM selected_nodes WHERE lon IS NOT NULL").fetchone()[0]
+            print("Resolved {:,}/{:,} unique node coordinates; "
+                  "assembling polygons...".format(resolved, selected_unique),
+                  flush=True)
+            if resolved != selected_unique:
+                raise RuntimeError("Missing {:,} referenced OSM node coordinates; "
+                                   "not publishing incomplete index".format(
+                                       selected_unique - resolved))
+    
+            db.execute("UPDATE build_checkpoint SET value='coordinates_ready' WHERE key='phase'")
+            db.commit()
+    
+            # Extract by indexed SQL lookups per way. This trades random disk I/O
         # for bounded RAM; only member ways of area relations are retained.
         def read_way(refs):
             locations = {}
@@ -311,27 +372,25 @@ def build(pbf, output):
                        shape.bounds, "way", "representative")
 
         for rel_id, (categories, name, members) in relations.items():
-            outer, inner = [], []
-            for way_id, role in members:
-                line = way_points.get(way_id)
-                if line is None:
-                    failures["relation_missing_member_way"] += 1
-                    break
-                if role == "inner":
-                    inner.append(line)
-                else:
-                    outer.append(line)
-            else:
-                geom = polygon_from_member_lines(outer, inner)
-                if geom is None:
-                    failures["relation_unassembled_polygon"] += 1
-                    continue
-                point = geom.representative_point()
-                insert("r", rel_id, categories, name, point.x, point.y,
-                       geom.bounds, "area", "representative")
+            outer, inner, missing = relation_member_lines(members, way_points)
+            if missing:
+                # Country-clipped PBFs can omit member ways crossing the border.
+                # Keeping a partial outer ring or dropping missing holes is unsafe.
+                failures["relation_missing_member_way"] += 1
+                if len(missing_relation_examples) < 25:
+                    missing_relation_examples.append(rel_id)
+                continue
+            geom = polygon_from_member_lines(outer, inner)
+            if geom is None:
+                failures["relation_unassembled_polygon"] += 1
+                continue
+            point = geom.representative_point()
+            insert("r", rel_id, categories, name, point.x, point.y,
+                   geom.bounds, "area", "representative")
 
         critical = {key: value for key, value in failures.items()
-                    if key not in ("unsupported_relation_type", "relation_without_way_members")}
+                    if key not in ("unsupported_relation_type", "relation_without_way_members",
+                                   "relation_missing_member_way")}
         if critical:
             raise RuntimeError("Tourist areas incomplete: {}. "
                                "Not publishing this dataset.".format(critical))
@@ -340,6 +399,8 @@ def build(pbf, output):
             raise RuntimeError("No tourist points indexed")
         db.execute("DROP TABLE candidate_way")
         db.execute("DROP TABLE selected_nodes")
+        db.execute("DROP TABLE selected_relations")
+        db.execute("DROP TABLE build_checkpoint")
         db.execute("INSERT INTO tourist_metadata VALUES ('schema','road-dna-tourist-1')")
         db.execute("INSERT INTO tourist_metadata VALUES ('count',?)", (str(count),))
         db.execute("INSERT INTO tourist_metadata VALUES ('relation_count',?)",
@@ -348,25 +409,37 @@ def build(pbf, output):
                    (str(failures["unsupported_relation_type"]),))
         db.execute("INSERT INTO tourist_metadata VALUES ('relation_without_way_members',?)",
                    (str(failures["relation_without_way_members"]),))
+        db.execute("INSERT INTO tourist_metadata VALUES ('relation_missing_member_way',?)",
+                   (str(failures["relation_missing_member_way"]),))
+        db.execute("INSERT INTO tourist_metadata VALUES ('relation_missing_member_way_examples',?)",
+                   (json.dumps(missing_relation_examples),))
+        db.execute("INSERT INTO tourist_metadata VALUES ('relation_coverage',?)",
+                   ("partial" if any(failures.values()) else "complete",))
         db.commit()
+        db_counts = dict(db.execute(
+            "SELECT category,COUNT(*) FROM tourist_poi GROUP BY category"))
         db.execute("VACUUM")
         db.close()
         pending.replace(dest)
         print("Road DNA tourist SQLite ready: {} rows, {} bytes".format(
               count, dest.stat().st_size), flush=True)
-        print("By category:", dict(counts), flush=True)
+        print("By category:", dict(db_counts), flush=True)
+        if failures["relation_missing_member_way"]:
+            print("WARNING: {} clipped OSM relations omitted; see tourist_metadata."
+                  .format(failures["relation_missing_member_way"]), flush=True)
     except BaseException:
         db.close()
-        if pending.exists():
-            pending.unlink()
+        print("Road DNA checkpoint retained (if present): {}".format(pending), flush=True)
         raise
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pbf", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--resume", action="store_true",
+                        help="reuse a verified .part checkpoint after node resolution")
     args = parser.parse_args()
-    build(args.pbf, args.output)
+    build(args.pbf, args.output, resume=args.resume)
 
 if __name__ == "__main__":
     main()
