@@ -422,6 +422,7 @@ fun MapDownloadProgressBox(
 fun OfflineMapsDialog(
     savedMaps: List<SavedMapInfo>,
     photonInstalledBytes: Long,
+    roadDnaInstalledBytes: Long = 0L,
     photonImporting: Boolean,
     photonStatus: String?,
     onImportPhoton: () -> Unit,
@@ -463,7 +464,7 @@ fun OfflineMapsDialog(
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Text("MotoPack Italia", style = MaterialTheme.typography.titleMedium)
-                        Text("Un unico file .motopack installa MotoMap, Valhalla e Photon.",
+                        Text("MotoPack v2: MotoMap, Valhalla, Photon e Road DNA.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text("MotoMap: " + if (savedMaps.isNotEmpty()) "installata" else "assente",
@@ -471,6 +472,10 @@ fun OfflineMapsDialog(
                         Text("Valhalla: " + if (valhallaInstalledBytes > 0L) "installato" else "assente",
                             style = MaterialTheme.typography.labelMedium)
                         Text("Photon: " + if (photonInstalledBytes > 0L) "installato" else "assente",
+                            style = MaterialTheme.typography.labelMedium)
+                        Text("Road DNA: " + if (roadDnaInstalledBytes > 0L)
+                            "installato (" + String.format("%.1f MiB",
+                                roadDnaInstalledBytes / 1048576.0) + ")" else "assente",
                             style = MaterialTheme.typography.labelMedium)
                         FilledTonalButton(
                             onClick = onImportUnifiedPack,
@@ -637,6 +642,7 @@ fun NavigationScreen(
     currentLocation: Pair<Double, Double>? = null,
     savedMaps: List<SavedMapInfo> = emptyList(),
     photonInstalledBytes: Long = 0L,
+    roadDnaInstalledBytes: Long = 0L,
     photonImporting: Boolean = false,
     photonStatus: String? = null,
     onImportPhoton: () -> Unit = {},
@@ -1151,6 +1157,7 @@ fun NavigationScreen(
         OfflineMapsDialog(
             savedMaps = savedMaps,
             photonInstalledBytes = photonInstalledBytes,
+            roadDnaInstalledBytes = roadDnaInstalledBytes,
             photonImporting = photonImporting,
             photonStatus = photonStatus,
             onImportPhoton = onImportPhoton,
