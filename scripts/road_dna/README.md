@@ -2,7 +2,7 @@
 
 Strumento esplorativo: [compare_sources.py](compare_sources.py). Confronta la presenza di luoghi **vicini a vere rotte GPX/GeoJSON** in tre fonti. Non modifica MotoPack, Valhalla o Photon installati.
 
-**Stato 21/11/2026:** codice e procedura preparati. **Non eseguito** su `italy-latest.osm.pbf` dell'utente (il file è soltanto sul suo PC) e non sono disponibili chiavi API Geoapify/OpenTripMap. I numeri reali compaiono in `report.json` dopo l'esecuzione locale. La suite GitHub Actions resta ferma.
+**Stato 21/11/2026:** il primo test online dell'utente su 4 rotte è riuscito dopo aver corretto una chiave Geoapify incollata solo in parte; OpenTripMap e Geoapify hanno restituito dati. La prima scansione offline sul PBF Windows **è stata interrotta** per crescita dell'indice temporaneo `sparse_file_array` (>4 GB) e lentezza dei confronti. Lo script corrente adotta una lettura PBF in **due passaggi, senza indice posizioni OSM su disco**, e un reticolo spaziale per le rotte. **Versione ottimizzata ancora da provare sul PBF reale.** Nessuna build o GitHub Action avviata.
 
 ## Rotte da confrontare
 
@@ -28,7 +28,7 @@ Sono test di parser GeoJSON/GPX, tag secondari e distanza dalla rotta. **Non** a
 
 ## Prestazioni PBF (correzione 21/11/2026)
 
-La versione iniziale ripassava **tutti i segmenti della rotta per ogni POI**: con quattro GPX lunghi poteva apparire bloccata per molti minuti. La versione aggiornata usa **un indice spaziale in memoria di soli segmenti delle quattro tracce** (non una nuova mappa), con progressi ogni 2 milioni di nodi OSM e messaggio prima del `VACUUM` SQLite. Conserva l'approssimazione sulla distanza in linea d'aria e le limitazioni sulle relazioni/multipoligoni; non sono dichiarati benchmark temporali misurati. Le modifiche allo script GitHub **non agiscono su un processo Python già avviato**. Per usare l'ottimizzazione, terminare consapevolmente la vecchia scansione, fare `git pull --ff-only origin valhalla` e scegliere una **nuova cartella `--output`**, perché il database SQLite viene creato da zero. Il comando non avvia CI, né modifica i dati installati.
+La prima versione creava un indice temporaneo `sparse_file_array` con posizioni di moltissimi nodi OSM (>4 GB nel primo test dell'utente). La versione aggiornata legge il PBF **due volte**: prima raccoglie i soli riferimenti dei nodi appartenenti a way turistiche, poi risolve **solo quei nodi**. Evita quindi il grande file `.idx`; mantiene però una struttura selettiva in memoria (fino a 3 milioni di riferimenti di nodo) e una tabella SQLite temporanea di *way* candidate, che possono comunque usare risorse non trascurabili. Se la soglia viene raggiunta, alcune way vengono saltate e riportate nel report. L'indice spaziale in memoria dei segmenti dei quattro itinerari riduce drasticamente i confronti di distanza. Log di avanzamento ogni 2 milioni di nodi OSM in entrambi i passaggi e messaggio prima del `VACUUM`. **Non sono ancora disponibili misure effettive di velocità/memoria della nuova versione.** I multipoligoni e le relazioni OSM restano dati incompleti. Se hai interrotto la scansione, fai `git pull --ff-only origin valhalla` e scegli una **nuova cartella `--output`**, perché il database SQLite viene creato da zero. Non altera MotoPack né avvia CI.
 
 ## 1. Avvio offline: inventario PBF e dimensione SQLite
 
@@ -40,14 +40,19 @@ git pull --ff-only origin valhalla
 source ~/valhalla-env/bin/activate
 python3 -c "import osmium; print('pyosmium OK')"
 
+ls -lh /mnt/c/MotoGPS/RoadDNA/*.gpx
+
 python3 scripts/road_dna/compare_sources.py \
   --pbf /mnt/c/MotoGPS/PBF/italy-latest.osm.pbf \
-  --route /mnt/c/MotoGPS/RoadDNA/montagna.gpx \
-  --route /mnt/c/MotoGPS/RoadDNA/lago.gpx \
-  --route /mnt/c/MotoGPS/RoadDNA/costa.gpx \
+  --route /mnt/c/MotoGPS/RoadDNA/Montagna.gpx \
+  --route /mnt/c/MotoGPS/RoadDNA/Costa.gpx \
+  --route /mnt/c/MotoGPS/RoadDNA/Cultura.gpx \
+  --route /mnt/c/MotoGPS/RoadDNA/Laghi.gpx \
   --buffer-m 2000 \
-  --output ~/motogps-build/road-dna-comparison
+  --output ~/motogps-build/road-dna-comparison-v2
 ```
+
+I nomi `Montagna.gpx`, `Costa.gpx`, `Cultura.gpx`, `Laghi.gpx` sono derivati dalle etichette presenti nel report online; **verificarli con `ls`** e adattare maiuscole/estensioni ai file effettivi. La cartella di output `road-dna-comparison-v2` deve essere nuova. Le precedenti cartelle di output e indici temporanei **non vengono riutilizzati**.
 
 Se `import osmium` fallisce, con l'ambiente di lavoro attivo installare il solo modulo Python per lettura OSM: `pip install osmium`. Non reinstallare Valhalla.
 
