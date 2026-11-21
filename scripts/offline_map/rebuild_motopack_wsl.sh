@@ -10,21 +10,21 @@ Uso (WSL Ubuntu, ambiente valhalla-env attivo):
 
 Sorgenti predefiniti: /mnt/c/MotoGPS/PBF
   italy-latest.osm.pbf, italy.poly, photon-italy.jsonl.zst
-Destinazione predefinita: ~/motogps-build/ItaliaUnificata-20261118
+Destinazione predefinita: ~/motogps-build/ItaliaUnificata-RoadDNA-v2
 
-Ricrea MotoMap v4, Photon SQLite v2 con indice POI OSM e Valhalla V5 DAL PBF, quindi
+Ricrea MotoMap v4, Photon SQLite v2 con POI OSM, Road DNA turistico v1 e Valhalla V5 DAL PBF, quindi
 assembla/verifica MotoChatGPS-Italia.motopack. Il vecchio
 valhalla_italia_v5.tar.zst nella cartella sorgenti NON viene riutilizzato.
 La vecchia destinazione rimane intatta finche' il pacchetto nuovo non supera
 la verifica. Alla fine viene sostituita (backup temporaneo cancellato).
-L'output preesistente puo' contenere solo i quattro artefatti generati;
+L'output preesistente puo' contenere solo i cinque artefatti generati;
 per non perdere dati estranei, lo script rifiuta cartelle con altri file.
 Servono temporaneamente spazio per VECCHIA e NUOVA build insieme.
 HELP
 }
 
 SRC="/mnt/c/MotoGPS/PBF"
-OUT="$HOME/motogps-build/ItaliaUnificata-20261118"
+OUT="$HOME/motogps-build/ItaliaUnificata-RoadDNA-v2"
 THREADS=2
 PYTHON=python3
 while (($#)); do
@@ -64,7 +64,7 @@ if [[ -e "$OUT" ]]; then
   shopt -s nullglob dotglob
   for existing in "$OUT"/*; do
     case "${existing##*/}" in
-      italy-v4.motomap.zip|photon-italy-v2.sqlite|ValhallaItaliaV5|MotoChatGPS-Italia.motopack) ;;
+      italy-v4.motomap.zip|photon-italy-v2.sqlite|tourist-italy-v1.sqlite|ValhallaItaliaV5|MotoChatGPS-Italia.motopack) ;;
       *) echo "File estraneo nella cartella di output: $existing" >&2
          echo "Spostalo altrove o scegli --out prima di sostituire la cartella." >&2
          exit 2;;
