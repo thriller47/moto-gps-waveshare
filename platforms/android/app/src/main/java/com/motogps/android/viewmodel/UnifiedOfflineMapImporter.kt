@@ -23,7 +23,8 @@ internal object UnifiedOfflineMapImporter {
     private val names = linkedMapOf(
         "motomap" to "motomap/italy-v4.motomap.zip",
         "valhalla" to "valhalla/valhalla_tiles.tar.zst",
-        "photon" to "photon/photon-italy-v2.sqlite"
+        "photon" to "photon/photon-italy-v2.sqlite",
+        "tourist" to "road-dna/tourist-italy-v1.sqlite"
     )
 
     /** Preserve native extensions: Valhalla's importer uses .tar.zst to select Zstd. */
@@ -97,7 +98,7 @@ internal object UnifiedOfflineMapImporter {
             if (seen != names.values.toSet() + MANIFEST)
                 throw IOException("Pacchetto incompleto")
             val root = JSONObject(manifestText ?: throw IOException("Manifest assente"))
-            if (root.optString("format") != FORMAT || root.optInt("version") != 1 ||
+            if (root.optString("format") != FORMAT || root.optInt("version") != 2 ||
                 root.optString("region") != "IT") throw IOException("Versione del pacchetto non supportata")
             val components = root.getJSONObject("components")
             if (components.length() != names.size) throw IOException("Manifest non coerente")
@@ -117,6 +118,9 @@ internal object UnifiedOfflineMapImporter {
             progress("Installazione Photon...")
             OfflinePhotonPlaceSearch.install(context, Uri.fromFile(staged.getValue("photon")))
             if (cancelled()) throw java.util.concurrent.CancellationException("Importazione annullata")
+            if (cancelled()) throw java.util.concurrent.CancellationException("Importazione annullata")
+            progress("Installazione Road DNA...")
+            OfflineTouristPlaceSearch.install(context, Uri.fromFile(staged.getValue("tourist")))
             progress("Installazione Valhalla...")
             val graphBytes = ValhallaGraphImporter.install(
                 context, Uri.fromFile(staged.getValue("valhalla")),
