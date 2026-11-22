@@ -783,6 +783,7 @@ fun NavigationScreen(
     var zoneMapMode by remember { mutableStateOf(false) }
     var zoneRadiusKm by remember { mutableIntStateOf(5) }
     var zoneCategoryId by remember { mutableStateOf("consigliati") }
+    var zoneSearchStarted by remember { mutableStateOf(false) }
     var zoneMapRef by remember { mutableStateOf<MapView?>(null) }
     var selectedOnlineSuggestion by remember {
         mutableStateOf<RoadDnaOnlinePoi?>(null)
@@ -1075,6 +1076,7 @@ fun NavigationScreen(
                             if (point != null) {
                                 selectedOnlineSuggestion = null
                                 zoneMapMode = true
+                                zoneSearchStarted = true
                                 onRoadDnaZoneSearch(point.latitude, point.longitude,
                                     zoneRadiusKm, zoneCategoryId)
                             }
@@ -1091,8 +1093,9 @@ fun NavigationScreen(
                         Text(roadDnaZoneError, color = MaterialTheme.colorScheme.error)
                     if (zoneMapMode && roadDnaZone != null)
                         Text(roadDnaZone.message, style = MaterialTheme.typography.bodySmall)
-                    if (zoneMapMode && shownSuggestions.isEmpty() &&
-                        !roadDnaZoneLoading && roadDnaZoneError == null)
+                    if (zoneMapMode && zoneSearchStarted &&
+                        shownSuggestions.isEmpty() && !roadDnaZoneLoading &&
+                        roadDnaZoneError == null)
                         Text("Nessun luogo trovato: prova un'altra zona o categoria.")
                     if (zoneMapMode && onlineSuggestionsForMap.isNotEmpty()) {
                         TextButton(onClick = {
@@ -1219,6 +1222,7 @@ fun NavigationScreen(
                                     onlineSuggestionsForMap = visiblePlaces.take(60)
                                     selectedOnlineSuggestion = null
                                     zoneMapMode = false
+                                    zoneSearchStarted = false
                                     zoneCategoryId = roadDnaOnline.categoryId
                                     showOnlineSuggestionsMap = true
                                 },
@@ -1377,6 +1381,7 @@ fun NavigationScreen(
                         enabled = !isNavigating,
                         onClick = {
                             zoneMapMode = true
+                            zoneSearchStarted = false
                             onlineSuggestionsForMap = emptyList()
                             selectedOnlineSuggestion = null
                             zoneMapRef = null
