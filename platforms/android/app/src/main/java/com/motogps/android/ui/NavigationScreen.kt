@@ -889,6 +889,7 @@ fun NavigationScreen(
             }
         )
     }
+    // Match the large, isolated Road DNA nearby-map presentation.
     if (showRoadDnaMap && roadDnaSummary != null && routePreview != null &&
         !isNavigating) {
         val selectedOption = routeOptions.getOrNull(selectedRouteIndex)
@@ -897,21 +898,42 @@ fun NavigationScreen(
         val previewGeometry = selectedOption?.let {
             com.motogps.android.viewmodel.RoadDnaAnalysis.geometry(it.rawRouteJson)
         } ?: emptyList()
-        AlertDialog(
+        Dialog(
             onDismissRequest = {
                 showRoadDnaMap = false
+                selectedOfflineRoadDnaPoi = null
+                selectedOnlineRoadDnaAccess = null
+                proposedRoadsideStop = null
                 onRoadDnaAreaAccessClear()
             },
-            title = { Text("Road DNA · ${RoadDnaCategories.get(offlineRoadDnaCategory).title}") },
-            text = {
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(0.95f).fillMaxHeight(0.88f),
+                shape = RoundedCornerShape(20.dp),
+                tonalElevation = 4.dp
+            ) {
                 Column(
-                    modifier = Modifier.heightIn(max = 530.dp)
-                        .verticalScroll(rememberScrollState()),
+                    modifier = Modifier.fillMaxSize().padding(vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("Tocca un segnalino per vedere il luogo. Le aree OSM " +
-                        "hanno posizione indicativa: non sono accessi stradali.",
-                        style = MaterialTheme.typography.bodySmall)
+                    Text("Road DNA · percorso",
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 1,
+                        modifier = Modifier.padding(horizontal = 16.dp))
+                    Text("${places.size} luoghi · " +
+                        RoadDnaCategories.get(offlineRoadDnaCategory).title,
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1,
+                        modifier = Modifier.padding(horizontal = 16.dp))
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().weight(1f)
+                            .padding(horizontal = 10.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        tonalElevation = 2.dp
+                    ) {
+                        Box(modifier = Modifier.padding(7.dp)
+                            .clip(RoundedCornerShape(10.dp)).clipToBounds()) {
                     RouteMapView(
                         geoPoints = extractGeoPoints(selectedOption,
                             currentLocation, routePreview),
@@ -937,8 +959,29 @@ fun NavigationScreen(
                             proposedRoadsideStop = null
                             onRoadDnaAreaAccessClear()
                         },
-                        modifier = Modifier.fillMaxWidth().height(260.dp)
+                        modifier = Modifier.fillMaxSize()
                     )
+                        }
+                    }
+                    Column(
+                        modifier = Modifier.fillMaxWidth()
+                            .heightIn(max = 210.dp)
+                            .verticalScroll(rememberScrollState())
+                            .padding(horizontal = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        if (selectedOfflineRoadDnaPoi == null &&
+                            selectedOnlineRoadDnaAccess == null) {
+                            Text("Tocca un segnalino per vedere il luogo. " +
+                                "Le aree OSM non sono ingressi verificati.",
+                                style = MaterialTheme.typography.bodySmall)
+                        }
+                        if (selectedOnlineRoadDnaAccess != null &&
+                            selectedOfflineRoadDnaPoi != null) {
+                            TextButton(onClick = {
+                                selectedOnlineRoadDnaAccess = null
+                            }) { Text("Torna all'area selezionata") }
+                        }
                     selectedOnlineRoadDnaAccess?.let { access ->
                         HorizontalDivider()
                         Text("Punto online selezionato: " + access.name +
@@ -961,7 +1004,9 @@ fun NavigationScreen(
                             onRoadDnaAreaAccessClear()
                         }) { Text("Aggiungi punto online come tappa") }
                     }
-                    selectedOfflineRoadDnaPoi?.let { poi ->
+                    selectedOfflineRoadDnaPoi?.takeIf {
+                        selectedOnlineRoadDnaAccess == null
+                    }?.let { poi ->
                         Text(poi.name + " · " + poi.category)
                         if (poi.exactLocation) {
                             Text("Posizione OSM puntuale. Valhalla deve poter " +
@@ -1056,21 +1101,25 @@ fun NavigationScreen(
                             }
                         }
                     }
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth()
+                            .padding(horizontal = 12.dp),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        TextButton(onClick = {
+                            showRoadDnaMap = false
+                            showRoadDnaDialog = true
+                            selectedOfflineRoadDnaPoi = null
+                            selectedOnlineRoadDnaAccess = null
+                            proposedRoadsideStop = null
+                            onRoadDnaAreaAccessClear()
+                        }) { Text("Torna a Road DNA") }
+                    }
                 }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    showRoadDnaMap = false
-                    showRoadDnaDialog = true
-                    selectedOfflineRoadDnaPoi = null
-                    selectedOnlineRoadDnaAccess = null
-                    proposedRoadsideStop = null
-                    onRoadDnaAreaAccessClear()
-                }) { Text("Torna a Road DNA") }
             }
-        )
+        }
     }
-
 
     // 1) Compact search panel: no vertical scrolling. The results map
     // action is pinned in AlertDialog's bottom bar.
