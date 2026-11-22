@@ -1201,8 +1201,7 @@ fun NavigationScreen(
                                 zoneSearchStarted = true
                                 selectedOnlineSuggestion = null
                                 gpsMapRecenterId++
-                                gpsMapRecenterId++
-                            onRoadDnaNearbySearch(zoneRadiusKm, zoneCategoryId)
+                                onRoadDnaNearbySearch(zoneRadiusKm, zoneCategoryId)
                             }
                         ) { Text("Aggiorna ricerca intorno a me · GPS") }
                         if (roadDnaNearbyCenter != null)
@@ -2577,6 +2576,7 @@ fun NavigationScreen(
                         zoneMapRef = null
                         onRoadDnaZoneClear()
                         showOnlineSuggestionsMap = true
+                        gpsMapRecenterId++
                         onRoadDnaNearbySearch(zoneRadiusKm, zoneCategoryId)
                     },
                     enabled = !isNavigating && !isLoading,
