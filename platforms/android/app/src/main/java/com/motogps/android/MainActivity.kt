@@ -282,6 +282,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             val roadDnaOnline = viewModel.roadDnaOnline.collectAsState().value
             val roadDnaOnlineLoading = viewModel.roadDnaOnlineLoading.collectAsState().value
             val roadDnaOnlineError = viewModel.roadDnaOnlineError.collectAsState().value
+            val roadDnaNearbyCenter = viewModel.roadDnaNearbyCenter.collectAsState().value
             val roadDnaZone = viewModel.roadDnaZone.collectAsState().value
             val roadDnaZoneLoading = viewModel.roadDnaZoneLoading.collectAsState().value
             val roadDnaZoneError = viewModel.roadDnaZoneError.collectAsState().value
@@ -378,6 +379,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                         viewModel.searchRoadDnaOnline(categoryId)
                     },
                     onRoadDnaDetails = { viewModel.loadRoadDnaDetails(it) },
+                    roadDnaNearbyCenter = roadDnaNearbyCenter,
                     roadDnaZone = roadDnaZone,
                     roadDnaZoneLoading = roadDnaZoneLoading,
                     roadDnaZoneError = roadDnaZoneError,
@@ -385,6 +387,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                         viewModel.searchRoadDnaZone(lat, lon, radius, category)
                     },
                     onRoadDnaZoneClear = { viewModel.clearRoadDnaZone() },
+                    onRoadDnaNearbySearch = { radius, category ->
+                        viewModel.searchRoadDnaAroundMe(radius, category)
+                    },
                     roadDnaAreaAccesses = roadDnaAreaAccesses,
                     roadDnaAreaAccessLoading = roadDnaAreaAccessLoading,
                     roadDnaAreaAccessError = roadDnaAreaAccessError,
