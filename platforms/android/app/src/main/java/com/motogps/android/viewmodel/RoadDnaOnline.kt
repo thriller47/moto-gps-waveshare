@@ -249,6 +249,43 @@ internal object RoadDnaOnline {
             .put("offset", 0)
     }
 
+    /** User-selected circle; distinct from the 2 km route corridor. */
+    internal fun zoneBody(lat: Double, lon: Double, radiusKm: Int,
+                          categoryId: String): JSONObject {
+        require(valid(lat, lon) && radiusKm in 1..20)
+        val category = RoadDnaCategories.get(categoryId)
+        return JSONObject()
+            .put("categories", JSONArray().apply { category.geo.forEach { put(it) } })
+            .put("filter", JSONObject().put("type", "circle")
+                .put("lat", lat).put("lon", lon).put("radius", radiusKm * 1000))
+            .put("lang", "it").put("limit", 100).put("offset", 0)
+    }
+
+    /** Search centered on the map, not near the itinerary. Only one explicit
+     * Geoapify request; larger areas can be truncated by provider pagination.
+     * This is intentionally separate from Road DNA corridor suggestions.
+     */
+    suspend fun searchZone(context: Context, lat: Double, lon: Double,
+                           radiusKm: Int, categoryId: String): RoadDnaOnlineResult {
+        val body = zoneBody(lat, lon, radiusKm, categoryId)
+        val key = RoadDnaApiKeys.read(context, "geoapify")
+            ?: throw IllegalStateException("Configura la chiave Geoapify")
+        currentCoroutineContext().ensureActive()
+        val data = JSONObject(fetch(GEO, key, body.toString()))
+        currentCoroutineContext().ensureActive()
+        val received = parseGeo(data).filter { RoadDnaCategories.matches(categoryId, it) }
+        val ranked = rankPlaces(received.map { place ->
+            place.copy(distanceMeters = RoadDnaAnalysis.distanceMeters(
+                place.latitude to place.longitude, lat to lon, lat to lon).toInt())
+        })
+        val partial = (data.optJSONArray("features")?.length() ?: 0) >= 100 ||
+            ranked.size > 60
+        return RoadDnaOnlineResult(ranked.take(60), partial,
+            if (partial) "Risultati parziali: massimo 100 POI per richiesta; " +
+                "riduci il raggio per approfondire la zona."
+            else "Ricerca nella zona completata", categoryId)
+    }
+
     internal fun tripRadiusUrl(lat: Double, lon: Double, apiKey: String,
                                radius: Int = 2000, limit: Int = 25,
                                rate: Int = 2,
