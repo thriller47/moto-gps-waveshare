@@ -1820,11 +1820,8 @@ fun NavigationScreen(
                             } else if (offlinePlaces.isEmpty()) {
                                 Text("Nessun luogo della categoria individuato lungo questa rotta.")
                             } else {
-                                for (poi in offlinePlaces) {
-                                    Text("• ${poi.name} · ${poi.category}" +
-                                        if (poi.exactLocation) "" else
-                                            " (posizione indicativa)")
-                                }
+                                // Keep the overview compact, just like nearby search:
+                                // inspect individual POIs on the dedicated map.
                                 OutlinedButton(onClick = {
                                     selectedOfflineRoadDnaPoi = null
                                     selectedOnlineRoadDnaAccess = null
