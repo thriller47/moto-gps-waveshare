@@ -200,10 +200,10 @@ jobs:
             echo "::error::Android sdkmanager is missing"
             exit 1
           fi
-          if [[ ! -f "$sdk/platforms/android-37/android.jar" ]]; then
-            "$manager" --sdk_root="$sdk" --channel=3 --install "platforms;android-37"
+          if [[ ! -f "$sdk/platforms/android-37.0/android.jar" ]]; then
+            "$manager" --sdk_root="$sdk" --install "platforms;android-37.0"
           fi
-          test -f "$sdk/platforms/android-37/android.jar"
+          test -f "$sdk/platforms/android-37.0/android.jar"
 
       - name: Ensure Android NDK 29 is installed (retry corrupted downloads)
         run: |
