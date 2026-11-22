@@ -26,6 +26,48 @@ class RoadDnaOnlineTest {
         assertFalse(body.toString().contains("apiKey"))
     }
 
+    @Test fun categoryQueriesFetchBeachesInsteadOfGenericAttractions() {
+        val route = listOf(43.0 to 7.5, 43.1 to 7.6)
+        val beach = RoadDnaOnline.geoBody(route, "spiagge")
+        assertEquals("[\"beach\"]", beach.getJSONArray("categories").toString())
+        assertEquals(2000, beach.getJSONObject("filter").getInt("buffer"))
+        val url = RoadDnaOnline.tripRadiusUrl(43.0, 7.5, "key",
+            categoryId = "spiagge")
+        assertTrue(url.contains("kinds=beaches"))
+        assertFalse(url.contains("castles"))
+        val standard = RoadDnaOnline.geoBody(route)
+        assertTrue(standard.getJSONArray("categories").toString()
+            .contains("tourism.sights"))
+    }
+
+    @Test fun tourismCategoryFilterRejectsCastlesWhenAskingForBeaches() {
+        val beach = RoadDnaOnlinePoi("Spiaggia Grande", "beach", 80,
+            "Geoapify", 43.0, 7.0)
+        val castle = RoadDnaOnlinePoi("Castello", "tourism.sights.castle", 80,
+            "Geoapify", 43.0, 7.0)
+        val sand = RoadDnaOnlinePoi("Spiaggia", "interesting_places", 80,
+            "OpenTripMap", 43.0, 7.0, "N1",
+            categoryTags = listOf("interesting_places", "beaches"))
+        assertTrue(RoadDnaCategories.matches("spiagge", beach))
+        assertTrue(RoadDnaCategories.matches("spiagge", sand))
+        assertFalse(RoadDnaCategories.matches("spiagge", castle))
+        assertTrue(RoadDnaCategories.matches("consigliati", castle))
+    }
+
+    @Test fun historyAndPanoramaCategoriesUseProviderLabels() {
+        val history = RoadDnaOnlinePoi("Forte", "tourism.sights.fort", 100,
+            "Geoapify", 45.0, 7.0)
+        val panorama = RoadDnaOnlinePoi("Belvedere",
+            "tourism.attraction.viewpoint", 100, "Geoapify", 45.0, 7.0)
+        assertTrue(RoadDnaCategories.matches("castelli", history))
+        assertFalse(RoadDnaCategories.matches("panorami", history))
+        assertTrue(RoadDnaCategories.matches("panorami", panorama))
+        assertFalse(RoadDnaCategories.matches("castelli", panorama))
+        val tourism = RoadDnaCategories.options.map { it.id }
+        assertTrue(tourism.containsAll(listOf("consigliati", "spiagge",
+            "panorami", "castelli", "cultura", "natura", "terme")))
+    }
+
     @Test fun geoapifyRequiresActualRouteNotSinglePlace() {
         try {
             RoadDnaOnline.geoBody(listOf(45.0 to 7.0))
