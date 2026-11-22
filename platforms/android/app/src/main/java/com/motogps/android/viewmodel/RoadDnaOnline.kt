@@ -119,8 +119,72 @@ data class RoadDnaOnlinePoi(
 data class RoadDnaOnlineResult(
     val places: List<RoadDnaOnlinePoi>,
     val partial: Boolean,
-    val message: String
+    val message: String,
+    val categoryId: String = "consigliati"
 )
+
+
+/**
+ * Road DNA modes are product-level categories, not a raw provider taxonomy.
+ * Explicit selection changes the provider query itself: switching to beaches
+ * must fetch beaches, not filter an old castles/museums response.
+ */
+internal object RoadDnaCategories {
+    data class Option(val id: String, val title: String,
+        val geo: List<String>, val trip: List<String>)
+    val options = listOf(
+        Option("consigliati", "Consigliati", listOf("tourism.attraction",
+            "tourism.sights", "entertainment.culture", "national_park"), emptyList()),
+        Option("spiagge", "Spiagge", listOf("beach"), listOf("beaches")),
+        Option("panorami", "Panorami", listOf("tourism.attraction.viewpoint",
+            "natural.mountain.peak"), listOf("view_points", "mountain_peaks")),
+        Option("castelli", "Castelli e storia", listOf("tourism.sights.castle",
+            "tourism.sights.fort", "tourism.sights.ruines",
+            "tourism.sights.archaeological_site"),
+            listOf("castles", "fortifications", "ruins", "archaeology")),
+        Option("cultura", "Arte e cultura", listOf("entertainment.museum",
+            "tourism.sights.place_of_worship", "tourism.sights.monastery"),
+            listOf("museums", "religion")),
+        Option("natura", "Natura", listOf("national_park", "natural",
+            "leisure.park.nature_reserve"), listOf("natural")),
+        Option("terme", "Terme", listOf("leisure.spa",
+            "natural.water.hot_spring"), emptyList())
+    )
+    fun get(id: String): Option = options.firstOrNull { it.id == id }
+        ?: throw IllegalArgumentException("Categoria Road DNA sconosciuta")
+
+    internal fun matches(id: String, poi: RoadDnaOnlinePoi): Boolean {
+        if (id == "consigliati") return true
+        val tags = (poi.categoryTags + poi.category)
+            .map { it.trim().lowercase(java.util.Locale.ROOT) }
+        fun has(vararg keys: String): Boolean = keys.any { key ->
+            tags.any { it == key || it.startsWith(key + ".") }
+        }
+        return when (id) {
+            "spiagge" -> has("beach", "beaches", "sand_beaches",
+                "natural_beaches")
+            "panorami" -> has("tourism.attraction.viewpoint",
+                "natural.mountain.peak", "view_points", "viewpoints",
+                "mountain_peaks")
+            "castelli" -> has("tourism.sights.castle", "tourism.sights.fort",
+                "tourism.sights.ruines", "tourism.sights.archaeological_site",
+                "castles", "fortifications", "ruins", "archaeology",
+                "archaeological_sites", "fortresses")
+            "cultura" -> has("entertainment.museum",
+                "tourism.sights.place_of_worship.cathedral",
+                "tourism.sights.place_of_worship.church",
+                "tourism.sights.place_of_worship.shrine",
+                "tourism.sights.monastery", "museums", "cathedrals",
+                "monasteries", "abbeys", "churches", "religious_architecture")
+            "natura" -> has("national_park", "natural", "leisure.park.nature_reserve",
+                "nature_reserves", "natural_reserves", "lakes", "waterfalls",
+                "mountain_peaks", "caves", "natural")
+            "terme" -> has("leisure.spa", "natural.water.hot_spring",
+                "thermal_baths", "hot_springs", "spas")
+            else -> false
+        }
+    }
+}
 
 /** HTTP status only: never include a provider URL, which may contain an API key. */
 internal class RoadDnaProviderHttpException(val statusCode: Int) :
@@ -140,7 +204,9 @@ internal object RoadDnaOnline {
     private const val WIKIMEDIA_UA =
         "MotoChatGPS/0.2 (https://github.com/thriller47/moto-gps-waveshare)"
 
-    internal fun geoBody(points: List<Pair<Double, Double>>): JSONObject {
+    internal fun geoBody(points: List<Pair<Double, Double>>,
+                         categoryId: String = "consigliati"): JSONObject {
+        val category = RoadDnaCategories.get(categoryId)
         require(points.size in 2..GEO_VERTICES_PER_CHUNK)
         val coordinates = JSONArray()
         points.forEach { (lat, lon) ->
@@ -149,9 +215,9 @@ internal object RoadDnaOnline {
             coordinates.put(JSONArray().put(lon).put(lat))
         }
         return JSONObject()
-            .put("categories", JSONArray().put("tourism.attraction")
-                .put("tourism.sights").put("entertainment.culture")
-                .put("national_park"))
+            .put("categories", JSONArray().apply {
+                category.geo.forEach { put(it) }
+            })
             .put("filter", JSONObject().put("type", "polyline")
                 .put("geometry", JSONObject().put("type", "LineString")
                     .put("coordinates", coordinates))
@@ -163,12 +229,16 @@ internal object RoadDnaOnline {
 
     internal fun tripRadiusUrl(lat: Double, lon: Double, apiKey: String,
                                radius: Int = 2000, limit: Int = 25,
-                               rate: Int = 2): String {
+                               rate: Int = 2,
+                               categoryId: String = "consigliati"): String {
+        val kinds = RoadDnaCategories.get(categoryId).trip
         require(valid(lat, lon) && radius in 1..2000 && limit in 1..25 &&
             rate in 1..2)
         return OTM + "/radius?radius=" + radius + "&lon=" + lon + "&lat=" + lat +
-            "&rate=" + rate + "&limit=" + limit + "&format=json&apikey=" +
-            URLEncoder.encode(apiKey, "UTF-8")
+            "&rate=" + rate + "&limit=" + limit + "&format=json" +
+            (if (kinds.isNotEmpty()) "&kinds=" +
+                URLEncoder.encode(kinds.joinToString(","), "UTF-8") else "") +
+            "&apikey=" + URLEncoder.encode(apiKey, "UTF-8")
     }
 
     private fun fetch(url: String, key: String? = null, body: String? = null,
@@ -368,7 +438,9 @@ internal object RoadDnaOnline {
         }
     }
 
-    suspend fun search(context: Context, route: List<Pair<Double, Double>>): RoadDnaOnlineResult {
+    suspend fun search(context: Context, route: List<Pair<Double, Double>>,
+                       categoryId: String = "consigliati"): RoadDnaOnlineResult {
+        RoadDnaCategories.get(categoryId)
         require(route.size >= 2) { "Geometria percorso mancante" }
         val geoKey = RoadDnaApiKeys.read(context, "geoapify")
         val tripKey = RoadDnaApiKeys.read(context, "opentripmap")
@@ -390,9 +462,11 @@ internal object RoadDnaOnline {
             for (chunk in chunks) {
                 try {
                     currentCoroutineContext().ensureActive()
-                    val body = geoBody(chunk).toString()
+                    val body = geoBody(chunk, categoryId).toString()
                     val data = JSONObject(fetch(GEO, geoKey, body))
-                    val received = parseGeo(data)
+                    val received = parseGeo(data).filter {
+                        RoadDnaCategories.matches(categoryId, it)
+                    }
                     addCandidates(places, received, route)
                     completed = true
                     if ((data.optJSONArray("features")?.length() ?: 0) >= 100)
@@ -415,7 +489,10 @@ internal object RoadDnaOnline {
                 try {
                     currentCoroutineContext().ensureActive()
                     val (lat, lon) = route[i]
-                    val received = parseTrip(JSONArray(fetch(tripRadiusUrl(lat, lon, tripKey))))
+                    val received = parseTrip(JSONArray(fetch(tripRadiusUrl(lat, lon, tripKey,
+                        categoryId = categoryId)))).filter {
+                        RoadDnaCategories.matches(categoryId, it)
+                    }
                     addCandidates(places, received, route)
                     completed = true
                 } catch (e: CancellationException) {
@@ -433,7 +510,7 @@ internal object RoadDnaOnline {
         return RoadDnaOnlineResult(ranked.take(60),
             partial, errors.joinToString("; ").ifBlank {
                 if (partial) "Risultati parziali: limiti API o campionamento" else "Ricerca completata"
-            })
+            }, categoryId)
     }
 
     /**
