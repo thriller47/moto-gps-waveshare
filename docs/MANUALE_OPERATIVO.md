@@ -383,9 +383,12 @@ gh run download ID_RUN -R thriller47/moto-gps-waveshare -n ESP32-Firmware -D C:\
 ```powershell
 Set-Location "C:\MotoGPS\moto-gps-waveshare\platforms\android"
 .\gradlew.bat testDebugUnitTest assembleDebug
-adb devices
-adb install -r "C:\MotoGPS\moto-gps-waveshare\platforms\android\app\build\outputs\apk\debug\app-debug.apk"
+$adb = "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe"
+& $adb devices
+& $adb -s R5CXA3SF4QT install -r ".\app\build\outputs\apk\debug\app-debug.apk"
 ```
+
+**Installazione sul Samsung in uso (PowerShell):** il seriale ADB attuale è `R5CXA3SF4QT`. Il comando sopra è quello utilizzato dall’utente per aggiornare l’APK debug, dalla cartella `platforms/android`. La variabile `$adb` indica l’eseguibile ADB dell’Android SDK locale; se è già definita nella sessione PowerShell, non occorre ridefinirla. `-s` evita l’errore «more than one device/emulator» selezionando il telefono corretto; `-r` mantiene i dati dell’app quando firma e versionCode consentono l’aggiornamento. Controllare il seriale con `& $adb devices` se si cambia telefono. **Build Android e audit ELF 16 KiB:** confermati dall’utente il 22/11/2026 (sei librerie PASS, zero segmenti LOAD non validi); verifica ZIP e installazione/collaudo su Samsung ancora da confermare.
 
 ### Verifica librerie Android a 16 KB (branch sperimentale, novembre 2026)
 
