@@ -430,7 +430,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     data class RoadDnaZoneFocus(
         val latitude: Double,
         val longitude: Double,
-        val radiusKm: Int
+        val radiusKm: Int,
+        val categoryId: String
     )
     private val _roadDnaZoneFocus = MutableStateFlow<RoadDnaZoneFocus?>(null)
     val roadDnaZoneFocus: StateFlow<RoadDnaZoneFocus?> = _roadDnaZoneFocus
@@ -625,7 +626,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         }
         roadDnaZoneJob?.cancel()
         val request = ++roadDnaZoneRequest
-        _roadDnaZoneFocus.value = RoadDnaZoneFocus(lat, lon, radiusKm)
+        _roadDnaZoneFocus.value = RoadDnaZoneFocus(lat, lon, radiusKm, categoryId)
         _roadDnaZone.value = null
         _roadDnaZoneOffline.value = emptyList()
         _roadDnaZoneError.value = null
