@@ -428,6 +428,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     val roadDnaOnlineError: StateFlow<String?> = _roadDnaOnlineError
     private val _roadDnaNearbyCenter = MutableStateFlow<Pair<Double, Double>?>(null)
     val roadDnaNearbyCenter: StateFlow<Pair<Double, Double>?> = _roadDnaNearbyCenter
+    private val _roadDnaZoneOffline = MutableStateFlow<List<RoadDnaPoi>>(emptyList())
+    val roadDnaZoneOffline: StateFlow<List<RoadDnaPoi>> = _roadDnaZoneOffline
     private val _roadDnaZone = MutableStateFlow<RoadDnaOnlineResult?>(null)
     val roadDnaZone: StateFlow<RoadDnaOnlineResult?> = _roadDnaZone
     private val _roadDnaZoneLoading = MutableStateFlow(false)
@@ -607,14 +609,31 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         roadDnaZoneJob?.cancel()
         val request = ++roadDnaZoneRequest
         _roadDnaZone.value = null
+        _roadDnaZoneOffline.value = emptyList()
         _roadDnaZoneError.value = null
         roadDnaZoneJob = viewModelScope.launch {
             _roadDnaZoneLoading.value = true
+            // Offline SQLite is authoritative for MotoPack tourist POIs.
+            // An online failure must never wipe out its successful results.
             try {
-                val result = withContext(Dispatchers.IO) {
-                    RoadDnaOnline.searchZone(context, lat, lon, radiusKm, categoryId)
+                val nearby = withContext(Dispatchers.IO) {
+                    RoadDnaAnalysis.nearby(context, lat, lon, radiusKm, categoryId)
                 }
-                if (request == roadDnaZoneRequest) _roadDnaZone.value = result
+                if (request == roadDnaZoneRequest) _roadDnaZoneOffline.value = nearby
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (request == roadDnaZoneRequest)
+                    _roadDnaZoneError.value =
+                        "Indice turistico offline non leggibile; provo Geoapify."
+            }
+            try {
+                if (RoadDnaApiKeys.present(context, "geoapify")) {
+                    val result = withContext(Dispatchers.IO) {
+                        RoadDnaOnline.searchZone(context, lat, lon, radiusKm, categoryId)
+                    }
+                    if (request == roadDnaZoneRequest) _roadDnaZone.value = result
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: RoadDnaProviderHttpException) {
@@ -627,7 +646,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
             } catch (e: Exception) {
                 if (request == roadDnaZoneRequest)
                     _roadDnaZoneError.value =
-                        "Ricerca nella zona non riuscita: controlla connessione e chiave Geoapify"
+                        "Geoapify non disponibile; i luoghi offline restano visibili."
             } finally {
                 if (request == roadDnaZoneRequest)
                     _roadDnaZoneLoading.value = false
@@ -639,6 +658,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         ++roadDnaZoneRequest
         roadDnaZoneJob?.cancel()
         _roadDnaZone.value = null
+        _roadDnaZoneOffline.value = emptyList()
         _roadDnaZoneError.value = null
         _roadDnaZoneLoading.value = false
     }
