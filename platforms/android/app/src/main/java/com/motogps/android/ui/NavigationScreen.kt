@@ -146,6 +146,7 @@ fun RouteMapView(
     onAreaAccessClick: ((RoadDnaOnlinePoi) -> Unit)? = null,
     onlineSuggestions: List<RoadDnaOnlinePoi> = emptyList(),
     onOnlineSuggestionClick: ((RoadDnaOnlinePoi) -> Unit)? = null,
+    onMapReady: ((MapView) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     // Route-fitting is deliberately one-shot per route ID, not per recomposition.\n    // The AndroidView.update callback runs on unrelated Compose changes (GPS,
@@ -162,6 +163,7 @@ fun RouteMapView(
             }
         },
         update = { mapView ->
+            onMapReady?.invoke(mapView)
             applyMapNightMode(mapView, nightMode)
             mapView.overlays.clear()
             if (onWaypointLongPress != null) {
@@ -714,6 +716,11 @@ fun NavigationScreen(
     roadDnaDetailsLoading: Boolean = false,
     onRoadDnaOnlineSearch: (String) -> Unit = {},
     onRoadDnaDetails: (RoadDnaOnlinePoi) -> Unit = {},
+    roadDnaZone: RoadDnaOnlineResult? = null,
+    roadDnaZoneLoading: Boolean = false,
+    roadDnaZoneError: String? = null,
+    onRoadDnaZoneSearch: (Double, Double, Int, String) -> Unit = { _, _, _, _ -> },
+    onRoadDnaZoneClear: () -> Unit = {},
     roadDnaAreaAccesses: List<RoadDnaOnlinePoi> = emptyList(),
     roadDnaAreaAccessLoading: Boolean = false,
     roadDnaAreaAccessError: String? = null,
@@ -773,6 +780,10 @@ fun NavigationScreen(
     var offlineRoadDnaCategory by remember { mutableStateOf("consigliati") }
     var showRoadDnaMap by remember { mutableStateOf(false) }
     var showOnlineSuggestionsMap by remember { mutableStateOf(false) }
+    var zoneMapMode by remember { mutableStateOf(false) }
+    var zoneRadiusKm by remember { mutableIntStateOf(5) }
+    var zoneCategoryId by remember { mutableStateOf("consigliati") }
+    var zoneMapRef by remember { mutableStateOf<MapView?>(null) }
     var selectedOnlineSuggestion by remember {
         mutableStateOf<RoadDnaOnlinePoi?>(null)
     }
@@ -1011,10 +1022,14 @@ fun NavigationScreen(
     }
 
     if (showOnlineSuggestionsMap && routePreview != null &&
-        roadDnaOnline != null && !isNavigating) {
+        !isNavigating) {
         val selectedOption = routeOptions.getOrNull(selectedRouteIndex)
+        val shownSuggestions = if (zoneMapMode) roadDnaZone?.places.orEmpty()
+            else onlineSuggestionsForMap
         AlertDialog(
             onDismissRequest = {
+                onRoadDnaZoneClear()
+                zoneMapRef = null
                 showOnlineSuggestionsMap = false
                 selectedOnlineSuggestion = null
             },
@@ -1025,9 +1040,66 @@ fun NavigationScreen(
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("${onlineSuggestionsForMap.size} luoghi · ${RoadDnaCategories.get(roadDnaOnline.categoryId).title}. " +
-                        "Tocca un segnalino per scegliere una tappa.",
+                    Text("${shownSuggestions.size} luoghi · " +
+                        if (zoneMapMode) "ricerca nella zona" else
+                            "suggerimenti lungo il percorso",
                         style = MaterialTheme.typography.bodySmall)
+                    Text("Sposta la mappa per scegliere il centro della ricerca.",
+                        style = MaterialTheme.typography.bodySmall)
+                    Text("Raggio: ${zoneRadiusKm} km",
+                        style = MaterialTheme.typography.titleSmall)
+                    Slider(
+                        value = zoneRadiusKm.toFloat(),
+                        onValueChange = { zoneRadiusKm = it.roundToInt().coerceIn(1, 20) },
+                        valueRange = 1f..20f,
+                        steps = 18
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        RoadDnaCategories.options.forEach { category ->
+                            FilterChip(
+                                selected = zoneCategoryId == category.id,
+                                onClick = { zoneCategoryId = category.id },
+                                label = { Text(category.title) }
+                            )
+                        }
+                    }
+                    Button(
+                        enabled = geoapifyConfigured && !roadDnaZoneLoading &&
+                            zoneMapRef != null,
+                        onClick = {
+                            val point = zoneMapRef?.mapCenter
+                            if (point != null) {
+                                selectedOnlineSuggestion = null
+                                zoneMapMode = true
+                                onRoadDnaZoneSearch(point.latitude, point.longitude,
+                                    zoneRadiusKm, zoneCategoryId)
+                            }
+                        }
+                    ) { Text("Cerca in questa zona") }
+                    if (!geoapifyConfigured)
+                        Text("Questa ricerca richiede la chiave Geoapify.",
+                            style = MaterialTheme.typography.bodySmall)
+                    if (roadDnaZoneLoading) {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        Text("Ricerca turistica nella zona…")
+                    }
+                    if (zoneMapMode && roadDnaZoneError != null)
+                        Text(roadDnaZoneError, color = MaterialTheme.colorScheme.error)
+                    if (zoneMapMode && roadDnaZone != null)
+                        Text(roadDnaZone.message, style = MaterialTheme.typography.bodySmall)
+                    if (zoneMapMode && shownSuggestions.isEmpty() &&
+                        !roadDnaZoneLoading && roadDnaZoneError == null)
+                        Text("Nessun luogo trovato: prova un'altra zona o categoria.")
+                    if (zoneMapMode && onlineSuggestionsForMap.isNotEmpty()) {
+                        TextButton(onClick = {
+                            zoneMapMode = false
+                            selectedOnlineSuggestion = null
+                        }) { Text("Torna ai suggerimenti lungo il percorso") }
+                    }
                     RouteMapView(
                         geoPoints = extractGeoPoints(selectedOption,
                             currentLocation, routePreview),
@@ -1036,17 +1108,20 @@ fun NavigationScreen(
                                 ?: selectedOption?.id ?: ""),
                         nightMode = true,
                         waypoints = routeWaypoints,
-                        onlineSuggestions = onlineSuggestionsForMap,
+                        onlineSuggestions = shownSuggestions,
                         onOnlineSuggestionClick = {
                             selectedOnlineSuggestion = it
                         },
+                        onMapReady = { zoneMapRef = it },
                         modifier = Modifier.fillMaxWidth().height(310.dp)
                     )
                     selectedOnlineSuggestion?.let { poi ->
                         HorizontalDivider()
                         Text(poi.name, style = MaterialTheme.typography.titleSmall)
                         Text("${poi.source} · ${poi.category} · circa " +
-                            "${poi.distanceMeters} m dalla rotta",
+                            "${poi.distanceMeters} m " +
+                            if (zoneMapMode) "dal centro della zona"
+                            else "dalla rotta",
                             style = MaterialTheme.typography.bodySmall)
                         Text("Posizione fornita dal servizio online: verifica " +
                             "accesso motociclistico e ingresso effettivo prima " +
@@ -1072,7 +1147,9 @@ fun NavigationScreen(
                 TextButton(onClick = {
                     showOnlineSuggestionsMap = false
                     selectedOnlineSuggestion = null
-                }) { Text("Torna ai risultati") }
+                    zoneMapRef = null
+                    onRoadDnaZoneClear()
+                }) { Text("Torna a Road DNA") }
             }
         )
     }
@@ -1141,6 +1218,8 @@ fun NavigationScreen(
                                 onClick = {
                                     onlineSuggestionsForMap = visiblePlaces.take(60)
                                     selectedOnlineSuggestion = null
+                                    zoneMapMode = false
+                                    zoneCategoryId = roadDnaOnline.categoryId
                                     showOnlineSuggestionsMap = true
                                 },
                                 enabled = !isNavigating
@@ -1207,7 +1286,8 @@ fun NavigationScreen(
             }
         )
     }
-    if (showRoadDnaDialog && !showRoadDnaResults && selectedRoadDnaPoi == null) {
+    if (showRoadDnaDialog && !showRoadDnaResults &&
+        selectedRoadDnaPoi == null && !showOnlineSuggestionsMap) {
         AlertDialog(
             onDismissRequest = { showRoadDnaDialog = false },
             title = { Text("Road DNA") },
@@ -1293,6 +1373,17 @@ fun NavigationScreen(
                     }
                     HorizontalDivider()
                     Text("Ricerca turistica online", style = MaterialTheme.typography.titleMedium)
+                    OutlinedButton(
+                        enabled = !isNavigating,
+                        onClick = {
+                            zoneMapMode = true
+                            onlineSuggestionsForMap = emptyList()
+                            selectedOnlineSuggestion = null
+                            zoneMapRef = null
+                            onRoadDnaZoneClear()
+                            showOnlineSuggestionsMap = true
+                        }
+                    ) { Text("Cerca in questa zona · mappa") }
                     Text("Solo premendo Cerca online: il percorso viene inviato a Geoapify " +
                         "per cercare luoghi entro 2 km. OpenTripMap riceve fino a 5 punti " +
                         "campione lungo la rotta. Distanze in linea d'aria, non deviazioni " +
