@@ -1127,7 +1127,7 @@ fun NavigationScreen(
                         }) { Text("Torna ai suggerimenti lungo il percorso") }
                     }
                     if (routePreview != null || roadDnaNearbyCenter != null) {
-                    RouteMapView(
+                        RouteMapView(
                         geoPoints = if (routePreview != null)
                             extractGeoPoints(selectedOption, currentLocation, routePreview)
                         else emptyList(),
@@ -1146,7 +1146,7 @@ fun NavigationScreen(
                         },
                         onMapReady = { zoneMapRef = it },
                         modifier = Modifier.fillMaxWidth().height(310.dp)
-                    )
+                        )
                     }
                     selectedOnlineSuggestion?.let { poi ->
                         HorizontalDivider()
@@ -1189,7 +1189,8 @@ fun NavigationScreen(
                     selectedOnlineSuggestion = null
                     zoneMapRef = null
                     onRoadDnaZoneClear()
-                }) { Text("Torna a Road DNA") }
+                }) { Text(if (routePreview == null)
+                    "Chiudi" else "Torna ai risultati") }
             }
         )
     }
