@@ -832,7 +832,11 @@ fun NavigationScreen(
                         routeFitKey = "dna:" + (selectedOption?.id ?: ""),
                         nightMode = true,
                         waypoints = routeWaypoints,
-                        roadDnaPois = places,
+                        // While viewing online access candidates, hide
+                        // overlapping offline area pins: an area pin must never
+                        // intercept an access tap and clear the Geoapify list.
+                        roadDnaPois = if (roadDnaAreaAccesses.isNotEmpty())
+                            emptyList() else places,
                         roadsideProposal = proposedRoadsideStop,
                         areaAccesses = roadDnaAreaAccesses,
                         onAreaAccessClick = {
@@ -910,6 +914,10 @@ fun NavigationScreen(
                                     color = MaterialTheme.colorScheme.error,
                                     style = MaterialTheme.typography.bodySmall)
                             if (roadDnaAreaAccesses.isNotEmpty()) {
+                                TextButton(onClick = {
+                                    selectedOnlineRoadDnaAccess = null
+                                    onRoadDnaAreaAccessClear()
+                                }) { Text("Torna ai luoghi Road DNA") }
                                 Text("Risultati Geoapify entro 2,5 km dal " +
                                     "punto rappresentativo dell'area: parcheggi " +
                                     "e informazioni, non ingressi verificati.",
