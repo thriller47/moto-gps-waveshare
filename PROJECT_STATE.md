@@ -2,6 +2,8 @@
 
 ## STATO ATTUALE — RIPARTIRE DA QUI
 
+**22/11/2026 — Fix compilazione selettore categorie Android:** build locale segnala `NavigationScreen.kt:925:30 Unresolved reference 'horizontalScroll'`. Aggiunto import `androidx.compose.foundation.horizontalScroll` in `NavigationScreen.kt` sul branch `feature/road-dna-motopack-v2`, commit `e04f5ce`. Non compilato né avviata CI; utente deve aggiornare e rilanciare build locale.
+
 **22/11/2026 — Nuove categorie selezionabili Road DNA:** su richiesta utente aggiunte `Ristoranti`, `Hotel`, `Divertimenti` al selettore già esistente in `RoadDnaCategories.options`, branch sperimentale `feature/road-dna-motopack-v2`. Ricerca per categoria effettiva nel corridoio Valhalla tramite Geoapify: `catering.restaurant`, `accommodation.hotel`, e intrattenimento selettivo (parchi divertimento, zoo, acquari, cinema e attività simili). Il controllo `matches()` filtra le risposte fuori categoria. Per queste tre tipologie OpenTripMap viene volontariamente omesso, perché i suoi gruppi turistici non garantiscono corrispondenza precisa con ristoranti/hotel; la UI segnala la necessità della chiave Geoapify e disabilita la ricerca se assente. Nessuna prenotazione, nessun controllo orari/prezzi/disponibilità, nessuna nuova richiesta finché l'utente non tocca Cerca online. Test JSON di categorizzazione aggiunti; nessuna modifica al DB turistico Road DNA offline (che **non contiene ristoranti e hotel**: Photon v2 ne conserva invece dati di ricerca a parte). Nessun cambio routing/BLE/ESP. **Build locale/CI non eseguita: compilare Android e provare le tre categorie sul telefono prima di confermare.**
 
 
