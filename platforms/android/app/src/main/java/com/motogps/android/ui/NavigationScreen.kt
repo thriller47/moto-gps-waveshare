@@ -218,20 +218,6 @@ fun RouteMapView(
                     })
                 }
             }
-            areaAccesses.take(20).forEach { poi ->
-                if (poi.latitude in -90.0..90.0 &&
-                    poi.longitude in -180.0..180.0) {
-                    mapView.overlays.add(Marker(mapView).apply {
-                        position = GeoPoint(poi.latitude, poi.longitude)
-                        title = poi.name + " · " + poi.category
-                        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                        setOnMarkerClickListener { _, _ ->
-                            onAreaAccessClick?.invoke(poi)
-                            true
-                        }
-                    })
-                }
-            }
             roadsideProposal?.let { candidate ->
                 mapView.overlays.add(Marker(mapView).apply {
                     position = GeoPoint(candidate.latitude, candidate.longitude)
@@ -249,6 +235,22 @@ fun RouteMapView(
                     setAnchor(9f / 48f, 45f / 48f)
                 })
                 if (geoPoints.size < 2) viewPoints.add(target)
+            }
+            // Access markers are inserted last, above nearby area pins.
+            // osmdroid dispatches marker taps from the top of the stack.
+            areaAccesses.take(20).forEach { poi ->
+                if (poi.latitude in -90.0..90.0 &&
+                    poi.longitude in -180.0..180.0) {
+                    mapView.overlays.add(Marker(mapView).apply {
+                        position = GeoPoint(poi.latitude, poi.longitude)
+                        title = poi.name + " · " + poi.category
+                        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                        setOnMarkerClickListener { _, _ ->
+                            onAreaAccessClick?.invoke(poi)
+                            true
+                        }
+                    })
+                }
             }
             if (lastFitKey[0] != routeFitKey) {
                 lastFitKey[0] = routeFitKey
@@ -833,7 +835,12 @@ fun NavigationScreen(
                         roadDnaPois = places,
                         roadsideProposal = proposedRoadsideStop,
                         areaAccesses = roadDnaAreaAccesses,
-                        onAreaAccessClick = { selectedOnlineRoadDnaAccess = it },
+                        onAreaAccessClick = {
+                            // Do not dismiss the area or clear Geoapify results
+                            // when selecting one of its online access pins.
+                            selectedOnlineRoadDnaAccess = it
+                            proposedRoadsideStop = null
+                        },
                         onRoadDnaPoiClick = {
                             selectedOfflineRoadDnaPoi = it
                             selectedOnlineRoadDnaAccess = null
@@ -842,6 +849,28 @@ fun NavigationScreen(
                         },
                         modifier = Modifier.fillMaxWidth().height(260.dp)
                     )
+                    selectedOnlineRoadDnaAccess?.let { access ->
+                        HorizontalDivider()
+                        Text("Punto online selezionato: " + access.name +
+                            " · " + access.category)
+                        Text("Geoapify: posizione indicativa del servizio. " +
+                            "Non garantisce ingresso, parcheggio moto né " +
+                            "percorso pedonale fino alla destinazione.",
+                            style = MaterialTheme.typography.bodySmall)
+                        Button(onClick = {
+                            onAddWaypoint(PlaceSearchResult(
+                                name = access.name,
+                                address = access.category +
+                                    " · accesso al luogo non verificato",
+                                displayArea = "Road DNA Geoapify",
+                                latitude = access.latitude,
+                                longitude = access.longitude
+                            ))
+                            showRoadDnaMap = false
+                            selectedOnlineRoadDnaAccess = null
+                            onRoadDnaAreaAccessClear()
+                        }) { Text("Aggiungi punto online come tappa") }
+                    }
                     selectedOfflineRoadDnaPoi?.let { poi ->
                         Text(poi.name + " · " + poi.category)
                         if (poi.exactLocation) {
@@ -893,25 +922,6 @@ fun NavigationScreen(
                                             " · " + access.distanceMeters + " m")
                                     }
                                 }
-                            }
-                            selectedOnlineRoadDnaAccess?.let { access ->
-                                Text("Selezionato: " + access.name +
-                                    ". Verifica accesso, parcheggio moto ed eventuale " +
-                                    "percorso a piedi sulla mappa.",
-                                    style = MaterialTheme.typography.bodySmall)
-                                Button(onClick = {
-                                    onAddWaypoint(PlaceSearchResult(
-                                        name = access.name,
-                                        address = access.category +
-                                            " · accesso al luogo non verificato",
-                                        displayArea = "Road DNA Geoapify",
-                                        latitude = access.latitude,
-                                        longitude = access.longitude
-                                    ))
-                                    showRoadDnaMap = false
-                                    selectedOnlineRoadDnaAccess = null
-                                    onRoadDnaAreaAccessClear()
-                                }) { Text("Aggiungi punto online come tappa") }
                             }
                             val candidate = RoadDnaAreaAccess.candidate(
                                 poi, previewGeometry)
