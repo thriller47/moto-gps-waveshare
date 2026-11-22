@@ -1082,7 +1082,7 @@ fun NavigationScreen(
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Text("Raggio di ricerca: §{zoneRadiusKm} km",
+                    Text("Raggio di ricerca: ${zoneRadiusKm} km",
                         style = MaterialTheme.typography.titleSmall)
                     Slider(
                         value = zoneRadiusKm.toFloat(),
@@ -1170,7 +1170,7 @@ fun NavigationScreen(
                         Text("Ultima ricerca: " +
                             String.format(java.util.Locale.ITALY, "%.5f, %.5f",
                                 focus.latitude, focus.longitude) +
-                            " · §{focus.radiusKm} km · " +
+                            " · ${focus.radiusKm} km · " +
                             RoadDnaCategories.get(focus.categoryId).title,
                             style = MaterialTheme.typography.bodySmall)
                         if (focus.radiusKm != zoneRadiusKm ||
@@ -1181,8 +1181,8 @@ fun NavigationScreen(
                         }
                     }
                     if (zoneSearchStarted && !roadDnaZoneLoading) {
-                        Text("§{roadDnaZoneOffline.size} luoghi MotoPack · " +
-                            "§{roadDnaZone?.places?.size ?: 0} online",
+                        Text("${roadDnaZoneOffline.size} luoghi MotoPack · " +
+                            "${roadDnaZone?.places?.size ?: 0} online",
                             style = MaterialTheme.typography.titleSmall)
                         if (roadDnaZoneOffline.isEmpty() &&
                             roadDnaZone?.places.isNullOrEmpty() &&
@@ -1353,8 +1353,8 @@ fun NavigationScreen(
                         style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.padding(horizontal = 16.dp))
                     Text(if (zoneMapMode)
-                        "§{shownOffline.size} offline · §{shownSuggestions.size} online"
-                    else "§{shownSuggestions.size} luoghi suggeriti",
+                        "${shownOffline.size} offline · ${shownSuggestions.size} online"
+                    else "${shownSuggestions.size} luoghi suggeriti",
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.padding(horizontal = 16.dp))
                     Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
@@ -1611,6 +1611,9 @@ fun NavigationScreen(
                                     nearbySearchMode = false
                                     zoneSearchStarted = false
                                     zoneCategoryId = roadDnaOnline.categoryId
+                                    zoneMapRef = null
+                                    showRoadDnaSearchParams = false
+                                    showRoadDnaCenterPicker = false
                                     showOnlineSuggestionsMap = true
                                 },
                                 enabled = !isNavigating
@@ -1776,7 +1779,10 @@ fun NavigationScreen(
                             selectedOnlineSuggestion = null
                             zoneMapRef = null
                             onRoadDnaZoneClear()
-                            showOnlineSuggestionsMap = true
+                            showOnlineSuggestionsMap = false
+                            showRoadDnaCenterPicker = false
+                            showRoadDnaSearchParams = true
+                            zonePickedCenter = null
                             gpsMapRecenterId++
                             onRoadDnaNearbySearch(zoneRadiusKm, zoneCategoryId)
                         }
@@ -1784,14 +1790,21 @@ fun NavigationScreen(
                     OutlinedButton(
                         enabled = !isNavigating,
                         onClick = {
+                            showRoadDnaDialog = false
+                            showRoadDnaResults = false
                             zoneMapMode = true
                             nearbySearchMode = false
                             zoneSearchStarted = false
+                            zonePickedCenter = null
                             onlineSuggestionsForMap = emptyList()
                             selectedOnlineSuggestion = null
                             zoneMapRef = null
                             onRoadDnaZoneClear()
-                            showOnlineSuggestionsMap = true
+                            showOnlineSuggestionsMap = false
+                            showRoadDnaSearchParams = true
+                            zonePickerMapRef = null
+                            zonePickerFitId++
+                            showRoadDnaCenterPicker = true
                         }
                     ) { Text("Cerca in questa zona · mappa") }
                     Text("Solo premendo Cerca online: il percorso viene inviato a Geoapify " +
@@ -2745,7 +2758,10 @@ fun NavigationScreen(
                         selectedOnlineSuggestion = null
                         zoneMapRef = null
                         onRoadDnaZoneClear()
-                        showOnlineSuggestionsMap = true
+                        showOnlineSuggestionsMap = false
+                        showRoadDnaCenterPicker = false
+                        showRoadDnaSearchParams = true
+                        zonePickedCenter = null
                         gpsMapRecenterId++
                         onRoadDnaNearbySearch(zoneRadiusKm, zoneCategoryId)
                     },
