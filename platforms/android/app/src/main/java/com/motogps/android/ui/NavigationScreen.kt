@@ -1190,8 +1190,8 @@ fun NavigationScreen(
                     selectedOnlineSuggestion = null
                     zoneMapRef = null
                     onRoadDnaZoneClear()
-                }) { Text(if (routePreview == null)
-                    "Chiudi" else "Torna ai risultati") }
+                }) { Text(if (showRoadDnaDialog && showRoadDnaResults)
+                    "Torna ai risultati" else "Chiudi") }
             }
         )
     }
