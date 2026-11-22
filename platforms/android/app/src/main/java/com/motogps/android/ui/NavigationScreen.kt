@@ -144,6 +144,8 @@ fun RouteMapView(
     roadsideProposal: RoadDnaRoadsideCandidate? = null,
     areaAccesses: List<RoadDnaOnlinePoi> = emptyList(),
     onAreaAccessClick: ((RoadDnaOnlinePoi) -> Unit)? = null,
+    onlineSuggestions: List<RoadDnaOnlinePoi> = emptyList(),
+    onOnlineSuggestionClick: ((RoadDnaOnlinePoi) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     // Route-fitting is deliberately one-shot per route ID, not per recomposition.\n    // The AndroidView.update callback runs on unrelated Compose changes (GPS,
@@ -247,6 +249,22 @@ fun RouteMapView(
                         setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
                         setOnMarkerClickListener { _, _ ->
                             onAreaAccessClick?.invoke(poi)
+                            true
+                        }
+                    })
+                }
+            }
+            // Online tourist suggestions are rendered as selectable pins.
+            // Keep this layer separate from offline areas and access candidates.
+            onlineSuggestions.take(60).forEach { poi ->
+                if (poi.latitude.isFinite() && poi.longitude.isFinite() &&
+                    poi.latitude in -90.0..90.0 && poi.longitude in -180.0..180.0) {
+                    mapView.overlays.add(Marker(mapView).apply {
+                        position = GeoPoint(poi.latitude, poi.longitude)
+                        title = poi.name + " · " + poi.source
+                        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                        setOnMarkerClickListener { _, _ ->
+                            onOnlineSuggestionClick?.invoke(poi)
                             true
                         }
                     })
@@ -754,6 +772,13 @@ fun NavigationScreen(
     var selectedRoadDnaCategory by remember { mutableStateOf("consigliati") }
     var offlineRoadDnaCategory by remember { mutableStateOf("consigliati") }
     var showRoadDnaMap by remember { mutableStateOf(false) }
+    var showOnlineSuggestionsMap by remember { mutableStateOf(false) }
+    var selectedOnlineSuggestion by remember {
+        mutableStateOf<RoadDnaOnlinePoi?>(null)
+    }
+    var onlineSuggestionsForMap by remember {
+        mutableStateOf<List<RoadDnaOnlinePoi>>(emptyList())
+    }
     var selectedOfflineRoadDnaPoi by remember { mutableStateOf<RoadDnaPoi?>(null) }
     var selectedOnlineRoadDnaAccess by remember {
         mutableStateOf<RoadDnaOnlinePoi?>(null)
@@ -985,8 +1010,76 @@ fun NavigationScreen(
         )
     }
 
+    if (showOnlineSuggestionsMap && routePreview != null &&
+        roadDnaOnline != null && !isNavigating) {
+        val selectedOption = routeOptions.getOrNull(selectedRouteIndex)
+        AlertDialog(
+            onDismissRequest = {
+                showOnlineSuggestionsMap = false
+                selectedOnlineSuggestion = null
+            },
+            title = { Text("Road DNA · suggerimenti online") },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 530.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("${onlineSuggestionsForMap.size} luoghi · ${RoadDnaCategories.get(roadDnaOnline.categoryId).title}. " +
+                        "Tocca un segnalino per scegliere una tappa.",
+                        style = MaterialTheme.typography.bodySmall)
+                    RouteMapView(
+                        geoPoints = extractGeoPoints(selectedOption,
+                            currentLocation, routePreview),
+                        routeFitKey = "dna-online:" +
+                            (selectedOption?.rawRouteJson?.optString("route_id")
+                                ?: selectedOption?.id ?: ""),
+                        nightMode = true,
+                        waypoints = routeWaypoints,
+                        onlineSuggestions = onlineSuggestionsForMap,
+                        onOnlineSuggestionClick = {
+                            selectedOnlineSuggestion = it
+                        },
+                        modifier = Modifier.fillMaxWidth().height(310.dp)
+                    )
+                    selectedOnlineSuggestion?.let { poi ->
+                        HorizontalDivider()
+                        Text(poi.name, style = MaterialTheme.typography.titleSmall)
+                        Text("${poi.source} · ${poi.category} · circa " +
+                            "${poi.distanceMeters} m dalla rotta",
+                            style = MaterialTheme.typography.bodySmall)
+                        Text("Posizione fornita dal servizio online: verifica " +
+                            "accesso motociclistico e ingresso effettivo prima " +
+                            "di confermare. Valhalla ricalcolerà il percorso.",
+                            style = MaterialTheme.typography.bodySmall)
+                        Button(onClick = {
+                            onAddWaypoint(PlaceSearchResult(
+                                name = poi.name,
+                                address = poi.category + " · " + poi.source,
+                                displayArea = "Road DNA online",
+                                latitude = poi.latitude,
+                                longitude = poi.longitude
+                            ))
+                            showOnlineSuggestionsMap = false
+                            selectedOnlineSuggestion = null
+                            showRoadDnaResults = false
+                            showRoadDnaDialog = false
+                        }) { Text("Aggiungi come tappa") }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showOnlineSuggestionsMap = false
+                    selectedOnlineSuggestion = null
+                }) { Text("Torna ai risultati") }
+            }
+        )
+    }
+
     // One dialog at a time: overview -> results -> selected-place details.
-    if (showRoadDnaDialog && showRoadDnaResults && selectedRoadDnaPoi == null) {
+    if (showRoadDnaDialog && showRoadDnaResults && selectedRoadDnaPoi == null &&
+        !showOnlineSuggestionsMap) {
         AlertDialog(
             onDismissRequest = { showRoadDnaResults = false },
             title = { Text("Luoghi lungo il percorso") },
@@ -1043,6 +1136,16 @@ fun NavigationScreen(
                         )
                         Text(roadDnaOnline.message,
                             style = MaterialTheme.typography.bodySmall)
+                        if (visiblePlaces.isNotEmpty()) {
+                            OutlinedButton(
+                                onClick = {
+                                    onlineSuggestionsForMap = visiblePlaces.take(60)
+                                    selectedOnlineSuggestion = null
+                                    showOnlineSuggestionsMap = true
+                                },
+                                enabled = !isNavigating
+                            ) { Text("Mostra suggerimenti sulla mappa") }
+                        }
                         if (places.isEmpty()) {
                             Text("Nessun luogo turistico trovato lungo il percorso.")
                         } else if (visiblePlaces.isEmpty()) {
