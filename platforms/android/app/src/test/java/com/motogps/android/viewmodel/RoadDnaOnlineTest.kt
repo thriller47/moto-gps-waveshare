@@ -156,7 +156,7 @@ class RoadDnaOnlineTest {
     }
 
     @Test fun areaRoadsideCandidateNeverUsesRepresentativeCentroidOrExactPoi() {
-        val route = listOf(44.5 to 7.5, 44.501 to 7.502)
+        val route = listOf(44.499 to 7.499, 44.501 to 7.502)
         val exact = RoadDnaPoi("Monumento", "monumento", false, 50,
             44.5, 7.5, true, 44.5, 44.5, 7.5, 7.5)
         assertNull(RoadDnaAreaAccess.candidate(exact, route))
@@ -168,6 +168,9 @@ class RoadDnaOnlineTest {
         val candidate = RoadDnaAreaAccess.candidate(lake, route)
         assertNotNull(candidate)
         assertNotEquals(99.0, candidate!!.latitude, 0.0001)
+        assertEquals(44.499, candidate.latitude, 0.000001)
+        val onlyInside = listOf(44.501 to 7.501, 44.503 to 7.503)
+        assertNull(RoadDnaAreaAccess.candidate(lake, onlyInside))
     }
 
     @Test fun geoapifyRequiresActualRouteNotSinglePlace() {
