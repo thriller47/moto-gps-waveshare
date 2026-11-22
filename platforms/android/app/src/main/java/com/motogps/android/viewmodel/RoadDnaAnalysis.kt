@@ -18,7 +18,12 @@ import kotlin.math.sqrt
  */
 data class RoadDnaPoi(
     val name: String, val category: String, val approximateArea: Boolean,
-    val distanceMeters: Int
+    val distanceMeters: Int,
+    val latitude: Double = Double.NaN,
+    val longitude: Double = Double.NaN,
+    // OSM point = exact position. Area/way representative points are NOT
+    // validated road access points: never create routing stops from them.
+    val exactLocation: Boolean = false
 )
 data class RoadDnaSummary(
     val routeId: String,
@@ -26,9 +31,55 @@ data class RoadDnaSummary(
     val countByCategory: Map<String, Int>,
     val examples: List<RoadDnaPoi>,
     val indexAvailable: Boolean,
-    val routeVertices: Int
+    val routeVertices: Int,
+    val places: List<RoadDnaPoi> = emptyList()
 ) {
     val totalByCategory: Int get() = countByCategory.values.sum()
+}
+
+internal object RoadDnaOfflineFilter {
+    // Tourists can inspect the entire dataset, but the default list must not
+    // be dominated by the thousands of generic gardens and small parks.
+    fun categoryMatches(categoryId: String, category: String): Boolean = when (categoryId) {
+        "consigliati" -> category in setOf("belvedere", "cascata", "castello",
+            "archeologia", "rovine", "riserva", "lago", "museo", "attrazione",
+            "terme_naturali")
+        "spiagge" -> category == "spiaggia"
+        "panorami" -> category in setOf("belvedere", "vetta", "cascata")
+        "castelli" -> category in setOf("castello", "archeologia", "rovine", "monumento")
+        "cultura" -> category in setOf("museo", "archeologia", "monumento", "attrazione")
+        "natura" -> category in setOf("riserva", "parco", "lago",
+            "cascata", "vetta", "giardino")
+        "terme" -> category in setOf("terme_naturali", "terme_stabilimento")
+        // Food and lodging belong to Photon, not to the tourist OSM database.
+        "ristoranti", "hotel", "divertimenti" -> false
+        else -> false
+    }
+
+    fun score(poi: RoadDnaPoi): Int = when (poi.category) {
+        "belvedere", "cascata" -> 100
+        "castello", "archeologia", "rovine" -> 95
+        "riserva", "lago", "terme_naturali" -> 90
+        "museo" -> 85
+        "attrazione" -> 70
+        "vetta" -> 65
+        "parco" -> 55
+        "spiaggia" -> 55
+        "monumento" -> 45
+        "giardino" -> 20
+        else -> 30
+    }
+
+    fun select(places: List<RoadDnaPoi>, categoryId: String,
+               limit: Int = 15): List<RoadDnaPoi> {
+        val filtered = places.filter { categoryMatches(categoryId, it.category) }
+        return filtered.sortedWith(compareByDescending<RoadDnaPoi> { score(it) }
+            .thenBy { if (it.approximateArea) 1 else 0 }
+            .thenBy { it.distanceMeters }
+            .thenBy { it.name }).distinctBy {
+                it.category + "|" + it.name.lowercase(java.util.Locale.ROOT)
+            }.take(limit)
+    }
 }
 
 internal object RoadDnaAnalysis {
@@ -210,7 +261,7 @@ internal object RoadDnaAnalysis {
             // One SQL pass per button click, not many expensive corridor bbox
             // queries. Final segment distance removes most off-route matches.
             db.rawQuery("""
-                SELECT category,name,lat,lon,min_lat,max_lat,min_lon,max_lon,geometry_type
+                SELECT category,name,lat,lon,min_lat,max_lat,min_lon,max_lon,geometry_type,location_quality
                   FROM tourist_poi
                  WHERE max_lat >= ? AND min_lat <= ?
                    AND max_lon >= ? AND min_lon <= ?
@@ -227,6 +278,7 @@ internal object RoadDnaAnalysis {
                     val minLon = rows.getDouble(6)
                     val maxLon = rows.getDouble(7)
                     val area = rows.getString(8) == "area"
+                    val exact = rows.getString(9) == "exact"
                     val distance = grid.nearest(lat,lon)
                     val candidate = if (area)
                         grid.boundsNear(minLat,maxLat,minLon,maxLon)
@@ -237,15 +289,14 @@ internal object RoadDnaAnalysis {
                         // Keep only a bounded set for the screen, sorted later.
                         val estimated = if (area && distance > RADIUS_M) 0
                             else distance.toInt().coerceAtLeast(0)
-                        named.add(RoadDnaPoi(name, category, area, estimated))
+                        named.add(RoadDnaPoi(name, category, area, estimated,
+                            lat, lon, exact))
                     }
                 }
             }
         }
-        val examples = named.sortedWith(compareBy<RoadDnaPoi> { it.distanceMeters }
-            .thenBy { it.name }).distinctBy { it.category + "|" + it.name }
-            .take(35)
+        val examples = RoadDnaOfflineFilter.select(named, "consigliati", 35)
         return RoadDnaSummary(option.id, curvature, counts.toSortedMap(),
-                              examples, true, points.size)
+                              examples, true, points.size, named)
     }
 }
