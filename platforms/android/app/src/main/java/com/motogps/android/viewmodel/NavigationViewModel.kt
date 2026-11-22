@@ -523,7 +523,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     }
 
     /** Explicit user action: real Valhalla geometry goes online only here. */
-    fun searchRoadDnaOnline() {
+    fun searchRoadDnaOnline(categoryId: String = "consigliati") {
         val option = _routeOptions.value.getOrNull(_selectedRouteIndex.value) ?: return
         val context = appContext ?: return
         val geometry = RoadDnaAnalysis.geometry(option.rawRouteJson)
@@ -538,7 +538,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
             _roadDnaOnlineLoading.value = true
             try {
                 val result = withContext(Dispatchers.IO) {
-                    RoadDnaOnline.search(context, geometry)
+                    RoadDnaOnline.search(context, geometry, categoryId)
                 }
                 if (request == roadDnaOnlineRequestId &&
                     _routeOptions.value.getOrNull(_selectedRouteIndex.value) === option)
