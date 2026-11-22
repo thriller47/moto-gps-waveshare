@@ -26,6 +26,39 @@ class RoadDnaOnlineTest {
         assertFalse(body.toString().contains("apiKey"))
     }
 
+    @Test fun onlineAreaAccessSearchUsesParkingAndInformationWithinRadius() {
+        val body = RoadDnaOnline.accessBody(44.4, 7.7)
+        val categories = body.getJSONArray("categories").toString()
+        assertTrue(categories.contains("parking"))
+        assertTrue(categories.contains("tourism.information"))
+        assertFalse(categories.contains("emergency.access_point"))
+        assertEquals("circle", body.getJSONObject("filter").getString("type"))
+        assertEquals(2500, body.getJSONObject("filter").getInt("radius"))
+        assertEquals(7.7, body.getJSONObject("filter").getDouble("lon"), 0.00001)
+        assertEquals(44.4, body.getJSONObject("filter").getDouble("lat"), 0.00001)
+        assertFalse(body.toString().contains("apiKey"))
+    }
+
+    @Test fun onlineAreaAccessResultsRejectTouristAttractionsAndUnusableCoordinates() {
+        fun feature(name: String, lon: Double, lat: Double,
+                    category: String): JSONObject = JSONObject()
+            .put("geometry", JSONObject().put("coordinates",
+                JSONArray().put(lon).put(lat)))
+            .put("properties", JSONObject()
+                .put("name", name)
+                .put("categories", JSONArray().put(category)))
+        val json = JSONObject().put("features", JSONArray()
+            .put(feature("Parcheggio moto", 7.70, 44.40, "parking.motorcycle"))
+            .put(feature("Info", 7.702, 44.401, "tourism.information.office"))
+            .put(feature("Castello", 7.703, 44.402, "tourism.sights.castle"))
+            .put(feature("Errato", 700.0, 99.0, "parking")))
+        val result = RoadDnaOnline.parseAccessPlaces(json, 44.40, 7.70)
+        assertEquals(2, result.size)
+        assertEquals("Parcheggio", result[0].category)
+        assertEquals("Informazioni turistiche", result[1].category)
+        assertTrue(result.none { it.name == "Castello" || it.name == "Errato" })
+    }
+
     @Test fun categoryQueriesFetchBeachesInsteadOfGenericAttractions() {
         val route = listOf(43.0 to 7.5, 43.1 to 7.6)
         val beach = RoadDnaOnline.geoBody(route, "spiagge")
