@@ -1066,6 +1066,29 @@ fun NavigationScreen(
         val shownSuggestions = if (zoneMapMode) roadDnaZone?.places.orEmpty()
             else onlineSuggestionsForMap
         val shownOffline = if (zoneMapMode) roadDnaZoneOffline else emptyList()
+        // A new explicit search frames the selected circle, not the old GPS or
+        // whole Valhalla route. Subsequent data updates never change map fit.
+        LaunchedEffect(roadDnaZoneFocus, zoneMapRef, zoneMapMode) {
+            val focus = roadDnaZoneFocus
+            val map = zoneMapRef
+            if (zoneMapMode && focus != null && map != null) {
+                val deltaLat = focus.radiusKm * 1000.0 / 111195.0
+                val deltaLon = focus.radiusKm * 1000.0 /
+                    (111195.0 * kotlin.math.cos(Math.toRadians(focus.latitude))
+                        .coerceAtLeast(0.02))
+                val bounds = BoundingBox.fromGeoPoints(listOf(
+                    GeoPoint((focus.latitude + deltaLat).coerceAtMost(90.0),
+                        (focus.longitude - deltaLon).coerceAtLeast(-180.0)),
+                    GeoPoint((focus.latitude - deltaLat).coerceAtLeast(-90.0),
+                        (focus.longitude + deltaLon).coerceAtMost(180.0))
+                ))
+                map.post {
+                    if (zoneMapRef === map) {
+                        map.zoomToBoundingBox(bounds, true, 28)
+                    }
+                }
+            }
+        }
         AlertDialog(
             onDismissRequest = {
                 onRoadDnaZoneClear()
