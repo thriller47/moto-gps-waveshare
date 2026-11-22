@@ -35,6 +35,10 @@ class RoadDnaOnlineTest {
             categoryId = "spiagge")
         assertTrue(url.contains("kinds=beaches"))
         assertFalse(url.contains("castles"))
+        val lowRate = RoadDnaOnline.tripRadiusUrl(43.0, 7.5, "key",
+            rate = 1, categoryId = "spiagge")
+        assertTrue(lowRate.contains("rate=1"))
+        assertTrue(lowRate.contains("kinds=beaches"))
         val standard = RoadDnaOnline.geoBody(route)
         assertTrue(standard.getJSONArray("categories").toString()
             .contains("tourism.sights"))
