@@ -299,6 +299,70 @@ internal object RoadDnaOnline {
         }
     }
 
+    /** Places documented by Geoapify, not guessed entrances or path endpoints. */
+    internal fun accessBody(lat: Double, lon: Double): JSONObject {
+        require(valid(lat, lon))
+        return JSONObject()
+            .put("categories", JSONArray().put("parking").put("tourism.information"))
+            .put("filter", JSONObject().put("type", "circle")
+                .put("lon", lon).put("lat", lat).put("radius", 2500))
+            .put("lang", "it").put("limit", 40)
+    }
+
+    internal fun parseAccessPlaces(json: JSONObject, lat: Double, lon: Double):
+        List<RoadDnaOnlinePoi> {
+        require(valid(lat, lon))
+        val features = json.optJSONArray("features") ?: return emptyList()
+        val results = ArrayList<RoadDnaOnlinePoi>()
+        for (i in 0 until min(features.length(), 40)) {
+            val feature = features.optJSONObject(i) ?: continue
+            val coords = feature.optJSONObject("geometry")?.optJSONArray("coordinates")
+                ?: continue
+            val pLon = coords.optDouble(0, Double.NaN)
+            val pLat = coords.optDouble(1, Double.NaN)
+            if (!valid(pLat, pLon)) continue
+            val properties = feature.optJSONObject("properties") ?: continue
+            val tags = properties.optJSONArray("categories")?.let { a ->
+                (0 until a.length()).mapNotNull { n ->
+                    a.optString(n).takeIf { it.isNotBlank() }
+                }
+            } ?: emptyList()
+            val parking = tags.any { it == "parking" || it.startsWith("parking.") }
+            val information = tags.any {
+                it == "tourism.information" || it.startsWith("tourism.information.")
+            }
+            if (!parking && !information) continue
+            val fallback = if (parking) "Parcheggio" else "Informazioni turistiche"
+            val name = properties.optString("name").trim().ifBlank { fallback }
+            val distance = RoadDnaAnalysis.distanceMeters(pLat to pLon,
+                lat to lon, lat to lon).toInt().coerceAtLeast(0)
+            results.add(RoadDnaOnlinePoi(
+                name.take(160),
+                if (parking) "Parcheggio" else "Informazioni turistiche",
+                distance, "Geoapify", pLat, pLon,
+                geoPlaceId = properties.optString("place_id").trim()
+                    .takeIf { it.isNotEmpty() },
+                categoryTags = tags
+            ))
+        }
+        return results.sortedWith(compareBy<RoadDnaOnlinePoi> {
+            if (it.category == "Parcheggio") 0 else 1
+        }.thenBy { it.distanceMeters })
+            .distinctBy { it.geoPlaceId ?: it.name + "|" +
+                it.latitude.toString() + "|" + it.longitude.toString() }
+            .take(20)
+    }
+
+    /** Single on-demand online request; authenticated with the existing keystore key. */
+    fun findAreaAccesses(context: Context, latitude: Double, longitude: Double):
+        List<RoadDnaOnlinePoi> {
+        val key = RoadDnaApiKeys.read(context, "geoapify")
+            ?: throw IllegalStateException("Configura prima la chiave Geoapify")
+        val data = JSONObject(fetch(GEO, key,
+            accessBody(latitude, longitude).toString()))
+        return parseAccessPlaces(data, latitude, longitude)
+    }
+
     internal fun parseGeo(json: JSONObject): List<RoadDnaOnlinePoi> {
         val features = json.optJSONArray("features") ?: return emptyList()
         val result = ArrayList<RoadDnaOnlinePoi>()
