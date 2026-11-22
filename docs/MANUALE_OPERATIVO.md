@@ -378,7 +378,7 @@ gh run list -R thriller47/moto-gps-waveshare -b test/waypoint-markers-20261119 -
 gh run download ID_RUN -R thriller47/moto-gps-waveshare -n ESP32-Firmware -D C:\MotoGPS\ESP32-Firmware
 ```
 
-**Build Android locale (PowerShell):** in Android Studio aprire `C:\MotoGPS\moto-gps-waveshare\platforms\android` (non la root). Versioni di riferimento: JDK/JBR 21, Android SDK Platform 36 e CMake 3.22.1. **Sul branch `feature/road-dna-motopack-v2` il NDK richiesto è `29.0.14206865`** per il supporto alle pagine da 16 KB; il vecchio NDK 27 rimane solo nei checkout non aggiornati.
+**Build Android locale (PowerShell):** in Android Studio aprire `C:\MotoGPS\moto-gps-waveshare\platforms\android` (non la root). Versioni di riferimento per il branch sperimentale: JDK/JBR 21, Android SDK Platform **37**, Android Gradle Plugin **9.1.1**, Gradle wrapper **9.3.1** e CMake 3.22.1. Android Studio deve supportare AGP 9.1.1 (almeno Panda 3 Patch 1); in CI rimane JDK 17. **Sul branch `feature/road-dna-motopack-v2` il NDK richiesto è `29.0.14206865`** per il supporto alle pagine da 16 KB; il vecchio NDK 27 rimane solo nei checkout non aggiornati.
 
 ```powershell
 Set-Location "C:\MotoGPS\moto-gps-waveshare\platforms\android"
@@ -391,10 +391,10 @@ adb install -r "C:\MotoGPS\moto-gps-waveshare\platforms\android\app\build\output
 
 Se Android Studio segnala `Controllo allineamento ELF non riuscito` per `libmotogps_jni.so`, `libzstd-jni-*.so` o `libvalhalla-wrapper.so`, **non è un problema dei MotoPack**. Il linker del codice C++ deve produrre segmenti ELF `LOAD` allineati a 16 KB e anche le librerie precompilate devono essere compatibili. Nel branch di sviluppo sono configurati: NDK `29.0.14206865`; linker flags `-Wl,-z,max-page-size=16384` e `-Wl,-z,common-page-size=16384` per `motogps_jni`; `zstd-jni` 1.5.7-13 e `valhalla-mobile` 0.6.6. **Il fatto che il Gradle compili non prova che tutti i .so precompilati siano già conformi.**
 
-In **Android Studio → Settings → Languages & Frameworks → Android SDK → SDK Tools** installare il componente **NDK (Side by side)**, versione `29.0.14206865` (eventualmente tramite *Show Package Details*). Oppure installare dal terminale PowerShell con SDK command line tools:
+In **Android Studio → Settings → Languages & Frameworks → Android SDK** installare **SDK Platform 37** e, nella scheda **SDK Tools**, il componente **NDK (Side by side)** versione `29.0.14206865` (eventualmente tramite *Show Package Details*). La libreria `zstd-jni` 1.5.7-13 richiede API 37 per compilare: `compileSdk` è 37, ma **`targetSdk` resta 35** e `minSdk` resta 26. AGP 9.1.1 usa Kotlin integrato; non riapplicare `org.jetbrains.kotlin.android`. Oppure installare dal terminale PowerShell con SDK command line tools:
 
 ```powershell
-& "$env:LOCALAPPDATA\Android\Sdk\cmdline-tools\latest\bin\sdkmanager.bat" "ndk;29.0.14206865"
+& "$env:LOCALAPPDATA\Android\Sdk\cmdline-tools\latest\bin\sdkmanager.bat" "platforms;android-37" "ndk;29.0.14206865"
 Set-Location "C:\MotoGPS\moto-gps-waveshare\platforms\android"
 .\gradlew.bat :app:testDebugUnitTest :app:assembleDebug
 ```

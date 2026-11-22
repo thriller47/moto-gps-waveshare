@@ -1,8 +1,5 @@
-import org.jetbrains.kotlin.gradle.dsl.JvmTarget
-
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose") version "2.2.10"
 }
 
@@ -27,7 +24,8 @@ if (!signingStorePath.isNullOrBlank() && !persistentSigning) {
 
 android {
     namespace = "com.motogps.android"
-    compileSdk = 36
+    // zstd-jni >=1.5.7-13 requires Android API 37 for AAR metadata.
+    compileSdk = 37
     // NDK r28+ links 16 KiB-compatible ELF LOAD segments by default.
     ndkVersion = "29.0.14206865"
 
@@ -95,11 +93,7 @@ android {
     }
 }
 
-kotlin {
-    compilerOptions {
-        jvmTarget.set(JvmTarget.JVM_17)
-    }
-}
+// AGP 9 built-in Kotlin inherits Java 17 from android.compileOptions.
 
 dependencies {
     implementation(platform("androidx.compose:compose-bom:2024.02.00"))
