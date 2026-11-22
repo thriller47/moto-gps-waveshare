@@ -148,10 +148,27 @@ internal object RoadDnaCategories {
         Option("natura", "Natura", listOf("national_park", "natural",
             "leisure.park.nature_reserve"), listOf("natural")),
         Option("terme", "Terme", listOf("leisure.spa",
-            "natural.water.hot_spring"), emptyList())
+            "natural.water.hot_spring"), emptyList()),
+        // Geoapify has exact dedicated category families for these services.
+        // OpenTripMap is oriented to sightseeing and its broad "foods" /
+        // "tourist_facilities" families do not reliably mean restaurant/hotel.
+        Option("ristoranti", "Ristoranti", listOf("catering.restaurant"),
+            emptyList()),
+        Option("hotel", "Hotel", listOf("accommodation.hotel"),
+            emptyList()),
+        Option("divertimenti", "Divertimenti",
+            listOf("entertainment.theme_park", "entertainment.zoo",
+                "entertainment.aquarium", "entertainment.activity_park",
+                "entertainment.cinema", "entertainment.bowling_alley"),
+            emptyList())
     )
     fun get(id: String): Option = options.firstOrNull { it.id == id }
         ?: throw IllegalArgumentException("Categoria Road DNA sconosciuta")
+
+    // For categories that do not map unambiguously to OpenTripMap kinds,
+    // only use the more precise Geoapify category request.
+    fun usesOpenTripMap(id: String): Boolean =
+        id == "consigliati" || get(id).trip.isNotEmpty()
 
     internal fun matches(id: String, poi: RoadDnaOnlinePoi): Boolean {
         if (id == "consigliati") return true
@@ -181,6 +198,11 @@ internal object RoadDnaCategories {
                 "mountain_peaks", "caves", "natural")
             "terme" -> has("leisure.spa", "natural.water.hot_spring",
                 "thermal_baths", "hot_springs", "spas")
+            "ristoranti" -> has("catering.restaurant")
+            "hotel" -> has("accommodation.hotel")
+            "divertimenti" -> has("entertainment.theme_park", "entertainment.zoo",
+                "entertainment.aquarium", "entertainment.activity_park",
+                "entertainment.cinema", "entertainment.bowling_alley")
             else -> false
         }
     }
@@ -446,6 +468,8 @@ internal object RoadDnaOnline {
         val tripKey = RoadDnaApiKeys.read(context, "opentripmap")
         if (geoKey.isNullOrBlank() && tripKey.isNullOrBlank())
             throw IllegalStateException("Configura una chiave Geoapify o OpenTripMap nelle impostazioni")
+        if (!RoadDnaCategories.usesOpenTripMap(categoryId) && geoKey.isNullOrBlank())
+            throw IllegalStateException("Questa categoria richiede una chiave Geoapify")
         val places = LinkedHashMap<String, RoadDnaOnlinePoi>()
         val errors = ArrayList<String>()
         var partial = false
@@ -480,7 +504,7 @@ internal object RoadDnaOnline {
                 }
             }
         }
-        if (!tripKey.isNullOrBlank()) {
+        if (!tripKey.isNullOrBlank() && RoadDnaCategories.usesOpenTripMap(categoryId)) {
             // A few radius queries, not a continuous scan of the user's itinerary.
             // Sparse sampling means OpenTripMap coverage is always labelled partial.
             val indices = tripSampleIndices(route, 5)
