@@ -2,6 +2,9 @@
 
 ## STATO ATTUALE — RIPARTIRE DA QUI
 
+**22/11/2026 — UX mappa Road DNA vicinanze: interazioni ai bordi / scroll.** Feedback Samsung: i POI ora sono visibili, ma la mappa in `AlertDialog` non si trascina bene e sui bordi i tocchi ai marker si perdono. Causa strutturale: `RouteMapView` osmdroid era annidata dentro `Column.verticalScroll` insieme a tutti i comandi, con conseguente competizione gestuale Compose/osmdroid. Correzione `NavigationScreen.kt`: il dialog dispone ora di `Column(heightIn(max=560.dp))` che ospita, come **fratelli** (non annidati), la `Surface` della mappa (242dp), con padding orizzontale 10dp + interno 7dp e clip ad angoli arrotondati, e una `Column(weight(1f).verticalScroll)` contenente slider, categorie, bottoni e dettaglio POI. Gli eventi touch/pan/zoom dei marker rimangono nel riquadro mappa e il resto del pannello scorre separatamente. La ricerca, i POI e il routing Valhalla non sono stati modificati. Controllo statico delimitatori Kotlin superato; **no CI/build/test Samsung**, nessun merge. Commit `7ec2edf`.
+
+
 **22/11/2026 — Ulteriori correzioni della ricerca vicina GPS:** nell'assenza di fix aggiornato si azzera anche il centro GPS mantenuto dalla precedente ricerca (mai mostrare un centro scaduto). `RouteMapView` include i marker offline e online nei bounds quando la rotta è assente e la ricerca GPS è stata completata; `routeFitKey` cambia con i risultati, così vengono inquadrati automaticamente al primo caricamento senza dover scorrere/zoomare a mano. Aggiunto helper testabile `RoadDnaOnline.selectZonePlaces` e regressione sul caso di risposta Geoapify con soli POI generici, che prima risultava zero con `Consigliati`. Non è necessario rigenerare MotoPack. Aggiornamento complementare ai commit 0298b1c, d4caea3, adf3e1d, af5503f, 376c89a, 11fd791. **CI/build Android non eseguite**; prova sul Samsung necessaria.
 
 
