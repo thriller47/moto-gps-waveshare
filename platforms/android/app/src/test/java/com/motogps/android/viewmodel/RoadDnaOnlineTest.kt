@@ -72,6 +72,41 @@ class RoadDnaOnlineTest {
             "panorami", "castelli", "cultura", "natura", "terme")))
     }
 
+    @Test fun restaurantHotelAndEntertainmentUseSpecificGeoapifyCategories() {
+        val route = listOf(45.10 to 7.10, 45.15 to 7.15)
+        val expected = mapOf(
+            "ristoranti" to "catering.restaurant",
+            "hotel" to "accommodation.hotel",
+            "divertimenti" to "entertainment.theme_park"
+        )
+        for ((id, category) in expected) {
+            assertTrue(RoadDnaCategories.options.any { it.id == id })
+            val body = RoadDnaOnline.geoBody(route, id)
+            assertTrue(body.getJSONArray("categories").toString().contains(category))
+            assertFalse(RoadDnaCategories.usesOpenTripMap(id))
+        }
+        assertTrue(RoadDnaCategories.usesOpenTripMap("consigliati"))
+        assertTrue(RoadDnaCategories.usesOpenTripMap("spiagge"))
+    }
+
+    @Test fun restaurantHotelAndEntertainmentFilteringRejectsUnrelatedPois() {
+        val restaurant = RoadDnaOnlinePoi("Trattoria", "catering.restaurant.italian",
+            100, "Geoapify", 45.1, 7.1)
+        val hotel = RoadDnaOnlinePoi("Albergo", "accommodation.hotel",
+            150, "Geoapify", 45.1, 7.1)
+        val cinema = RoadDnaOnlinePoi("Cinema", "entertainment.cinema",
+            200, "Geoapify", 45.1, 7.1)
+        val plaque = RoadDnaOnlinePoi("Lapide", "tourism.sights.memorial",
+            30, "Geoapify", 45.1, 7.1)
+        assertTrue(RoadDnaCategories.matches("ristoranti", restaurant))
+        assertFalse(RoadDnaCategories.matches("ristoranti", hotel))
+        assertFalse(RoadDnaCategories.matches("ristoranti", plaque))
+        assertTrue(RoadDnaCategories.matches("hotel", hotel))
+        assertFalse(RoadDnaCategories.matches("hotel", restaurant))
+        assertTrue(RoadDnaCategories.matches("divertimenti", cinema))
+        assertFalse(RoadDnaCategories.matches("divertimenti", plaque))
+    }
+
     @Test fun geoapifyRequiresActualRouteNotSinglePlace() {
         try {
             RoadDnaOnline.geoBody(listOf(45.0 to 7.0))
