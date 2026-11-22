@@ -426,6 +426,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     val roadDnaOnlineLoading: StateFlow<Boolean> = _roadDnaOnlineLoading
     private val _roadDnaOnlineError = MutableStateFlow<String?>(null)
     val roadDnaOnlineError: StateFlow<String?> = _roadDnaOnlineError
+    private val _roadDnaNearbyCenter = MutableStateFlow<Pair<Double, Double>?>(null)
+    val roadDnaNearbyCenter: StateFlow<Pair<Double, Double>?> = _roadDnaNearbyCenter
     private val _roadDnaZone = MutableStateFlow<RoadDnaOnlineResult?>(null)
     val roadDnaZone: StateFlow<RoadDnaOnlineResult?> = _roadDnaZone
     private val _roadDnaZoneLoading = MutableStateFlow(false)
@@ -572,6 +574,30 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                     _roadDnaOnlineLoading.value = false
             }
         }
+    }
+
+    /** Unlike a map-centered search, this uses ONLY a fresh real GPS fix,
+     * never the default Rome placeholder or a stale device position.
+     */
+    fun searchRoadDnaAroundMe(radiusKm: Int, categoryId: String) {
+        val ageMs = SystemClock.elapsedRealtime() - lastFixElapsedMs
+        if (!hasFirstFix || lastFixElapsedMs <= 0L || ageMs !in 0L..30000L ||
+            !lastFixAccuracyM.isFinite() || lastFixAccuracyM > 100f) {
+            clearRoadDnaZone()
+            _roadDnaZoneError.value =
+                "Attendi una posizione GPS recente e precisa (entro 30 s, 100 m) " +
+                "prima di cercare intorno a te."
+            return
+        }
+        val center = _currentLocation.value
+        if (!center.first.isFinite() || !center.second.isFinite() ||
+            center.first !in -90.0..90.0 || center.second !in -180.0..180.0) {
+            clearRoadDnaZone()
+            _roadDnaZoneError.value = "Coordinate GPS non valide"
+            return
+        }
+        _roadDnaNearbyCenter.value = center
+        searchRoadDnaZone(center.first, center.second, radiusKm, categoryId)
     }
 
     /** Explicit user gesture: search a circle centered on the visible map. */
