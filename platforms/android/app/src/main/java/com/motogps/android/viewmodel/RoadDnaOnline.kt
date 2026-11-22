@@ -490,6 +490,7 @@ internal object RoadDnaOnline {
                     currentCoroutineContext().ensureActive()
                     val (lat, lon) = route[i]
                     val received = parseTrip(JSONArray(fetch(tripRadiusUrl(lat, lon, tripKey,
+                        rate = if (categoryId == "consigliati") 2 else 1,
                         categoryId = categoryId)))).filter {
                         RoadDnaCategories.matches(categoryId, it)
                     }
