@@ -426,6 +426,15 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     val roadDnaOnlineLoading: StateFlow<Boolean> = _roadDnaOnlineLoading
     private val _roadDnaOnlineError = MutableStateFlow<String?>(null)
     val roadDnaOnlineError: StateFlow<String?> = _roadDnaOnlineError
+    /** Center/radius of the last zone request, independent from current GPS. */
+    data class RoadDnaZoneFocus(
+        val latitude: Double,
+        val longitude: Double,
+        val radiusKm: Int
+    )
+    private val _roadDnaZoneFocus = MutableStateFlow<RoadDnaZoneFocus?>(null)
+    val roadDnaZoneFocus: StateFlow<RoadDnaZoneFocus?> = _roadDnaZoneFocus
+
     private val _roadDnaNearbyCenter = MutableStateFlow<Pair<Double, Double>?>(null)
     val roadDnaNearbyCenter: StateFlow<Pair<Double, Double>?> = _roadDnaNearbyCenter
     private val _roadDnaZoneOffline = MutableStateFlow<List<RoadDnaPoi>>(emptyList())
@@ -608,8 +617,15 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     fun searchRoadDnaZone(lat: Double, lon: Double, radiusKm: Int,
                           categoryId: String) {
         val context = appContext ?: return
+        if (!lat.isFinite() || !lon.isFinite() ||
+            lat !in -90.0..90.0 || lon !in -180.0..180.0 ||
+            radiusKm !in 1..20) {
+            _roadDnaZoneError.value = "Centro o raggio della zona non validi"
+            return
+        }
         roadDnaZoneJob?.cancel()
         val request = ++roadDnaZoneRequest
+        _roadDnaZoneFocus.value = RoadDnaZoneFocus(lat, lon, radiusKm)
         _roadDnaZone.value = null
         _roadDnaZoneOffline.value = emptyList()
         _roadDnaZoneError.value = null
@@ -660,6 +676,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     fun clearRoadDnaZone() {
         ++roadDnaZoneRequest
         roadDnaZoneJob?.cancel()
+        _roadDnaZoneFocus.value = null
         _roadDnaZone.value = null
         _roadDnaZoneOffline.value = emptyList()
         _roadDnaZoneError.value = null
