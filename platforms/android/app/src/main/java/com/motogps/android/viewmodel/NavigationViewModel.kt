@@ -426,6 +426,15 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     val roadDnaOnlineLoading: StateFlow<Boolean> = _roadDnaOnlineLoading
     private val _roadDnaOnlineError = MutableStateFlow<String?>(null)
     val roadDnaOnlineError: StateFlow<String?> = _roadDnaOnlineError
+    private val _roadDnaAreaAccesses = MutableStateFlow<List<RoadDnaOnlinePoi>>(emptyList())
+    val roadDnaAreaAccesses: StateFlow<List<RoadDnaOnlinePoi>> = _roadDnaAreaAccesses
+    private val _roadDnaAreaAccessLoading = MutableStateFlow(false)
+    val roadDnaAreaAccessLoading: StateFlow<Boolean> = _roadDnaAreaAccessLoading
+    private val _roadDnaAreaAccessError = MutableStateFlow<String?>(null)
+    val roadDnaAreaAccessError: StateFlow<String?> = _roadDnaAreaAccessError
+    private var roadDnaAreaAccessJob: Job? = null
+    private var roadDnaAreaAccessRequest = 0L
+
     private val _roadDnaDetails = MutableStateFlow<String?>(null)
     val roadDnaDetails: StateFlow<String?> = _roadDnaDetails
     private val _roadDnaDetailsLoading = MutableStateFlow(false)
@@ -556,6 +565,63 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         }
     }
 
+    fun searchRoadDnaAreaAccesses(poi: RoadDnaPoi) {
+        val context = appContext ?: return
+        roadDnaAreaAccessJob?.cancel()
+        val request = ++roadDnaAreaAccessRequest
+        _roadDnaAreaAccesses.value = emptyList()
+        _roadDnaAreaAccessError.value = null
+        if (poi.exactLocation || !poi.latitude.isFinite() ||
+            !poi.longitude.isFinite() || poi.latitude !in -90.0..90.0 ||
+            poi.longitude !in -180.0..180.0) {
+            _roadDnaAreaAccessError.value = "Posizione area non valida"
+            _roadDnaAreaAccessLoading.value = false
+            return
+        }
+        roadDnaAreaAccessJob = viewModelScope.launch {
+            _roadDnaAreaAccessLoading.value = true
+            try {
+                val accesses = withContext(Dispatchers.IO) {
+                    RoadDnaOnline.findAreaAccesses(context, poi.latitude, poi.longitude)
+                }
+                if (request == roadDnaAreaAccessRequest) {
+                    _roadDnaAreaAccesses.value = accesses
+                    if (accesses.isEmpty()) {
+                        _roadDnaAreaAccessError.value =
+                            "Nessun parcheggio o punto informazioni trovato nei 2,5 km " +
+                            "dal punto rappresentativo dell'area."
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: RoadDnaProviderHttpException) {
+                if (request == roadDnaAreaAccessRequest) {
+                    _roadDnaAreaAccessError.value = when (e.statusCode) {
+                        401, 403 -> "Chiave Geoapify non valida o accesso negato"
+                        429 -> "Limite richieste Geoapify raggiunto"
+                        else -> "Geoapify non disponibile (HTTP ${e.statusCode})"
+                    }
+                }
+            } catch (e: Exception) {
+                if (request == roadDnaAreaAccessRequest) {
+                    _roadDnaAreaAccessError.value = "Ricerca accessi non disponibile: " +
+                        (e.message ?: "problema di rete")
+                }
+            } finally {
+                if (request == roadDnaAreaAccessRequest)
+                    _roadDnaAreaAccessLoading.value = false
+            }
+        }
+    }
+
+    fun clearRoadDnaAreaAccesses() {
+        roadDnaAreaAccessRequest++
+        roadDnaAreaAccessJob?.cancel()
+        _roadDnaAreaAccesses.value = emptyList()
+        _roadDnaAreaAccessError.value = null
+        _roadDnaAreaAccessLoading.value = false
+    }
+
     fun loadRoadDnaDetails(place: RoadDnaOnlinePoi) {
         val context = appContext ?: return
         val request = roadDnaOnlineRequestId
@@ -625,6 +691,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     }
 
     private fun invalidateRoadDna() {
+        clearRoadDnaAreaAccesses()
         roadDnaOnlineRequestId++
         roadDnaDetailRequestId++
         roadDnaOnlineJob?.cancel()
