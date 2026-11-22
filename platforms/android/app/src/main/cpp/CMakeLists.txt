@@ -21,3 +21,11 @@ target_link_libraries(
         motogps_jni
         moto_ble_protocol
         log)
+
+# Required for 16 KiB memory-page Android devices. This protects our
+# libmotogps_jni.so independent of whichever NDK a developer has locally;
+# third-party prebuilt .so files must be built separately with this support.
+target_link_options(motogps_jni PRIVATE
+    "-Wl,-z,max-page-size=16384"
+    "-Wl,-z,common-page-size=16384"
+)
