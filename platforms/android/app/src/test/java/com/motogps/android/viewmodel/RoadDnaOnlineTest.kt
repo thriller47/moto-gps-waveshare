@@ -42,6 +42,23 @@ class RoadDnaOnlineTest {
         assertTrue(one.getJSONArray("categories").toString().contains("castle"))
     }
 
+    @Test fun zoneSearchFallsBackToAvailablePoisWhenEditorialFilterWouldBeEmpty() {
+        val generic = listOf(
+            RoadDnaOnlinePoi("Punto locale", "tourism.attraction", 200,
+                "Geoapify", 44.40, 7.80),
+            RoadDnaOnlinePoi("Secondo luogo", "tourism.attraction", 350,
+                "Geoapify", 44.41, 7.81))
+        assertTrue(RoadDnaOnline.recommendedPlaces(generic).isEmpty())
+        assertEquals(2, RoadDnaOnline.selectZonePlaces(generic, "consigliati").size)
+        assertEquals(2, RoadDnaOnline.selectZonePlaces(generic, "natura").size)
+        val scenic = RoadDnaOnlinePoi("Belvedere", "tourism.attraction.viewpoint",
+            150, "Geoapify", 44.39, 7.79)
+        assertEquals(listOf("Belvedere"),
+            RoadDnaOnline.selectZonePlaces(
+                RoadDnaOnline.rankPlaces(generic + scenic), "consigliati")
+                .map { it.name })
+    }
+
     @Test fun zoneSearchRejectsInvalidRadiusAndPosition() {
         assertThrows(IllegalArgumentException::class.java) {
             RoadDnaOnline.zoneBody(44.39, 7.81, 0, "consigliati")
