@@ -27,6 +27,7 @@ set -euo pipefail
 while (($#)); do
   case "$1" in
     --out) OUT=$2; shift 2;;
+    --resume) shift;;
     --pbf|--poly|--photon|--threads|--python) shift 2;;
     *) exit 10;;
   esac
@@ -75,7 +76,9 @@ if [[ "${FAKE_FAIL:-0}" == 1 ]]; then exit 20; fi
         r = self.run_script(fail=True)
         self.assertEqual(r.returncode, 20)
         self.assertEqual((self.out / "MotoChatGPS-Italia.motopack").read_text(), "old")
-        self.assertEqual(list(self.root.glob(".out.*")), [])
+        stages = list(self.root.glob(".out.build.*"))
+        self.assertEqual(len(stages), 1)
+        self.assertTrue((stages[0] / ".road-dna-stage-sources").exists())
 
     def test_rejects_unrelated_files_and_preserves_them(self):
         self.out.mkdir()

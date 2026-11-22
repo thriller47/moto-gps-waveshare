@@ -201,7 +201,7 @@ jobs:
             exit 1
           fi
           if [[ ! -f "$sdk/platforms/android-37/android.jar" ]]; then
-            "$manager" --sdk_root="$sdk" --install "platforms;android-37"
+            "$manager" --sdk_root="$sdk" --channel=3 --install "platforms;android-37"
           fi
           test -f "$sdk/platforms/android-37/android.jar"
 
