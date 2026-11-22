@@ -49,6 +49,7 @@ import com.motogps.android.viewmodel.SavedCircularTour
 import com.motogps.android.viewmodel.TourSession
 import com.motogps.android.viewmodel.RouteOption
 import com.motogps.android.viewmodel.RoadDnaSummary
+import com.motogps.android.viewmodel.RoadDnaCategories
 import com.motogps.android.viewmodel.RoadDnaOnlineResult
 import com.motogps.android.viewmodel.RoadDnaOnlinePoi
 import com.motogps.android.viewmodel.RoadDnaOnline
@@ -643,7 +644,7 @@ fun NavigationScreen(
     roadDnaOnlineError: String? = null,
     roadDnaDetails: String? = null,
     roadDnaDetailsLoading: Boolean = false,
-    onRoadDnaOnlineSearch: () -> Unit = {},
+    onRoadDnaOnlineSearch: (String) -> Unit = {},
     onRoadDnaDetails: (RoadDnaOnlinePoi) -> Unit = {},
     geoapifyConfigured: Boolean = false,
     opentripmapConfigured: Boolean = false,
@@ -695,6 +696,7 @@ fun NavigationScreen(
     var showRoadDnaDialog by remember { mutableStateOf(false) }
     var showRoadDnaResults by remember { mutableStateOf(false) }
     var showAllRoadDnaPlaces by remember { mutableStateOf(false) }
+    var selectedRoadDnaCategory by remember { mutableStateOf("consigliati") }
     var selectedRoadDnaPoi by remember { mutableStateOf<RoadDnaOnlinePoi?>(null) }
     val roadDnaListScroll = rememberScrollState()
     val roadDnaResultsScroll = rememberLazyListState()
@@ -759,30 +761,35 @@ fun NavigationScreen(
                     ) {
                         val places = roadDnaOnline.places
                         val recommended = RoadDnaOnline.recommendedPlaces(places)
-                        val visiblePlaces = if (showAllRoadDnaPlaces) places
-                            else recommended.take(15)
-                        Text("${places.size} luoghi trovati · " +
-                            "${recommended.size} di interesse per la moto",
+                        val scopedCategory = roadDnaOnline.categoryId != "consigliati"
+                        val visiblePlaces = if (scopedCategory || showAllRoadDnaPlaces)
+                            places else recommended.take(15)
+                        val categoryTitle = RoadDnaCategories.get(roadDnaOnline.categoryId).title
+                        Text("${places.size} luoghi · ${categoryTitle}",
                             style = MaterialTheme.typography.titleSmall)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            FilterChip(
-                                selected = !showAllRoadDnaPlaces,
-                                onClick = { showAllRoadDnaPlaces = false },
-                                label = { Text("Consigliati") }
+                        if (!scopedCategory) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                FilterChip(
+                                    selected = !showAllRoadDnaPlaces,
+                                    onClick = { showAllRoadDnaPlaces = false },
+                                    label = { Text("Consigliati") }
+                                )
+                                FilterChip(
+                                    selected = showAllRoadDnaPlaces,
+                                    onClick = { showAllRoadDnaPlaces = true },
+                                    label = { Text("Tutti") }
+                                )
+                            }
+                            Text(
+                                if (showAllRoadDnaPlaces)
+                                    "Elenco completo, inclusi monumenti minori."
+                                else "${recommended.size} di interesse per la moto; massimo 15.",
+                                style = MaterialTheme.typography.bodySmall
                             )
-                            FilterChip(
-                                selected = showAllRoadDnaPlaces,
-                                onClick = { showAllRoadDnaPlaces = true },
-                                label = { Text("Tutti") }
-                            )
+                        } else {
+                            Text("Sono mostrati solo i luoghi della categoria scelta.",
+                                style = MaterialTheme.typography.bodySmall)
                         }
-                        Text(
-                            if (showAllRoadDnaPlaces)
-                                "Elenco completo, inclusi monumenti minori, targhe e statue."
-                            else "Massimo 15 tappe di interesse: panorami, castelli, " +
-                                "natura e siti storici. Per gli altri luoghi usa Tutti.",
-                            style = MaterialTheme.typography.bodySmall
-                        )
                         Text(
                             "Geoapify ${places.count { it.source == "Geoapify" }}" +
                                 " · OpenTripMap ${places.count { it.source == "OpenTripMap" }}",
@@ -793,7 +800,9 @@ fun NavigationScreen(
                         if (places.isEmpty()) {
                             Text("Nessun luogo turistico trovato lungo il percorso.")
                         } else if (visiblePlaces.isEmpty()) {
-                            Text("Nessuna tappa di particolare interesse identificata. " +
+                            Text(if (scopedCategory)
+                                "Nessun luogo di questa categoria nel tratto esaminato."
+                            else "Nessuna tappa particolarmente interessante. " +
                                 "Tocca Tutti per consultare anche i luoghi minori.")
                         } else {
                             if (!showAllRoadDnaPlaces && recommended.size > 15) {
@@ -909,6 +918,21 @@ fun NavigationScreen(
                         "campione lungo la rotta. Distanze in linea d'aria, non deviazioni " +
                         "stradali; risultati non esaustivi.",
                         style = MaterialTheme.typography.bodySmall)
+                    Text("Che cosa vuoi scoprire?",
+                        style = MaterialTheme.typography.titleSmall)
+                    Row(
+                        modifier = Modifier.fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        RoadDnaCategories.options.forEach { category ->
+                            FilterChip(
+                                selected = selectedRoadDnaCategory == category.id,
+                                onClick = { selectedRoadDnaCategory = category.id },
+                                label = { Text(category.title) }
+                            )
+                        }
+                    }
                     if (!geoapifyConfigured && !opentripmapConfigured) {
                         Text("Nessuna chiave configurata. Apri ⋮ → API Road DNA.")
                     } else {
@@ -916,7 +940,7 @@ fun NavigationScreen(
                             onClick = {
                                 showAllRoadDnaPlaces = false
                                 showRoadDnaResults = true
-                                onRoadDnaOnlineSearch()
+                                onRoadDnaOnlineSearch(selectedRoadDnaCategory)
                             },
                             enabled = !roadDnaOnlineLoading && !isNavigating &&
                                 routeOptions.getOrNull(selectedRouteIndex) != null
@@ -930,7 +954,8 @@ fun NavigationScreen(
                         Text(roadDnaOnlineError, color = MaterialTheme.colorScheme.error)
                     if (roadDnaOnline != null) {
                         val count = roadDnaOnline.places.size
-                        Text("${count} luoghi disponibili nella finestra dei risultati.",
+                        val previousCategory = RoadDnaCategories.get(roadDnaOnline.categoryId)
+                        Text("${count} luoghi della ricerca ${previousCategory.title}.",
                             style = MaterialTheme.typography.bodySmall)
                         OutlinedButton(onClick = { showRoadDnaResults = true }) {
                             Text("Apri risultati (${count})")
