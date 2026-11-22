@@ -107,6 +107,39 @@ class RoadDnaOnlineTest {
         assertFalse(RoadDnaCategories.matches("divertimenti", plaque))
     }
 
+    @Test fun offlineRoadDnaRecommendationsExcludeGardenParkFlood() {
+        val places = listOf(
+            RoadDnaPoi("Parco 1", "parco", false, 30, 44.5, 7.5, true),
+            RoadDnaPoi("Giardino 1", "giardino", false, 20, 44.5, 7.5, true),
+            RoadDnaPoi("Castello", "castello", false, 900, 44.5, 7.5, true),
+            RoadDnaPoi("Belvedere", "belvedere", false, 1500, 44.5, 7.5, true),
+            RoadDnaPoi("Laghetto", "lago", true, 0, 44.5, 7.5, false),
+            RoadDnaPoi("Museo", "museo", false, 200, 44.5, 7.5, true)
+        )
+        assertEquals(listOf("Belvedere", "Castello", "Laghetto", "Museo"),
+            RoadDnaOfflineFilter.select(places, "consigliati").map { it.name })
+        assertEquals(listOf("Parco 1", "Giardino 1"),
+            RoadDnaOfflineFilter.select(places, "natura")
+                .filter { it.category == "parco" || it.category == "giardino" }
+                .map { it.name })
+        assertEquals(listOf("Castello"),
+            RoadDnaOfflineFilter.select(places, "castelli").map { it.name })
+        assertTrue(RoadDnaOfflineFilter.select(places, "spiagge").isEmpty())
+        assertTrue(RoadDnaOfflineFilter.select(places, "ristoranti").isEmpty())
+    }
+
+    @Test fun offlineRoadDnaPreservesRepresentativeLocationSafety() {
+        val point = RoadDnaPoi("Castello", "castello", false, 120,
+            44.40, 7.80, true)
+        val area = RoadDnaPoi("Lago", "lago", true, 0,
+            44.41, 7.81, false)
+        assertTrue(point.exactLocation)
+        assertFalse(area.exactLocation)
+        assertTrue(area.approximateArea)
+        assertTrue(RoadDnaOfflineFilter.select(listOf(area, point),
+            "consigliati").contains(area))
+    }
+
     @Test fun geoapifyRequiresActualRouteNotSinglePlace() {
         try {
             RoadDnaOnline.geoBody(listOf(45.0 to 7.0))
