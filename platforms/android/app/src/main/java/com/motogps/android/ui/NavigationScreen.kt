@@ -207,7 +207,7 @@ fun RouteMapView(
             }
             // Road DNA markers are kept separate from the route and real
             // waypoints. A marker tap opens a preview; it never edits a route.
-            roadDnaPois.take(15).forEach { poi ->
+            roadDnaPois.take(60).forEach { poi ->
                 if (poi.latitude.isFinite() && poi.longitude.isFinite() &&
                     poi.latitude in -90.0..90.0 && poi.longitude in -180.0..180.0) {
                     mapView.overlays.add(Marker(mapView).apply {
@@ -1039,7 +1039,9 @@ fun NavigationScreen(
                 showOnlineSuggestionsMap = false
                 selectedOnlineSuggestion = null
             },
-            title = { Text("Road DNA · suggerimenti online") },
+            title = { Text(if (zoneMapMode)
+                "Road DNA · luoghi nelle vicinanze"
+            else "Road DNA · suggerimenti online") },
             text = {
                 Column(
                     modifier = Modifier.fillMaxWidth().heightIn(max = 530.dp)
