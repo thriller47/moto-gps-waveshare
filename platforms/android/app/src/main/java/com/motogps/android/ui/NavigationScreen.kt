@@ -51,6 +51,8 @@ import com.motogps.android.viewmodel.TourSession
 import com.motogps.android.viewmodel.RouteOption
 import com.motogps.android.viewmodel.RoadDnaSummary
 import com.motogps.android.viewmodel.RoadDnaPoi
+import com.motogps.android.viewmodel.RoadDnaAreaAccess
+import com.motogps.android.viewmodel.RoadDnaRoadsideCandidate
 import com.motogps.android.viewmodel.RoadDnaOfflineFilter
 import com.motogps.android.viewmodel.RoadDnaCategories
 import com.motogps.android.viewmodel.RoadDnaOnlineResult
@@ -139,6 +141,7 @@ fun RouteMapView(
     onWaypointLongPress: ((Double, Double) -> Unit)? = null,
     roadDnaPois: List<RoadDnaPoi> = emptyList(),
     onRoadDnaPoiClick: ((RoadDnaPoi) -> Unit)? = null,
+    roadsideProposal: RoadDnaRoadsideCandidate? = null,
     modifier: Modifier = Modifier
 ) {
     // Route-fitting is deliberately one-shot per route ID, not per recomposition.\n    // The AndroidView.update callback runs on unrelated Compose changes (GPS,
@@ -212,6 +215,13 @@ fun RouteMapView(
                         }
                     })
                 }
+            }
+            roadsideProposal?.let { candidate ->
+                mapView.overlays.add(Marker(mapView).apply {
+                    position = GeoPoint(candidate.latitude, candidate.longitude)
+                    title = "Punto stradale proposto · Road DNA"
+                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                })
             }
             if (destinationLocation != null && destinationLocation.first in -90.0..90.0 &&
                 destinationLocation.second in -180.0..180.0) {
@@ -722,6 +732,9 @@ fun NavigationScreen(
     var offlineRoadDnaCategory by remember { mutableStateOf("consigliati") }
     var showRoadDnaMap by remember { mutableStateOf(false) }
     var selectedOfflineRoadDnaPoi by remember { mutableStateOf<RoadDnaPoi?>(null) }
+    var proposedRoadsideStop by remember {
+        mutableStateOf<RoadDnaRoadsideCandidate?>(null)
+    }
     var selectedRoadDnaPoi by remember { mutableStateOf<RoadDnaOnlinePoi?>(null) }
     val roadDnaListScroll = rememberScrollState()
     val roadDnaResultsScroll = rememberLazyListState()
@@ -769,6 +782,9 @@ fun NavigationScreen(
         val selectedOption = routeOptions.getOrNull(selectedRouteIndex)
         val places = RoadDnaOfflineFilter.select(
             roadDnaSummary.places, offlineRoadDnaCategory)
+        val previewGeometry = selectedOption?.let {
+            com.motogps.android.viewmodel.RoadDnaAnalysis.geometry(it.rawRouteJson)
+        } ?: emptyList()
         AlertDialog(
             onDismissRequest = { showRoadDnaMap = false },
             title = { Text("Road DNA · ${RoadDnaCategories.get(offlineRoadDnaCategory).title}") },
@@ -784,28 +800,65 @@ fun NavigationScreen(
                         nightMode = true,
                         waypoints = routeWaypoints,
                         roadDnaPois = places,
-                        onRoadDnaPoiClick = { selectedOfflineRoadDnaPoi = it },
+                        roadsideProposal = proposedRoadsideStop,
+                        onRoadDnaPoiClick = {
+                            selectedOfflineRoadDnaPoi = it
+                            proposedRoadsideStop = null
+                        },
                         modifier = Modifier.fillMaxWidth().height(310.dp)
                     )
                     selectedOfflineRoadDnaPoi?.let { poi ->
                         Text(poi.name + " · " + poi.category)
-                        Text(if (poi.exactLocation)
-                            "Punto OSM esatto; accesso stradale da verificare."
-                        else "Posizione indicativa di un'area o di una strada: " +
-                            "non utilizzabile direttamente come tappa.",
-                            style = MaterialTheme.typography.bodySmall)
                         if (poi.exactLocation) {
+                            Text("Posizione OSM puntuale. Valhalla deve poter " +
+                                "calcolare una rotta raggiungibile.",
+                                style = MaterialTheme.typography.bodySmall)
                             Button(onClick = {
                                 onAddWaypoint(PlaceSearchResult(
                                     name = poi.name,
                                     address = poi.category,
                                     displayArea = "Road DNA offline",
                                     latitude = poi.latitude,
-                                    longitude = poi.longitude,
-                                    requiresRoadAccess = true
+                                    longitude = poi.longitude
                                 ))
                                 showRoadDnaMap = false
                             }) { Text("Aggiungi come tappa") }
+                        } else {
+                            val candidate = RoadDnaAreaAccess.candidate(
+                                poi, previewGeometry)
+                            if (candidate == null) {
+                                Text("Nessun punto sulla rotta sufficientemente " +
+                                    "vicino all'area. Per raggiungerla, scegli " +
+                                    "manualmente una strada o un ingresso sulla mappa.",
+                                    style = MaterialTheme.typography.bodySmall)
+                            } else {
+                                Text("Si può usare un punto sulla rotta Valhalla, " +
+                                    "a circa ${candidate.distanceToAreaMeters} m dal " +
+                                    "rettangolo dell'area OSM. NON è un ingresso " +
+                                    "verificato e potrebbe non essere vicino " +
+                                    "all'accesso effettivo.",
+                                    style = MaterialTheme.typography.bodySmall)
+                                if (proposedRoadsideStop != candidate) {
+                                    OutlinedButton(onClick = {
+                                        proposedRoadsideStop = candidate
+                                    }) { Text("Mostra punto stradale proposto") }
+                                } else {
+                                    Text("Punto proposto evidenziato sulla mappa. " +
+                                        "Conferma soltanto se la posizione ti sembra utile.",
+                                        style = MaterialTheme.typography.bodySmall)
+                                    Button(onClick = {
+                                        onAddWaypoint(PlaceSearchResult(
+                                            name = poi.name + " · sosta stradale",
+                                            address = "Accesso all'area non verificato",
+                                            displayArea = "Road DNA · punto sulla rotta",
+                                            latitude = candidate.latitude,
+                                            longitude = candidate.longitude
+                                        ))
+                                        showRoadDnaMap = false
+                                        proposedRoadsideStop = null
+                                    }) { Text("Conferma tappa stradale") }
+                                }
+                            }
                         }
                     }
                 }
@@ -815,6 +868,7 @@ fun NavigationScreen(
                     showRoadDnaMap = false
                     showRoadDnaDialog = true
                     selectedOfflineRoadDnaPoi = null
+                    proposedRoadsideStop = null
                 }) { Text("Torna a Road DNA") }
             }
         )
@@ -1005,6 +1059,7 @@ fun NavigationScreen(
                                 }
                                 OutlinedButton(onClick = {
                                     selectedOfflineRoadDnaPoi = null
+                                    proposedRoadsideStop = null
                                     showRoadDnaMap = true
                                     showRoadDnaDialog = false
                                 }, enabled = !isNavigating) {
