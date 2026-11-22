@@ -611,6 +611,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         _roadDnaZone.value = null
         _roadDnaZoneOffline.value = emptyList()
         _roadDnaZoneError.value = null
+        clearRoadDnaAreaAccesses()
         roadDnaZoneJob = viewModelScope.launch {
             _roadDnaZoneLoading.value = true
             // Offline SQLite is authoritative for MotoPack tourist POIs.
