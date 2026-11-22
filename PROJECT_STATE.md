@@ -2,6 +2,9 @@
 
 ## STATO ATTUALE — RIPARTIRE DA QUI
 
+**22/11/2026 — Suggerimenti turistici ONLINE visualizzati su mappa (branch sperimentale, non ancora collaudato).** In `NavigationScreen.kt` il dialogo risultati Road DNA online espone «Mostra suggerimenti sulla mappa», senza effettuare ulteriori chiamate ai provider. Il set riflette `Consigliati` (fino a 15), `Tutti` (fino a 60) o i risultati della categoria online selezionata (fino a 60). Riuso di `RouteMapView` con parametri `onlineSuggestions` e `onOnlineSuggestionClick`, marker osmdroid cliccabili per coordinate Geoapify/OpenTripMap sovrapposti alla geometria Valhalla. Dialog mappa separato dall'elenco (non mostrati contemporaneamente): tap sul segnalino apre nome/categoria/provider/distanza indicativa e «Aggiungi come tappa», che inoltra `PlaceSearchResult` al flusso waypoint già collaudato. La selezione non cancella i marker, «Torna ai risultati» recupera la stessa lista, senza nuove richieste. Nota sulla posizione provider, accesso moto non garantito; nessuna modifica al MotoPack o routing. Verifica statica struttura bilanciata; **build/CI non eseguite, test Android richiesto**, nessun merge. Commit `1e33d43`.
+
+
 **22/11/2026 — Semplificazione UI Road DNA offline:** eliminato dalla finestra Road DNA l'elenco grezzo «Candidati per categoria nel corridoio indicativo di 2 km» (fino a 12 conteggi), che precedeva la selezione consigliata ed era ridondante. Ora la schermata mostra direttamente filtri e lista di POI curati, titolo «Consigliati lungo il percorso» o «Luoghi della categoria selezionata», conteggio dei risultati filtrati e «Mostra luoghi sulla mappa». `countByCategory` resta disponibile nel modello per eventuali diagnostiche; nessuna modifica a filtro/routing/database. Commit `6c64c99`. CI/build non eseguite; verifica UI locale richiesta.
 
 
