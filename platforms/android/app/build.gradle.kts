@@ -28,6 +28,8 @@ if (!signingStorePath.isNullOrBlank() && !persistentSigning) {
 android {
     namespace = "com.motogps.android"
     compileSdk = 36
+    // NDK r28+ links 16 KiB-compatible ELF LOAD segments by default.
+    ndkVersion = "29.0.14206865"
 
     defaultConfig {
         applicationId = "com.motogps.android"
@@ -111,12 +113,14 @@ dependencies {
     testImplementation("org.mockito.kotlin:mockito-kotlin:5.2.1")
     implementation("org.json:json:20231013")
     implementation("org.osmdroid:osmdroid-android:6.1.18")
-    implementation("io.github.rallista:valhalla-mobile:0.6.4")
+    // Newer upstream prebuilt wrapper (NDK 29 build); must pass APK ELF audit.
+    implementation("io.github.rallista:valhalla-mobile:0.6.6")
     implementation("io.github.rallista:valhalla-models:0.5.2")
     implementation("io.github.rallista:valhalla-models-config:0.5.2")
     implementation("com.stadiamaps:osrm-openapi:0.0.10")
-    // Version 1.5.7-12 uses an Android SDK compatible with compileSdk 36.
-    // Android AAR includes native Zstandard decoder used by imported .tar.zst.
-    implementation("com.github.luben:zstd-jni:1.5.7-12@aar")
-    testImplementation("com.github.luben:zstd-jni:1.5.7-12")
+    // 1.5.7-13 upgrades the Android AAR build to NDK 29. Older -12 emits
+    // Android 16 KiB page-size compatibility warnings on ARM64.
+    // Keep Android and JVM test versions in sync.
+    implementation("com.github.luben:zstd-jni:1.5.7-13@aar")
+    testImplementation("com.github.luben:zstd-jni:1.5.7-13")
 }
