@@ -585,6 +585,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         val ageMs = SystemClock.elapsedRealtime() - lastFixElapsedMs
         if (!hasFirstFix || lastFixElapsedMs <= 0L || ageMs !in 0L..30000L ||
             !lastFixAccuracyM.isFinite() || lastFixAccuracyM > 100f) {
+            _roadDnaNearbyCenter.value = null
             clearRoadDnaZone()
             _roadDnaZoneError.value =
                 "Attendi una posizione GPS recente e precisa (entro 30 s, 100 m) " +
@@ -594,6 +595,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         val center = _currentLocation.value
         if (!center.first.isFinite() || !center.second.isFinite() ||
             center.first !in -90.0..90.0 || center.second !in -180.0..180.0) {
+            _roadDnaNearbyCenter.value = null
             clearRoadDnaZone()
             _roadDnaZoneError.value = "Coordinate GPS non valide"
             return
