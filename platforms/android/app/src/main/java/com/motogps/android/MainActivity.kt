@@ -282,6 +282,12 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             val roadDnaOnline = viewModel.roadDnaOnline.collectAsState().value
             val roadDnaOnlineLoading = viewModel.roadDnaOnlineLoading.collectAsState().value
             val roadDnaOnlineError = viewModel.roadDnaOnlineError.collectAsState().value
+            val roadDnaAreaAccesses =
+                viewModel.roadDnaAreaAccesses.collectAsState().value
+            val roadDnaAreaAccessLoading =
+                viewModel.roadDnaAreaAccessLoading.collectAsState().value
+            val roadDnaAreaAccessError =
+                viewModel.roadDnaAreaAccessError.collectAsState().value
             val roadDnaDetails = viewModel.roadDnaDetails.collectAsState().value
             val roadDnaDetailsLoading = viewModel.roadDnaDetailsLoading.collectAsState().value
             val geoapifyConfigured = viewModel.geoapifyConfigured.collectAsState().value
@@ -369,6 +375,15 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                         viewModel.searchRoadDnaOnline(categoryId)
                     },
                     onRoadDnaDetails = { viewModel.loadRoadDnaDetails(it) },
+                    roadDnaAreaAccesses = roadDnaAreaAccesses,
+                    roadDnaAreaAccessLoading = roadDnaAreaAccessLoading,
+                    roadDnaAreaAccessError = roadDnaAreaAccessError,
+                    onRoadDnaAreaAccessSearch = {
+                        viewModel.searchRoadDnaAreaAccesses(it)
+                    },
+                    onRoadDnaAreaAccessClear = {
+                        viewModel.clearRoadDnaAreaAccesses()
+                    },
                     geoapifyConfigured = geoapifyConfigured,
                     opentripmapConfigured = opentripmapConfigured,
                     roadDnaKeyStatus = roadDnaKeyStatus,
