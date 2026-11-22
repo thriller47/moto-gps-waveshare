@@ -832,24 +832,26 @@ fun NavigationScreen(
                                     "manualmente una strada o un ingresso sulla mappa.",
                                     style = MaterialTheme.typography.bodySmall)
                             } else {
-                                Text("Si può usare un punto sulla rotta Valhalla, " +
-                                    "a circa ${candidate.distanceToAreaMeters} m dal " +
-                                    "rettangolo dell'area OSM. NON è un ingresso " +
-                                    "verificato e potrebbe non essere vicino " +
-                                    "all'accesso effettivo.",
+                                Text("Possibile sosta su strada motociclistica, " +
+                                    "esterna all'area OSM e a circa " +
+                                    "${candidate.distanceToAreaMeters} m dal suo " +
+                                    "rettangolo geografico. NON è un parcheggio " +
+                                    "né un ingresso verificato: l'eventuale " +
+                                    "percorso a piedi non è calcolato.",
                                     style = MaterialTheme.typography.bodySmall)
                                 if (proposedRoadsideStop != candidate) {
                                     OutlinedButton(onClick = {
                                         proposedRoadsideStop = candidate
                                     }) { Text("Mostra punto stradale proposto") }
                                 } else {
-                                    Text("Punto proposto evidenziato sulla mappa. " +
-                                        "Conferma soltanto se la posizione ti sembra utile.",
+                                    Text("Sosta stradale evidenziata sulla mappa. " +
+                                        "Controlla accessibilità, sicurezza della fermata " +
+                                        "e percorso pedonale prima di confermare.",
                                         style = MaterialTheme.typography.bodySmall)
                                     Button(onClick = {
                                         onAddWaypoint(PlaceSearchResult(
                                             name = poi.name + " · sosta stradale",
-                                            address = "Accesso all'area non verificato",
+                                            address = "Sosta stradale; accesso pedonale non verificato",
                                             displayArea = "Road DNA · punto sulla rotta",
                                             latitude = candidate.latitude,
                                             longitude = candidate.longitude
