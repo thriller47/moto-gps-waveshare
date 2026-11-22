@@ -2,6 +2,9 @@
 
 ## STATO ATTUALE — RIPARTIRE DA QUI
 
+**22/11/2026 — Semplificazione UI Road DNA offline:** eliminato dalla finestra Road DNA l'elenco grezzo «Candidati per categoria nel corridoio indicativo di 2 km» (fino a 12 conteggi), che precedeva la selezione consigliata ed era ridondante. Ora la schermata mostra direttamente filtri e lista di POI curati, titolo «Consigliati lungo il percorso» o «Luoghi della categoria selezionata», conteggio dei risultati filtrati e «Mostra luoghi sulla mappa». `countByCategory` resta disponibile nel modello per eventuali diagnostiche; nessuna modifica a filtro/routing/database. Commit `6c64c99`. CI/build non eseguite; verifica UI locale richiesta.
+
+
 **22/11/2026 — Bug tap marker accessi Geoapify (da verificare con nuova APK).** L'utente riferisce: dopo la ricerca accessi online, toccando un marker sulla mappa scompaiono tutti gli accessi e il pulsante «Aggiungi ... come tappa» non appare. Correzione in `NavigationScreen.kt`: (1) i marker degli accessi sono inseriti per ultimi negli overlay osmdroid, (2) il pannello di conferma per l'accesso online selezionato è fuori dal blocco condizionale del POI offline originale, (3) durante la ricerca con risultati Geoapify si nascondono i marker POI offline sovrapposti, evitando che intercettino il tap e cancellino la lista, (4) aggiunto «Torna ai luoghi Road DNA» per ripristinarli. La selezione accesso mantiene la lista; «Aggiungi punto online come tappa» usa il normale callback waypoint Valhalla. Fix nei commit bcbda4f e 4c60bbf. Non è confermato che fosse l'unica causa: **build/CI non eseguite**, nuovo test sul telefono necessario. Nessun merge.
 
 
