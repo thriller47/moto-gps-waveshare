@@ -933,6 +933,13 @@ fun NavigationScreen(
                             )
                         }
                     }
+                    val selectedCategoryRequiresGeo =
+                        !RoadDnaCategories.usesOpenTripMap(selectedRoadDnaCategory)
+                    if (selectedCategoryRequiresGeo && !geoapifyConfigured) {
+                        Text("Questa categoria richiede la chiave Geoapify. " +
+                            "Configurarla in ⋮ → API Road DNA.",
+                            style = MaterialTheme.typography.bodySmall)
+                    }
                     if (!geoapifyConfigured && !opentripmapConfigured) {
                         Text("Nessuna chiave configurata. Apri ⋮ → API Road DNA.")
                     } else {
@@ -943,6 +950,7 @@ fun NavigationScreen(
                                 onRoadDnaOnlineSearch(selectedRoadDnaCategory)
                             },
                             enabled = !roadDnaOnlineLoading && !isNavigating &&
+                                (!selectedCategoryRequiresGeo || geoapifyConfigured) &&
                                 routeOptions.getOrNull(selectedRouteIndex) != null
                         ) { Text("Cerca online (su richiesta)") }
                     }
