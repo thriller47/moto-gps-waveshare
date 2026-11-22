@@ -31,6 +31,8 @@ class RoadDnaOnlineTest {
         val filter = zone.getJSONObject("filter")
         assertEquals("circle", filter.getString("type"))
         assertEquals(20000, filter.getInt("radius"))
+        assertEquals(200, zone.getInt("limit"))
+        assertEquals("proximity", zone.getJSONObject("bias").getString("type"))
         assertEquals(44.39, filter.getDouble("lat"), 0.00001)
         assertEquals(7.81, filter.getDouble("lon"), 0.00001)
         assertEquals("beach", zone.getJSONArray("categories").getString(0))
