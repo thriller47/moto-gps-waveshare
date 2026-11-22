@@ -57,6 +57,7 @@ import com.motogps.android.viewmodel.RoadDnaRoadsideCandidate
 import com.motogps.android.viewmodel.RoadDnaOfflineFilter
 import com.motogps.android.viewmodel.RoadDnaCategories
 import com.motogps.android.viewmodel.RoadDnaOnlineResult
+import com.motogps.android.viewmodel.NavigationViewModel.RoadDnaZoneFocus
 import com.motogps.android.viewmodel.RoadDnaOnlinePoi
 import com.motogps.android.viewmodel.RoadDnaOnline
 import org.json.JSONArray
@@ -148,6 +149,7 @@ fun RouteMapView(
     onlineSuggestions: List<RoadDnaOnlinePoi> = emptyList(),
     onOnlineSuggestionClick: ((RoadDnaOnlinePoi) -> Unit)? = null,
     onMapReady: ((MapView) -> Unit)? = null,
+    zoneFocus: RoadDnaZoneFocus? = null,
     modifier: Modifier = Modifier
 ) {
     // Route-fitting is deliberately one-shot per route ID, not per recomposition.\n    // The AndroidView.update callback runs on unrelated Compose changes (GPS,
@@ -185,6 +187,29 @@ fun RouteMapView(
                     outlinePaint.strokeWidth = 12f
                 })
                 viewPoints.addAll(geoPoints)
+            }
+            // Draw the actual executed circle, not the GPS/route center.
+            // This visual overlay does not modify map fit or routing.
+            zoneFocus?.let { area ->
+                val radiusMeters = area.radiusKm * 1000.0
+                val latDelta = radiusMeters / 111195.0
+                val lonDelta = radiusMeters /
+                    (111195.0 * kotlin.math.cos(Math.toRadians(area.latitude))
+                        .coerceAtLeast(0.02))
+                val ring = (0..48).map { i ->
+                    val angle = i * 2.0 * Math.PI / 48.0
+                    GeoPoint(
+                        (area.latitude + latDelta * kotlin.math.cos(angle))
+                            .coerceIn(-90.0, 90.0),
+                        (area.longitude + lonDelta * kotlin.math.sin(angle))
+                            .coerceIn(-180.0, 180.0)
+                    )
+                }
+                mapView.overlays.add(Polyline().apply {
+                    setPoints(ring)
+                    outlinePaint.color = android.graphics.Color.rgb(46, 151, 225)
+                    outlinePaint.strokeWidth = 3.5f
+                })
             }
             if (currentLocation != null && currentLocation.first in -90.0..90.0 &&
                 currentLocation.second in -180.0..180.0) {
@@ -722,6 +747,7 @@ fun NavigationScreen(
     onRoadDnaOnlineSearch: (String) -> Unit = {},
     onRoadDnaDetails: (RoadDnaOnlinePoi) -> Unit = {},
     roadDnaNearbyCenter: Pair<Double, Double>? = null,
+    roadDnaZoneFocus: RoadDnaZoneFocus? = null,
     roadDnaZone: RoadDnaOnlineResult? = null,
     roadDnaZoneOffline: List<RoadDnaPoi> = emptyList(),
     roadDnaZoneLoading: Boolean = false,
@@ -793,6 +819,9 @@ fun NavigationScreen(
     var zoneRadiusKm by remember { mutableIntStateOf(5) }
     var zoneCategoryId by remember { mutableStateOf("consigliati") }
     var zoneSearchStarted by remember { mutableStateOf(false) }
+    // Increment ONLY when the user explicitly requests GPS recentering.
+    // A map-centered search must keep the pan/zoom chosen by the user.
+    var gpsMapRecenterId by remember { mutableIntStateOf(0) }
     var zoneMapRef by remember { mutableStateOf<MapView?>(null) }
     var selectedOnlineSuggestion by remember {
         mutableStateOf<RoadDnaOnlinePoi?>(null)
@@ -1068,15 +1097,11 @@ fun NavigationScreen(
                             emptyList()
                         else extractGeoPoints(selectedOption,
                             currentLocation, routePreview),
-                        routeFitKey = if (nearbySearchMode || routePreview == null) {
-                            val resultsId = if (nearbySearchMode)
-                                ":offline" + shownOffline.hashCode() +
-                                    ":online" + shownSuggestions.hashCode()
-                            else ""
-                            "dna-gps:" + roadDnaNearbyCenter.toString() + resultsId
-                        } else "dna-online:" +
-                            (selectedOption?.rawRouteJson?.optString("route_id")
-                                ?: selectedOption?.id ?: ""),
+                        // Constant across map searches and provider responses.
+                        // Only a new GPS-centered request may recenter the map.
+                        routeFitKey = "dna-explore:" +
+                            (selectedOption?.id ?: "no-route") +
+                            ":gps-request:" + gpsMapRecenterId,
                         nightMode = true,
                         currentLocation = if (nearbySearchMode || routePreview == null)
                             roadDnaNearbyCenter else null,
@@ -1099,6 +1124,7 @@ fun NavigationScreen(
                             selectedNearbyOffline = null
                         },
                         onMapReady = { zoneMapRef = it },
+                        zoneFocus = if (zoneMapMode) roadDnaZoneFocus else null,
                         modifier = Modifier.fillMaxWidth().height(242.dp)
                         )
                             }
@@ -1151,7 +1177,9 @@ fun NavigationScreen(
                                 selectedNearbyOffline = null
                                 zoneSearchStarted = true
                                 selectedOnlineSuggestion = null
-                                onRoadDnaNearbySearch(zoneRadiusKm, zoneCategoryId)
+                                gpsMapRecenterId++
+                                gpsMapRecenterId++
+                            onRoadDnaNearbySearch(zoneRadiusKm, zoneCategoryId)
                             }
                         ) { Text("Aggiorna ricerca intorno a me · GPS") }
                         if (roadDnaNearbyCenter != null)
@@ -1186,6 +1214,18 @@ fun NavigationScreen(
                     }
                     if (zoneMapMode && roadDnaZoneError != null)
                         Text(roadDnaZoneError, color = MaterialTheme.colorScheme.error)
+                    if (zoneMapMode && roadDnaZoneFocus != null) {
+                        Text("Centro cercato: " +
+                            String.format(java.util.Locale.ITALY, "%.5f, %.5f",
+                                roadDnaZoneFocus.latitude, roadDnaZoneFocus.longitude) +
+                            " · raggio ${roadDnaZoneFocus.radiusKm} km",
+                            style = MaterialTheme.typography.bodySmall)
+                        if (zoneRadiusKm != roadDnaZoneFocus.radiusKm) {
+                            Text("Raggio modificato: premi nuovamente Cerca per " +
+                                "aggiornare i risultati.",
+                                style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
                     if (zoneMapMode && roadDnaZone != null)
                         Text(roadDnaZone.message, style = MaterialTheme.typography.bodySmall)
                     if (zoneMapMode && zoneSearchStarted &&
@@ -1545,6 +1585,7 @@ fun NavigationScreen(
                             zoneMapRef = null
                             onRoadDnaZoneClear()
                             showOnlineSuggestionsMap = true
+                            gpsMapRecenterId++
                             onRoadDnaNearbySearch(zoneRadiusKm, zoneCategoryId)
                         }
                     ) { Text("Cerca intorno a me · GPS") }
