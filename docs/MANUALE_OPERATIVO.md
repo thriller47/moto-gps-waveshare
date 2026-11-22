@@ -378,7 +378,7 @@ gh run list -R thriller47/moto-gps-waveshare -b test/waypoint-markers-20261119 -
 gh run download ID_RUN -R thriller47/moto-gps-waveshare -n ESP32-Firmware -D C:\MotoGPS\ESP32-Firmware
 ```
 
-**Build Android locale (PowerShell):** in Android Studio aprire `C:\MotoGPS\moto-gps-waveshare\platforms\android` (non la root). Versioni di riferimento: JDK/JBR 21, Android SDK Platform 36, NDK 27 e CMake 3.22.1 quando richiesti dal Gradle presente nel checkout.
+**Build Android locale (PowerShell):** in Android Studio aprire `C:\MotoGPS\moto-gps-waveshare\platforms\android` (non la root). Versioni di riferimento: JDK/JBR 21, Android SDK Platform 36 e CMake 3.22.1. **Sul branch `feature/road-dna-motopack-v2` il NDK richiesto è `29.0.14206865`** per il supporto alle pagine da 16 KB; il vecchio NDK 27 rimane solo nei checkout non aggiornati.
 
 ```powershell
 Set-Location "C:\MotoGPS\moto-gps-waveshare\platforms\android"
@@ -386,6 +386,29 @@ Set-Location "C:\MotoGPS\moto-gps-waveshare\platforms\android"
 adb devices
 adb install -r "C:\MotoGPS\moto-gps-waveshare\platforms\android\app\build\outputs\apk\debug\app-debug.apk"
 ```
+
+### Verifica librerie Android a 16 KB (branch sperimentale, novembre 2026)
+
+Se Android Studio segnala `Controllo allineamento ELF non riuscito` per `libmotogps_jni.so`, `libzstd-jni-*.so` o `libvalhalla-wrapper.so`, **non è un problema dei MotoPack**. Il linker del codice C++ deve produrre segmenti ELF `LOAD` allineati a 16 KB e anche le librerie precompilate devono essere compatibili. Nel branch di sviluppo sono configurati: NDK `29.0.14206865`; linker flags `-Wl,-z,max-page-size=16384` e `-Wl,-z,common-page-size=16384` per `motogps_jni`; `zstd-jni` 1.5.7-13 e `valhalla-mobile` 0.6.6. **Il fatto che il Gradle compili non prova che tutti i .so precompilati siano già conformi.**
+
+In **Android Studio → Settings → Languages & Frameworks → Android SDK → SDK Tools** installare il componente **NDK (Side by side)**, versione `29.0.14206865` (eventualmente tramite *Show Package Details*). Oppure installare dal terminale PowerShell con SDK command line tools:
+
+```powershell
+& "$env:LOCALAPPDATA\Android\Sdk\cmdline-tools\latest\bin\sdkmanager.bat" "ndk;29.0.14206865"
+Set-Location "C:\MotoGPS\moto-gps-waveshare\platforms\android"
+.\gradlew.bat :app:testDebugUnitTest :app:assembleDebug
+```
+
+Dopo la compilazione, con Python 3 installato, controllare **tutte le librerie ELF 64-bit nel nuovo APK**:
+
+```powershell
+Set-Location "C:\MotoGPS\moto-gps-waveshare"
+py -3 scripts\diagnostics\check_android_16k_elf.py platforms\android\app\build\outputs\apk\debug\app-debug.apk
+```
+
+Risultato atteso: righe `PASS` per ogni `lib/arm64-v8a/*.so` e `0 invalid LOAD segments`; un `FAIL` identifica la libreria da correggere nel progetto o presso il suo distributore. Per la separata verifica ZIP/APK usare `zipalign.exe -c -P 16 -v 4` della cartella *build-tools* di Android SDK (versione 35+). La CI `Project Build` esegue **entrambe** le verifiche dopo la build; controllare che il job Android non sia saltato (`skipped`) e che la verifica sia `PASS`.
+
+**Prova finale sul dispositivo:** eseguire `adb shell getconf PAGE_SIZE` (16384 su kernel con pagine da 16 KB), quindi testare avvio, caricamento MotoPack `.tar.zst`, ricalcolo offline Valhalla e BLE. Il componente Valhalla Mobile 0.6.6 usa un engine 3.9.2 anziché 3.9.1: controllare l'apertura dei grafi V5 precedenti prima di considerarlo validato. Non rigenerare il MotoPack come prima risposta a un semplice problema di allineamento ELF.
 
 `adb install -r` aggiorna l'app soltanto con firma e versionCode compatibili. **Non disinstallare l'app per tentativi:** rischi di perdere mappe, database e checkpoint dei tour. Vedi [guida alla firma APK](android-apk-signing.md). Dopo un aggiornamento APK, ricontrollare lo stato delle tre mappe: installare codice nuovo non equivale a rigenerarle.
 
