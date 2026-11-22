@@ -1192,6 +1192,8 @@ fun NavigationScreen(
                                 style = MaterialTheme.typography.bodySmall)
                         }
                         if (roadDnaZoneFocus != null &&
+                            roadDnaZoneFocus.radiusKm == zoneRadiusKm &&
+                            roadDnaZoneFocus.categoryId == zoneCategoryId &&
                             (roadDnaZoneOffline.isNotEmpty() ||
                                 !roadDnaZone?.places.isNullOrEmpty())) {
                             Button(
