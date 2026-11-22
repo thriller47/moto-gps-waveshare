@@ -1191,7 +1191,9 @@ fun NavigationScreen(
                                 "o allarga il raggio.",
                                 style = MaterialTheme.typography.bodySmall)
                         }
-                        if (roadDnaZoneFocus != null) {
+                        if (roadDnaZoneFocus != null &&
+                            (roadDnaZoneOffline.isNotEmpty() ||
+                                !roadDnaZone?.places.isNullOrEmpty())) {
                             Button(
                                 onClick = {
                                     selectedOnlineSuggestion = null
@@ -1611,6 +1613,9 @@ fun NavigationScreen(
                                 onClick = {
                                     onlineSuggestionsForMap = visiblePlaces.take(60)
                                     selectedOnlineSuggestion = null
+                                    selectedNearbyOffline = null
+                                    selectedOnlineRoadDnaAccess = null
+                                    onRoadDnaAreaAccessClear()
                                     zoneMapMode = false
                                     nearbySearchMode = false
                                     zoneSearchStarted = false
@@ -1781,6 +1786,8 @@ fun NavigationScreen(
                             zoneSearchStarted = true
                             onlineSuggestionsForMap = emptyList()
                             selectedOnlineSuggestion = null
+                            selectedNearbyOffline = null
+                            selectedOnlineRoadDnaAccess = null
                             zoneMapRef = null
                             onRoadDnaZoneClear()
                             showOnlineSuggestionsMap = false
@@ -2760,6 +2767,8 @@ fun NavigationScreen(
                         zoneSearchStarted = true
                         onlineSuggestionsForMap = emptyList()
                         selectedOnlineSuggestion = null
+                        selectedNearbyOffline = null
+                        selectedOnlineRoadDnaAccess = null
                         zoneMapRef = null
                         onRoadDnaZoneClear()
                         showOnlineSuggestionsMap = false
