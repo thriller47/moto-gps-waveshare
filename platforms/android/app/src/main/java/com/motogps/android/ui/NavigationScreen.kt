@@ -781,7 +781,7 @@ fun NavigationScreen(
                         geoPoints = extractGeoPoints(selectedOption,
                             currentLocation, routePreview),
                         routeFitKey = "dna:" + (selectedOption?.id ?: ""),
-                        nightMode = nightMapEnabled,
+                        nightMode = true,
                         waypoints = routeWaypoints,
                         roadDnaPois = places,
                         onRoadDnaPoiClick = { selectedOfflineRoadDnaPoi = it },
