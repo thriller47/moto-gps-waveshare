@@ -135,6 +135,60 @@ internal object RoadDnaOfflineFilter {
 }
 
 internal object RoadDnaAnalysis {
+    /** Nearby search reuses the SAME tourist database and editorial filter as
+     * corridor Road DNA. No Valhalla geometry is required.
+     * Area centroids are descriptive only, never verified access points.
+     */
+    fun nearby(context: Context, latitude: Double, longitude: Double,
+               radiusKm: Int, categoryId: String): List<RoadDnaPoi> {
+        require(latitude.isFinite() && longitude.isFinite() &&
+            latitude in -90.0..90.0 && longitude in -180.0..180.0 &&
+            radiusKm in 1..20)
+        val file = OfflineTouristPlaceSearch.file(context)
+        if (!file.isFile) return emptyList()
+        val radius = radiusKm * 1000.0
+        val dLat = radius / 111195.0
+        val dLon = radius / (111195.0 *
+            kotlin.math.cos(Math.toRadians(latitude)).coerceAtLeast(0.02))
+        val south = (latitude - dLat).coerceAtLeast(-90.0)
+        val north = (latitude + dLat).coerceAtMost(90.0)
+        val west = (longitude - dLon).coerceAtLeast(-180.0)
+        val east = (longitude + dLon).coerceAtMost(180.0)
+        val candidates = ArrayList<RoadDnaPoi>()
+        SQLiteDatabase.openDatabase(file.absolutePath, null,
+            SQLiteDatabase.OPEN_READONLY).use { db ->
+            db.rawQuery("""
+                SELECT category,name,lat,lon,min_lat,max_lat,min_lon,max_lon,
+                       geometry_type,location_quality
+                  FROM tourist_poi
+                 WHERE lat BETWEEN ? AND ?
+                   AND lon BETWEEN ? AND ?
+                   AND name != ''
+            """.trimIndent(), arrayOf(
+                south.toString(), north.toString(),
+                west.toString(), east.toString())).use { rows ->
+                while (rows.moveToNext()) {
+                    val category = rows.getString(0)
+                    if (!RoadDnaOfflineFilter.categoryMatches(categoryId, category))
+                        continue
+                    val lat = rows.getDouble(2)
+                    val lon = rows.getDouble(3)
+                    val distance = distanceMeters(lat to lon,
+                        latitude to longitude, latitude to longitude)
+                    if (distance > radius) continue
+                    candidates.add(RoadDnaPoi(
+                        rows.getString(1).orEmpty(), category,
+                        rows.getString(8) == "area", distance.toInt(),
+                        lat, lon, rows.getString(9) == "exact",
+                        rows.getDouble(4), rows.getDouble(5),
+                        rows.getDouble(6), rows.getDouble(7)))
+                }
+            }
+        }
+        return RoadDnaOfflineFilter.select(candidates, categoryId,
+            if (categoryId == "consigliati") 15 else 60)
+    }
+
     private const val RADIUS_M = 2000.0
     private const val CELL = 0.05
 
