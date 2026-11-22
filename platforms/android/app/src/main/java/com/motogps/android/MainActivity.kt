@@ -283,6 +283,8 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             val roadDnaOnlineLoading = viewModel.roadDnaOnlineLoading.collectAsState().value
             val roadDnaOnlineError = viewModel.roadDnaOnlineError.collectAsState().value
             val roadDnaNearbyCenter = viewModel.roadDnaNearbyCenter.collectAsState().value
+            val roadDnaZoneOffline =
+                viewModel.roadDnaZoneOffline.collectAsState().value
             val roadDnaZone = viewModel.roadDnaZone.collectAsState().value
             val roadDnaZoneLoading = viewModel.roadDnaZoneLoading.collectAsState().value
             val roadDnaZoneError = viewModel.roadDnaZoneError.collectAsState().value
@@ -381,6 +383,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     onRoadDnaDetails = { viewModel.loadRoadDnaDetails(it) },
                     roadDnaNearbyCenter = roadDnaNearbyCenter,
                     roadDnaZone = roadDnaZone,
+                    roadDnaZoneOffline = roadDnaZoneOffline,
                     roadDnaZoneLoading = roadDnaZoneLoading,
                     roadDnaZoneError = roadDnaZoneError,
                     onRoadDnaZoneSearch = { lat, lon, radius, category ->
