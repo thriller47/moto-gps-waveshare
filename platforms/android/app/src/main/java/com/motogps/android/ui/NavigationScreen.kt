@@ -816,7 +816,11 @@ fun NavigationScreen(
             },
             title = { Text("Road DNA · ${RoadDnaCategories.get(offlineRoadDnaCategory).title}") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(
+                    modifier = Modifier.heightIn(max = 530.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     Text("Tocca un segnalino per vedere il luogo. Le aree OSM " +
                         "hanno posizione indicativa: non sono accessi stradali.",
                         style = MaterialTheme.typography.bodySmall)
@@ -836,7 +840,7 @@ fun NavigationScreen(
                             proposedRoadsideStop = null
                             onRoadDnaAreaAccessClear()
                         },
-                        modifier = Modifier.fillMaxWidth().height(310.dp)
+                        modifier = Modifier.fillMaxWidth().height(260.dp)
                     )
                     selectedOfflineRoadDnaPoi?.let { poi ->
                         Text(poi.name + " · " + poi.category)
@@ -877,8 +881,9 @@ fun NavigationScreen(
                                     color = MaterialTheme.colorScheme.error,
                                     style = MaterialTheme.typography.bodySmall)
                             if (roadDnaAreaAccesses.isNotEmpty()) {
-                                Text("Risultati Geoapify · parcheggi e punti " +
-                                    "informazioni, non ingressi verificati:",
+                                Text("Risultati Geoapify entro 2,5 km dal " +
+                                    "punto rappresentativo dell'area: parcheggi " +
+                                    "e informazioni, non ingressi verificati.",
                                     style = MaterialTheme.typography.bodySmall)
                                 roadDnaAreaAccesses.take(6).forEach { access ->
                                     TextButton(onClick = {
