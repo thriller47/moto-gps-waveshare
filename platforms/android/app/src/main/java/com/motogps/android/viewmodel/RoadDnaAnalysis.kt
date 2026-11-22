@@ -49,7 +49,7 @@ data class RoadDnaRoadsideCandidate(
 )
 
 internal object RoadDnaAreaAccess {
-    // Only suggest an existing Valhalla route point near an area boundary.
+    // Only suggest an existing Valhalla route vertex OUTSIDE area bounds.
     // An OSM bounding rectangle is not the polygon: the user must review the
     // suggested road-side location, especially for concave lakes/parks.
     private const val MAX_DISTANCE_TO_BOUNDS_M = 350.0
@@ -68,6 +68,11 @@ internal object RoadDnaAreaAccess {
         // arbitrary road coordinates inside an OSM lake or protected area.
         for (point in route) {
             if (!point.first.isFinite() || !point.second.isFinite()) continue
+            // A route vertex within the area bounding rectangle could be on a
+            // bridge, inside a park, or on an unrelated road. Never claim it is
+            // a usable access point merely because its bbox distance is zero.
+            if (point.first in poi.minLatitude..poi.maxLatitude &&
+                point.second in poi.minLongitude..poi.maxLongitude) continue
             val nearestLat = point.first.coerceIn(poi.minLatitude, poi.maxLatitude)
             val nearestLon = point.second.coerceIn(poi.minLongitude, poi.maxLongitude)
             val meters = RoadDnaAnalysis.distanceMeters(point,
