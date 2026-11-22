@@ -23,7 +23,11 @@ data class RoadDnaPoi(
     val longitude: Double = Double.NaN,
     // OSM point = exact position. Area/way representative points are NOT
     // validated road access points: never create routing stops from them.
-    val exactLocation: Boolean = false
+    val exactLocation: Boolean = false,
+    val minLatitude: Double = Double.NaN,
+    val maxLatitude: Double = Double.NaN,
+    val minLongitude: Double = Double.NaN,
+    val maxLongitude: Double = Double.NaN
 )
 data class RoadDnaSummary(
     val routeId: String,
@@ -35,6 +39,49 @@ data class RoadDnaSummary(
     val places: List<RoadDnaPoi> = emptyList()
 ) {
     val totalByCategory: Int get() = countByCategory.values.sum()
+}
+
+/** Road-side suggestion, NOT a verified entrance to the attraction. */
+data class RoadDnaRoadsideCandidate(
+    val latitude: Double,
+    val longitude: Double,
+    val distanceToAreaMeters: Int
+)
+
+internal object RoadDnaAreaAccess {
+    // Only suggest an existing Valhalla route point near an area boundary.
+    // An OSM bounding rectangle is not the polygon: the user must review the
+    // suggested road-side location, especially for concave lakes/parks.
+    private const val MAX_DISTANCE_TO_BOUNDS_M = 350.0
+
+    fun candidate(poi: RoadDnaPoi, route: List<Pair<Double, Double>>):
+        RoadDnaRoadsideCandidate? {
+        if (poi.exactLocation || route.size < 2 ||
+            !poi.minLatitude.isFinite() || !poi.maxLatitude.isFinite() ||
+            !poi.minLongitude.isFinite() || !poi.maxLongitude.isFinite() ||
+            poi.minLatitude > poi.maxLatitude || poi.minLongitude > poi.maxLongitude)
+            return null
+        var best: Pair<Double, Double>? = null
+        var closest = Double.POSITIVE_INFINITY
+        // Evaluating the nearest bounding-rectangle position is cheap and
+        // bounded by the existing selected-route geometry. Do not invent
+        // arbitrary road coordinates inside an OSM lake or protected area.
+        for (point in route) {
+            if (!point.first.isFinite() || !point.second.isFinite()) continue
+            val nearestLat = point.first.coerceIn(poi.minLatitude, poi.maxLatitude)
+            val nearestLon = point.second.coerceIn(poi.minLongitude, poi.maxLongitude)
+            val meters = RoadDnaAnalysis.distanceMeters(point,
+                nearestLat to nearestLon, nearestLat to nearestLon)
+            if (meters < closest) {
+                closest = meters
+                best = point
+            }
+        }
+        val point = best ?: return null
+        if (closest > MAX_DISTANCE_TO_BOUNDS_M) return null
+        return RoadDnaRoadsideCandidate(point.first, point.second,
+            closest.toInt().coerceAtLeast(0))
+    }
 }
 
 internal object RoadDnaOfflineFilter {
@@ -290,7 +337,7 @@ internal object RoadDnaAnalysis {
                         val estimated = if (area && distance > RADIUS_M) 0
                             else distance.toInt().coerceAtLeast(0)
                         named.add(RoadDnaPoi(name, category, area, estimated,
-                            lat, lon, exact))
+                            lat, lon, exact, minLat, maxLat, minLon, maxLon))
                     }
                 }
             }
