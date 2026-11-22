@@ -1143,18 +1143,18 @@ fun NavigationScreen(
                             Text("Indice turistico Road DNA non installato. " +
                                 "Importa il nuovo MotoPack v2.")
                         } else {
-                            Text("Candidati per categoria nel corridoio indicativo di 2 km:")
-                            for ((category, count) in roadDnaSummary.countByCategory
-                                .entries.sortedByDescending { it.value }.take(12)) {
-                                Text(category + ": " + count)
-                            }
-                            if (roadDnaSummary.countByCategory.isEmpty())
-                                Text("Nessun luogo classificato nel corridoio.")
+                            // Counts remain available for diagnostics, but the
+                            // user-facing dialog opens directly on curated POIs.
                             val offlinePlaces = RoadDnaOfflineFilter.select(
                                 roadDnaSummary.places, offlineRoadDnaCategory)
-                            HorizontalDivider()
-                            Text("Selezione offline: ${offlinePlaces.size} luoghi mostrati",
-                                style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                if (offlineRoadDnaCategory == "consigliati")
+                                    "Consigliati lungo il percorso"
+                                else "Luoghi della categoria selezionata",
+                                style = MaterialTheme.typography.titleSmall
+                            )
+                            Text("${offlinePlaces.size} luoghi selezionati",
+                                style = MaterialTheme.typography.bodySmall)
                             if (offlineRoadDnaCategory in listOf(
                                     "ristoranti", "hotel", "divertimenti")) {
                                 Text("Questa categoria non è nel database turistico offline. " +
@@ -1179,10 +1179,8 @@ fun NavigationScreen(
                                     Text("Mostra luoghi sulla mappa")
                                 }
                             }
-                            Text("I conteggi sono indicativi: le aree sono " +
-                                "selezionate anche per ingombro geografico, " +
-                                "non per visibilità dalla strada. " +
-                                "Non rappresentano accessi stradali verificati.",
+                            Text("Le aree OSM hanno posizioni indicative: " +
+                                "il loro accesso stradale non è verificato.",
                                 style = MaterialTheme.typography.bodySmall)
                             Text("Dati © OpenStreetMap contributors · ODbL 1.0",
                                 style = MaterialTheme.typography.labelSmall)
