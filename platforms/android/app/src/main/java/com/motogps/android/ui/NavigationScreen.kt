@@ -1128,16 +1128,17 @@ fun NavigationScreen(
                     }
                     if (routePreview != null || roadDnaNearbyCenter != null) {
                         RouteMapView(
-                        geoPoints = if (routePreview != null)
-                            extractGeoPoints(selectedOption, currentLocation, routePreview)
-                        else emptyList(),
-                        routeFitKey = if (routePreview == null)
+                        geoPoints = if (nearbySearchMode || routePreview == null)
+                            emptyList()
+                        else extractGeoPoints(selectedOption,
+                            currentLocation, routePreview),
+                        routeFitKey = if (nearbySearchMode || routePreview == null)
                             "dna-gps:" + roadDnaNearbyCenter.toString()
                         else "dna-online:" +
                             (selectedOption?.rawRouteJson?.optString("route_id")
                                 ?: selectedOption?.id ?: ""),
                         nightMode = true,
-                        currentLocation = if (routePreview == null)
+                        currentLocation = if (nearbySearchMode || routePreview == null)
                             roadDnaNearbyCenter else null,
                         waypoints = routeWaypoints,
                         onlineSuggestions = shownSuggestions,
@@ -1416,6 +1417,23 @@ fun NavigationScreen(
                     }
                     HorizontalDivider()
                     Text("Ricerca turistica online", style = MaterialTheme.typography.titleMedium)
+                    OutlinedButton(
+                        enabled = !isNavigating && !isLoading,
+                        onClick = {
+                            showRoadDnaDialog = false
+                            showRoadDnaResults = false
+                            zoneMapMode = true
+                            nearbySearchMode = true
+                            zoneSearchStarted = true
+                            onlineSuggestionsForMap = emptyList()
+                            selectedOnlineSuggestion = null
+                            zoneMapRef = null
+                            onRoadDnaZoneClear()
+                            showOnlineSuggestionsMap = true
+                            if (geoapifyConfigured)
+                                onRoadDnaNearbySearch(zoneRadiusKm, zoneCategoryId)
+                        }
+                    ) { Text("Cerca intorno a me · GPS") }
                     OutlinedButton(
                         enabled = !isNavigating,
                         onClick = {
