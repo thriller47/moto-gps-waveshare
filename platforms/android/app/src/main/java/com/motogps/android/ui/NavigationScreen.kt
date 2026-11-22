@@ -1047,11 +1047,67 @@ fun NavigationScreen(
                 "Road DNA · luoghi nelle vicinanze"
             else "Road DNA · suggerimenti online") },
             text = {
+                // The osmdroid map is a fixed, independent touch surface.
+                // Keep it OUTSIDE the vertical-scroll area: otherwise Compose
+                // intercepts drags and edge-marker taps.
                 Column(
-                    modifier = Modifier.fillMaxWidth().heightIn(max = 530.dp)
-                        .verticalScroll(rememberScrollState()),
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 560.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    if (routePreview != null || roadDnaNearbyCenter != null) {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp),
+                            shape = RoundedCornerShape(14.dp),
+                            tonalElevation = 2.dp
+                        ) {
+                            Box(modifier = Modifier.padding(7.dp)
+                                .clip(RoundedCornerShape(10.dp)).clipToBounds()) {
+                        RouteMapView(
+                        geoPoints = if (nearbySearchMode || routePreview == null)
+                            emptyList()
+                        else extractGeoPoints(selectedOption,
+                            currentLocation, routePreview),
+                        routeFitKey = if (nearbySearchMode || routePreview == null) {
+                            val resultsId = if (nearbySearchMode)
+                                ":offline" + shownOffline.hashCode() +
+                                    ":online" + shownSuggestions.hashCode()
+                            else ""
+                            "dna-gps:" + roadDnaNearbyCenter.toString() + resultsId
+                        } else "dna-online:" +
+                            (selectedOption?.rawRouteJson?.optString("route_id")
+                                ?: selectedOption?.id ?: ""),
+                        nightMode = true,
+                        currentLocation = if (nearbySearchMode || routePreview == null)
+                            roadDnaNearbyCenter else null,
+                        waypoints = routeWaypoints,
+                        roadDnaPois = if (roadDnaAreaAccesses.isNotEmpty())
+                            emptyList() else shownOffline,
+                        onRoadDnaPoiClick = {
+                            selectedNearbyOffline = it
+                            selectedOnlineSuggestion = null
+                        },
+                        areaAccesses = roadDnaAreaAccesses,
+                        onAreaAccessClick = {
+                            selectedOnlineRoadDnaAccess = it
+                            selectedNearbyOffline = null
+                            selectedOnlineSuggestion = null
+                        },
+                        onlineSuggestions = shownSuggestions,
+                        onOnlineSuggestionClick = {
+                            selectedOnlineSuggestion = it
+                            selectedNearbyOffline = null
+                        },
+                        onMapReady = { zoneMapRef = it },
+                        modifier = Modifier.fillMaxWidth().height(242.dp)
+                        )
+                            }
+                        }
+                    }
+                    Column(
+                        modifier = Modifier.fillMaxWidth().weight(1f)
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                     Text(
                         if (zoneMapMode)
                             "${shownOffline.size} offline · ${shownSuggestions.size} online"
@@ -1140,46 +1196,6 @@ fun NavigationScreen(
                             zoneMapMode = false
                             selectedOnlineSuggestion = null
                         }) { Text("Torna ai suggerimenti lungo il percorso") }
-                    }
-                    if (routePreview != null || roadDnaNearbyCenter != null) {
-                        RouteMapView(
-                        geoPoints = if (nearbySearchMode || routePreview == null)
-                            emptyList()
-                        else extractGeoPoints(selectedOption,
-                            currentLocation, routePreview),
-                        routeFitKey = if (nearbySearchMode || routePreview == null) {
-                            val resultsId = if (nearbySearchMode)
-                                ":offline" + shownOffline.hashCode() +
-                                    ":online" + shownSuggestions.hashCode()
-                            else ""
-                            "dna-gps:" + roadDnaNearbyCenter.toString() + resultsId
-                        } else "dna-online:" +
-                            (selectedOption?.rawRouteJson?.optString("route_id")
-                                ?: selectedOption?.id ?: ""),
-                        nightMode = true,
-                        currentLocation = if (nearbySearchMode || routePreview == null)
-                            roadDnaNearbyCenter else null,
-                        waypoints = routeWaypoints,
-                        roadDnaPois = if (roadDnaAreaAccesses.isNotEmpty())
-                            emptyList() else shownOffline,
-                        onRoadDnaPoiClick = {
-                            selectedNearbyOffline = it
-                            selectedOnlineSuggestion = null
-                        },
-                        areaAccesses = roadDnaAreaAccesses,
-                        onAreaAccessClick = {
-                            selectedOnlineRoadDnaAccess = it
-                            selectedNearbyOffline = null
-                            selectedOnlineSuggestion = null
-                        },
-                        onlineSuggestions = shownSuggestions,
-                        onOnlineSuggestionClick = {
-                            selectedOnlineSuggestion = it
-                            selectedNearbyOffline = null
-                        },
-                        onMapReady = { zoneMapRef = it },
-                        modifier = Modifier.fillMaxWidth().height(310.dp)
-                        )
                     }
                     selectedOnlineRoadDnaAccess?.let { access ->
                         HorizontalDivider()
@@ -1278,6 +1294,7 @@ fun NavigationScreen(
                             onRoadDnaZoneClear()
                         }) { Text(if (routePreview == null)
                             "Imposta come destinazione" else "Aggiungi come tappa") }
+                    }
                     }
                 }
             },
