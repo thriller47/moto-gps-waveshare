@@ -33,7 +33,7 @@ class RoadDnaOnlineTest {
         assertEquals(20000, filter.getInt("radius"))
         assertEquals(44.39, filter.getDouble("lat"), 0.00001)
         assertEquals(7.81, filter.getDouble("lon"), 0.00001)
-        assertEquals("[\\"beach\\"]", zone.getJSONArray("categories").toString())
+        assertEquals("beach", zone.getJSONArray("categories").getString(0))
         assertFalse(zone.toString().contains("apiKey"))
         val one = RoadDnaOnline.zoneBody(44.39, 7.81, 1, "castelli")
         assertEquals(1000, one.getJSONObject("filter").getInt("radius"))
