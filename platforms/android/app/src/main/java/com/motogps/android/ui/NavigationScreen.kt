@@ -142,6 +142,8 @@ fun RouteMapView(
     roadDnaPois: List<RoadDnaPoi> = emptyList(),
     onRoadDnaPoiClick: ((RoadDnaPoi) -> Unit)? = null,
     roadsideProposal: RoadDnaRoadsideCandidate? = null,
+    areaAccesses: List<RoadDnaOnlinePoi> = emptyList(),
+    onAreaAccessClick: ((RoadDnaOnlinePoi) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     // Route-fitting is deliberately one-shot per route ID, not per recomposition.\n    // The AndroidView.update callback runs on unrelated Compose changes (GPS,
@@ -211,6 +213,20 @@ fun RouteMapView(
                         setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
                         setOnMarkerClickListener { _, _ ->
                             onRoadDnaPoiClick?.invoke(poi)
+                            true
+                        }
+                    })
+                }
+            }
+            areaAccesses.take(20).forEach { poi ->
+                if (poi.latitude in -90.0..90.0 &&
+                    poi.longitude in -180.0..180.0) {
+                    mapView.overlays.add(Marker(mapView).apply {
+                        position = GeoPoint(poi.latitude, poi.longitude)
+                        title = poi.name + " · " + poi.category
+                        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                        setOnMarkerClickListener { _, _ ->
+                            onAreaAccessClick?.invoke(poi)
                             true
                         }
                     })
@@ -678,6 +694,11 @@ fun NavigationScreen(
     roadDnaDetailsLoading: Boolean = false,
     onRoadDnaOnlineSearch: (String) -> Unit = {},
     onRoadDnaDetails: (RoadDnaOnlinePoi) -> Unit = {},
+    roadDnaAreaAccesses: List<RoadDnaOnlinePoi> = emptyList(),
+    roadDnaAreaAccessLoading: Boolean = false,
+    roadDnaAreaAccessError: String? = null,
+    onRoadDnaAreaAccessSearch: (RoadDnaPoi) -> Unit = {},
+    onRoadDnaAreaAccessClear: () -> Unit = {},
     geoapifyConfigured: Boolean = false,
     opentripmapConfigured: Boolean = false,
     roadDnaKeyStatus: String? = null,
@@ -732,6 +753,9 @@ fun NavigationScreen(
     var offlineRoadDnaCategory by remember { mutableStateOf("consigliati") }
     var showRoadDnaMap by remember { mutableStateOf(false) }
     var selectedOfflineRoadDnaPoi by remember { mutableStateOf<RoadDnaPoi?>(null) }
+    var selectedOnlineRoadDnaAccess by remember {
+        mutableStateOf<RoadDnaOnlinePoi?>(null)
+    }
     var proposedRoadsideStop by remember {
         mutableStateOf<RoadDnaRoadsideCandidate?>(null)
     }
@@ -786,7 +810,10 @@ fun NavigationScreen(
             com.motogps.android.viewmodel.RoadDnaAnalysis.geometry(it.rawRouteJson)
         } ?: emptyList()
         AlertDialog(
-            onDismissRequest = { showRoadDnaMap = false },
+            onDismissRequest = {
+                showRoadDnaMap = false
+                onRoadDnaAreaAccessClear()
+            },
             title = { Text("Road DNA · ${RoadDnaCategories.get(offlineRoadDnaCategory).title}") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -801,9 +828,13 @@ fun NavigationScreen(
                         waypoints = routeWaypoints,
                         roadDnaPois = places,
                         roadsideProposal = proposedRoadsideStop,
+                        areaAccesses = roadDnaAreaAccesses,
+                        onAreaAccessClick = { selectedOnlineRoadDnaAccess = it },
                         onRoadDnaPoiClick = {
                             selectedOfflineRoadDnaPoi = it
+                            selectedOnlineRoadDnaAccess = null
                             proposedRoadsideStop = null
+                            onRoadDnaAreaAccessClear()
                         },
                         modifier = Modifier.fillMaxWidth().height(310.dp)
                     )
@@ -824,6 +855,59 @@ fun NavigationScreen(
                                 showRoadDnaMap = false
                             }) { Text("Aggiungi come tappa") }
                         } else {
+                            OutlinedButton(
+                                enabled = geoapifyConfigured &&
+                                    !roadDnaAreaAccessLoading,
+                                onClick = {
+                                    selectedOnlineRoadDnaAccess = null
+                                    onRoadDnaAreaAccessSearch(poi)
+                                }
+                            ) { Text("Cerca accessi online") }
+                            if (!geoapifyConfigured) {
+                                Text("Per cercare parcheggi e punti informazioni " +
+                                    "configura Geoapify in API Road DNA.",
+                                    style = MaterialTheme.typography.bodySmall)
+                            }
+                            if (roadDnaAreaAccessLoading) {
+                                LinearProgressIndicator(
+                                    modifier = Modifier.fillMaxWidth())
+                            }
+                            if (roadDnaAreaAccessError != null)
+                                Text(roadDnaAreaAccessError,
+                                    color = MaterialTheme.colorScheme.error,
+                                    style = MaterialTheme.typography.bodySmall)
+                            if (roadDnaAreaAccesses.isNotEmpty()) {
+                                Text("Risultati Geoapify · parcheggi e punti " +
+                                    "informazioni, non ingressi verificati:",
+                                    style = MaterialTheme.typography.bodySmall)
+                                roadDnaAreaAccesses.take(6).forEach { access ->
+                                    TextButton(onClick = {
+                                        selectedOnlineRoadDnaAccess = access
+                                    }) {
+                                        Text(access.name + " · " + access.category +
+                                            " · " + access.distanceMeters + " m")
+                                    }
+                                }
+                            }
+                            selectedOnlineRoadDnaAccess?.let { access ->
+                                Text("Selezionato: " + access.name +
+                                    ". Verifica accesso, parcheggio moto ed eventuale " +
+                                    "percorso a piedi sulla mappa.",
+                                    style = MaterialTheme.typography.bodySmall)
+                                Button(onClick = {
+                                    onAddWaypoint(PlaceSearchResult(
+                                        name = access.name,
+                                        address = access.category +
+                                            " · accesso al luogo non verificato",
+                                        displayArea = "Road DNA Geoapify",
+                                        latitude = access.latitude,
+                                        longitude = access.longitude
+                                    ))
+                                    showRoadDnaMap = false
+                                    selectedOnlineRoadDnaAccess = null
+                                    onRoadDnaAreaAccessClear()
+                                }) { Text("Aggiungi punto online come tappa") }
+                            }
                             val candidate = RoadDnaAreaAccess.candidate(
                                 poi, previewGeometry)
                             if (candidate == null) {
@@ -870,7 +954,9 @@ fun NavigationScreen(
                     showRoadDnaMap = false
                     showRoadDnaDialog = true
                     selectedOfflineRoadDnaPoi = null
+                    selectedOnlineRoadDnaAccess = null
                     proposedRoadsideStop = null
+                    onRoadDnaAreaAccessClear()
                 }) { Text("Torna a Road DNA") }
             }
         )
@@ -1061,7 +1147,9 @@ fun NavigationScreen(
                                 }
                                 OutlinedButton(onClick = {
                                     selectedOfflineRoadDnaPoi = null
+                                    selectedOnlineRoadDnaAccess = null
                                     proposedRoadsideStop = null
+                                    onRoadDnaAreaAccessClear()
                                     showRoadDnaMap = true
                                     showRoadDnaDialog = false
                                 }, enabled = !isNavigating) {
