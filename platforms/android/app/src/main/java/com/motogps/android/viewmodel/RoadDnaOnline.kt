@@ -280,7 +280,9 @@ internal object RoadDnaOnline {
         })
         val partial = (data.optJSONArray("features")?.length() ?: 0) >= 100 ||
             ranked.size > 60
-        return RoadDnaOnlineResult(ranked.take(60), partial,
+        val visible = if (categoryId == "consigliati")
+            recommendedPlaces(ranked).take(15) else ranked.take(60)
+        return RoadDnaOnlineResult(visible, partial,
             if (partial) "Risultati parziali: massimo 100 POI per richiesta; " +
                 "riduci il raggio per approfondire la zona."
             else "Ricerca nella zona completata", categoryId)
