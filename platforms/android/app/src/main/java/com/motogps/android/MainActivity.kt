@@ -365,7 +365,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     roadDnaOnlineError = roadDnaOnlineError,
                     roadDnaDetails = roadDnaDetails,
                     roadDnaDetailsLoading = roadDnaDetailsLoading,
-                    onRoadDnaOnlineSearch = { viewModel.searchRoadDnaOnline() },
+                    onRoadDnaOnlineSearch = { categoryId ->
+                        viewModel.searchRoadDnaOnline(categoryId)
+                    },
                     onRoadDnaDetails = { viewModel.loadRoadDnaDetails(it) },
                     geoapifyConfigured = geoapifyConfigured,
                     opentripmapConfigured = opentripmapConfigured,
