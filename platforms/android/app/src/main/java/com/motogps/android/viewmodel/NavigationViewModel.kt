@@ -426,6 +426,15 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     val roadDnaOnlineLoading: StateFlow<Boolean> = _roadDnaOnlineLoading
     private val _roadDnaOnlineError = MutableStateFlow<String?>(null)
     val roadDnaOnlineError: StateFlow<String?> = _roadDnaOnlineError
+    private val _roadDnaZone = MutableStateFlow<RoadDnaOnlineResult?>(null)
+    val roadDnaZone: StateFlow<RoadDnaOnlineResult?> = _roadDnaZone
+    private val _roadDnaZoneLoading = MutableStateFlow(false)
+    val roadDnaZoneLoading: StateFlow<Boolean> = _roadDnaZoneLoading
+    private val _roadDnaZoneError = MutableStateFlow<String?>(null)
+    val roadDnaZoneError: StateFlow<String?> = _roadDnaZoneError
+    private var roadDnaZoneJob: Job? = null
+    private var roadDnaZoneRequest = 0L
+
     private val _roadDnaAreaAccesses = MutableStateFlow<List<RoadDnaOnlinePoi>>(emptyList())
     val roadDnaAreaAccesses: StateFlow<List<RoadDnaOnlinePoi>> = _roadDnaAreaAccesses
     private val _roadDnaAreaAccessLoading = MutableStateFlow(false)
@@ -565,6 +574,49 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         }
     }
 
+    /** Explicit user gesture: search a circle centered on the visible map. */
+    fun searchRoadDnaZone(lat: Double, lon: Double, radiusKm: Int,
+                          categoryId: String) {
+        val context = appContext ?: return
+        roadDnaZoneJob?.cancel()
+        val request = ++roadDnaZoneRequest
+        _roadDnaZone.value = null
+        _roadDnaZoneError.value = null
+        roadDnaZoneJob = viewModelScope.launch {
+            _roadDnaZoneLoading.value = true
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    RoadDnaOnline.searchZone(context, lat, lon, radiusKm, categoryId)
+                }
+                if (request == roadDnaZoneRequest) _roadDnaZone.value = result
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: RoadDnaProviderHttpException) {
+                if (request == roadDnaZoneRequest)
+                    _roadDnaZoneError.value = when (e.statusCode) {
+                        401, 403 -> "Chiave Geoapify non valida o accesso negato"
+                        429 -> "Limite richieste Geoapify raggiunto"
+                        else -> "Geoapify non disponibile (HTTP ${e.statusCode})"
+                    }
+            } catch (e: Exception) {
+                if (request == roadDnaZoneRequest)
+                    _roadDnaZoneError.value =
+                        "Ricerca nella zona non riuscita: controlla connessione e chiave Geoapify"
+            } finally {
+                if (request == roadDnaZoneRequest)
+                    _roadDnaZoneLoading.value = false
+            }
+        }
+    }
+
+    fun clearRoadDnaZone() {
+        ++roadDnaZoneRequest
+        roadDnaZoneJob?.cancel()
+        _roadDnaZone.value = null
+        _roadDnaZoneError.value = null
+        _roadDnaZoneLoading.value = false
+    }
+
     fun searchRoadDnaAreaAccesses(poi: RoadDnaPoi) {
         val context = appContext ?: return
         roadDnaAreaAccessJob?.cancel()
@@ -691,6 +743,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     }
 
     private fun invalidateRoadDna() {
+        clearRoadDnaZone()
         clearRoadDnaAreaAccesses()
         roadDnaOnlineRequestId++
         roadDnaDetailRequestId++
