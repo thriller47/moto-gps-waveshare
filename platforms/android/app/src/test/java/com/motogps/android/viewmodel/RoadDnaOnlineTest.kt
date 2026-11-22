@@ -140,6 +140,36 @@ class RoadDnaOnlineTest {
             "consigliati").contains(area))
     }
 
+    @Test fun areaRoadsideCandidateUsesExistingRouteVertexAndRejectsRemoteAreas() {
+        val nearLake = RoadDnaPoi("Lago", "lago", true, 0, 44.5, 7.5,
+            false, 44.50, 44.51, 7.49, 7.51)
+        val existingRoute = listOf(44.499 to 7.495, 44.505 to 7.49,
+            44.52 to 7.54)
+        val candidate = RoadDnaAreaAccess.candidate(nearLake, existingRoute)
+        assertNotNull(candidate)
+        assertTrue(existingRoute.contains(candidate!!.latitude to candidate.longitude))
+        assertTrue(candidate.distanceToAreaMeters <= 350)
+
+        val remote = RoadDnaPoi("Lago lontano", "lago", true, 0, 45.5, 8.5,
+            false, 45.5, 45.6, 8.5, 8.6)
+        assertNull(RoadDnaAreaAccess.candidate(remote, existingRoute))
+    }
+
+    @Test fun areaRoadsideCandidateNeverUsesRepresentativeCentroidOrExactPoi() {
+        val route = listOf(44.5 to 7.5, 44.501 to 7.502)
+        val exact = RoadDnaPoi("Monumento", "monumento", false, 50,
+            44.5, 7.5, true, 44.5, 44.5, 7.5, 7.5)
+        assertNull(RoadDnaAreaAccess.candidate(exact, route))
+        val noBounds = RoadDnaPoi("Area senza confini", "parco", true, 0,
+            44.5, 7.5, false)
+        assertNull(RoadDnaAreaAccess.candidate(noBounds, route))
+        val lake = RoadDnaPoi("Lago", "lago", true, 0, 99.0, 99.0,
+            false, 44.5, 44.51, 7.5, 7.51)
+        val candidate = RoadDnaAreaAccess.candidate(lake, route)
+        assertNotNull(candidate)
+        assertNotEquals(99.0, candidate!!.latitude, 0.0001)
+    }
+
     @Test fun geoapifyRequiresActualRouteNotSinglePlace() {
         try {
             RoadDnaOnline.geoBody(listOf(45.0 to 7.0))
