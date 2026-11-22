@@ -2,6 +2,7 @@ package com.motogps.android.viewmodel
 
 import android.content.Context
 import android.net.Uri
+import android.os.CancellationSignal
 import com.motogps.android.map.MotomapPackImporter
 import android.location.Location
 import android.os.SystemClock
@@ -52,7 +53,8 @@ data class PlaceSearchResult(
     val displayArea: String,
     val latitude: Double,
     val longitude: Double,
-    val distanceMeters: Double? = null
+    val distanceMeters: Double? = null,
+    val requiresRoadAccess: Boolean = false
 ) {
     val distanceLabel: String
         get() = distanceMeters?.takeIf { it.isFinite() && it >= 0 }?.let {
@@ -408,6 +410,425 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
 
     private val _selectedRouteIndex = MutableStateFlow(0)
     val selectedRouteIndex: StateFlow<Int> = _selectedRouteIndex
+    private val _roadDnaSummary = MutableStateFlow<RoadDnaSummary?>(null)
+    val roadDnaSummary: StateFlow<RoadDnaSummary?> = _roadDnaSummary
+    private val _roadDnaLoading = MutableStateFlow(false)
+    val roadDnaLoading: StateFlow<Boolean> = _roadDnaLoading
+    private val _roadDnaError = MutableStateFlow<String?>(null)
+    val roadDnaError: StateFlow<String?> = _roadDnaError
+    private var roadDnaJob: Job? = null
+    private var roadDnaRequestId = 0L
+    private var roadDnaCancelSignal: CancellationSignal? = null
+
+    private val _roadDnaOnline = MutableStateFlow<RoadDnaOnlineResult?>(null)
+    val roadDnaOnline: StateFlow<RoadDnaOnlineResult?> = _roadDnaOnline
+    private val _roadDnaOnlineLoading = MutableStateFlow(false)
+    val roadDnaOnlineLoading: StateFlow<Boolean> = _roadDnaOnlineLoading
+    private val _roadDnaOnlineError = MutableStateFlow<String?>(null)
+    val roadDnaOnlineError: StateFlow<String?> = _roadDnaOnlineError
+    /** Center/radius of the last zone request, independent from current GPS. */
+    data class RoadDnaZoneFocus(
+        val latitude: Double,
+        val longitude: Double,
+        val radiusKm: Int,
+        val categoryId: String
+    )
+    private val _roadDnaZoneFocus = MutableStateFlow<RoadDnaZoneFocus?>(null)
+    val roadDnaZoneFocus: StateFlow<RoadDnaZoneFocus?> = _roadDnaZoneFocus
+
+    private val _roadDnaNearbyCenter = MutableStateFlow<Pair<Double, Double>?>(null)
+    val roadDnaNearbyCenter: StateFlow<Pair<Double, Double>?> = _roadDnaNearbyCenter
+    private val _roadDnaZoneOffline = MutableStateFlow<List<RoadDnaPoi>>(emptyList())
+    val roadDnaZoneOffline: StateFlow<List<RoadDnaPoi>> = _roadDnaZoneOffline
+    private val _roadDnaZone = MutableStateFlow<RoadDnaOnlineResult?>(null)
+    val roadDnaZone: StateFlow<RoadDnaOnlineResult?> = _roadDnaZone
+    private val _roadDnaZoneLoading = MutableStateFlow(false)
+    val roadDnaZoneLoading: StateFlow<Boolean> = _roadDnaZoneLoading
+    private val _roadDnaZoneError = MutableStateFlow<String?>(null)
+    val roadDnaZoneError: StateFlow<String?> = _roadDnaZoneError
+    private var roadDnaZoneJob: Job? = null
+    private var roadDnaZoneRequest = 0L
+
+    private val _roadDnaAreaAccesses = MutableStateFlow<List<RoadDnaOnlinePoi>>(emptyList())
+    val roadDnaAreaAccesses: StateFlow<List<RoadDnaOnlinePoi>> = _roadDnaAreaAccesses
+    private val _roadDnaAreaAccessLoading = MutableStateFlow(false)
+    val roadDnaAreaAccessLoading: StateFlow<Boolean> = _roadDnaAreaAccessLoading
+    private val _roadDnaAreaAccessError = MutableStateFlow<String?>(null)
+    val roadDnaAreaAccessError: StateFlow<String?> = _roadDnaAreaAccessError
+    private var roadDnaAreaAccessJob: Job? = null
+    private var roadDnaAreaAccessRequest = 0L
+
+    private val _roadDnaDetails = MutableStateFlow<String?>(null)
+    val roadDnaDetails: StateFlow<String?> = _roadDnaDetails
+    private val _roadDnaDetailsLoading = MutableStateFlow(false)
+    val roadDnaDetailsLoading: StateFlow<Boolean> = _roadDnaDetailsLoading
+    private val _geoapifyConfigured = MutableStateFlow(
+        appContext?.let { RoadDnaApiKeys.present(it, "geoapify") } ?: false)
+    val geoapifyConfigured: StateFlow<Boolean> = _geoapifyConfigured
+    private val _opentripmapConfigured = MutableStateFlow(
+        appContext?.let { RoadDnaApiKeys.present(it, "opentripmap") } ?: false)
+    val opentripmapConfigured: StateFlow<Boolean> = _opentripmapConfigured
+    private val _roadDnaKeyStatus = MutableStateFlow<String?>(null)
+    val roadDnaKeyStatus: StateFlow<String?> = _roadDnaKeyStatus
+    private val _roadDnaKeyBusy = MutableStateFlow(false)
+    val roadDnaKeyBusy: StateFlow<Boolean> = _roadDnaKeyBusy
+    private var roadDnaOnlineJob: Job? = null
+    private var roadDnaDetailJob: Job? = null
+    private var roadDnaKeyJob: Job? = null
+    private var roadDnaOnlineRequestId = 0L
+    private var roadDnaDetailRequestId = 0L
+
+    private fun refreshKeyStatus(context: Context) {
+        _geoapifyConfigured.value = RoadDnaApiKeys.present(context, "geoapify")
+        _opentripmapConfigured.value = RoadDnaApiKeys.present(context, "opentripmap")
+    }
+
+    fun saveRoadDnaKey(provider: String, value: String) {
+        val context = appContext ?: return
+        roadDnaKeyJob?.cancel()
+        roadDnaKeyJob = viewModelScope.launch {
+            _roadDnaKeyBusy.value = true
+            _roadDnaKeyStatus.value = null
+            try {
+                withContext(Dispatchers.IO) { RoadDnaApiKeys.save(context, provider, value) }
+                refreshKeyStatus(context)
+                _roadDnaKeyStatus.value = "Chiave salvata in modo cifrato sul dispositivo."
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                _roadDnaKeyStatus.value = "Impossibile salvare la chiave."
+            } finally {
+                _roadDnaKeyBusy.value = false
+            }
+        }
+    }
+
+    fun deleteRoadDnaKey(provider: String) {
+        val context = appContext ?: return
+        roadDnaKeyJob?.cancel()
+        roadDnaKeyJob = viewModelScope.launch {
+            _roadDnaKeyBusy.value = true
+            try {
+                withContext(Dispatchers.IO) { RoadDnaApiKeys.clear(context, provider) }
+                refreshKeyStatus(context)
+                _roadDnaKeyStatus.value = "Chiave eliminata."
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                _roadDnaKeyStatus.value = "Impossibile eliminare la chiave."
+            } finally {
+                _roadDnaKeyBusy.value = false
+            }
+        }
+    }
+
+    fun testRoadDnaKey(provider: String) {
+        val context = appContext ?: return
+        roadDnaKeyJob?.cancel()
+        roadDnaKeyJob = viewModelScope.launch {
+            _roadDnaKeyBusy.value = true
+            _roadDnaKeyStatus.value = "Verifica connessione in corso…"
+            try {
+                withContext(Dispatchers.IO) {
+                    val key = RoadDnaApiKeys.read(context, provider)
+                        ?: throw IllegalStateException("Chiave assente")
+                    RoadDnaOnline.testKey(provider, key)
+                }
+                _roadDnaKeyStatus.value = "Connessione ${provider} riuscita."
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: RoadDnaProviderHttpException) {
+                // Safe numeric status only: the OpenTripMap URL embeds the key.
+                _roadDnaKeyStatus.value = when (e.statusCode) {
+                    401, 403 -> "Chiave $provider rifiutata dal servizio (HTTP ${e.statusCode})."
+                    429 -> "Limite richieste $provider raggiunto (HTTP 429)."
+                    else -> "Servizio $provider: risposta HTTP ${e.statusCode}."
+                }
+            } catch (_: Exception) {
+                // Never surface exception messages or URLs containing API keys.
+                _roadDnaKeyStatus.value =
+                    "Verifica non riuscita: problema di rete o risposta inattesa del servizio."
+            } finally {
+                _roadDnaKeyBusy.value = false
+            }
+        }
+    }
+
+    /** Explicit user action: real Valhalla geometry goes online only here. */
+    fun searchRoadDnaOnline(categoryId: String = "consigliati") {
+        val option = _routeOptions.value.getOrNull(_selectedRouteIndex.value) ?: return
+        val context = appContext ?: return
+        val geometry = RoadDnaAnalysis.geometry(option.rawRouteJson)
+        roadDnaOnlineJob?.cancel()
+        roadDnaDetailJob?.cancel()
+        roadDnaDetailRequestId++
+        val request = ++roadDnaOnlineRequestId
+        _roadDnaOnline.value = null
+        _roadDnaDetails.value = null
+        _roadDnaOnlineError.value = null
+        roadDnaOnlineJob = viewModelScope.launch {
+            _roadDnaOnlineLoading.value = true
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    RoadDnaOnline.search(context, geometry, categoryId)
+                }
+                if (request == roadDnaOnlineRequestId &&
+                    _routeOptions.value.getOrNull(_selectedRouteIndex.value) === option)
+                    _roadDnaOnline.value = result
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                if (request == roadDnaOnlineRequestId)
+                    _roadDnaOnlineError.value =
+                        "Ricerca online non riuscita: verifica le chiavi e la connessione."
+            } finally {
+                if (request == roadDnaOnlineRequestId)
+                    _roadDnaOnlineLoading.value = false
+            }
+        }
+    }
+
+    /** Unlike a map-centered search, this uses ONLY a fresh real GPS fix,
+     * never the default Rome placeholder or a stale device position.
+     */
+    fun searchRoadDnaAroundMe(radiusKm: Int, categoryId: String) {
+        val ageMs = SystemClock.elapsedRealtime() - lastFixElapsedMs
+        if (!hasFirstFix || lastFixElapsedMs <= 0L || ageMs !in 0L..30000L ||
+            !lastFixAccuracyM.isFinite() || lastFixAccuracyM > 100f) {
+            _roadDnaNearbyCenter.value = null
+            clearRoadDnaZone()
+            _roadDnaZoneError.value =
+                "Attendi una posizione GPS recente e precisa (entro 30 s, 100 m) " +
+                "prima di cercare intorno a te."
+            return
+        }
+        val center = _currentLocation.value
+        if (!center.first.isFinite() || !center.second.isFinite() ||
+            center.first !in -90.0..90.0 || center.second !in -180.0..180.0) {
+            _roadDnaNearbyCenter.value = null
+            clearRoadDnaZone()
+            _roadDnaZoneError.value = "Coordinate GPS non valide"
+            return
+        }
+        _roadDnaNearbyCenter.value = center
+        searchRoadDnaZone(center.first, center.second, radiusKm, categoryId)
+    }
+
+    /** Explicit user gesture: search a circle centered on the visible map. */
+    fun searchRoadDnaZone(lat: Double, lon: Double, radiusKm: Int,
+                          categoryId: String) {
+        val context = appContext ?: return
+        if (!lat.isFinite() || !lon.isFinite() ||
+            lat !in -90.0..90.0 || lon !in -180.0..180.0 ||
+            radiusKm !in 1..20) {
+            _roadDnaZoneError.value = "Centro o raggio della zona non validi"
+            return
+        }
+        roadDnaZoneJob?.cancel()
+        val request = ++roadDnaZoneRequest
+        _roadDnaZoneFocus.value = RoadDnaZoneFocus(lat, lon, radiusKm, categoryId)
+        _roadDnaZone.value = null
+        _roadDnaZoneOffline.value = emptyList()
+        _roadDnaZoneError.value = null
+        clearRoadDnaAreaAccesses()
+        roadDnaZoneJob = viewModelScope.launch {
+            _roadDnaZoneLoading.value = true
+            // Offline SQLite is authoritative for MotoPack tourist POIs.
+            // An online failure must never wipe out its successful results.
+            try {
+                val nearby = withContext(Dispatchers.IO) {
+                    RoadDnaAnalysis.nearby(context, lat, lon, radiusKm, categoryId)
+                }
+                if (request == roadDnaZoneRequest) _roadDnaZoneOffline.value = nearby
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (request == roadDnaZoneRequest)
+                    _roadDnaZoneError.value =
+                        "Indice turistico offline non leggibile; provo Geoapify."
+            }
+            try {
+                if (RoadDnaApiKeys.present(context, "geoapify")) {
+                    val result = withContext(Dispatchers.IO) {
+                        RoadDnaOnline.searchZone(context, lat, lon, radiusKm, categoryId)
+                    }
+                    if (request == roadDnaZoneRequest) _roadDnaZone.value = result
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: RoadDnaProviderHttpException) {
+                if (request == roadDnaZoneRequest)
+                    _roadDnaZoneError.value = when (e.statusCode) {
+                        401, 403 -> "Chiave Geoapify non valida o accesso negato"
+                        429 -> "Limite richieste Geoapify raggiunto"
+                        else -> "Geoapify non disponibile (HTTP ${e.statusCode})"
+                    }
+            } catch (e: Exception) {
+                if (request == roadDnaZoneRequest)
+                    _roadDnaZoneError.value =
+                        "Geoapify non disponibile; i luoghi offline restano visibili."
+            } finally {
+                if (request == roadDnaZoneRequest)
+                    _roadDnaZoneLoading.value = false
+            }
+        }
+    }
+
+    fun clearRoadDnaZone() {
+        ++roadDnaZoneRequest
+        roadDnaZoneJob?.cancel()
+        _roadDnaZoneFocus.value = null
+        _roadDnaZone.value = null
+        _roadDnaZoneOffline.value = emptyList()
+        _roadDnaZoneError.value = null
+        _roadDnaZoneLoading.value = false
+    }
+
+    fun searchRoadDnaAreaAccesses(poi: RoadDnaPoi) {
+        val context = appContext ?: return
+        roadDnaAreaAccessJob?.cancel()
+        val request = ++roadDnaAreaAccessRequest
+        _roadDnaAreaAccesses.value = emptyList()
+        _roadDnaAreaAccessError.value = null
+        if (poi.exactLocation || !poi.latitude.isFinite() ||
+            !poi.longitude.isFinite() || poi.latitude !in -90.0..90.0 ||
+            poi.longitude !in -180.0..180.0) {
+            _roadDnaAreaAccessError.value = "Posizione area non valida"
+            _roadDnaAreaAccessLoading.value = false
+            return
+        }
+        roadDnaAreaAccessJob = viewModelScope.launch {
+            _roadDnaAreaAccessLoading.value = true
+            try {
+                val accesses = withContext(Dispatchers.IO) {
+                    RoadDnaOnline.findAreaAccesses(context, poi.latitude, poi.longitude)
+                }
+                if (request == roadDnaAreaAccessRequest) {
+                    _roadDnaAreaAccesses.value = accesses
+                    if (accesses.isEmpty()) {
+                        _roadDnaAreaAccessError.value =
+                            "Nessun parcheggio o punto informazioni trovato nei 2,5 km " +
+                            "dal punto rappresentativo dell'area."
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: RoadDnaProviderHttpException) {
+                if (request == roadDnaAreaAccessRequest) {
+                    _roadDnaAreaAccessError.value = when (e.statusCode) {
+                        401, 403 -> "Chiave Geoapify non valida o accesso negato"
+                        429 -> "Limite richieste Geoapify raggiunto"
+                        else -> "Geoapify non disponibile (HTTP ${e.statusCode})"
+                    }
+                }
+            } catch (e: Exception) {
+                if (request == roadDnaAreaAccessRequest) {
+                    _roadDnaAreaAccessError.value = "Ricerca accessi non disponibile: " +
+                        (e.message ?: "problema di rete")
+                }
+            } finally {
+                if (request == roadDnaAreaAccessRequest)
+                    _roadDnaAreaAccessLoading.value = false
+            }
+        }
+    }
+
+    fun clearRoadDnaAreaAccesses() {
+        roadDnaAreaAccessRequest++
+        roadDnaAreaAccessJob?.cancel()
+        _roadDnaAreaAccesses.value = emptyList()
+        _roadDnaAreaAccessError.value = null
+        _roadDnaAreaAccessLoading.value = false
+    }
+
+    fun loadRoadDnaDetails(place: RoadDnaOnlinePoi) {
+        val context = appContext ?: return
+        val request = roadDnaOnlineRequestId
+        val selected = ++roadDnaDetailRequestId
+        roadDnaDetailJob?.cancel()
+        // Clear the previous POI immediately, before the detail dialog composes.
+        _roadDnaDetails.value = null
+        _roadDnaDetailsLoading.value = true
+        roadDnaDetailJob = viewModelScope.launch {
+            try {
+                val detail = withContext(Dispatchers.IO) {
+                    RoadDnaOnline.detailsForPoi(context, place)
+                }
+                if (request == roadDnaOnlineRequestId && selected == roadDnaDetailRequestId)
+                    _roadDnaDetails.value = detail
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: RoadDnaProviderHttpException) {
+                if (request == roadDnaOnlineRequestId && selected == roadDnaDetailRequestId)
+                    _roadDnaDetails.value = when (e.statusCode) {
+                        401, 403 -> "${place.source} ha rifiutato la richiesta (HTTP ${e.statusCode})."
+                        404 -> "Questa scheda ${place.source} non è disponibile (HTTP 404)."
+                        429 -> "Limite richieste ${place.source} raggiunto (HTTP 429)."
+                        else -> "Dettagli ${place.source} non disponibili (HTTP ${e.statusCode})."
+                    }
+            } catch (_: Exception) {
+                if (request == roadDnaOnlineRequestId && selected == roadDnaDetailRequestId)
+                    _roadDnaDetails.value = "Dettagli ${place.source} non disponibili: errore di rete o risposta inattesa."
+            } finally {
+                if (request == roadDnaOnlineRequestId && selected == roadDnaDetailRequestId)
+                    _roadDnaDetailsLoading.value = false
+            }
+        }
+    }
+
+    /** Road DNA is optional and never alters routing, BLE, or ESP32 scene. */
+    fun analyzeSelectedRoadDna() {
+        val option = _routeOptions.value.getOrNull(_selectedRouteIndex.value) ?: return
+        val context = appContext ?: return
+        invalidateRoadDna()
+        val request = roadDnaRequestId
+        val signal = CancellationSignal()
+        roadDnaCancelSignal = signal
+        roadDnaJob = viewModelScope.launch {
+            _roadDnaLoading.value = true
+            try {
+                val report = withContext(Dispatchers.IO) {
+                    RoadDnaAnalysis.analyze(context, option, signal)
+                }
+                if (roadDnaRequestId == request &&
+                    _routeOptions.value.getOrNull(_selectedRouteIndex.value) === option)
+                    _roadDnaSummary.value = report
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (roadDnaRequestId == request) {
+                    _roadDnaError.value = "Road DNA: " +
+                        (e.message ?: "impossibile analizzare l'itinerario")
+                }
+            } finally {
+                if (roadDnaRequestId == request) {
+                    _roadDnaLoading.value = false
+                    roadDnaCancelSignal = null
+                }
+            }
+        }
+    }
+
+    private fun invalidateRoadDna() {
+        clearRoadDnaZone()
+        clearRoadDnaAreaAccesses()
+        roadDnaOnlineRequestId++
+        roadDnaDetailRequestId++
+        roadDnaOnlineJob?.cancel()
+        roadDnaDetailJob?.cancel()
+        _roadDnaOnline.value = null
+        _roadDnaOnlineError.value = null
+        _roadDnaOnlineLoading.value = false
+        _roadDnaDetails.value = null
+        _roadDnaDetailsLoading.value = false
+        roadDnaRequestId++
+        roadDnaCancelSignal?.cancel()
+        roadDnaCancelSignal = null
+        roadDnaJob?.cancel()
+        _roadDnaSummary.value = null
+        _roadDnaError.value = null
+        _roadDnaLoading.value = false
+    }
 
     private val _isNavigating = MutableStateFlow(false)
     val isNavigating: StateFlow<Boolean> = _isNavigating
@@ -434,6 +855,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     private var mapDownloadJob: Job? = null
     private val _photonInstalledBytes = MutableStateFlow(0L)
     val photonInstalledBytes: StateFlow<Long> = _photonInstalledBytes
+    private val _roadDnaInstalledBytes = MutableStateFlow(0L)
+    val roadDnaInstalledBytes: StateFlow<Long> = _roadDnaInstalledBytes
     private val _photonImporting = MutableStateFlow(false)
     val photonImporting: StateFlow<Boolean> = _photonImporting
     private val _photonStatus = MutableStateFlow<String?>(null)
@@ -561,7 +984,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
      * OSM classification + GPS proximity. Never fall back to text "trattoria".
      * Unqualified addresses and actual business names keep normal Photon FTS.
      */
-    private fun searchPhotonPlaces(query: String): List<PlaceSearchResult> {
+    private fun searchPhotonPlaces(query: String,
+                                   signal: CancellationSignal? = null): List<PlaceSearchResult> {
         val gps = if (hasFirstFix) currentLocation.value else null
         val context = appContext
         val categories = OfflinePoiCategorySearch.categories(query)
@@ -587,14 +1011,36 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                 emptyList()
             }
         }
+        val touristHits = if (context != null) try {
+            OfflineTouristPlaceSearch.searchNames(context, query, gps)
+        } catch (e: Exception) {
+            Log.w("MotoGPS_Photon", "Tourist name search unavailable", e)
+            emptyList()
+        } else emptyList()
         if (context != null && OfflinePhotonPlaceSearch.installed(context)) {
             try {
-                val local = OfflinePhotonPlaceSearch.search(context, query, gps)
-                if (local.isNotEmpty()) return withSearchDistances(local, gps)
+                val local = OfflinePhotonPlaceSearch.search(context, query, gps, signal)
+                if (local.isNotEmpty() || touristHits.isNotEmpty()) {
+                    // Exact city/place names always lead; a nearby partial street
+                    // must not hide an exact named lake or destination.
+                    val q = PhotonOfflineRanking.normalize(query)
+                    val exactLocal = local.filter {
+                        PhotonOfflineRanking.normalize(it.name) == q &&
+                            !it.name.startsWith("Via ", ignoreCase = true) &&
+                            !it.name.startsWith("Viale ", ignoreCase = true)
+                    }
+                    val merged = exactLocal + touristHits +
+                        local.filterNot { it in exactLocal }
+                    return withSearchDistances(merged.distinctBy {
+                        PhotonOfflineRanking.normalize(it.name) + "|" +
+                            it.latitude.toString() + "|" + it.longitude.toString()
+                    }.take(8), gps)
+                }
             } catch (e: Exception) {
                 Log.w("MotoGPS_Photon", "Offline Photon v2 search failed; using online", e)
             }
         }
+        if (touristHits.isNotEmpty()) return withSearchDistances(touristHits, gps)
         return try {
             withSearchDistances(PhotonPlaceSearch.search(query, gps), gps)
         } catch (e: Exception) {
@@ -603,7 +1049,14 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         }
     }
 
+    private var destinationSearchJob: Job? = null
+    private var activeSearchSignal: CancellationSignal? = null
+
     fun searchDestination(query: String) {
+        destinationSearchJob?.cancel()
+        activeSearchSignal?.cancel()
+        activeSearchSignal = null
+        _isLoading.value = false
         if (query.isBlank()) return
 
         // Coordinates typed as "lat, lon" bypass Photon entirely.
@@ -616,23 +1069,34 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
             return
         }
 
-        viewModelScope.launch {
+        val signal = CancellationSignal()
+        activeSearchSignal = signal
+        destinationSearchJob = viewModelScope.launch {
             _isLoading.value = true
             _errorMessage.value = null
             _routePreview.value = null
 
             try {
                 val results = withContext(Dispatchers.IO) {
-                    searchPhotonPlaces(query)
+                    searchPhotonPlaces(query, signal)
                 }
+                if (activeSearchSignal !== signal) return@launch
                 _searchResults.value = results
                 if (results.isEmpty()) {
                     _errorMessage.value = "Nessun risultato trovato per '$query'"
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                _errorMessage.value = "Errore durante la ricerca: ${e.message}"
+                if (activeSearchSignal === signal) {
+                    _errorMessage.value = "Errore durante la ricerca: " +
+                        (e.message ?: "query non disponibile")
+                }
             } finally {
-                _isLoading.value = false
+                if (activeSearchSignal === signal) {
+                    _isLoading.value = false
+                    activeSearchSignal = null
+                }
             }
         }
     }
@@ -685,6 +1149,12 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     }
 
     fun previewRoute(place: PlaceSearchResult) {
+        invalidateRoadDna()
+        if (place.requiresRoadAccess) {
+            _errorMessage.value = "Road DNA: posizione indicativa. L'accesso stradale " +
+                "non è verificato: cerca una strada o località vicina per navigare."
+            return
+        }
         routePreviewJob?.cancel()
         DiagnosticLog.event("ROUTE_PREVIEW", "begin stops=${_routeWaypoints.value.size}")
         _routePreview.value = place
@@ -719,11 +1189,13 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
 
     fun selectRouteOption(index: Int) {
         if (index in _routeOptions.value.indices) {
+            invalidateRoadDna()
             _selectedRouteIndex.value = index
         }
     }
 
     fun clearRoutePreview() {
+        invalidateRoadDna()
         resumeOriginSession = null
         _hasArrived.value = false
         arrivalDetector.reset()
@@ -1749,13 +2221,20 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                 refreshSavedMaps(context)
                 val graphInstalled = OfflineValhallaRouter.hasTiles(context.applicationContext)
                 val photonInstalled = OfflinePhotonPlaceSearch.installed(context.applicationContext)
-                if (!graphInstalled || !photonInstalled) {
-                    throw java.io.IOException("Verifica finale: Valhalla o Photon non disponibile")
+                val touristInstalled = withContext(Dispatchers.IO) {
+                    OfflineTouristPlaceSearch.installed(context.applicationContext)
                 }
+                if (!graphInstalled || !photonInstalled || !touristInstalled) {
+                    throw java.io.IOException(
+                        "Verifica finale: Valhalla, Photon o Road DNA non disponibile")
+                }
+                _roadDnaInstalledBytes.value =
+                    OfflineTouristPlaceSearch.file(context.applicationContext).length()
+                invalidateRoadDna()
                 _valhallaStatus.value = "Grafo Valhalla installato dal pacchetto unificato"
                 _photonStatus.value = "Indice Photon installato dal pacchetto unificato"
                 _downloadProgress.value = 1f
-                _downloadStatus.value = "MotoMap, Photon e Valhalla installati"
+                _downloadStatus.value = "MotoMap, Photon, Road DNA e Valhalla installati"
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -1806,6 +2285,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         _photonInstalledBytes.value = if (OfflinePhotonPlaceSearch.installed(context))
             OfflinePhotonPlaceSearch.file(context).length() else 0L
         _valhallaInstalledBytes.value = OfflineValhallaRouter.tileFile(context)
+            .let { if (it.isFile) it.length() else 0L }
+        _roadDnaInstalledBytes.value = OfflineTouristPlaceSearch.file(context)
             .let { if (it.isFile) it.length() else 0L }
         val list = getOrCreateRepo(context).listSavedMaps()
         _savedMaps.value = list

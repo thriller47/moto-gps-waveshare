@@ -25,14 +25,14 @@ class MockNode:
         self.id, self.location, self.tags = ident, MockPoint(lat, lon), MockTags(tags)
 
 class MockWayNode:
-    def __init__(self, lat, lon):
-        self.location = MockPoint(lat, lon)
+    def __init__(self, ref):
+        self.ref = ref
 
 class MockWay:
     def __init__(self, ident, tags):
         self.id, self.tags = ident, MockTags(tags)
-        self.nodes = [MockWayNode(45.0, 7.0), MockWayNode(45.001, 7.001),
-                      MockWayNode(45.0, 7.0)]
+        self.nodes = [MockWayNode(200), MockWayNode(201),
+                      MockWayNode(200)]
 
 class TestPOIIndex(unittest.TestCase):
     def test_categories_distinguish_restaurant_bar_hotel_and_fuel(self):
@@ -58,17 +58,22 @@ class TestPOIIndex(unittest.TestCase):
             fake_pbf = Path(folder) / "italy.osm.pbf"
             fake_pbf.write_bytes(b"fixture")
             class SimpleHandler:
-                def apply_file(self, filename, locations, idx):
-                    assert locations is True
-                    assert idx.startswith("sparse_file_array,")
-                    self.node(MockNode(101, 44.39, 7.55,
-                        {"amenity": "restaurant", "name": "La Pergola"}))
-                    self.node(MockNode(102, 44.395, 7.551,
-                        {"amenity": "fuel", "brand": "IP"}))
-                    self.way(MockWay(103,
-                        {"tourism": "hotel", "name": "Albergo Monte"}))
-                    self.node(MockNode(104, 44.4, 7.6,
-                        {"amenity": "parking"}))
+                calls = 0
+                def apply_file(self, filename, locations):
+                    assert locations is False
+                    SimpleHandler.calls += 1
+                    if SimpleHandler.calls % 2:
+                        self.node(MockNode(101, 44.39, 7.55,
+                            {"amenity": "restaurant", "name": "La Pergola"}))
+                        self.node(MockNode(102, 44.395, 7.551,
+                            {"amenity": "fuel", "brand": "IP"}))
+                        self.way(MockWay(103,
+                            {"tourism": "hotel", "name": "Albergo Monte"}))
+                        self.node(MockNode(104, 44.4, 7.6,
+                            {"amenity": "parking"}))
+                    else:
+                        self.node(MockNode(200, 45.0, 7.0, {}))
+                        self.node(MockNode(201, 45.001, 7.001, {}))
             fake_osmium = types.ModuleType("osmium")
             fake_osmium.SimpleHandler = SimpleHandler
             with patch.dict(sys.modules, {"osmium": fake_osmium}):

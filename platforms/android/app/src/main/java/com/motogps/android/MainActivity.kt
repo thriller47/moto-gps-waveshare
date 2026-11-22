@@ -276,6 +276,31 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             val routePreviewError = viewModel.routePreviewError.collectAsState().value
             val routePreferences = viewModel.routePreferences.collectAsState().value
             val selectedRouteIndex = viewModel.selectedRouteIndex.collectAsState().value
+            val roadDnaSummary = viewModel.roadDnaSummary.collectAsState().value
+            val roadDnaLoading = viewModel.roadDnaLoading.collectAsState().value
+            val roadDnaError = viewModel.roadDnaError.collectAsState().value
+            val roadDnaOnline = viewModel.roadDnaOnline.collectAsState().value
+            val roadDnaOnlineLoading = viewModel.roadDnaOnlineLoading.collectAsState().value
+            val roadDnaOnlineError = viewModel.roadDnaOnlineError.collectAsState().value
+            val roadDnaZoneFocus = viewModel.roadDnaZoneFocus.collectAsState().value
+            val roadDnaNearbyCenter = viewModel.roadDnaNearbyCenter.collectAsState().value
+            val roadDnaZoneOffline =
+                viewModel.roadDnaZoneOffline.collectAsState().value
+            val roadDnaZone = viewModel.roadDnaZone.collectAsState().value
+            val roadDnaZoneLoading = viewModel.roadDnaZoneLoading.collectAsState().value
+            val roadDnaZoneError = viewModel.roadDnaZoneError.collectAsState().value
+            val roadDnaAreaAccesses =
+                viewModel.roadDnaAreaAccesses.collectAsState().value
+            val roadDnaAreaAccessLoading =
+                viewModel.roadDnaAreaAccessLoading.collectAsState().value
+            val roadDnaAreaAccessError =
+                viewModel.roadDnaAreaAccessError.collectAsState().value
+            val roadDnaDetails = viewModel.roadDnaDetails.collectAsState().value
+            val roadDnaDetailsLoading = viewModel.roadDnaDetailsLoading.collectAsState().value
+            val geoapifyConfigured = viewModel.geoapifyConfigured.collectAsState().value
+            val opentripmapConfigured = viewModel.opentripmapConfigured.collectAsState().value
+            val roadDnaKeyStatus = viewModel.roadDnaKeyStatus.collectAsState().value
+            val roadDnaKeyBusy = viewModel.roadDnaKeyBusy.collectAsState().value
             val isNavigating = viewModel.isNavigating.collectAsState().value
             val hasArrived = viewModel.hasArrived.collectAsState().value
             val currentLocation = viewModel.currentLocation.collectAsState().value
@@ -283,6 +308,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             val downloadProgress = viewModel.downloadProgress.collectAsState().value
             val isDownloadingMap = viewModel.isDownloadingMap.collectAsState().value
             val photonInstalledBytes = viewModel.photonInstalledBytes.collectAsState().value
+            val roadDnaInstalledBytes = viewModel.roadDnaInstalledBytes.collectAsState().value
             val photonImporting = viewModel.photonImporting.collectAsState().value
             val photonStatus = viewModel.photonStatus.collectAsState().value
             val valhallaInstalledBytes = viewModel.valhallaInstalledBytes.collectAsState().value
@@ -343,6 +369,50 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                         viewModel.updateRoutePreferences(this@MainActivity, it)
                     },
                     selectedRouteIndex = selectedRouteIndex,
+                    roadDnaSummary = roadDnaSummary,
+                    roadDnaLoading = roadDnaLoading,
+                    roadDnaError = roadDnaError,
+                    onRoadDnaAnalyze = { viewModel.analyzeSelectedRoadDna() },
+                    roadDnaOnline = roadDnaOnline,
+                    roadDnaOnlineLoading = roadDnaOnlineLoading,
+                    roadDnaOnlineError = roadDnaOnlineError,
+                    roadDnaDetails = roadDnaDetails,
+                    roadDnaDetailsLoading = roadDnaDetailsLoading,
+                    onRoadDnaOnlineSearch = { categoryId ->
+                        viewModel.searchRoadDnaOnline(categoryId)
+                    },
+                    onRoadDnaDetails = { viewModel.loadRoadDnaDetails(it) },
+                    roadDnaZoneFocus = roadDnaZoneFocus,
+                    roadDnaNearbyCenter = roadDnaNearbyCenter,
+                    roadDnaZone = roadDnaZone,
+                    roadDnaZoneOffline = roadDnaZoneOffline,
+                    roadDnaZoneLoading = roadDnaZoneLoading,
+                    roadDnaZoneError = roadDnaZoneError,
+                    onRoadDnaZoneSearch = { lat, lon, radius, category ->
+                        viewModel.searchRoadDnaZone(lat, lon, radius, category)
+                    },
+                    onRoadDnaZoneClear = { viewModel.clearRoadDnaZone() },
+                    onRoadDnaNearbySearch = { radius, category ->
+                        viewModel.searchRoadDnaAroundMe(radius, category)
+                    },
+                    roadDnaAreaAccesses = roadDnaAreaAccesses,
+                    roadDnaAreaAccessLoading = roadDnaAreaAccessLoading,
+                    roadDnaAreaAccessError = roadDnaAreaAccessError,
+                    onRoadDnaAreaAccessSearch = {
+                        viewModel.searchRoadDnaAreaAccesses(it)
+                    },
+                    onRoadDnaAreaAccessClear = {
+                        viewModel.clearRoadDnaAreaAccesses()
+                    },
+                    geoapifyConfigured = geoapifyConfigured,
+                    opentripmapConfigured = opentripmapConfigured,
+                    roadDnaKeyStatus = roadDnaKeyStatus,
+                    roadDnaKeyBusy = roadDnaKeyBusy,
+                    onSaveRoadDnaKey = { provider, value ->
+                        viewModel.saveRoadDnaKey(provider, value)
+                    },
+                    onDeleteRoadDnaKey = { viewModel.deleteRoadDnaKey(it) },
+                    onTestRoadDnaKey = { viewModel.testRoadDnaKey(it) },
                     isNavigating = isNavigating,
                     hasArrived = hasArrived,
                     currentLocation = currentLocation,
@@ -382,6 +452,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     downloadProgress = downloadProgress,
                     isDownloadingMap = isDownloadingMap,
                     photonInstalledBytes = photonInstalledBytes,
+                    roadDnaInstalledBytes = roadDnaInstalledBytes,
                     photonImporting = photonImporting,
                     photonStatus = photonStatus,
                     onImportPhoton = {

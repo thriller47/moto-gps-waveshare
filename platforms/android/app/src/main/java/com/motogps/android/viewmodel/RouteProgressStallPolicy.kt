@@ -103,7 +103,7 @@ internal class RouteProgressStallPolicy {
             val elapsed = nowMs - previous.atMs
             val travelled = metres(previous.lat, previous.lon, lat, lon)
             val courseChange = degreesApart(heading, previous.courseDeg)
-            val windowChange = degreesApart(heading, fixes.peekFirst().courseDeg)
+            val windowChange = degreesApart(heading, fixes.first.courseDeg)
             if (elapsed <= 0L || elapsed > MAX_FIX_INTERVAL_MS ||
                 travelled > MAX_FIX_STEP_M ||
                 courseChange > MAX_COURSE_CHANGE_DEG ||
@@ -118,10 +118,10 @@ internal class RouteProgressStallPolicy {
         // sufficient net displacement despite reporting moving speed.
         while (!fixes.isEmpty() &&
             (fixes.size > 20 ||
-                nowMs - fixes.peekFirst().atMs > 15_000L)) fixes.removeFirst()
+                nowMs - fixes.first.atMs > 15_000L)) fixes.removeFirst()
         if (fixes.size < MIN_FIX_COUNT) return false
 
-        val first = fixes.peekFirst()
+        val first = fixes.first
         if (nowMs - first.atMs < MIN_DURATION_MS) return false
         if (progress - first.progressM > MAX_PROGRESS_GAIN_M) {
             // The matcher is moving: this is not the frozen-anchor defect.
@@ -130,10 +130,9 @@ internal class RouteProgressStallPolicy {
             return false
         }
         var travelled = 0.0
-        var prior: Fix? = null
+        var prior = first
         for (fix in fixes) {
-            if (prior != null)
-                travelled += metres(prior.lat, prior.lon, fix.lat, fix.lon)
+            if (fix !== first) travelled += metres(prior.lat, prior.lon, fix.lat, fix.lon)
             prior = fix
         }
         val displacement = metres(first.lat, first.lon, lat, lon)

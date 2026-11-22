@@ -174,9 +174,22 @@ Se la connessione tra telefono ed ESP32 si interrompe **involontariamente** (es.
 
 **Nota consumi:** schermo nero e polling IMU più lento dovrebbero ridurre il consumo; **l'autonomia effettiva non è misurata** e va verificata con batteria/USB nelle diverse condizioni.
 
+## 1.2. Road DNA online — chiavi Geoapify e OpenTripMap (branch sperimentale)
+
+**Non e' richiesta alcuna chiave per la navigazione o per Road DNA offline.** Le funzioni qui sotto sono un'integrazione Android aggiunta il 21/11, ancora da compilare e collaudare su dispositivo reale. Non esiste una verifica live eseguita in questa sessione.
+
+1. Ottenere **chiavi personali** sui portali https://myprojects.geoapify.com e https://dev.opentripmap.org. Non inviarle in chat, non salvarle nel repository e non inserirle negli screenshot diagnostici.
+2. Nella nuova APK Android aprire **⋮ → API Road DNA**. Inserire la chiave Geoapify e premere **Salva**; ripetere per OpenTripMap. Lo stato conferma se ciascun provider e' configurato; usare **Verifica** per provare una richiesta HTTPS minima o **Elimina** per rimuovere la chiave. I campi sono mascherati, il valore non viene ripresentato dopo il salvataggio.
+3. Pianificare un itinerario, aprire **Road DNA · Guida e luoghi da scoprire** e leggere l'analisi locale. Solo con il tasto **Cerca online (su richiesta)** vengono inviate coordinate ai provider: a Geoapify un corridoio di 2 km attorno alla geometria Valhalla, a OpenTripMap fino a cinque punti campione lungo la rotta. Selezionare **Dettagli OpenTripMap** per richiedere la descrizione di un luogo specifico; per un risultato Geoapify e' disponibile **Cerca scheda su OpenTripMap**, con abbinamento conservativo per nome e posizione entro 200 m (nessuna scheda se non e' verificabile). Senza chiavi la ricerca non parte; con una sola chiave funziona solo il relativo provider.
+4. Controllare risultati, indicazione di copertura parziale e distanze in linea d'aria: non equivalgono a accessi stradali, deviazioni o visibilita' dei luoghi in moto. Non aggiungere ancora questi POI automaticamente come tappe.
+
+**Protezione delle credenziali:** Android Keystore + AES-GCM, file `noBackupFilesDir` esclusi dai backup Android, niente chiavi nel MotoPack, nei log o nel codice. Geoapify riceve `x-api-key` via HTTPS, OpenTripMap richiede `apikey` come parametro URL HTTPS. Evitare di registrare traffico completo o incollare link con chiavi. Nessuna chiamata periodica, nessun accesso a POI durante navigazione, nessun cambiamento ESP32/BLE.
+
+**Collaudo prima del merge:** test JUnit `RoadDnaOnlineTest.kt`; test manuale `Verifica` per entrambi i provider con le proprie credenziali, ricerca su itinerario reale (Sestriere/Lago Maggiore), cambio rotta durante caricamento, assenza rete, errore 401/429 e controllo che dati e URL con chiavi non entrino nella diagnostica. Una CI finale soltanto quando autorizzata.
+
 ## 2. Rigenerazione completa MotoPack — procedura consigliata
 
-**Un unico comando in WSL** ricrea **MotoMap v4** (strade e copertura), **Photon SQLite v2 con POI OSM** (ricerca indirizzi, carburante, ristorazione e alloggi), **Valhalla V5** (grafo moto dal PBF aggiornato), quindi assembla e verifica il pacchetto `MotoChatGPS-Italia.motopack`. Usa lo script `scripts/offline_map/rebuild_motopack_wsl.sh`, presente nel branch sperimentale.
+**Un unico comando in WSL** ricrea **MotoMap v4** (strade e copertura), **Photon SQLite v2 con POI OSM** (ricerca indirizzi, carburante, ristorazione e alloggi), **Tourist SQLite v1** (Road DNA turistico) e **Valhalla V5** (grafo moto dal PBF aggiornato), quindi assembla e verifica il pacchetto `MotoChatGPS-Italia.motopack`. Usa lo script `scripts/offline_map/rebuild_motopack_wsl.sh`, presente nel branch sperimentale.
 
 **Sorgenti attuali in `C:\MotoGPS\PBF`:**
 
@@ -201,22 +214,51 @@ Se `ls` non trova lo script, aggiornare il branch come nella sezione 1. Per il b
 **Cartella di output predefinita:**
 
 ```text
-/home/mod/motogps-build/ItaliaUnificata-20261118/
+/home/mod/motogps-build/ItaliaUnificata-RoadDNA-v2/
 ├── italy-v4.motomap.zip
 ├── photon-italy-v2.sqlite
+├── tourist-italy-v1.sqlite
 ├── ValhallaItaliaV5/
 │   └── valhalla_tiles.tar.zst
 └── MotoChatGPS-Italia.motopack
 ```
 
-Lo script scrive prima su filesystem **Linux WSL**, in una cartella temporanea; **solo dopo verifica SHA-256** sostituisce la cartella finale esistente. In caso di errore ordinario preserva quella precedente; se trova file estranei fra gli output, si ferma senza cancellarli. Richiede spazio per vecchia e nuova generazione contemporaneamente, oltre ai grafi Valhalla temporanei. Non usare `sudo`, `rm -rf` o `--resume` al posto di questa procedura. Per un'altra destinazione: `--out "$HOME/motogps-build/ItaliaUnificata-Nuova" --threads 2`.
+Lo script scrive prima su filesystem **Linux WSL**, in una cartella temporanea; **solo dopo verifica SHA-256** sostituisce la cartella finale esistente. In caso di errore preserva sia l'output precedente sia lo staging interrotto per il successivo `--resume`; se trova file estranei fra gli output, si ferma senza cancellarli. Richiede spazio per vecchia e nuova generazione contemporaneamente, oltre ai grafi Valhalla temporanei. Non usare `sudo` o `rm -rf` per ripartire. Per un'altra destinazione: `--out "$HOME/motogps-build/ItaliaUnificata-Nuova" --threads 2`.
 
 **Verifica al termine** (non affermare che la nuova generazione sia valida solo perché MotoMap ha stampato il numero di tile):
 
 ```bash
 python3 scripts/offline_map/motopack.py verify \
-  "$HOME/motogps-build/ItaliaUnificata-20261118/MotoChatGPS-Italia.motopack"
-ls -lh "$HOME/motogps-build/ItaliaUnificata-20261118/"
+  "$HOME/motogps-build/ItaliaUnificata-RoadDNA-v2/MotoChatGPS-Italia.motopack"
+ls -lh "$HOME/motogps-build/ItaliaUnificata-RoadDNA-v2/"
+```
+
+### Ripresa dopo un errore durante Road DNA (21/11/2026)
+
+Se il terminale si arresta con `relation_missing_member_way` dopo avere risolto milioni di nodi, alcune relation OSM hanno membri assenti dall'estratto PBF. Il generatore aggiornato **salta solo quelle relazioni**, non pubblica un poligono incompleto e registra `relation_coverage=partial`, `relation_missing_member_way` e i primi ID saltati nella tabella `tourist_metadata`. Controllare poi laghi e aree protette sui percorsi di interesse; non dichiarare copertura turistica assoluta.
+
+Aggiornare prima lo stesso branch Road DNA; dal repository WSL con `valhalla-env` attivo:
+
+```bash
+git switch feature/road-dna-motopack-v2
+git pull --ff-only origin feature/road-dna-motopack-v2
+PYTHONPATH=scripts/offline_map python3 -m unittest discover -s scripts/offline_map -p 'test_tourist_to_sqlite.py' -v
+bash scripts/offline_map/rebuild_motopack_wsl.sh --threads 2 --resume
+```
+
+Il wrapper individua la cartella di staging della destinazione (se presente), verifica l'identità dei file sorgenti e riutilizza i componenti completi. Quando `tourist-italy-v1.sqlite.part` contiene un checkpoint nuovo e valido, la ripresa ricostruisce **soltanto i poligoni**, senza rieseguire i tre passaggi PBF. Se la generazione fallita è stata eseguita con la *vecchia* versione dello script, il `.part` e lo staging potrebbero essere stati cancellati automaticamente: in questo caso `--resume` avvia una nuova generazione o riutilizza solamente i file finali ancora esistenti. Non è possibile recuperare dal terminale le coordinate temporanee già eliminate.
+
+Per il builder diretto su una cartella di output permanente, ripetere **gli stessi** `--pbf`, `--poly`, `--photon`, `--out` e aggiungere `--resume` a `build_motopack_wsl.sh`. Non rinominare un vecchio `.part` per aggirare il controllo di provenienza. In caso di checkpoint parziale (prima della fine della terza passata), va ispezionato e va iniziata una nuova generazione in una directory diversa.
+
+A pacchetto generato, verificare la copertura registrata:
+
+```bash
+python3 - "$HOME/motogps-build/ItaliaUnificata-RoadDNA-v2/tourist-italy-v1.sqlite" <<'PY'
+import sqlite3, sys
+with sqlite3.connect(sys.argv[1]) as db:
+    print(dict(db.execute("SELECT key,value FROM tourist_metadata")))
+    print("integrity:", db.execute("PRAGMA integrity_check").fetchone()[0])
+PY
 ```
 
 La verifica attesa è `OK: MotoMap v4 + Valhalla V5 + Photon v2`, accompagnata dall'esito finale `PRONTO` dello script.
@@ -336,14 +378,40 @@ gh run list -R thriller47/moto-gps-waveshare -b test/waypoint-markers-20261119 -
 gh run download ID_RUN -R thriller47/moto-gps-waveshare -n ESP32-Firmware -D C:\MotoGPS\ESP32-Firmware
 ```
 
-**Build Android locale (PowerShell):** in Android Studio aprire `C:\MotoGPS\moto-gps-waveshare\platforms\android` (non la root). Versioni di riferimento: JDK/JBR 21, Android SDK Platform 36, NDK 27 e CMake 3.22.1 quando richiesti dal Gradle presente nel checkout.
+**Build Android locale (PowerShell):** in Android Studio aprire `C:\MotoGPS\moto-gps-waveshare\platforms\android` (non la root). Versioni di riferimento per il branch sperimentale: JDK/JBR 21, Android SDK Platform **37**, Android Gradle Plugin **9.1.1**, Gradle wrapper **9.3.1** e CMake 3.22.1. Android Studio deve supportare AGP 9.1.1 (almeno Panda 3 Patch 1); in CI rimane JDK 17. **Sul branch `feature/road-dna-motopack-v2` il NDK richiesto è `29.0.14206865`** per il supporto alle pagine da 16 KB; il vecchio NDK 27 rimane solo nei checkout non aggiornati.
 
 ```powershell
 Set-Location "C:\MotoGPS\moto-gps-waveshare\platforms\android"
 .\gradlew.bat testDebugUnitTest assembleDebug
-adb devices
-adb install -r "C:\MotoGPS\moto-gps-waveshare\platforms\android\app\build\outputs\apk\debug\app-debug.apk"
+$adb = "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe"
+& $adb devices
+& $adb -s R5CXA3SF4QT install -r ".\app\build\outputs\apk\debug\app-debug.apk"
 ```
+
+**Installazione sul Samsung in uso (PowerShell):** il seriale ADB attuale è `R5CXA3SF4QT`. Il comando sopra è quello utilizzato dall’utente per aggiornare l’APK debug, dalla cartella `platforms/android`. La variabile `$adb` indica l’eseguibile ADB dell’Android SDK locale; se è già definita nella sessione PowerShell, non occorre ridefinirla. `-s` evita l’errore «more than one device/emulator» selezionando il telefono corretto; `-r` mantiene i dati dell’app quando firma e versionCode consentono l’aggiornamento. Controllare il seriale con `& $adb devices` se si cambia telefono. **Build Android e audit ELF 16 KiB:** confermati dall’utente il 22/11/2026 (sei librerie PASS, zero segmenti LOAD non validi); verifica ZIP e installazione/collaudo su Samsung ancora da confermare.
+
+### Verifica librerie Android a 16 KB (branch sperimentale, novembre 2026)
+
+Se Android Studio segnala `Controllo allineamento ELF non riuscito` per `libmotogps_jni.so`, `libzstd-jni-*.so` o `libvalhalla-wrapper.so`, **non è un problema dei MotoPack**. Il linker del codice C++ deve produrre segmenti ELF `LOAD` allineati a 16 KB e anche le librerie precompilate devono essere compatibili. Nel branch di sviluppo sono configurati: NDK `29.0.14206865`; linker flags `-Wl,-z,max-page-size=16384` e `-Wl,-z,common-page-size=16384` per `motogps_jni`; `zstd-jni` 1.5.7-13 e `valhalla-mobile` 0.6.6. **Il fatto che il Gradle compili non prova che tutti i .so precompilati siano già conformi.**
+
+In **Android Studio → Settings → Languages & Frameworks → Android SDK** installare **SDK Platform 37** e, nella scheda **SDK Tools**, il componente **NDK (Side by side)** versione `29.0.14206865` (eventualmente tramite *Show Package Details*). La libreria `zstd-jni` 1.5.7-13 richiede API 37 per compilare: `compileSdk` è 37, ma **`targetSdk` resta 35** e `minSdk` resta 26. AGP 9.1.1 usa Kotlin integrato; non riapplicare `org.jetbrains.kotlin.android`. Oppure installare dal terminale PowerShell con SDK command line tools:
+
+```powershell
+& "$env:LOCALAPPDATA\Android\Sdk\cmdline-tools\latest\bin\sdkmanager.bat" "platforms;android-37" "ndk;29.0.14206865"
+Set-Location "C:\MotoGPS\moto-gps-waveshare\platforms\android"
+.\gradlew.bat :app:testDebugUnitTest :app:assembleDebug
+```
+
+Dopo la compilazione, con Python 3 installato, controllare **tutte le librerie ELF 64-bit nel nuovo APK**:
+
+```powershell
+Set-Location "C:\MotoGPS\moto-gps-waveshare"
+py -3 scripts\diagnostics\check_android_16k_elf.py platforms\android\app\build\outputs\apk\debug\app-debug.apk
+```
+
+Risultato atteso: righe `PASS` per ogni `lib/arm64-v8a/*.so` e `0 invalid LOAD segments`; un `FAIL` identifica la libreria da correggere nel progetto o presso il suo distributore. Per la separata verifica ZIP/APK usare `zipalign.exe -c -P 16 -v 4` della cartella *build-tools* di Android SDK (versione 35+). La CI `Project Build` esegue **entrambe** le verifiche dopo la build; controllare che il job Android non sia saltato (`skipped`) e che la verifica sia `PASS`.
+
+**Prova finale sul dispositivo:** eseguire `adb shell getconf PAGE_SIZE` (16384 su kernel con pagine da 16 KB), quindi testare avvio, caricamento MotoPack `.tar.zst`, ricalcolo offline Valhalla e BLE. Il componente Valhalla Mobile 0.6.6 usa un engine 3.9.2 anziché 3.9.1: controllare l'apertura dei grafi V5 precedenti prima di considerarlo validato. Non rigenerare il MotoPack come prima risposta a un semplice problema di allineamento ELF.
 
 `adb install -r` aggiorna l'app soltanto con firma e versionCode compatibili. **Non disinstallare l'app per tentativi:** rischi di perdere mappe, database e checkpoint dei tour. Vedi [guida alla firma APK](android-apk-signing.md). Dopo un aggiornamento APK, ricontrollare lo stato delle tre mappe: installare codice nuovo non equivale a rigenerarle.
 

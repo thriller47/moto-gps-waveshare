@@ -1,10 +1,12 @@
 package com.motogps.android.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -17,6 +19,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
@@ -25,12 +28,15 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
@@ -46,6 +52,16 @@ import com.motogps.android.viewmodel.PlaceSearchResult
 import com.motogps.android.viewmodel.SavedCircularTour
 import com.motogps.android.viewmodel.TourSession
 import com.motogps.android.viewmodel.RouteOption
+import com.motogps.android.viewmodel.RoadDnaSummary
+import com.motogps.android.viewmodel.RoadDnaPoi
+import com.motogps.android.viewmodel.RoadDnaAreaAccess
+import com.motogps.android.viewmodel.RoadDnaRoadsideCandidate
+import com.motogps.android.viewmodel.RoadDnaOfflineFilter
+import com.motogps.android.viewmodel.RoadDnaCategories
+import com.motogps.android.viewmodel.RoadDnaOnlineResult
+import com.motogps.android.viewmodel.NavigationViewModel.RoadDnaZoneFocus
+import com.motogps.android.viewmodel.RoadDnaOnlinePoi
+import com.motogps.android.viewmodel.RoadDnaOnline
 import org.json.JSONArray
 import kotlin.math.roundToInt
 import org.osmdroid.config.Configuration
@@ -127,6 +143,15 @@ fun RouteMapView(
     destinationLocation: Pair<Double, Double>? = null,
     waypoints: List<PlaceSearchResult> = emptyList(),
     onWaypointLongPress: ((Double, Double) -> Unit)? = null,
+    roadDnaPois: List<RoadDnaPoi> = emptyList(),
+    onRoadDnaPoiClick: ((RoadDnaPoi) -> Unit)? = null,
+    roadsideProposal: RoadDnaRoadsideCandidate? = null,
+    areaAccesses: List<RoadDnaOnlinePoi> = emptyList(),
+    onAreaAccessClick: ((RoadDnaOnlinePoi) -> Unit)? = null,
+    onlineSuggestions: List<RoadDnaOnlinePoi> = emptyList(),
+    onOnlineSuggestionClick: ((RoadDnaOnlinePoi) -> Unit)? = null,
+    onMapReady: ((MapView) -> Unit)? = null,
+    zoneFocus: RoadDnaZoneFocus? = null,
     modifier: Modifier = Modifier
 ) {
     // Route-fitting is deliberately one-shot per route ID, not per recomposition.\n    // The AndroidView.update callback runs on unrelated Compose changes (GPS,
@@ -143,6 +168,7 @@ fun RouteMapView(
             }
         },
         update = { mapView ->
+            onMapReady?.invoke(mapView)
             applyMapNightMode(mapView, nightMode)
             mapView.overlays.clear()
             if (onWaypointLongPress != null) {
@@ -164,6 +190,29 @@ fun RouteMapView(
                 })
                 viewPoints.addAll(geoPoints)
             }
+            // Draw the actual executed circle, not the GPS/route center.
+            // This visual overlay does not modify map fit or routing.
+            zoneFocus?.let { area ->
+                val radiusMeters = area.radiusKm * 1000.0
+                val latDelta = radiusMeters / 111195.0
+                val lonDelta = radiusMeters /
+                    (111195.0 * kotlin.math.cos(Math.toRadians(area.latitude))
+                        .coerceAtLeast(0.02))
+                val ring = (0..48).map { i ->
+                    val angle = i * 2.0 * Math.PI / 48.0
+                    GeoPoint(
+                        (area.latitude + latDelta * kotlin.math.cos(angle))
+                            .coerceIn(-90.0, 90.0),
+                        (area.longitude + lonDelta * kotlin.math.sin(angle))
+                            .coerceIn(-180.0, 180.0)
+                    )
+                }
+                mapView.overlays.add(Polyline().apply {
+                    setPoints(ring)
+                    outlinePaint.color = android.graphics.Color.rgb(46, 151, 225)
+                    outlinePaint.strokeWidth = 3.5f
+                })
+            }
             if (currentLocation != null && currentLocation.first in -90.0..90.0 &&
                 currentLocation.second in -180.0..180.0) {
                 val here = GeoPoint(currentLocation.first, currentLocation.second)
@@ -184,6 +233,32 @@ fun RouteMapView(
                 })
                 if (geoPoints.size < 2) viewPoints.add(via)
             }
+            // Road DNA markers are kept separate from the route and real
+            // waypoints. A marker tap opens a preview; it never edits a route.
+            roadDnaPois.take(60).forEach { poi ->
+                if (poi.latitude.isFinite() && poi.longitude.isFinite() &&
+                    poi.latitude in -90.0..90.0 && poi.longitude in -180.0..180.0) {
+                    if (geoPoints.size < 2)
+                        viewPoints.add(GeoPoint(poi.latitude, poi.longitude))
+                    mapView.overlays.add(Marker(mapView).apply {
+                        position = GeoPoint(poi.latitude, poi.longitude)
+                        title = poi.name + if (poi.exactLocation) ""
+                            else " (posizione indicativa)"
+                        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                        setOnMarkerClickListener { _, _ ->
+                            onRoadDnaPoiClick?.invoke(poi)
+                            true
+                        }
+                    })
+                }
+            }
+            roadsideProposal?.let { candidate ->
+                mapView.overlays.add(Marker(mapView).apply {
+                    position = GeoPoint(candidate.latitude, candidate.longitude)
+                    title = "Punto stradale proposto · Road DNA"
+                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                })
+            }
             if (destinationLocation != null && destinationLocation.first in -90.0..90.0 &&
                 destinationLocation.second in -180.0..180.0) {
                 val target = GeoPoint(destinationLocation.first, destinationLocation.second)
@@ -194,6 +269,40 @@ fun RouteMapView(
                     setAnchor(9f / 48f, 45f / 48f)
                 })
                 if (geoPoints.size < 2) viewPoints.add(target)
+            }
+            // Access markers are inserted last, above nearby area pins.
+            // osmdroid dispatches marker taps from the top of the stack.
+            areaAccesses.take(20).forEach { poi ->
+                if (poi.latitude in -90.0..90.0 &&
+                    poi.longitude in -180.0..180.0) {
+                    mapView.overlays.add(Marker(mapView).apply {
+                        position = GeoPoint(poi.latitude, poi.longitude)
+                        title = poi.name + " · " + poi.category
+                        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                        setOnMarkerClickListener { _, _ ->
+                            onAreaAccessClick?.invoke(poi)
+                            true
+                        }
+                    })
+                }
+            }
+            // Online tourist suggestions are rendered as selectable pins.
+            // Keep this layer separate from offline areas and access candidates.
+            onlineSuggestions.take(60).forEach { poi ->
+                if (poi.latitude.isFinite() && poi.longitude.isFinite() &&
+                    poi.latitude in -90.0..90.0 && poi.longitude in -180.0..180.0) {
+                    if (geoPoints.size < 2)
+                        viewPoints.add(GeoPoint(poi.latitude, poi.longitude))
+                    mapView.overlays.add(Marker(mapView).apply {
+                        position = GeoPoint(poi.latitude, poi.longitude)
+                        title = poi.name + " · " + poi.source
+                        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                        setOnMarkerClickListener { _, _ ->
+                            onOnlineSuggestionClick?.invoke(poi)
+                            true
+                        }
+                    })
+                }
             }
             if (lastFitKey[0] != routeFitKey) {
                 lastFitKey[0] = routeFitKey
@@ -421,6 +530,7 @@ fun MapDownloadProgressBox(
 fun OfflineMapsDialog(
     savedMaps: List<SavedMapInfo>,
     photonInstalledBytes: Long,
+    roadDnaInstalledBytes: Long = 0L,
     photonImporting: Boolean,
     photonStatus: String?,
     onImportPhoton: () -> Unit,
@@ -462,7 +572,7 @@ fun OfflineMapsDialog(
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Text("MotoPack Italia", style = MaterialTheme.typography.titleMedium)
-                        Text("Un unico file .motopack installa MotoMap, Valhalla e Photon.",
+                        Text("MotoPack v2: MotoMap, Valhalla, Photon e Road DNA.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text("MotoMap: " + if (savedMaps.isNotEmpty()) "installata" else "assente",
@@ -470,6 +580,10 @@ fun OfflineMapsDialog(
                         Text("Valhalla: " + if (valhallaInstalledBytes > 0L) "installato" else "assente",
                             style = MaterialTheme.typography.labelMedium)
                         Text("Photon: " + if (photonInstalledBytes > 0L) "installato" else "assente",
+                            style = MaterialTheme.typography.labelMedium)
+                        Text("Road DNA: " + if (roadDnaInstalledBytes > 0L)
+                            "installato (" + String.format("%.1f MiB",
+                                roadDnaInstalledBytes / 1048576.0) + ")" else "assente",
                             style = MaterialTheme.typography.labelMedium)
                         FilledTonalButton(
                             onClick = onImportUnifiedPack,
@@ -623,6 +737,38 @@ fun NavigationScreen(
     onRemoveWaypoint: (Int) -> Unit = {},
     onMoveWaypoint: (Int, Int) -> Unit = { _, _ -> },
     selectedRouteIndex: Int,
+    roadDnaSummary: RoadDnaSummary? = null,
+    roadDnaLoading: Boolean = false,
+    roadDnaError: String? = null,
+    onRoadDnaAnalyze: () -> Unit = {},
+    roadDnaOnline: RoadDnaOnlineResult? = null,
+    roadDnaOnlineLoading: Boolean = false,
+    roadDnaOnlineError: String? = null,
+    roadDnaDetails: String? = null,
+    roadDnaDetailsLoading: Boolean = false,
+    onRoadDnaOnlineSearch: (String) -> Unit = {},
+    onRoadDnaDetails: (RoadDnaOnlinePoi) -> Unit = {},
+    roadDnaNearbyCenter: Pair<Double, Double>? = null,
+    roadDnaZoneFocus: RoadDnaZoneFocus? = null,
+    roadDnaZone: RoadDnaOnlineResult? = null,
+    roadDnaZoneOffline: List<RoadDnaPoi> = emptyList(),
+    roadDnaZoneLoading: Boolean = false,
+    roadDnaZoneError: String? = null,
+    onRoadDnaZoneSearch: (Double, Double, Int, String) -> Unit = { _, _, _, _ -> },
+    onRoadDnaZoneClear: () -> Unit = {},
+    onRoadDnaNearbySearch: (Int, String) -> Unit = { _, _ -> },
+    roadDnaAreaAccesses: List<RoadDnaOnlinePoi> = emptyList(),
+    roadDnaAreaAccessLoading: Boolean = false,
+    roadDnaAreaAccessError: String? = null,
+    onRoadDnaAreaAccessSearch: (RoadDnaPoi) -> Unit = {},
+    onRoadDnaAreaAccessClear: () -> Unit = {},
+    geoapifyConfigured: Boolean = false,
+    opentripmapConfigured: Boolean = false,
+    roadDnaKeyStatus: String? = null,
+    roadDnaKeyBusy: Boolean = false,
+    onSaveRoadDnaKey: (String, String) -> Unit = { _, _ -> },
+    onDeleteRoadDnaKey: (String) -> Unit = {},
+    onTestRoadDnaKey: (String) -> Unit = {},
     routingSource: String? = null,
     routePreviewError: String? = null,
     routePreferences: RoutePreferences = RoutePreferences(),
@@ -632,6 +778,7 @@ fun NavigationScreen(
     currentLocation: Pair<Double, Double>? = null,
     savedMaps: List<SavedMapInfo> = emptyList(),
     photonInstalledBytes: Long = 0L,
+    roadDnaInstalledBytes: Long = 0L,
     photonImporting: Boolean = false,
     photonStatus: String? = null,
     onImportPhoton: () -> Unit = {},
@@ -662,6 +809,1146 @@ fun NavigationScreen(
     diagnosticMode: Int = 0,
     onUnifiedDiagnosticModeChange: (Int) -> Unit = {}
 ) {
+    var showRoadDnaDialog by remember { mutableStateOf(false) }
+    var showRoadDnaResults by remember { mutableStateOf(false) }
+    var showAllRoadDnaPlaces by remember { mutableStateOf(false) }
+    var selectedRoadDnaCategory by remember { mutableStateOf("consigliati") }
+    var offlineRoadDnaCategory by remember { mutableStateOf("consigliati") }
+    var showRoadDnaMap by remember { mutableStateOf(false) }
+    var showOnlineSuggestionsMap by remember { mutableStateOf(false) }
+    var showRoadDnaSearchParams by remember { mutableStateOf(false) }
+    var showRoadDnaCenterPicker by remember { mutableStateOf(false) }
+    var zonePickerMapRef by remember { mutableStateOf<MapView?>(null) }
+    var zonePickerFitId by remember { mutableIntStateOf(0) }
+    var zonePickedCenter by remember {
+        mutableStateOf<Pair<Double, Double>?>(null)
+    }
+    var zoneMapMode by remember { mutableStateOf(false) }
+    var nearbySearchMode by remember { mutableStateOf(false) }
+    var zoneRadiusKm by remember { mutableIntStateOf(5) }
+    var zoneCategoryId by remember { mutableStateOf("consigliati") }
+    var zoneCategoryMenuExpanded by remember { mutableStateOf(false) }
+    var zoneSearchStarted by remember { mutableStateOf(false) }
+    // Increment ONLY when the user explicitly requests GPS recentering.
+    // A map-centered search must keep the pan/zoom chosen by the user.
+    var gpsMapRecenterId by remember { mutableIntStateOf(0) }
+    var zoneMapRef by remember { mutableStateOf<MapView?>(null) }
+    var selectedOnlineSuggestion by remember {
+        mutableStateOf<RoadDnaOnlinePoi?>(null)
+    }
+    var selectedNearbyOffline by remember { mutableStateOf<RoadDnaPoi?>(null) }
+    var onlineSuggestionsForMap by remember {
+        mutableStateOf<List<RoadDnaOnlinePoi>>(emptyList())
+    }
+    var selectedOfflineRoadDnaPoi by remember { mutableStateOf<RoadDnaPoi?>(null) }
+    var selectedOnlineRoadDnaAccess by remember {
+        mutableStateOf<RoadDnaOnlinePoi?>(null)
+    }
+    var proposedRoadsideStop by remember {
+        mutableStateOf<RoadDnaRoadsideCandidate?>(null)
+    }
+    var selectedRoadDnaPoi by remember { mutableStateOf<RoadDnaOnlinePoi?>(null) }
+    val roadDnaListScroll = rememberScrollState()
+    val roadDnaResultsScroll = rememberLazyListState()
+    LaunchedEffect(roadDnaOnline) {
+        if (roadDnaOnline != null) showAllRoadDnaPlaces = false
+    }
+    LaunchedEffect(roadDnaOnline, showAllRoadDnaPlaces) {
+        roadDnaResultsScroll.scrollToItem(0)
+    }
+    if (showRoadDnaDialog && selectedRoadDnaPoi != null) {
+        val poi = selectedRoadDnaPoi!!
+        AlertDialog(
+            onDismissRequest = { selectedRoadDnaPoi = null },
+            title = { Text("Scheda ${poi.source}") },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth()
+                        .heightIn(max = 430.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(poi.name, style = MaterialTheme.typography.titleMedium)
+                    Text("Risultato da ${poi.source}",
+                        style = MaterialTheme.typography.bodySmall)
+                    when {
+                        roadDnaDetailsLoading -> {
+                            CircularProgressIndicator()
+                            Text("Caricamento dettagli ${poi.source}…")
+                        }
+                        roadDnaDetails != null -> Text(roadDnaDetails)
+                        else -> Text("Preparazione della scheda…")
+                    }
+                }
+            },
+            // Closing a place detail never dismisses or clears the parent
+            // results list. Back/outside tap has the same behavior.
+            confirmButton = {
+                TextButton(onClick = { selectedRoadDnaPoi = null }) {
+                    Text("Torna ai risultati")
+                }
+            }
+        )
+    }
+    // Match the large, isolated Road DNA nearby-map presentation.
+    if (showRoadDnaMap && roadDnaSummary != null && routePreview != null &&
+        !isNavigating) {
+        val selectedOption = routeOptions.getOrNull(selectedRouteIndex)
+        val places = RoadDnaOfflineFilter.select(
+            roadDnaSummary.places, offlineRoadDnaCategory)
+        val previewGeometry = selectedOption?.let {
+            com.motogps.android.viewmodel.RoadDnaAnalysis.geometry(it.rawRouteJson)
+        } ?: emptyList()
+        Dialog(
+            onDismissRequest = {
+                showRoadDnaMap = false
+                selectedOfflineRoadDnaPoi = null
+                selectedOnlineRoadDnaAccess = null
+                proposedRoadsideStop = null
+                onRoadDnaAreaAccessClear()
+            },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(0.95f).fillMaxHeight(0.88f),
+                shape = RoundedCornerShape(20.dp),
+                tonalElevation = 4.dp
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("Road DNA · percorso",
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 1,
+                        modifier = Modifier.padding(horizontal = 16.dp))
+                    Text("${places.size} luoghi · " +
+                        RoadDnaCategories.get(offlineRoadDnaCategory).title,
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1,
+                        modifier = Modifier.padding(horizontal = 16.dp))
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().weight(1f)
+                            .padding(horizontal = 10.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        tonalElevation = 2.dp
+                    ) {
+                        Box(modifier = Modifier.padding(7.dp)
+                            .clip(RoundedCornerShape(10.dp)).clipToBounds()) {
+                    RouteMapView(
+                        geoPoints = extractGeoPoints(selectedOption,
+                            currentLocation, routePreview),
+                        routeFitKey = "dna:" + (selectedOption?.id ?: ""),
+                        nightMode = true,
+                        waypoints = routeWaypoints,
+                        // While viewing online access candidates, hide
+                        // overlapping offline area pins: an area pin must never
+                        // intercept an access tap and clear the Geoapify list.
+                        roadDnaPois = if (roadDnaAreaAccesses.isNotEmpty())
+                            emptyList() else places,
+                        roadsideProposal = proposedRoadsideStop,
+                        areaAccesses = roadDnaAreaAccesses,
+                        onAreaAccessClick = {
+                            // Do not dismiss the area or clear Geoapify results
+                            // when selecting one of its online access pins.
+                            selectedOnlineRoadDnaAccess = it
+                            proposedRoadsideStop = null
+                        },
+                        onRoadDnaPoiClick = {
+                            selectedOfflineRoadDnaPoi = it
+                            selectedOnlineRoadDnaAccess = null
+                            proposedRoadsideStop = null
+                            onRoadDnaAreaAccessClear()
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                        }
+                    }
+                    Column(
+                        modifier = Modifier.fillMaxWidth()
+                            .heightIn(max = 210.dp)
+                            .verticalScroll(rememberScrollState())
+                            .padding(horizontal = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        if (selectedOfflineRoadDnaPoi == null &&
+                            selectedOnlineRoadDnaAccess == null) {
+                            Text("Tocca un segnalino per vedere il luogo. " +
+                                "Le aree OSM non sono ingressi verificati.",
+                                style = MaterialTheme.typography.bodySmall)
+                        }
+                        if (selectedOnlineRoadDnaAccess != null &&
+                            selectedOfflineRoadDnaPoi != null) {
+                            TextButton(onClick = {
+                                selectedOnlineRoadDnaAccess = null
+                            }) { Text("Torna all'area selezionata") }
+                        }
+                    selectedOnlineRoadDnaAccess?.let { access ->
+                        HorizontalDivider()
+                        Text("Punto online selezionato: " + access.name +
+                            " · " + access.category)
+                        Text("Geoapify: posizione indicativa del servizio. " +
+                            "Non garantisce ingresso, parcheggio moto né " +
+                            "percorso pedonale fino alla destinazione.",
+                            style = MaterialTheme.typography.bodySmall)
+                        Button(onClick = {
+                            onAddWaypoint(PlaceSearchResult(
+                                name = access.name,
+                                address = access.category +
+                                    " · accesso al luogo non verificato",
+                                displayArea = "Road DNA Geoapify",
+                                latitude = access.latitude,
+                                longitude = access.longitude
+                            ))
+                            showRoadDnaMap = false
+                            selectedOnlineRoadDnaAccess = null
+                            onRoadDnaAreaAccessClear()
+                        }) { Text("Aggiungi punto online come tappa") }
+                    }
+                    selectedOfflineRoadDnaPoi?.takeIf {
+                        selectedOnlineRoadDnaAccess == null
+                    }?.let { poi ->
+                        Text(poi.name + " · " + poi.category)
+                        if (poi.exactLocation) {
+                            Text("Posizione OSM puntuale. Valhalla deve poter " +
+                                "calcolare una rotta raggiungibile.",
+                                style = MaterialTheme.typography.bodySmall)
+                            Button(onClick = {
+                                onAddWaypoint(PlaceSearchResult(
+                                    name = poi.name,
+                                    address = poi.category,
+                                    displayArea = "Road DNA offline",
+                                    latitude = poi.latitude,
+                                    longitude = poi.longitude
+                                ))
+                                showRoadDnaMap = false
+                            }) { Text("Aggiungi come tappa") }
+                        } else {
+                            OutlinedButton(
+                                enabled = geoapifyConfigured &&
+                                    !roadDnaAreaAccessLoading,
+                                onClick = {
+                                    selectedOnlineRoadDnaAccess = null
+                                    onRoadDnaAreaAccessSearch(poi)
+                                }
+                            ) { Text("Cerca accessi online") }
+                            if (!geoapifyConfigured) {
+                                Text("Per cercare parcheggi e punti informazioni " +
+                                    "configura Geoapify in API Road DNA.",
+                                    style = MaterialTheme.typography.bodySmall)
+                            }
+                            if (roadDnaAreaAccessLoading) {
+                                LinearProgressIndicator(
+                                    modifier = Modifier.fillMaxWidth())
+                            }
+                            if (roadDnaAreaAccessError != null)
+                                Text(roadDnaAreaAccessError,
+                                    color = MaterialTheme.colorScheme.error,
+                                    style = MaterialTheme.typography.bodySmall)
+                            if (roadDnaAreaAccesses.isNotEmpty()) {
+                                TextButton(onClick = {
+                                    selectedOnlineRoadDnaAccess = null
+                                    onRoadDnaAreaAccessClear()
+                                }) { Text("Torna ai luoghi Road DNA") }
+                                Text("Risultati Geoapify entro 2,5 km dal " +
+                                    "punto rappresentativo dell'area: parcheggi " +
+                                    "e informazioni, non ingressi verificati.",
+                                    style = MaterialTheme.typography.bodySmall)
+                                roadDnaAreaAccesses.take(6).forEach { access ->
+                                    TextButton(onClick = {
+                                        selectedOnlineRoadDnaAccess = access
+                                    }) {
+                                        Text(access.name + " · " + access.category +
+                                            " · " + access.distanceMeters + " m")
+                                    }
+                                }
+                            }
+                            val candidate = RoadDnaAreaAccess.candidate(
+                                poi, previewGeometry)
+                            if (candidate == null) {
+                                Text("Nessun punto sulla rotta sufficientemente " +
+                                    "vicino all'area. Per raggiungerla, scegli " +
+                                    "manualmente una strada o un ingresso sulla mappa.",
+                                    style = MaterialTheme.typography.bodySmall)
+                            } else {
+                                Text("Possibile sosta su strada motociclistica, " +
+                                    "esterna all'area OSM e a circa " +
+                                    "${candidate.distanceToAreaMeters} m dal suo " +
+                                    "rettangolo geografico. NON è un parcheggio " +
+                                    "né un ingresso verificato: l'eventuale " +
+                                    "percorso a piedi non è calcolato.",
+                                    style = MaterialTheme.typography.bodySmall)
+                                if (proposedRoadsideStop != candidate) {
+                                    OutlinedButton(onClick = {
+                                        proposedRoadsideStop = candidate
+                                    }) { Text("Mostra punto stradale proposto") }
+                                } else {
+                                    Text("Sosta stradale evidenziata sulla mappa. " +
+                                        "Controlla accessibilità, sicurezza della fermata " +
+                                        "e percorso pedonale prima di confermare.",
+                                        style = MaterialTheme.typography.bodySmall)
+                                    Button(onClick = {
+                                        onAddWaypoint(PlaceSearchResult(
+                                            name = poi.name + " · sosta stradale",
+                                            address = "Sosta stradale; accesso pedonale non verificato",
+                                            displayArea = "Road DNA · punto sulla rotta",
+                                            latitude = candidate.latitude,
+                                            longitude = candidate.longitude
+                                        ))
+                                        showRoadDnaMap = false
+                                        proposedRoadsideStop = null
+                                    }) { Text("Conferma tappa stradale") }
+                                }
+                            }
+                        }
+                    }
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth()
+                            .padding(horizontal = 12.dp),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        TextButton(onClick = {
+                            showRoadDnaMap = false
+                            showRoadDnaDialog = true
+                            selectedOfflineRoadDnaPoi = null
+                            selectedOnlineRoadDnaAccess = null
+                            proposedRoadsideStop = null
+                            onRoadDnaAreaAccessClear()
+                        }) { Text("Torna a Road DNA") }
+                    }
+                }
+            }
+        }
+    }
+
+    // 1) Compact search panel: no vertical scrolling. The results map
+    // action is pinned in AlertDialog's bottom bar.
+    if (showRoadDnaSearchParams && !showRoadDnaCenterPicker && !isNavigating) {
+        val zoneResultsReady = zoneSearchStarted && !roadDnaZoneLoading &&
+            roadDnaZoneFocus != null &&
+            roadDnaZoneFocus.radiusKm == zoneRadiusKm &&
+            roadDnaZoneFocus.categoryId == zoneCategoryId &&
+            (roadDnaZoneOffline.isNotEmpty() ||
+                !roadDnaZone?.places.isNullOrEmpty())
+        AlertDialog(
+            onDismissRequest = { showRoadDnaSearchParams = false },
+            title = { Text("Road DNA", maxLines = 1) },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    Text("Raggio: ${zoneRadiusKm} km",
+                        style = MaterialTheme.typography.titleSmall)
+                    Slider(
+                        value = zoneRadiusKm.toFloat(),
+                        onValueChange = { zoneRadiusKm = it.roundToInt().coerceIn(1, 20) },
+                        valueRange = 1f..20f,
+                        steps = 18
+                    )
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        OutlinedButton(
+                            onClick = { zoneCategoryMenuExpanded = true },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Categoria: " +
+                                RoadDnaCategories.get(zoneCategoryId).title + " ▾",
+                                maxLines = 1)
+                        }
+                        DropdownMenu(
+                            expanded = zoneCategoryMenuExpanded,
+                            onDismissRequest = { zoneCategoryMenuExpanded = false }
+                        ) {
+                            RoadDnaCategories.options.forEach { category ->
+                                DropdownMenuItem(
+                                    text = { Text(category.title) },
+                                    onClick = {
+                                        zoneCategoryId = category.id
+                                        zoneCategoryMenuExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Button(
+                            enabled = !roadDnaZoneLoading,
+                            onClick = {
+                                nearbySearchMode = true
+                                zoneMapMode = true
+                                zoneSearchStarted = true
+                                selectedNearbyOffline = null
+                                selectedOnlineSuggestion = null
+                                selectedOnlineRoadDnaAccess = null
+                                zonePickedCenter = null
+                                gpsMapRecenterId++
+                                onRoadDnaNearbySearch(zoneRadiusKm, zoneCategoryId)
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) { Text("Intorno a me", maxLines = 1) }
+                        OutlinedButton(
+                            enabled = !roadDnaZoneLoading,
+                            onClick = {
+                                zonePickerMapRef = null
+                                zonePickerFitId++
+                                showRoadDnaCenterPicker = true
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) { Text("Scegli zona", maxLines = 1) }
+                    }
+                    if (zonePickedCenter != null) {
+                        Text(
+                            "Zona: " + String.format(java.util.Locale.ITALY,
+                                "%.4f, %.4f",
+                                zonePickedCenter!!.first, zonePickedCenter!!.second),
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 1
+                        )
+                        TextButton(
+                            enabled = !roadDnaZoneLoading,
+                            onClick = {
+                                val center = zonePickedCenter
+                                if (center != null) {
+                                    nearbySearchMode = false
+                                    zoneMapMode = true
+                                    zoneSearchStarted = true
+                                    selectedNearbyOffline = null
+                                    selectedOnlineSuggestion = null
+                                    selectedOnlineRoadDnaAccess = null
+                                    onRoadDnaZoneSearch(center.first, center.second,
+                                        zoneRadiusKm, zoneCategoryId)
+                                }
+                            }
+                        ) { Text("Riesegui nella zona scelta") }
+                    }
+                    if (roadDnaZoneLoading) {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        Text("Ricerca in corso…",
+                            style = MaterialTheme.typography.bodySmall)
+                    }
+                    if (roadDnaZoneError != null) {
+                        Text(roadDnaZoneError,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            maxLines = 2)
+                    }
+                    if (zoneSearchStarted && !roadDnaZoneLoading) {
+                        Text("${roadDnaZoneOffline.size} offline · " +
+                            "${roadDnaZone?.places?.size ?: 0} online",
+                            style = MaterialTheme.typography.bodySmall)
+                        if (roadDnaZoneOffline.isEmpty() &&
+                            roadDnaZone?.places.isNullOrEmpty() &&
+                            roadDnaZoneError == null) {
+                            Text("Nessun luogo trovato: cambia categoria o raggio.",
+                                style = MaterialTheme.typography.bodySmall,
+                                maxLines = 2)
+                        }
+                    }
+                    if (!geoapifyConfigured) {
+                        Text("Geoapify non configurato · MotoPack offline",
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 1)
+                    }
+                    val focus = roadDnaZoneFocus
+                    if (focus != null &&
+                        (focus.radiusKm != zoneRadiusKm ||
+                            focus.categoryId != zoneCategoryId)) {
+                        Text("Parametri cambiati: avvia una nuova ricerca.",
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 1)
+                    }
+                }
+            },
+            confirmButton = {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    TextButton(onClick = { showRoadDnaSearchParams = false }) {
+                        Text("Chiudi")
+                    }
+                    Button(
+                        enabled = zoneResultsReady,
+                        onClick = {
+                            selectedOnlineSuggestion = null
+                            selectedNearbyOffline = null
+                            selectedOnlineRoadDnaAccess = null
+                            zoneMapMode = true
+                            zoneMapRef = null
+                            showRoadDnaSearchParams = false
+                            showOnlineSuggestionsMap = true
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) { Text("Mostra sulla mappa", maxLines = 1) }
+                }
+            }
+        )
+    }
+
+    // 2) Picker map — no tourist suggestions or search parameter controls.
+    // The map's actual center at confirmation time becomes the query center.
+    if (showRoadDnaCenterPicker && !isNavigating) {
+        val selectedOption = routeOptions.getOrNull(selectedRouteIndex)
+        val pickerCenter = zonePickedCenter ?:
+            roadDnaZoneFocus?.let { it.latitude to it.longitude } ?:
+            roadDnaNearbyCenter
+        Dialog(
+            onDismissRequest = {
+                showRoadDnaCenterPicker = false
+                zonePickerMapRef = null
+            },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(0.95f).fillMaxHeight(0.84f),
+                shape = RoundedCornerShape(20.dp),
+                tonalElevation = 4.dp
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text("Scegli il centro della ricerca",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(horizontal = 18.dp))
+                    Text("Sposta e ingrandisci la mappa. La ricerca partirà " +
+                        "dal punto al centro dello schermo.",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(horizontal = 18.dp))
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().weight(1f)
+                            .padding(horizontal = 10.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        tonalElevation = 2.dp
+                    ) {
+                        Box(modifier = Modifier.padding(6.dp)
+                            .clip(RoundedCornerShape(10.dp)).clipToBounds()) {
+                            RouteMapView(
+                                geoPoints = if (routePreview == null ||
+                                    pickerCenter != null) emptyList()
+                                    else extractGeoPoints(selectedOption,
+                                        currentLocation, routePreview),
+                                routeFitKey = "dna-center-picker:" +
+                                    (selectedOption?.id ?: "gps") +
+                                    ":session:" + zonePickerFitId,
+                                nightMode = true,
+                                currentLocation = pickerCenter,
+                                onMapReady = { zonePickerMapRef = it },
+                                modifier = Modifier.fillMaxSize()
+                            )
+                            Text("+", style = MaterialTheme.typography.headlineSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.align(Alignment.Center))
+                        }
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth()
+                            .padding(horizontal = 12.dp),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        TextButton(onClick = {
+                            showRoadDnaCenterPicker = false
+                            zonePickerMapRef = null
+                        }) { Text("Indietro") }
+                        Spacer(Modifier.width(8.dp))
+                        Button(
+                            enabled = zonePickerMapRef != null &&
+                                !roadDnaZoneLoading,
+                            onClick = {
+                                val center = zonePickerMapRef?.mapCenter
+                                if (center != null) {
+                                    zonePickedCenter = center.latitude to center.longitude
+                                    nearbySearchMode = false
+                                    zoneMapMode = true
+                                    zoneSearchStarted = true
+                                    selectedNearbyOffline = null
+                                    selectedOnlineSuggestion = null
+                                    selectedOnlineRoadDnaAccess = null
+                                    showRoadDnaCenterPicker = false
+                                    zonePickerMapRef = null
+                                    onRoadDnaZoneSearch(center.latitude, center.longitude,
+                                        zoneRadiusKm, zoneCategoryId)
+                                }
+                            }
+                        ) { Text("Cerca qui") }
+                    }
+                }
+            }
+        }
+    }
+
+    // 3) Results map — large independent map, POI information and waypoint action only.
+    if (showOnlineSuggestionsMap && !isNavigating) {
+        val selectedOption = routeOptions.getOrNull(selectedRouteIndex)
+        val shownSuggestions = if (zoneMapMode) roadDnaZone?.places.orEmpty()
+            else onlineSuggestionsForMap
+        val shownOffline = if (zoneMapMode) roadDnaZoneOffline else emptyList()
+        LaunchedEffect(roadDnaZoneFocus, zoneMapRef, zoneMapMode) {
+            val focus = roadDnaZoneFocus
+            val map = zoneMapRef
+            if (zoneMapMode && focus != null && map != null) {
+                val deltaLat = focus.radiusKm * 1000.0 / 111195.0
+                val deltaLon = focus.radiusKm * 1000.0 /
+                    (111195.0 * kotlin.math.cos(Math.toRadians(focus.latitude))
+                        .coerceAtLeast(0.02))
+                val bounds = BoundingBox.fromGeoPoints(listOf(
+                    GeoPoint((focus.latitude + deltaLat).coerceAtMost(90.0),
+                        (focus.longitude - deltaLon).coerceAtLeast(-180.0)),
+                    GeoPoint((focus.latitude - deltaLat).coerceAtLeast(-90.0),
+                        (focus.longitude + deltaLon).coerceAtMost(180.0))
+                ))
+                map.post {
+                    if (zoneMapRef === map) map.zoomToBoundingBox(bounds, true, 28)
+                }
+            }
+        }
+        Dialog(
+            onDismissRequest = {
+                zoneMapRef = null
+                showOnlineSuggestionsMap = false
+                if (zoneMapMode) showRoadDnaSearchParams = true
+            },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(0.95f).fillMaxHeight(0.88f),
+                shape = RoundedCornerShape(20.dp),
+                tonalElevation = 4.dp
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(if (zoneMapMode) "Road DNA · luoghi nella zona"
+                        else "Road DNA · suggerimenti lungo il percorso",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(horizontal = 16.dp))
+                    Text(if (zoneMapMode)
+                        "${shownOffline.size} offline · ${shownSuggestions.size} online"
+                    else "${shownSuggestions.size} luoghi suggeriti",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(horizontal = 16.dp))
+                    Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                    if (routePreview != null || roadDnaNearbyCenter != null ||
+                        (zoneMapMode && roadDnaZoneFocus != null)) {
+                        Surface(
+                            modifier = Modifier.fillMaxSize().padding(horizontal = 10.dp),
+                            shape = RoundedCornerShape(14.dp),
+                            tonalElevation = 2.dp
+                        ) {
+                            Box(modifier = Modifier.padding(7.dp)
+                                .clip(RoundedCornerShape(10.dp)).clipToBounds()) {
+                        RouteMapView(
+                        geoPoints = if (nearbySearchMode || routePreview == null)
+                            emptyList()
+                        else extractGeoPoints(selectedOption,
+                            currentLocation, routePreview),
+                        // Constant across map searches and provider responses.
+                        // Only a new GPS-centered request may recenter the map.
+                        routeFitKey = "dna-explore:" +
+                            (selectedOption?.id ?: "no-route") +
+                            ":gps-request:" + gpsMapRecenterId,
+                        nightMode = true,
+                        currentLocation = if (nearbySearchMode || routePreview == null)
+                            roadDnaNearbyCenter else null,
+                        waypoints = routeWaypoints,
+                        roadDnaPois = if (roadDnaAreaAccesses.isNotEmpty())
+                            emptyList() else shownOffline,
+                        onRoadDnaPoiClick = {
+                            selectedNearbyOffline = it
+                            selectedOnlineSuggestion = null
+                        },
+                        areaAccesses = roadDnaAreaAccesses,
+                        onAreaAccessClick = {
+                            selectedOnlineRoadDnaAccess = it
+                            selectedNearbyOffline = null
+                            selectedOnlineSuggestion = null
+                        },
+                        onlineSuggestions = shownSuggestions,
+                        onOnlineSuggestionClick = {
+                            selectedOnlineSuggestion = it
+                            selectedNearbyOffline = null
+                        },
+                        onMapReady = { zoneMapRef = it },
+                        zoneFocus = if (zoneMapMode) roadDnaZoneFocus else null,
+                        modifier = Modifier.fillMaxSize()
+                        )
+                            }
+                        }
+                    }
+
+                    }
+                    Column(
+                        modifier = Modifier.fillMaxWidth()
+                            .heightIn(max = 176.dp)
+                            .verticalScroll(rememberScrollState())
+                            .padding(horizontal = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        if (selectedOnlineRoadDnaAccess == null &&
+                            selectedNearbyOffline == null &&
+                            selectedOnlineSuggestion == null) {
+                            Text("Tocca un segnalino per vedere il luogo " +
+                                "e scegliere una destinazione o una tappa.",
+                                style = MaterialTheme.typography.bodySmall)
+                        }
+                    selectedOnlineRoadDnaAccess?.let { access ->
+                        HorizontalDivider()
+                        Text(access.name + " · " + access.category)
+                        Button(onClick = {
+                            val place = PlaceSearchResult(
+                                name = access.name,
+                                address = access.category + " · Geoapify",
+                                displayArea = "Road DNA · punto d'accesso indicativo",
+                                latitude = access.latitude,
+                                longitude = access.longitude
+                            )
+                            if (routePreview == null) onRouteSelected(place)
+                            else onAddWaypoint(place)
+                            showOnlineSuggestionsMap = false
+                            selectedOnlineRoadDnaAccess = null
+                            onRoadDnaAreaAccessClear()
+                            onRoadDnaZoneClear()
+                        }) { Text(if (routePreview == null)
+                            "Imposta come destinazione" else "Aggiungi come tappa") }
+                    }
+                    if (roadDnaAreaAccessLoading)
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    if (roadDnaAreaAccessError != null)
+                        Text(roadDnaAreaAccessError,
+                            style = MaterialTheme.typography.bodySmall)
+                    selectedNearbyOffline?.let { poi ->
+                        HorizontalDivider()
+                        Text(poi.name + " · " + poi.category,
+                            style = MaterialTheme.typography.titleSmall)
+                        Text("MotoPack offline · circa ${poi.distanceMeters} m " +
+                            "dal centro della ricerca.",
+                            style = MaterialTheme.typography.bodySmall)
+                        if (poi.exactLocation) {
+                            Text("Il punto OSM non garantisce un accesso stradale; " +
+                                "Valhalla verificherà il percorso.",
+                                style = MaterialTheme.typography.bodySmall)
+                            Button(onClick = {
+                                val place = PlaceSearchResult(
+                                    name = poi.name,
+                                    address = poi.category + " · MotoPack",
+                                    displayArea = "Road DNA offline",
+                                    latitude = poi.latitude,
+                                    longitude = poi.longitude
+                                )
+                                if (routePreview == null) onRouteSelected(place)
+                                else onAddWaypoint(place)
+                                showOnlineSuggestionsMap = false
+                                selectedNearbyOffline = null
+                                showRoadDnaDialog = false
+                                showRoadDnaResults = false
+                                onRoadDnaZoneClear()
+                            }) { Text(if (routePreview == null)
+                                "Imposta come destinazione" else "Aggiungi come tappa") }
+                        } else {
+                            Text("Area OSM: il punto è rappresentativo, NON " +
+                                "un ingresso o un parcheggio verificato. " +
+                                "Non si può usare direttamente come destinazione.",
+                                style = MaterialTheme.typography.bodySmall)
+                            if (geoapifyConfigured) {
+                                OutlinedButton(onClick = {
+                                    onRoadDnaAreaAccessSearch(poi)
+                                }) { Text("Cerca parcheggi e punti informativi online") }
+                            }
+                        }
+                    }
+                    selectedOnlineSuggestion?.let { poi ->
+                        HorizontalDivider()
+                        Text(poi.name, style = MaterialTheme.typography.titleSmall)
+                        Text("${poi.source} · ${poi.category} · circa " +
+                            "${poi.distanceMeters} m " +
+                            if (zoneMapMode) "dal centro della zona"
+                            else "dalla rotta",
+                            style = MaterialTheme.typography.bodySmall)
+                        Text(if (routePreview == null)
+                            "Posizione online indicativa: verifica l'accesso " +
+                                "stradale. Il punto scelto diventerà una destinazione " +
+                                "e Valhalla calcolerà il percorso."
+                            else "Posizione online indicativa: verifica " +
+                                "l'accesso motociclistico prima di aggiungere la tappa.",
+                            style = MaterialTheme.typography.bodySmall)
+                        Button(onClick = {
+                            val place = PlaceSearchResult(
+                                name = poi.name,
+                                address = poi.category + " · " + poi.source,
+                                displayArea = "Road DNA online",
+                                latitude = poi.latitude,
+                                longitude = poi.longitude
+                            )
+                            if (routePreview == null) onRouteSelected(place)
+                            else onAddWaypoint(place)
+                            showOnlineSuggestionsMap = false
+                            selectedOnlineSuggestion = null
+                            showRoadDnaResults = false
+                            showRoadDnaDialog = false
+                            onRoadDnaZoneClear()
+                        }) { Text(if (routePreview == null)
+                            "Imposta come destinazione" else "Aggiungi come tappa") }
+                    }
+
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth()
+                            .padding(horizontal = 12.dp),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        if (zoneMapMode) {
+                            TextButton(onClick = {
+                                zoneMapRef = null
+                                showOnlineSuggestionsMap = false
+                                showRoadDnaSearchParams = true
+                            }) { Text("Nuova ricerca") }
+                        } else {
+                            TextButton(onClick = {
+                                zoneMapRef = null
+                                showOnlineSuggestionsMap = false
+                            }) { Text("Torna ai risultati") }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // One dialog at a time: overview -> results -> selected-place details.
+    if (showRoadDnaDialog && showRoadDnaResults && selectedRoadDnaPoi == null &&
+        !showOnlineSuggestionsMap) {
+        AlertDialog(
+            onDismissRequest = { showRoadDnaResults = false },
+            title = { Text("Luoghi lungo il percorso") },
+            text = {
+                when {
+                    roadDnaOnlineLoading -> Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        CircularProgressIndicator()
+                        Text("Ricerca turistica in corso…")
+                    }
+                    roadDnaOnlineError != null ->
+                        Text(roadDnaOnlineError, color = MaterialTheme.colorScheme.error)
+                    roadDnaOnline == null -> Text("Preparazione dei risultati…")
+                    else -> Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        val places = roadDnaOnline.places
+                        val recommended = RoadDnaOnline.recommendedPlaces(places)
+                        val scopedCategory = roadDnaOnline.categoryId != "consigliati"
+                        val visiblePlaces = if (scopedCategory || showAllRoadDnaPlaces)
+                            places else recommended.take(15)
+                        val categoryTitle = RoadDnaCategories.get(roadDnaOnline.categoryId).title
+                        Text("${places.size} luoghi · ${categoryTitle}",
+                            style = MaterialTheme.typography.titleSmall)
+                        if (!scopedCategory) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                FilterChip(
+                                    selected = !showAllRoadDnaPlaces,
+                                    onClick = { showAllRoadDnaPlaces = false },
+                                    label = { Text("Consigliati") }
+                                )
+                                FilterChip(
+                                    selected = showAllRoadDnaPlaces,
+                                    onClick = { showAllRoadDnaPlaces = true },
+                                    label = { Text("Tutti") }
+                                )
+                            }
+                            Text(
+                                if (showAllRoadDnaPlaces)
+                                    "Elenco completo, inclusi monumenti minori."
+                                else "${recommended.size} di interesse per la moto; massimo 15.",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        } else {
+                            Text("Sono mostrati solo i luoghi della categoria scelta.",
+                                style = MaterialTheme.typography.bodySmall)
+                        }
+                        Text(
+                            "Geoapify ${places.count { it.source == "Geoapify" }}" +
+                                " · OpenTripMap ${places.count { it.source == "OpenTripMap" }}",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        Text(roadDnaOnline.message,
+                            style = MaterialTheme.typography.bodySmall)
+                        if (visiblePlaces.isNotEmpty()) {
+                            OutlinedButton(
+                                onClick = {
+                                    onlineSuggestionsForMap = visiblePlaces.take(60)
+                                    selectedOnlineSuggestion = null
+                                    selectedNearbyOffline = null
+                                    selectedOnlineRoadDnaAccess = null
+                                    onRoadDnaAreaAccessClear()
+                                    zoneMapMode = false
+                                    nearbySearchMode = false
+                                    zoneSearchStarted = false
+                                    zoneCategoryId = roadDnaOnline.categoryId
+                                    zoneMapRef = null
+                                    showRoadDnaSearchParams = false
+                                    showRoadDnaCenterPicker = false
+                                    showOnlineSuggestionsMap = true
+                                },
+                                enabled = !isNavigating
+                            ) { Text("Mostra suggerimenti sulla mappa") }
+                        }
+                        if (places.isEmpty()) {
+                            Text("Nessun luogo turistico trovato lungo il percorso.")
+                        } else if (visiblePlaces.isEmpty()) {
+                            Text(if (scopedCategory)
+                                "Nessun luogo di questa categoria nel tratto esaminato."
+                            else "Nessuna tappa particolarmente interessante. " +
+                                "Tocca Tutti per consultare anche i luoghi minori.")
+                        } else {
+                            if (!showAllRoadDnaPlaces && recommended.size > 15) {
+                                Text("Mostrati i 15 consigliati più rilevanti.",
+                                    style = MaterialTheme.typography.labelSmall)
+                            }
+                            LazyColumn(
+                                state = roadDnaResultsScroll,
+                                modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                itemsIndexed(visiblePlaces) { index, poi ->
+                                    Column {
+                                        Text("${index + 1}. ${poi.name}",
+                                            style = MaterialTheme.typography.titleSmall)
+                                        Text("${poi.source} · ${poi.category} · " +
+                                            "circa ${poi.distanceMeters} m dalla rotta",
+                                            style = MaterialTheme.typography.bodySmall)
+                                        val detailsAvailable = when (poi.source) {
+                                            "Geoapify" ->
+                                                geoapifyConfigured && poi.geoPlaceId != null
+                                            "OpenTripMap" ->
+                                                opentripmapConfigured && poi.xid != null
+                                            else -> false
+                                        }
+                                        if (detailsAvailable) {
+                                            TextButton(onClick = {
+                                                selectedRoadDnaPoi = poi
+                                                onRoadDnaDetails(poi)
+                                            }) { Text("Dettagli ${poi.source}") }
+                                        } else {
+                                            Text("Scheda dettagli non disponibile",
+                                                style = MaterialTheme.typography.labelSmall)
+                                        }
+                                        HorizontalDivider()
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showRoadDnaResults = false }) {
+                    Text("Torna a Road DNA")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showRoadDnaResults = false
+                    showRoadDnaDialog = false
+                }) { Text("Chiudi") }
+            }
+        )
+    }
+    if (showRoadDnaDialog && !showRoadDnaResults &&
+        selectedRoadDnaPoi == null && !showOnlineSuggestionsMap) {
+        AlertDialog(
+            onDismissRequest = { showRoadDnaDialog = false },
+            title = { Text("Road DNA") },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth()
+                        .heightIn(max = 430.dp).verticalScroll(roadDnaListScroll),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (roadDnaLoading) {
+                        CircularProgressIndicator()
+                        Text("Analisi offline della rotta Valhalla selezionata…")
+                    } else if (roadDnaError != null) {
+                        Text(roadDnaError, color = MaterialTheme.colorScheme.error)
+                    } else if (roadDnaSummary != null) {
+                        Text("Guida", style = MaterialTheme.typography.titleMedium)
+                        Text("Curve: " + roadDnaSummary.curvature)
+                        Text("Geometria: " + roadDnaSummary.routeVertices + " vertici Valhalla")
+                        HorizontalDivider()
+                        Text("Da scoprire", style = MaterialTheme.typography.titleMedium)
+                        Text("Categoria offline", style = MaterialTheme.typography.titleSmall)
+                        Row(
+                            modifier = Modifier.fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            RoadDnaCategories.options.forEach { category ->
+                                FilterChip(
+                                    selected = offlineRoadDnaCategory == category.id,
+                                    onClick = { offlineRoadDnaCategory = category.id },
+                                    label = { Text(category.title) }
+                                )
+                            }
+                        }
+                        if (!roadDnaSummary.indexAvailable) {
+                            Text("Indice turistico Road DNA non installato. " +
+                                "Importa il nuovo MotoPack v2.")
+                        } else {
+                            // Counts remain available for diagnostics, but the
+                            // user-facing dialog opens directly on curated POIs.
+                            val offlinePlaces = RoadDnaOfflineFilter.select(
+                                roadDnaSummary.places, offlineRoadDnaCategory)
+                            Text(
+                                if (offlineRoadDnaCategory == "consigliati")
+                                    "Consigliati lungo il percorso"
+                                else "Luoghi della categoria selezionata",
+                                style = MaterialTheme.typography.titleSmall
+                            )
+                            Text("${offlinePlaces.size} luoghi selezionati",
+                                style = MaterialTheme.typography.bodySmall)
+                            if (offlineRoadDnaCategory in listOf(
+                                    "ristoranti", "hotel", "divertimenti")) {
+                                Text("Questa categoria non è nel database turistico offline. " +
+                                    "Usa Cerca online; ristoranti e hotel sono " +
+                                    "nell'indice separato Photon.")
+                            } else if (offlinePlaces.isEmpty()) {
+                                Text("Nessun luogo della categoria individuato lungo questa rotta.")
+                            } else {
+                                // Keep the overview compact, just like nearby search:
+                                // inspect individual POIs on the dedicated map.
+                                OutlinedButton(onClick = {
+                                    selectedOfflineRoadDnaPoi = null
+                                    selectedOnlineRoadDnaAccess = null
+                                    proposedRoadsideStop = null
+                                    onRoadDnaAreaAccessClear()
+                                    showRoadDnaMap = true
+                                    showRoadDnaDialog = false
+                                }, enabled = !isNavigating) {
+                                    Text("Mostra luoghi sulla mappa")
+                                }
+                            }
+                            Text("Le aree OSM hanno posizioni indicative: " +
+                                "il loro accesso stradale non è verificato.",
+                                style = MaterialTheme.typography.bodySmall)
+                            Text("Dati © OpenStreetMap contributors · ODbL 1.0",
+                                style = MaterialTheme.typography.labelSmall)
+                        }
+                    } else {
+                        Text("Seleziona un itinerario Valhalla da analizzare.")
+                    }
+                    HorizontalDivider()
+                    Text("Ricerca turistica online", style = MaterialTheme.typography.titleMedium)
+                    OutlinedButton(
+                        enabled = !isNavigating && !isLoading,
+                        onClick = {
+                            showRoadDnaDialog = false
+                            showRoadDnaResults = false
+                            zoneMapMode = true
+                            nearbySearchMode = true
+                            zoneSearchStarted = true
+                            onlineSuggestionsForMap = emptyList()
+                            selectedOnlineSuggestion = null
+                            selectedNearbyOffline = null
+                            selectedOnlineRoadDnaAccess = null
+                            zoneMapRef = null
+                            onRoadDnaZoneClear()
+                            showOnlineSuggestionsMap = false
+                            showRoadDnaCenterPicker = false
+                            showRoadDnaSearchParams = true
+                            zonePickedCenter = null
+                            gpsMapRecenterId++
+                            onRoadDnaNearbySearch(zoneRadiusKm, zoneCategoryId)
+                        }
+                    ) { Text("Cerca intorno a me · GPS") }
+                    OutlinedButton(
+                        enabled = !isNavigating,
+                        onClick = {
+                            showRoadDnaDialog = false
+                            showRoadDnaResults = false
+                            zoneMapMode = true
+                            nearbySearchMode = false
+                            zoneSearchStarted = false
+                            zonePickedCenter = null
+                            onlineSuggestionsForMap = emptyList()
+                            selectedOnlineSuggestion = null
+                            zoneMapRef = null
+                            onRoadDnaZoneClear()
+                            showOnlineSuggestionsMap = false
+                            showRoadDnaSearchParams = true
+                            zonePickerMapRef = null
+                            zonePickerFitId++
+                            showRoadDnaCenterPicker = true
+                        }
+                    ) { Text("Cerca in questa zona · mappa") }
+                    Text("Solo premendo Cerca online: il percorso viene inviato a Geoapify " +
+                        "per cercare luoghi entro 2 km. OpenTripMap riceve fino a 5 punti " +
+                        "campione lungo la rotta. Distanze in linea d'aria, non deviazioni " +
+                        "stradali; risultati non esaustivi.",
+                        style = MaterialTheme.typography.bodySmall)
+                    Text("Che cosa vuoi scoprire?",
+                        style = MaterialTheme.typography.titleSmall)
+                    Row(
+                        modifier = Modifier.fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        RoadDnaCategories.options.forEach { category ->
+                            FilterChip(
+                                selected = selectedRoadDnaCategory == category.id,
+                                onClick = { selectedRoadDnaCategory = category.id },
+                                label = { Text(category.title) }
+                            )
+                        }
+                    }
+                    val selectedCategoryRequiresGeo =
+                        !RoadDnaCategories.usesOpenTripMap(selectedRoadDnaCategory)
+                    if (selectedCategoryRequiresGeo && !geoapifyConfigured) {
+                        Text("Questa categoria richiede la chiave Geoapify. " +
+                            "Configurarla in ⋮ → API Road DNA.",
+                            style = MaterialTheme.typography.bodySmall)
+                    }
+                    if (!geoapifyConfigured && !opentripmapConfigured) {
+                        Text("Nessuna chiave configurata. Apri ⋮ → API Road DNA.")
+                    } else {
+                        Button(
+                            onClick = {
+                                showAllRoadDnaPlaces = false
+                                showRoadDnaResults = true
+                                onRoadDnaOnlineSearch(selectedRoadDnaCategory)
+                            },
+                            enabled = !roadDnaOnlineLoading && !isNavigating &&
+                                (!selectedCategoryRequiresGeo || geoapifyConfigured) &&
+                                routeOptions.getOrNull(selectedRouteIndex) != null
+                        ) { Text("Cerca online (su richiesta)") }
+                    }
+                    if (roadDnaOnlineLoading) {
+                        CircularProgressIndicator()
+                        Text("Ricerca online in corso…")
+                    }
+                    if (roadDnaOnlineError != null)
+                        Text(roadDnaOnlineError, color = MaterialTheme.colorScheme.error)
+                    if (roadDnaOnline != null) {
+                        val count = roadDnaOnline.places.size
+                        val previousCategory = RoadDnaCategories.get(roadDnaOnline.categoryId)
+                        Text("${count} luoghi della ricerca ${previousCategory.title}.",
+                            style = MaterialTheme.typography.bodySmall)
+                        OutlinedButton(onClick = { showRoadDnaResults = true }) {
+                            Text("Apri risultati (${count})")
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showRoadDnaDialog = false }) { Text("Chiudi") }
+            }
+        )
+    }
     var showCircularTourDialog by remember { mutableStateOf(false) }
     var circularDistanceKm by remember { mutableFloatStateOf(100f) }
     var circularOrientation by remember { mutableIntStateOf(0) }
@@ -910,6 +2197,72 @@ fun NavigationScreen(
     }
 
     var showMoreMenu by remember { mutableStateOf(false) }
+    var showRoadDnaKeysDialog by remember { mutableStateOf(false) }
+    if (showRoadDnaKeysDialog) {
+        var geoDraft by remember(showRoadDnaKeysDialog) { mutableStateOf("") }
+        var tripDraft by remember(showRoadDnaKeysDialog) { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showRoadDnaKeysDialog = false },
+            title = { Text("API Road DNA") },
+            text = {
+                Column(Modifier.fillMaxWidth().heightIn(max = 490.dp)
+                    .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Chiavi personali, conservate cifrate sul dispositivo " +
+                        "ed escluse dal backup. Non vengono incluse nei log.")
+                    HorizontalDivider()
+                    Text(if (geoapifyConfigured) "Geoapify · configurata"
+                        else "Geoapify · non configurata")
+                    OutlinedTextField(
+                        value = geoDraft, onValueChange = { geoDraft = it },
+                        label = { Text("Chiave Geoapify") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        singleLine = true, modifier = Modifier.fillMaxWidth())
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        TextButton(onClick = {
+                            onSaveRoadDnaKey("geoapify", geoDraft); geoDraft = ""
+                        }, enabled = geoDraft.isNotBlank() && !roadDnaKeyBusy) {
+                            Text("Salva")
+                        }
+                        TextButton(onClick = { onTestRoadDnaKey("geoapify") },
+                            enabled = geoapifyConfigured && !roadDnaKeyBusy) { Text("Verifica") }
+                        TextButton(onClick = { onDeleteRoadDnaKey("geoapify") },
+                            enabled = geoapifyConfigured && !roadDnaKeyBusy) { Text("Elimina") }
+                    }
+                    HorizontalDivider()
+                    Text(if (opentripmapConfigured) "OpenTripMap · configurata"
+                        else "OpenTripMap · non configurata")
+                    OutlinedTextField(
+                        value = tripDraft, onValueChange = { tripDraft = it },
+                        label = { Text("Chiave OpenTripMap") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        singleLine = true, modifier = Modifier.fillMaxWidth())
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        TextButton(onClick = {
+                            onSaveRoadDnaKey("opentripmap", tripDraft); tripDraft = ""
+                        }, enabled = tripDraft.isNotBlank() && !roadDnaKeyBusy) {
+                            Text("Salva")
+                        }
+                        TextButton(onClick = { onTestRoadDnaKey("opentripmap") },
+                            enabled = opentripmapConfigured && !roadDnaKeyBusy) { Text("Verifica") }
+                        TextButton(onClick = { onDeleteRoadDnaKey("opentripmap") },
+                            enabled = opentripmapConfigured && !roadDnaKeyBusy) { Text("Elimina") }
+                    }
+                    if (roadDnaKeyBusy) CircularProgressIndicator()
+                    if (roadDnaKeyStatus != null) Text(roadDnaKeyStatus)
+                    Text("OpenTripMap richiede la chiave come parametro HTTPS; " +
+                        "non viene mai stampata nell'app. Limita la quota delle chiavi " +
+                        "nei rispettivi pannelli provider.",
+                        style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showRoadDnaKeysDialog = false }) {
+                    Text("Chiudi")
+                }
+            }
+        )
+    }
     var showCoffeeDialog by remember { mutableStateOf(false) }
     var showDiagnosticsDialog by remember { mutableStateOf(false) }
     var showInfoDialog by remember { mutableStateOf(false) }
@@ -1087,6 +2440,7 @@ fun NavigationScreen(
         OfflineMapsDialog(
             savedMaps = savedMaps,
             photonInstalledBytes = photonInstalledBytes,
+            roadDnaInstalledBytes = roadDnaInstalledBytes,
             photonImporting = photonImporting,
             photonStatus = photonStatus,
             onImportPhoton = onImportPhoton,
@@ -1143,6 +2497,8 @@ fun NavigationScreen(
                                     onClick = { showMoreMenu = false; showCoffeeDialog = true })
                                 DropdownMenuItem(text = { Text("Mappe offline") },
                                     onClick = { showMoreMenu = false; showOfflineDialog = true })
+                                DropdownMenuItem(text = { Text("API Road DNA") },
+                                    onClick = { showMoreMenu = false; showRoadDnaKeysDialog = true })
                                 DropdownMenuItem(text = { Text("Diagnostica e replay GPS") },
                                     onClick = { showMoreMenu = false; showDiagnosticsDialog = true })
                                 DropdownMenuItem(text = { Text("Esporta diagnostica") },
@@ -1181,6 +2537,8 @@ fun NavigationScreen(
                                     onClick = { showMoreMenu = false; showCoffeeDialog = true })
                                 DropdownMenuItem(text = { Text("Mappe offline") },
                                     onClick = { showMoreMenu = false; showOfflineDialog = true })
+                                DropdownMenuItem(text = { Text("API Road DNA") },
+                                    onClick = { showMoreMenu = false; showRoadDnaKeysDialog = true })
                                 DropdownMenuItem(text = { Text("Diagnostica e replay GPS") },
                                     onClick = { showMoreMenu = false; showDiagnosticsDialog = true })
                                 DropdownMenuItem(text = { Text("Esporta diagnostica") },
@@ -1281,6 +2639,26 @@ fun NavigationScreen(
                         Icon(Icons.Default.Add, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Tappe intermedie (${routeWaypoints.size})")
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            showRoadDnaDialog = true
+                            // Reopening Road DNA must preserve already fetched online
+                            // results. Route changes invalidate them in the ViewModel.
+                            if (roadDnaOnline == null && !roadDnaOnlineLoading) {
+                                onRoadDnaAnalyze()
+                            }
+                        },
+                        enabled = !isNavigating && !isLoading &&
+                            routeOptions.getOrNull(selectedRouteIndex) != null,
+                        modifier = Modifier.fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 2.dp)
+                            .heightIn(min = 44.dp)
+                    ) {
+                        Icon(Icons.Default.Search, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Road DNA · Guida e luoghi da scoprire")
                     }
 
                     OutlinedButton(
@@ -1448,6 +2826,35 @@ fun NavigationScreen(
                     }
                 }
             } else {
+                OutlinedButton(
+                    onClick = {
+                        showRoadDnaDialog = false
+                        showRoadDnaResults = false
+                        zoneMapMode = true
+                        nearbySearchMode = true
+                        zoneSearchStarted = true
+                        onlineSuggestionsForMap = emptyList()
+                        selectedOnlineSuggestion = null
+                        selectedNearbyOffline = null
+                        selectedOnlineRoadDnaAccess = null
+                        zoneMapRef = null
+                        onRoadDnaZoneClear()
+                        showOnlineSuggestionsMap = false
+                        showRoadDnaCenterPicker = false
+                        showRoadDnaSearchParams = true
+                        zonePickedCenter = null
+                        gpsMapRecenterId++
+                        onRoadDnaNearbySearch(zoneRadiusKm, zoneCategoryId)
+                    },
+                    enabled = !isNavigating && !isLoading,
+                    modifier = Modifier.fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                        .heightIn(min = 48.dp)
+                ) {
+                    Icon(Icons.Default.Place, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Cerca intorno a me · GPS")
+                }
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },

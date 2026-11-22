@@ -11,6 +11,24 @@ class OfflinePhotonPlaceSearchTest {
         PhotonOfflineRanking.Candidate(name, name, "", city, "", "",
                                       kind, 0.5, lat, lon)
 
+    @Test fun exactSestriereTownBeatsNearbyStreet() {
+        val items = listOf(
+            place("Via Sestriere", "Cuneo", "street", 44.39, 7.55),
+            place("Sestriere", "Sestriere", "city", 44.96, 6.88),
+            place("Via Sestriere", "Torino", "street", 45.06, 7.67))
+        val results = PhotonOfflineRanking.rank(items, "Sestriere", 44.39 to 7.55)
+        assertEquals("Sestriere", results.first().name)
+        assertEquals("city", results.first().kind)
+    }
+
+    @Test fun exactNaturalNameBeatsStreetWithSameWords() {
+        val items = listOf(
+            place("Via Lago Maggiore", "Cuneo", "street", 44.39, 7.55),
+            place("Lago Maggiore", "Verbania", "other", 45.93, 8.57))
+        val results = PhotonOfflineRanking.rank(items, "Lago Maggiore", 44.39 to 7.55)
+        assertEquals("Lago Maggiore", results.first().name)
+    }
+
     @Test fun queryIsCaseAccentAndFtsOperatorIndependent() {
         assertEquals("forli*", OfflinePhotonPlaceSearch.tokenize("FORLÌ"))
         assertEquals("via* roma* torino*",

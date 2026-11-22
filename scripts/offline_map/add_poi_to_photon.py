@@ -10,7 +10,7 @@ Example:
    --pbf /mnt/c/MotoGPS/PBF/italy-latest.osm.pbf \
    --sqlite ~/motogps-build/ItaliaUnificata/photon-italy-v2.sqlite
 
-Supports OSM nodes and ways. For ways, the representative coordinate is the
+Supports OSM nodes and ways with two PBF passes; no giant file-backed node index. For ways, the representative coordinate is the
 average of referenced node locations; this is for POI discovery, not routing.
 No network requests. A failure rolls back SQLite changes.
 """
@@ -18,7 +18,7 @@ import argparse
 import collections
 import math
 import sqlite3
-import tempfile
+import json
 from pathlib import Path
 
 CATEGORIES = {
@@ -89,49 +89,68 @@ def build(pbf, database):
             VALUES (?,?,?,?,?,?,?,?)"""
         counts = collections.Counter()
 
-        class POIs(osmium.SimpleHandler):
-            def add(self, obj, osm_type, latitude, longitude):
-                classified = classify(obj.tags)
-                if classified is None:
-                    return
-                if not (math.isfinite(latitude) and math.isfinite(longitude)
-                        and -90 <= latitude <= 90 and -180 <= longitude <= 180):
+        needed_refs = set()
+        # SQLite TEMP table holds selected ways only, not a full OSM location
+        # index. All references must resolve or the build is rejected.
+        db.execute("""CREATE TEMP TABLE poi_candidate_ways(
+            osm_id INTEGER PRIMARY KEY, category TEXT, subtype TEXT,
+            name TEXT, brand TEXT, refs_json TEXT)""")
+        class FirstPass(osmium.SimpleHandler):
+            def node(self, node):
+                classified = classify(node.tags)
+                if classified is None or not node.location.valid():
                     return
                 category, subtype = classified
-                db.execute(statement, (osm_type, int(obj.id), category, subtype,
-                    label(obj.tags, category, subtype),
-                    str(obj.tags.get("brand", "")).strip()[:100],
-                    latitude, longitude))
+                db.execute(statement, ("n", int(node.id), category, subtype,
+                    label(node.tags, category, subtype),
+                    str(node.tags.get("brand", "")).strip()[:100],
+                    node.location.lat, node.location.lon))
                 counts[category] += 1
-                if sum(counts.values()) % 50000 == 0:
-                    print("POI indexed:", sum(counts.values()), flush=True)
-
-            def node(self, node):
-                if node.location.valid():
-                    self.add(node, "n", node.location.lat, node.location.lon)
 
             def way(self, way):
-                if classify(way.tags) is None:
+                classified = classify(way.tags)
+                if classified is None:
                     return
-                coords = [(n.location.lat, n.location.lon)
-                          for n in way.nodes if n.location.valid()]
-                if not coords:
-                    return
-                # Avoid counting the repeated closing node twice.
-                if len(coords) > 2 and coords[0] == coords[-1]:
-                    coords.pop()
-                self.add(way, "w",
-                    sum(p[0] for p in coords) / len(coords),
-                    sum(p[1] for p in coords) / len(coords))
+                category, subtype = classified
+                refs = [int(node.ref) for node in way.nodes]
+                new_refs = set(refs) - needed_refs
+                if not refs or len(needed_refs) + len(new_refs) > 3_000_000:
+                    raise RuntimeError("Photon POI references exceed memory safety limit")
+                needed_refs.update(new_refs)
+                db.execute("INSERT INTO poi_candidate_ways VALUES(?,?,?,?,?,?)",
+                           (int(way.id), category, subtype,
+                            label(way.tags, category, subtype),
+                            str(way.tags.get("brand", "")).strip()[:100],
+                            json.dumps(refs)))
 
-        # locations=True resolves way nodes, including POIs mapped as building
-        # outlines. A file-backed sparse index needs an explicit filename;
-        # keep it temporary and inside WSL to conserve RAM and allow cleanup.
-        with tempfile.TemporaryDirectory(prefix="motopoi-nodes-",
-                                         dir=target.parent) as scratch:
-            node_index = str(Path(scratch) / "nodes.idx")
-            POIs().apply_file(str(source), locations=True,
-                              idx="sparse_file_array," + node_index)
+        print("Photon POI scan 1/2: selecting tourist-service objects...", flush=True)
+        FirstPass().apply_file(str(source), locations=False)
+        print("Photon POI scan 2/2: resolving {:,} selected node references...".format(
+              len(needed_refs)), flush=True)
+        coords = {}
+        class SecondPass(osmium.SimpleHandler):
+            def node(self, node):
+                ident = int(node.id)
+                if ident in needed_refs:
+                    if node.location.valid():
+                        coords[ident] = (node.location.lat, node.location.lon)
+                    needed_refs.discard(ident)
+        if needed_refs:
+            SecondPass().apply_file(str(source), locations=False)
+
+        for ident, category, subtype, name, brand, refs_json in db.execute(
+                "SELECT osm_id,category,subtype,name,brand,refs_json FROM poi_candidate_ways"):
+            refs = json.loads(refs_json)
+            if any(ref not in coords for ref in refs):
+                raise RuntimeError("Photon POI way {} has missing node locations".format(ident))
+            points = [coords[ref] for ref in refs]
+            if len(points) > 2 and points[0] == points[-1]:
+                points.pop()
+            db.execute(statement, ("w", ident, category, subtype, name, brand,
+                                   sum(p[0] for p in points) / len(points),
+                                   sum(p[1] for p in points) / len(points)))
+            counts[category] += 1
+        db.execute("DROP TABLE poi_candidate_ways")
         if not sum(counts.values()):
             raise ValueError("No POIs found: verify source OSM PBF and tags")
         db.execute("INSERT INTO metadata(key,value) VALUES('poi_schema','1')")

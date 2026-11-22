@@ -184,7 +184,7 @@ jobs:
           java-version: '17'
           cache: 'gradle'
 
-      - name: Ensure Android NDK 27 is installed (retry corrupted downloads)
+      - name: Ensure Android API 37 platform is installed
         run: |
           set -euo pipefail
           sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
@@ -200,16 +200,38 @@ jobs:
             echo "::error::Android sdkmanager is missing"
             exit 1
           fi
-          ndk="$sdk/ndk/27.0.12077973"
+          if [[ ! -f "$sdk/platforms/android-37/android.jar" ]]; then
+            "$manager" --sdk_root="$sdk" --install "platforms;android-37"
+          fi
+          test -f "$sdk/platforms/android-37/android.jar"
+
+      - name: Ensure Android NDK 29 is installed (retry corrupted downloads)
+        run: |
+          set -euo pipefail
+          sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          if [[ -z "$sdk" ]]; then
+            echo "::error::ANDROID_HOME / ANDROID_SDK_ROOT not configured"
+            exit 1
+          fi
+          manager="$sdk/cmdline-tools/latest/bin/sdkmanager"
+          if [[ ! -x "$manager" ]]; then
+            manager="$(command -v sdkmanager || true)"
+          fi
+          if [[ -z "$manager" || ! -x "$manager" ]]; then
+            echo "::error::Android sdkmanager is missing"
+            exit 1
+          fi
+          ndk_version="29.0.14206865"
+          ndk="$sdk/ndk/$ndk_version"
           for attempt in 1 2 3; do
-            if [[ -f "$ndk/source.properties" ]] && grep -q '^Pkg.Revision = 27.0.12077973' "$ndk/source.properties"; then
-              echo "NDK 27.0.12077973 ready"
+            if [[ -f "$ndk/source.properties" ]] && grep -q "^Pkg.Revision = $ndk_version" "$ndk/source.properties"; then
+              echo "NDK $ndk_version ready"
               exit 0
             fi
             echo "NDK installation attempt $attempt/3"
             rm -rf "$ndk"
-            if "$manager" --sdk_root="$sdk" --install 'ndk;27.0.12077973'; then
-              if [[ -f "$ndk/source.properties" ]] && grep -q '^Pkg.Revision = 27.0.12077973' "$ndk/source.properties"; then
+            if "$manager" --sdk_root="$sdk" --install "ndk;$ndk_version"; then
+              if [[ -f "$ndk/source.properties" ]] && grep -q "^Pkg.Revision = $ndk_version" "$ndk/source.properties"; then
                 echo "NDK installed successfully"
                 exit 0
               fi
@@ -241,6 +263,19 @@ jobs:
           MOTO_GPS_KEY_ALIAS: ${{ secrets.MOTO_GPS_KEY_ALIAS }}
           MOTO_GPS_KEY_PASSWORD: ${{ secrets.MOTO_GPS_KEY_PASSWORD }}
         run: cd platforms/android && ./gradlew build -x lint -x lintVitalRelease --build-cache
+
+      - name: Verify 16 KiB ELF and APK ZIP alignment
+        run: |
+          set -euo pipefail
+          apk="platforms/android/app/build/outputs/apk/debug/app-debug.apk"
+          python3 scripts/diagnostics/check_android_16k_elf.py "$apk"
+          sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          zipalign=$(find "$sdk/build-tools" -mindepth 2 -maxdepth 2 -name zipalign -type f | sort -V | tail -n 1)
+          if [[ -z "$zipalign" || ! -x "$zipalign" ]]; then
+            echo "::error::Android zipalign not found"
+            exit 1
+          fi
+          "$zipalign" -c -P 16 -v 4 "$apk"
 
       - name: Upload APK
         if: ${{ hashFiles('platforms/android/app/build/outputs/apk/debug/app-debug.apk') != '' }}

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build and verify Moto Chat GPS unified offline bundles (Python 3 stdlib).
 
-python3 scripts/offline_map/motopack.py build --motomap italy-v4.motomap.zip --valhalla valhalla_tiles.tar.zst --photon photon-italy-v2.sqlite -o italy.motopack
+python3 scripts/offline_map/motopack.py build --motomap italy-v4.motomap.zip --valhalla valhalla_tiles.tar.zst --photon photon-italy-v2.sqlite --tourist tourist-italy-v1.sqlite -o italy.motopack
 python3 scripts/offline_map/motopack.py verify italy.motopack
 """
 import argparse
@@ -17,6 +17,7 @@ NAMES = {
     "motomap": "motomap/italy-v4.motomap.zip",
     "valhalla": "valhalla/valhalla_tiles.tar.zst",
     "photon": "photon/photon-italy-v2.sqlite",
+    "tourist": "road-dna/tourist-italy-v1.sqlite",
 }
 CHUNK = 1024 * 1024
 
@@ -57,6 +58,25 @@ def validate_inputs(paths):
                     "SELECT 1 FROM sqlite_master WHERE type='index' "
                     "AND name='poi_category_lat_lon'").fetchone():
                 raise ValueError("OSM POI spatial index missing")
+    with sqlite3.connect("file:" + str(paths["tourist"].resolve()) + "?mode=ro", uri=True) as db:
+        if db.execute("PRAGMA user_version").fetchone()[0] != 1:
+            raise ValueError("Road DNA tourist SQLite schema v1 required")
+        required = {"tourist_poi", "tourist_metadata"}
+        tables = {row[0] for row in db.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")}
+        if not required <= tables:
+            raise ValueError("Missing Road DNA tourist tables")
+        metadata = dict(db.execute("SELECT key,value FROM tourist_metadata"))
+        if metadata.get("schema") != "road-dna-tourist-1":
+            raise ValueError("Unexpected Road DNA tourist schema marker")
+        count = db.execute("SELECT COUNT(*) FROM tourist_poi").fetchone()[0]
+        if count < 1 or metadata.get("count") != str(count):
+            raise ValueError("Road DNA tourist count/metadata mismatch")
+        if not db.execute("SELECT 1 FROM sqlite_master WHERE type='index' "
+                          "AND name='tourist_category_lat_lon'").fetchone():
+            raise ValueError("Road DNA tourist spatial index missing")
+        if db.execute("PRAGMA integrity_check").fetchone() != ("ok",):
+            raise ValueError("Road DNA tourist SQLite integrity check failed")
     with paths["valhalla"].open("rb") as f:
         if f.read(4) != bytes.fromhex("28b52ffd"):
             raise ValueError("Valhalla must be .tar.zst")
@@ -73,7 +93,7 @@ def verify(filename):
             raise ValueError("Invalid manifest length")
         manifest = json.loads(archive.read("manifest.json"))
         if (manifest.get("format"), manifest.get("version"), manifest.get("region")) != (
-            FORMAT, 1, "IT"
+            FORMAT, 2, "IT"
         ):
             raise ValueError("Unsupported bundle format")
         components = manifest.get("components")
@@ -111,7 +131,7 @@ def build(args):
     pending = output.with_name(output.name + ".part")
     if pending.exists():
         raise FileExistsError(pending)
-    manifest = {"format": FORMAT, "version": 1, "region": "IT",
+    manifest = {"format": FORMAT, "version": 2, "region": "IT",
                 "attribution": "OpenStreetMap contributors (ODbL); Valhalla; Photon",
                 "components": {}}
     try:
@@ -153,7 +173,7 @@ def main():
         build(args)
     else:
         verify(args.file)
-        print("OK: MotoMap v4 + Valhalla V5 + Photon v2")
+        print("OK: MotoPack v2 / MotoMap v4 + Valhalla V5 + Photon v2 + Road DNA v1")
 
 if __name__ == "__main__":
     main()
