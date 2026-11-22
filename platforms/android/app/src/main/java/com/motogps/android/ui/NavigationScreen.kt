@@ -210,6 +210,8 @@ fun RouteMapView(
             roadDnaPois.take(60).forEach { poi ->
                 if (poi.latitude.isFinite() && poi.longitude.isFinite() &&
                     poi.latitude in -90.0..90.0 && poi.longitude in -180.0..180.0) {
+                    if (geoPoints.size < 2)
+                        viewPoints.add(GeoPoint(poi.latitude, poi.longitude))
                     mapView.overlays.add(Marker(mapView).apply {
                         position = GeoPoint(poi.latitude, poi.longitude)
                         title = poi.name + if (poi.exactLocation) ""
@@ -261,6 +263,8 @@ fun RouteMapView(
             onlineSuggestions.take(60).forEach { poi ->
                 if (poi.latitude.isFinite() && poi.longitude.isFinite() &&
                     poi.latitude in -90.0..90.0 && poi.longitude in -180.0..180.0) {
+                    if (geoPoints.size < 2)
+                        viewPoints.add(GeoPoint(poi.latitude, poi.longitude))
                     mapView.overlays.add(Marker(mapView).apply {
                         position = GeoPoint(poi.latitude, poi.longitude)
                         title = poi.name + " · " + poi.source
@@ -1144,7 +1148,11 @@ fun NavigationScreen(
                         else extractGeoPoints(selectedOption,
                             currentLocation, routePreview),
                         routeFitKey = if (nearbySearchMode || routePreview == null)
-                            "dna-gps:" + roadDnaNearbyCenter.toString()
+                            "dna-gps:" + roadDnaNearbyCenter.toString() +
+                                if (nearbySearchMode)
+                                    ":offline" + shownOffline.hashCode() +
+                                    ":online" + shownSuggestions.hashCode()
+                                else ""
                         else "dna-online:" +
                             (selectedOption?.rawRouteJson?.optString("route_id")
                                 ?: selectedOption?.id ?: ""),
