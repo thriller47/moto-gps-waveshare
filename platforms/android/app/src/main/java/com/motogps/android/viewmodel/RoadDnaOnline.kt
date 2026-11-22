@@ -258,7 +258,9 @@ internal object RoadDnaOnline {
             .put("categories", JSONArray().apply { category.geo.forEach { put(it) } })
             .put("filter", JSONObject().put("type", "circle")
                 .put("lat", lat).put("lon", lon).put("radius", radiusKm * 1000))
-            .put("lang", "it").put("limit", 100).put("offset", 0)
+            .put("bias", JSONObject().put("type", "proximity")
+                .put("lat", lat).put("lon", lon))
+            .put("lang", "it").put("limit", 200).put("offset", 0)
     }
 
     /** Search centered on the map, not near the itinerary. Only one explicit
@@ -278,12 +280,18 @@ internal object RoadDnaOnline {
             place.copy(distanceMeters = RoadDnaAnalysis.distanceMeters(
                 place.latitude to place.longitude, lat to lon, lat to lon).toInt())
         })
-        val partial = (data.optJSONArray("features")?.length() ?: 0) >= 100 ||
+        val partial = (data.optJSONArray("features")?.length() ?: 0) >= 200 ||
             ranked.size > 60
+        val curated = recommendedPlaces(ranked)
         val visible = if (categoryId == "consigliati")
-            recommendedPlaces(ranked).take(15) else ranked.take(60)
-        return RoadDnaOnlineResult(visible, partial,
-            if (partial) "Risultati parziali: massimo 100 POI per richiesta; " +
+            if (curated.isEmpty()) ranked.take(15) else curated.take(15)
+        else ranked.take(60)
+        val fallbackNote = if (categoryId == "consigliati" &&
+            curated.isEmpty() && ranked.isNotEmpty())
+            "Non ci sono consigliati di priorità alta: mostro i luoghi " +
+                "disponibili, ordinati per interesse. " else ""
+        return RoadDnaOnlineResult(visible, partial, fallbackNote +
+            if (partial) "Risultati parziali: massimo 200 POI per richiesta; " +
                 "riduci il raggio per approfondire la zona."
             else "Ricerca nella zona completata", categoryId)
     }
@@ -405,7 +413,7 @@ internal object RoadDnaOnline {
     internal fun parseGeo(json: JSONObject): List<RoadDnaOnlinePoi> {
         val features = json.optJSONArray("features") ?: return emptyList()
         val result = ArrayList<RoadDnaOnlinePoi>()
-        for (i in 0 until min(features.length(), 100)) {
+        for (i in 0 until min(features.length(), 200)) {
             val item = features.optJSONObject(i) ?: continue
             val coord = item.optJSONObject("geometry")?.optJSONArray("coordinates") ?: continue
             val lon = coord.optDouble(0, Double.NaN)
