@@ -283,9 +283,7 @@ internal object RoadDnaOnline {
         val partial = (data.optJSONArray("features")?.length() ?: 0) >= 200 ||
             ranked.size > 60
         val curated = recommendedPlaces(ranked)
-        val visible = if (categoryId == "consigliati")
-            if (curated.isEmpty()) ranked.take(15) else curated.take(15)
-        else ranked.take(60)
+        val visible = selectZonePlaces(ranked, categoryId)
         val fallbackNote = if (categoryId == "consigliati" &&
             curated.isEmpty() && ranked.isNotEmpty())
             "Non ci sono consigliati di priorità alta: mostro i luoghi " +
@@ -295,6 +293,13 @@ internal object RoadDnaOnline {
                 "riduci il raggio per approfondire la zona."
             else "Ricerca nella zona completata", categoryId)
     }
+
+    internal fun selectZonePlaces(ranked: List<RoadDnaOnlinePoi>,
+                                  categoryId: String): List<RoadDnaOnlinePoi> =
+        if (categoryId == "consigliati") {
+            val curated = recommendedPlaces(ranked)
+            (if (curated.isEmpty()) ranked else curated).take(15)
+        } else ranked.take(60)
 
     internal fun tripRadiusUrl(lat: Double, lon: Double, apiKey: String,
                                radius: Int = 2000, limit: Int = 25,
