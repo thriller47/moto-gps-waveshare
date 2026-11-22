@@ -1147,13 +1147,13 @@ fun NavigationScreen(
                             emptyList()
                         else extractGeoPoints(selectedOption,
                             currentLocation, routePreview),
-                        routeFitKey = if (nearbySearchMode || routePreview == null)
-                            "dna-gps:" + roadDnaNearbyCenter.toString() +
-                                if (nearbySearchMode)
-                                    ":offline" + shownOffline.hashCode() +
+                        routeFitKey = if (nearbySearchMode || routePreview == null) {
+                            val resultsId = if (nearbySearchMode)
+                                ":offline" + shownOffline.hashCode() +
                                     ":online" + shownSuggestions.hashCode()
-                                else ""
-                        else "dna-online:" +
+                            else ""
+                            "dna-gps:" + roadDnaNearbyCenter.toString() + resultsId
+                        } else "dna-online:" +
                             (selectedOption?.rawRouteJson?.optString("route_id")
                                 ?: selectedOption?.id ?: ""),
                         nightMode = true,
