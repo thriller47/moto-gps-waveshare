@@ -26,6 +26,32 @@ class RoadDnaOnlineTest {
         assertFalse(body.toString().contains("apiKey"))
     }
 
+    @Test fun zoneSearchSupportsUserRadiusAndKeepsCategorySpecific() {
+        val zone = RoadDnaOnline.zoneBody(44.39, 7.81, 20, "spiagge")
+        val filter = zone.getJSONObject("filter")
+        assertEquals("circle", filter.getString("type"))
+        assertEquals(20000, filter.getInt("radius"))
+        assertEquals(44.39, filter.getDouble("lat"), 0.00001)
+        assertEquals(7.81, filter.getDouble("lon"), 0.00001)
+        assertEquals("[\\"beach\\"]", zone.getJSONArray("categories").toString())
+        assertFalse(zone.toString().contains("apiKey"))
+        val one = RoadDnaOnline.zoneBody(44.39, 7.81, 1, "castelli")
+        assertEquals(1000, one.getJSONObject("filter").getInt("radius"))
+        assertTrue(one.getJSONArray("categories").toString().contains("castle"))
+    }
+
+    @Test fun zoneSearchRejectsInvalidRadiusAndPosition() {
+        assertThrows(IllegalArgumentException::class.java) {
+            RoadDnaOnline.zoneBody(44.39, 7.81, 0, "consigliati")
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            RoadDnaOnline.zoneBody(44.39, 7.81, 21, "consigliati")
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            RoadDnaOnline.zoneBody(123.0, 7.81, 10, "consigliati")
+        }
+    }
+
     @Test fun onlineAreaAccessSearchUsesParkingAndInformationWithinRadius() {
         val body = RoadDnaOnline.accessBody(44.4, 7.7)
         val categories = body.getJSONArray("categories").toString()
