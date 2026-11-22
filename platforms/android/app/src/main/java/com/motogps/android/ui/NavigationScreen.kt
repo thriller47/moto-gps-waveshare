@@ -827,6 +827,7 @@ fun NavigationScreen(
     var nearbySearchMode by remember { mutableStateOf(false) }
     var zoneRadiusKm by remember { mutableIntStateOf(5) }
     var zoneCategoryId by remember { mutableStateOf("consigliati") }
+    var zoneCategoryMenuExpanded by remember { mutableStateOf(false) }
     var zoneSearchStarted by remember { mutableStateOf(false) }
     // Increment ONLY when the user explicitly requests GPS recentering.
     // A map-centered search must keep the pan/zoom chosen by the user.
@@ -1071,18 +1072,24 @@ fun NavigationScreen(
     }
 
 
-    // 1) Search parameters — no map or POI details in this window.
+    // 1) Compact search panel: no vertical scrolling. The results map
+    // action is pinned in AlertDialog's bottom bar.
     if (showRoadDnaSearchParams && !showRoadDnaCenterPicker && !isNavigating) {
+        val zoneResultsReady = zoneSearchStarted && !roadDnaZoneLoading &&
+            roadDnaZoneFocus != null &&
+            roadDnaZoneFocus.radiusKm == zoneRadiusKm &&
+            roadDnaZoneFocus.categoryId == zoneCategoryId &&
+            (roadDnaZoneOffline.isNotEmpty() ||
+                !roadDnaZone?.places.isNullOrEmpty())
         AlertDialog(
             onDismissRequest = { showRoadDnaSearchParams = false },
-            title = { Text("Road DNA · ricerca turistica") },
+            title = { Text("Road DNA", maxLines = 1) },
             text = {
                 Column(
-                    modifier = Modifier.fillMaxWidth().heightIn(max = 440.dp)
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(5.dp)
                 ) {
-                    Text("Raggio di ricerca: ${zoneRadiusKm} km",
+                    Text("Raggio: ${zoneRadiusKm} km",
                         style = MaterialTheme.typography.titleSmall)
                     Slider(
                         value = zoneRadiusKm.toFloat(),
@@ -1090,52 +1097,68 @@ fun NavigationScreen(
                         valueRange = 1f..20f,
                         steps = 18
                     )
-                    Text("Categoria", style = MaterialTheme.typography.titleSmall)
-                    Row(
-                        modifier = Modifier.fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        RoadDnaCategories.options.forEach { category ->
-                            FilterChip(
-                                selected = zoneCategoryId == category.id,
-                                onClick = { zoneCategoryId = category.id },
-                                label = { Text(category.title) }
-                            )
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        OutlinedButton(
+                            onClick = { zoneCategoryMenuExpanded = true },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Categoria: " +
+                                RoadDnaCategories.get(zoneCategoryId).title + " ▾",
+                                maxLines = 1)
+                        }
+                        DropdownMenu(
+                            expanded = zoneCategoryMenuExpanded,
+                            onDismissRequest = { zoneCategoryMenuExpanded = false }
+                        ) {
+                            RoadDnaCategories.options.forEach { category ->
+                                DropdownMenuItem(
+                                    text = { Text(category.title) },
+                                    onClick = {
+                                        zoneCategoryId = category.id
+                                        zoneCategoryMenuExpanded = false
+                                    }
+                                )
+                            }
                         }
                     }
-                    Button(
-                        enabled = !roadDnaZoneLoading,
-                        onClick = {
-                            nearbySearchMode = true
-                            zoneMapMode = true
-                            zoneSearchStarted = true
-                            selectedNearbyOffline = null
-                            selectedOnlineSuggestion = null
-                            selectedOnlineRoadDnaAccess = null
-                            zonePickedCenter = null
-                            gpsMapRecenterId++
-                            onRoadDnaNearbySearch(zoneRadiusKm, zoneCategoryId)
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) { Text("Cerca intorno a me · GPS") }
-                    OutlinedButton(
-                        enabled = !roadDnaZoneLoading,
-                        onClick = {
-                            zonePickerMapRef = null
-                            zonePickerFitId++
-                            showRoadDnaCenterPicker = true
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) { Text("Scegli zona sulla mappa") }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Button(
+                            enabled = !roadDnaZoneLoading,
+                            onClick = {
+                                nearbySearchMode = true
+                                zoneMapMode = true
+                                zoneSearchStarted = true
+                                selectedNearbyOffline = null
+                                selectedOnlineSuggestion = null
+                                selectedOnlineRoadDnaAccess = null
+                                zonePickedCenter = null
+                                gpsMapRecenterId++
+                                onRoadDnaNearbySearch(zoneRadiusKm, zoneCategoryId)
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) { Text("Intorno a me", maxLines = 1) }
+                        OutlinedButton(
+                            enabled = !roadDnaZoneLoading,
+                            onClick = {
+                                zonePickerMapRef = null
+                                zonePickerFitId++
+                                showRoadDnaCenterPicker = true
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) { Text("Scegli zona", maxLines = 1) }
+                    }
                     if (zonePickedCenter != null) {
                         Text(
-                            "Centro selezionato: " +
-                                String.format(java.util.Locale.ITALY, "%.5f, %.5f",
-                                    zonePickedCenter!!.first, zonePickedCenter!!.second),
-                            style = MaterialTheme.typography.bodySmall
+                            "Zona: " + String.format(java.util.Locale.ITALY,
+                                "%.4f, %.4f",
+                                zonePickedCenter!!.first, zonePickedCenter!!.second),
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 1
                         )
-                        OutlinedButton(
+                        TextButton(
                             enabled = !roadDnaZoneLoading,
                             onClick = {
                                 val center = zonePickedCenter
@@ -1149,72 +1172,69 @@ fun NavigationScreen(
                                     onRoadDnaZoneSearch(center.first, center.second,
                                         zoneRadiusKm, zoneCategoryId)
                                 }
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) { Text("Aggiorna ricerca nella zona scelta") }
-                    }
-                    if (!geoapifyConfigured) {
-                        Text("Solo MotoPack offline: Geoapify non configurato.",
-                            style = MaterialTheme.typography.bodySmall)
+                            }
+                        ) { Text("Riesegui nella zona scelta") }
                     }
                     if (roadDnaZoneLoading) {
                         LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                        Text("Ricerca in corso…")
+                        Text("Ricerca in corso…",
+                            style = MaterialTheme.typography.bodySmall)
                     }
                     if (roadDnaZoneError != null) {
                         Text(roadDnaZoneError,
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error)
-                    }
-                    roadDnaZoneFocus?.let { focus ->
-                        Text("Ultima ricerca: " +
-                            String.format(java.util.Locale.ITALY, "%.5f, %.5f",
-                                focus.latitude, focus.longitude) +
-                            " · ${focus.radiusKm} km · " +
-                            RoadDnaCategories.get(focus.categoryId).title,
-                            style = MaterialTheme.typography.bodySmall)
-                        if (focus.radiusKm != zoneRadiusKm ||
-                            focus.categoryId != zoneCategoryId) {
-                            Text("Parametri modificati: avvia una nuova ricerca " +
-                                "per aggiornare i risultati.",
-                                style = MaterialTheme.typography.bodySmall)
-                        }
+                            color = MaterialTheme.colorScheme.error,
+                            maxLines = 2)
                     }
                     if (zoneSearchStarted && !roadDnaZoneLoading) {
-                        Text("${roadDnaZoneOffline.size} luoghi MotoPack · " +
+                        Text("${roadDnaZoneOffline.size} offline · " +
                             "${roadDnaZone?.places?.size ?: 0} online",
-                            style = MaterialTheme.typography.titleSmall)
+                            style = MaterialTheme.typography.bodySmall)
                         if (roadDnaZoneOffline.isEmpty() &&
                             roadDnaZone?.places.isNullOrEmpty() &&
                             roadDnaZoneError == null) {
-                            Text("Nessun luogo trovato: prova una categoria diversa " +
-                                "o allarga il raggio.",
-                                style = MaterialTheme.typography.bodySmall)
+                            Text("Nessun luogo trovato: cambia categoria o raggio.",
+                                style = MaterialTheme.typography.bodySmall,
+                                maxLines = 2)
                         }
-                        if (roadDnaZoneFocus != null &&
-                            roadDnaZoneFocus.radiusKm == zoneRadiusKm &&
-                            roadDnaZoneFocus.categoryId == zoneCategoryId &&
-                            (roadDnaZoneOffline.isNotEmpty() ||
-                                !roadDnaZone?.places.isNullOrEmpty())) {
-                            Button(
-                                onClick = {
-                                    selectedOnlineSuggestion = null
-                                    selectedNearbyOffline = null
-                                    selectedOnlineRoadDnaAccess = null
-                                    zoneMapMode = true
-                                    zoneMapRef = null
-                                    showRoadDnaSearchParams = false
-                                    showOnlineSuggestionsMap = true
-                                },
-                                modifier = Modifier.fillMaxWidth()
-                            ) { Text("Mostra luoghi sulla mappa") }
-                        }
+                    }
+                    if (!geoapifyConfigured) {
+                        Text("Geoapify non configurato · MotoPack offline",
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 1)
+                    }
+                    val focus = roadDnaZoneFocus
+                    if (focus != null &&
+                        (focus.radiusKm != zoneRadiusKm ||
+                            focus.categoryId != zoneCategoryId)) {
+                        Text("Parametri cambiati: avvia una nuova ricerca.",
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 1)
                     }
                 }
             },
             confirmButton = {
-                TextButton(onClick = { showRoadDnaSearchParams = false }) {
-                    Text("Chiudi")
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    TextButton(onClick = { showRoadDnaSearchParams = false }) {
+                        Text("Chiudi")
+                    }
+                    Button(
+                        enabled = zoneResultsReady,
+                        onClick = {
+                            selectedOnlineSuggestion = null
+                            selectedNearbyOffline = null
+                            selectedOnlineRoadDnaAccess = null
+                            zoneMapMode = true
+                            zoneMapRef = null
+                            showRoadDnaSearchParams = false
+                            showOnlineSuggestionsMap = true
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) { Text("Mostra sulla mappa", maxLines = 1) }
                 }
             }
         )
