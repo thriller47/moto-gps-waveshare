@@ -1240,11 +1240,13 @@ fun NavigationScreen(
                         Text("Centro cercato: " +
                             String.format(java.util.Locale.ITALY, "%.5f, %.5f",
                                 roadDnaZoneFocus.latitude, roadDnaZoneFocus.longitude) +
-                            " · raggio ${roadDnaZoneFocus.radiusKm} km",
+                            " · raggio ${roadDnaZoneFocus.radiusKm} km" +
+                            " · ${RoadDnaCategories.get(roadDnaZoneFocus.categoryId).title}",
                             style = MaterialTheme.typography.bodySmall)
-                        if (zoneRadiusKm != roadDnaZoneFocus.radiusKm) {
-                            Text("Raggio modificato: premi nuovamente Cerca per " +
-                                "aggiornare i risultati.",
+                        if (zoneRadiusKm != roadDnaZoneFocus.radiusKm ||
+                            zoneCategoryId != roadDnaZoneFocus.categoryId) {
+                            Text("Raggio o categoria cambiati: premi nuovamente " +
+                                "Cerca per aggiornare i risultati.",
                                 style = MaterialTheme.typography.bodySmall)
                         }
                     }
