@@ -1220,6 +1220,9 @@ fun NavigationScreen(
     // The map's actual center at confirmation time becomes the query center.
     if (showRoadDnaCenterPicker && !isNavigating) {
         val selectedOption = routeOptions.getOrNull(selectedRouteIndex)
+        val pickerCenter = zonePickedCenter ?:
+            roadDnaZoneFocus?.let { it.latitude to it.longitude } ?:
+            roadDnaNearbyCenter
         Dialog(
             onDismissRequest = {
                 showRoadDnaCenterPicker = false
@@ -1252,15 +1255,15 @@ fun NavigationScreen(
                         Box(modifier = Modifier.padding(6.dp)
                             .clip(RoundedCornerShape(10.dp)).clipToBounds()) {
                             RouteMapView(
-                                geoPoints = if (routePreview == null) emptyList()
+                                geoPoints = if (routePreview == null ||
+                                    pickerCenter != null) emptyList()
                                     else extractGeoPoints(selectedOption,
                                         currentLocation, routePreview),
                                 routeFitKey = "dna-center-picker:" +
                                     (selectedOption?.id ?: "gps") +
                                     ":session:" + zonePickerFitId,
                                 nightMode = true,
-                                currentLocation = if (routePreview == null)
-                                    roadDnaNearbyCenter else null,
+                                currentLocation = pickerCenter,
                                 onMapReady = { zonePickerMapRef = it },
                                 modifier = Modifier.fillMaxSize()
                             )
@@ -1358,7 +1361,8 @@ fun NavigationScreen(
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.padding(horizontal = 16.dp))
                     Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
-                    if (routePreview != null || roadDnaNearbyCenter != null) {
+                    if (routePreview != null || roadDnaNearbyCenter != null ||
+                        (zoneMapMode && roadDnaZoneFocus != null)) {
                         Surface(
                             modifier = Modifier.fillMaxSize().padding(horizontal = 10.dp),
                             shape = RoundedCornerShape(14.dp),
