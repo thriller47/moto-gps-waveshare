@@ -62,11 +62,11 @@ elevation_args=()
 if [[ -n "$ELEVATION_DIR" ]]; then
   elevation_args=(--additional-data-elevation "$ELEVATION_DIR")
 fi
-valhalla_build_config --mjolnir-tile-dir "$TILES" \\
+valhalla_build_config --mjolnir-tile-dir "$TILES" \
   --mjolnir-tile-extract "$TAR" \
   --mjolnir-concurrency "$THREADS" \
   --mjolnir-timezone "$TILES/timezones.sqlite" \
-  --mjolnir-admin "$TILES/admins.sqlite" \\
+  --mjolnir-admin "$TILES/admins.sqlite" \
   "${elevation_args[@]}" > "$CONFIG"
 
 # Modify the JSON produced by the INSTALLED Valhalla builder, rather than
