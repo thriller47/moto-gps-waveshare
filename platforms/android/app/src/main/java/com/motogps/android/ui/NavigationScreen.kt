@@ -869,10 +869,10 @@ fun NavigationScreen(
     val selectedTerrain = remember(routeOptions, selectedRouteIndex, roadDnaSummary) {
         routeOptions.getOrNull(selectedRouteIndex)?.let { option ->
             val terrain = RoadDnaTerrainAnalysis.analyze(option.rawRouteJson)
-            if (roadDnaSummary?.routeId == option.id &&
-                roadDnaSummary.elevation != null) {
-                terrain.copy(elevation = roadDnaSummary.elevation)
-            } else terrain
+            val remoteElevation = roadDnaSummary
+                ?.takeIf { it.routeId == option.id }?.elevation
+            if (remoteElevation != null) terrain.copy(elevation = remoteElevation)
+            else terrain
         }
     }
     val roadDnaListScroll = rememberScrollState()
