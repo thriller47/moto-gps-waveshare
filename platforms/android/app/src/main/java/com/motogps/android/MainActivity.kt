@@ -37,6 +37,8 @@ import androidx.core.content.ContextCompat
 import com.motogps.android.ble.MotoBLEManager
 import com.motogps.android.location.LocationForegroundService
 import com.motogps.android.ui.MotoChatDarkColorScheme
+import com.motogps.android.ui.MotoChatTypography
+import com.motogps.android.ui.MotoChatShapes
 import com.motogps.android.ui.NavigationScreen
 import com.motogps.android.viewmodel.NavigationViewModel
 import com.motogps.android.viewmodel.NavigationViewModelFactory
@@ -328,7 +330,11 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 }
             }
 
-            MaterialTheme(colorScheme = MotoChatDarkColorScheme) {
+            MaterialTheme(
+                colorScheme = MotoChatDarkColorScheme,
+                typography = MotoChatTypography,
+                shapes = MotoChatShapes
+            ) {
                 NavigationScreen(
                     onExportDiagnostics = { exportDiagnostics() },
                     replayRecording = replayRecording,
