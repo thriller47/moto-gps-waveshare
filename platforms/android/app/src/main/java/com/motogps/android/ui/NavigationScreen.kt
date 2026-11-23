@@ -56,6 +56,7 @@ import com.motogps.android.viewmodel.SavedCircularTour
 import com.motogps.android.viewmodel.TourSession
 import com.motogps.android.viewmodel.RouteOption
 import com.motogps.android.viewmodel.RoadDnaSummary
+import com.motogps.android.viewmodel.RoadDnaTerrainAnalysis
 import com.motogps.android.viewmodel.RoadDnaPoi
 import com.motogps.android.viewmodel.RoadDnaAreaAccess
 import com.motogps.android.viewmodel.RoadDnaRoadsideCandidate
@@ -863,6 +864,13 @@ fun NavigationScreen(
         mutableStateOf<RoadDnaRoadsideCandidate?>(null)
     }
     var selectedRoadDnaPoi by remember { mutableStateOf<RoadDnaOnlinePoi?>(null) }
+    // Computed from the selected route's real geometry and optional DEM samples.
+    // No new public Composable parameters or NavigationViewModel callbacks.
+    val selectedTerrain = remember(routeOptions, selectedRouteIndex) {
+        routeOptions.getOrNull(selectedRouteIndex)?.let {
+            RoadDnaTerrainAnalysis.analyze(it.rawRouteJson)
+        }
+    }
     val roadDnaListScroll = rememberScrollState()
     val roadDnaResultsScroll = rememberLazyListState()
     LaunchedEffect(roadDnaOnline) {
@@ -1812,15 +1820,18 @@ fun NavigationScreen(
                         .heightIn(max = 430.dp).verticalScroll(roadDnaListScroll),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    if (selectedTerrain != null) {
+                        RoadDnaTerrainPanel(selectedTerrain)
+                        HorizontalDivider(color = MotoChatColors.Outline)
+                    }
                     if (roadDnaLoading) {
                         CircularProgressIndicator()
-                        Text("Analisi offline della rotta Valhalla selezionata…")
+                        Text("Ricerca dei luoghi lungo la rotta Valhalla…")
                     } else if (roadDnaError != null) {
                         Text(roadDnaError, color = MaterialTheme.colorScheme.error)
                     } else if (roadDnaSummary != null) {
-                        Text("Guida", style = MaterialTheme.typography.titleMedium)
-                        Text("Curve: " + roadDnaSummary.curvature)
-                        Text("Geometria: " + roadDnaSummary.routeVertices + " vertici Valhalla")
+                        Text("Geometria: " + roadDnaSummary.routeVertices +
+                            " vertici Valhalla", style = MaterialTheme.typography.bodySmall)
                         HorizontalDivider()
                         Text("Da scoprire", style = MaterialTheme.typography.titleMedium)
                         Text("Categoria offline", style = MaterialTheme.typography.titleSmall)
@@ -3062,6 +3073,20 @@ fun NavigationScreen(
                                             Text("$km km",
                                                 style = MaterialTheme.typography.labelMedium,
                                                 color = MotoChatColors.TextMuted)
+                                        }
+                                        if (isSelected && selectedTerrain != null) {
+                                            Text("Road DNA · " + selectedTerrain.curves.index +
+                                                " · " + selectedTerrain.curves.total +
+                                                " curve stimate",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MotoChatColors.Green)
+                                            selectedTerrain.elevation?.let { altitude ->
+                                                Text("Quota " + altitude.minMeters + "–" +
+                                                    altitude.maxMeters + " m · salita +" +
+                                                    altitude.ascentMeters + " m",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MotoChatColors.TextMuted)
+                                            }
                                         }
                                     }
                                 }
