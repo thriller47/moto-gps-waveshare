@@ -23,12 +23,12 @@ internal data class RoadDnaCurves(
     val total: Int get() = gentle + medium + tight + hairpins
 }
 
-internal data class RoadDnaHeightPoint(
+data class RoadDnaHeightPoint(
     val distanceMeters: Double,
     val altitudeMeters: Double?
 )
 
-internal data class RoadDnaElevation(
+data class RoadDnaElevation(
     val points: List<RoadDnaHeightPoint>,
     val minMeters: Int,
     val maxMeters: Int,
