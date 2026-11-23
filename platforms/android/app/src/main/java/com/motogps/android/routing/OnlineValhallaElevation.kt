@@ -51,7 +51,7 @@ internal object OnlineValhallaElevation {
             if (clean.isNotEmpty()) {
                 val segment = distance(clean.last(), point)
                 if (segment < 0.25) continue
-                if (segment > 3000.0) return emptyList()
+                if (segment > 50_000.0) return emptyList()
                 total += segment
             }
             clean.add(point)
