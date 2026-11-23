@@ -129,5 +129,5 @@ if $COMPRESS; then
 else
   echo "Android import: $TAR"
 fi
-printf "dem-enabled\\n" > "$OUT/.dem-enabled"
+printf "dem-enabled\n" > "$OUT/.dem-enabled"
 echo "V5 is experimental. Compare V4/V5 graph counts and test actual motorcycle routes before installation."
