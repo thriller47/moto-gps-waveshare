@@ -2607,16 +2607,33 @@ fun NavigationScreen(
                             "ricevuti via Bluetooth. Collega l'ESP32 prima di avviare.",
                         style = MaterialTheme.typography.bodyMedium
                     )
-                    Text(
-                        when {
-                            replayRecording && diagnosticMode != 0 ->
-                                "Registrazione attiva: GPS + ESP32 (" +
-                                    (if (diagnosticMode == 2) "DEBUG" else "BASE") + ")"
-                            replayRecording -> "GPS attivo · ESP32 disconnesso o log non disponibile"
-                            else -> "Registrazione disattivata"
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        color = MotoChatColors.SurfaceRaised,
+                        border = BorderStroke(1.dp, MotoChatColors.Outline)
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text("STATO REGISTRAZIONE",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MotoChatColors.TextMuted)
+                            Text(
+                                when {
+                                    replayRecording && diagnosticMode != 0 ->
+                                        "Registrazione attiva: GPS + ESP32 (" +
+                                            (if (diagnosticMode == 2) "DEBUG" else "BASE") + ")"
+                                    replayRecording ->
+                                        "GPS attivo · ESP32 disconnesso o log non disponibile"
+                                    else -> "Registrazione disattivata"
+                                },
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (replayRecording) MotoChatColors.Green
+                                    else MotoChatColors.Warning
+                            )
+                        }
                     )
                     if (!replayRecording) {
                         Text("Dettaglio eventi ESP32", style = MaterialTheme.typography.labelLarge)
@@ -2624,7 +2641,18 @@ fun NavigationScreen(
                             for ((mode, label) in listOf(1 to "BASE", 2 to "DEBUG")) {
                                 OutlinedButton(
                                     onClick = { selectedDiagnosticLevel = mode },
-                                    modifier = Modifier.weight(1f)
+                                    modifier = Modifier.weight(1f).heightIn(min = 52.dp),
+                                    shape = RoundedCornerShape(16.dp),
+                                    border = BorderStroke(
+                                        if (selectedDiagnosticLevel == mode) 1.5.dp else 1.dp,
+                                        if (selectedDiagnosticLevel == mode) MotoChatColors.Green
+                                            else MotoChatColors.Outline
+                                    ),
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        containerColor = if (selectedDiagnosticLevel == mode)
+                                            MotoChatColors.GreenSoft
+                                        else MotoChatColors.SurfaceRaised
+                                    )
                                 ) {
                                     Text((if (selectedDiagnosticLevel == mode) "✓ " else "") + label)
                                 }
