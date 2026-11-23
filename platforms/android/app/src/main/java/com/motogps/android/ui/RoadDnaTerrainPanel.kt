@@ -6,7 +6,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -22,7 +21,7 @@ import com.motogps.android.viewmodel.RoadDnaTerrain
 import java.util.Locale
 import kotlin.math.max
 
-/** Offline-first Road DNA section, with no new ViewModel callbacks or BLE data. */
+/** Curve estimates for Road DNA; altitude is exclusive to the route-planning preview. */
 @Composable
 internal fun RoadDnaTerrainPanel(terrain: RoadDnaTerrain) {
     Column(

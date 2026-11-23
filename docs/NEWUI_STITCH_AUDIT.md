@@ -41,8 +41,8 @@
 | `moto_chat_gps_informazioni_e_licenze` | **Integrato**: pannello dark, attribuzioni OSM/Valhalla/Photon con link reali. | Non inventata una versione APK presentata nel mock; MapLibre non è una libreria UI Android attestata nel codice, perciò evitare attribuzioni tecniche non verificate. |
 | `moto_chat_gps_i_miei_tour_salvati` | **Integrato parzialmente**: tour conservati a card con nome, km richiesti, tappe e due opzioni di partenza. | Le statistiche di durata, dislivello e dettagli simulati nel mock non sono proprietà del tipo `SavedCircularTour`; non visualizzati. |
 | `moto_chat_gps_esporta_e_condividi_gpx` | **Non implementato** come nuova funzione. | Nel Composable attuale mancano callback per serializzazione/condivisione GPX e flussi appositi: introdurli violerebbe i vincoli dati dall'utente. Non confondere con la preesistente esportazione diagnostica ZIP. |
-| `moto_chat_gps_profilo_altimetrico_espanso` | **Implementato nel codice**: grafico DEM e dislivelli nel pannello Road DNA. | Build/importazione MotoPack v3 e fedeltà grafica da verificare. |
-| `moto_chat_gps_profilo_altimetrico_touring` | **Implementato parzialmente**: profilo Road DNA e dati quota sulla scheda del percorso. | Non è stata creata una pagina Touring autonoma; senza DEM quote assenti. |
+| `moto_chat_gps_profilo_altimetrico_espanso` | **Implementato nel codice**: grafico DEM e dislivelli in una sezione espandibile dell'anteprima Android, indipendente da Road DNA. | Build/importazione MotoPack v3 e fedeltà grafica da verificare. |
+| `moto_chat_gps_profilo_altimetrico_touring` | **Implementato nell'anteprima**: grafico altimetrico, salita/discesa, min/max e accesso espandibile senza schermata Touring separata. | Senza DEM offline o online le quote restano assenti, senza valori fittizi. |
 | `moto_chat_gps_analisi_curve_touring` | **Implementato parzialmente**: conteggio dolci/medie/strette/tornanti stimati e indice. | Solo geometria, nessuna misura di aderenza/raggio reale/velocità sicura. |
 
 ## Incongruenze di asset, design e comportamento da risolvere
@@ -65,7 +65,7 @@
 
 ## Verifiche statiche eseguite
 
-- Confermata identità testuale delle firme pubbliche dei Composable `NavigationScreen`, `RouteMapView`, `MainMapView`, `OfflineMapsDialog`, `MapDownloadProgressBox`, `MotoChatInfoDialog`, `RoutePreferencesDialog`, `RouteWaypointsSheet`, `ValhallaRoutingSection` tra `valhalla` e `NewUI`.
+- Nella prima trasposizione era stata confermata identità testuale delle firme pubbliche dei Composable `NavigationScreen`, `RouteMapView`, `MainMapView`, `OfflineMapsDialog`, `MapDownloadProgressBox`, `MotoChatInfoDialog`, `RoutePreferencesDialog`, `RouteWaypointsSheet`, `ValhallaRoutingSection` tra `valhalla` e `NewUI`.
 - Ispezionati collegamenti dei callback alle azioni esistenti. I pulsanti legacy sono stati ricollocati, non rimossi dal flusso. Alcuni callback di test/elimina provider sono ora rappresentati da un solo call-site di una funzione locale riusata per entrambe le schede; i due provider passano i loro ID originali.
 - Dopo una correzione di un `Surface` nel pannello Diagnostica, controllo statico di parentesi/graffe/parentesi quadre di `NavigationScreen.kt` positivo (esclusi commenti e stringhe).
 - **Non eseguiti:** `gradlew`, GitHub Actions, Kotlin compiler, preview Compose, APK, installazione ADB, unit tests, native, ESP32 e prova hardware.
@@ -77,7 +77,7 @@ Attendere **ordine esplicito** prima della prima build; eseguire una sola build 
 
 ## Aggiornamento 23 novembre 2026 — altimetria e analisi curve
 
-- **App Android:** `RoadDnaTerrain.kt`, `RoadDnaTerrainPanel.kt` e `NavigationScreen.kt` mostrano classificazione e densità delle curve, tornanti indicativi e profilo DEM reale con dislivelli; nessuna nuova firma/callback pubblica di `NavigationScreen`.
+- **App Android (fase iniziale):** `RoadDnaTerrain.kt`, `RoadDnaTerrainPanel.kt` e `NavigationScreen.kt` avevano inserito curve e profilo DEM in Road DNA. La collocazione è stata successivamente **rivista** su richiesta dell'utente: profilo soltanto nell'anteprima Android, curve e turisti in Road DNA. In quest'ultima revisione sono stati aggiunti tre parametri opzionali di presentazione a `NavigationScreen`, senza rimuovere o cambiare i callback preesistenti.
 - **Routing:** le richieste Valhalla chiedono quote ogni 30 m, l'adattatore conserva una serie separata dalla geometria BLE. Le risposte senza quote danno uno stato esplicito, mai valori inventati.
 - **MotoPack v3:** un quinto componente `elevation/elevation-italy.zip` contiene i tasselli Skadi necessari in esecuzione sull'Android. `UnifiedOfflineMapImporter` li verifica e `ValhallaElevationImporter` li installa, quindi il factory Valhalla punta alla cartella DEM.
 - **Rigenerazione:** `valhalla_build_elevation` acquisisce DEM Tilezen/SRTMv3, cache esterna all'output; il generatore grafo usa `--additional-data-elevation`. Ora il MotoPack v2 non è accettato da questo importatore, con consenso dell'utente.
@@ -89,3 +89,11 @@ Attendere **ordine esplicito** prima della prima build; eseguire una sola build 
 - **Attivazione:** soltanto con apertura Road DNA su una rotta priva di quote utilizzabili, dopo la pubblicazione del risultato turistico offline. `NavigationViewModel` pubblica lo stato `elevationLoading` e poi il profilo, se valido; una selezione rotta cambiata invalida la risposta. Non modifica i dati BLE/ESP32.
 - **Risorse font:** due TTF variabili ufficiali Google Fonts (Manrope e Space Grotesk), inclusi nell'APK senza dipendenza dalla rete a runtime; OFL in `docs/licenses/MANROPE_OFL.txt` e `SPACE_GROTESK_OFL.txt`. `MotoChatTheme.kt` usa Space Grotesk per titoli/etichette e Manrope per corpo testo.
 - **Test aggiunti:** `routing/OnlineValhallaElevationTest.kt` verifica payload, parsing delle quote, dati nulli e ordinamento. Non eseguiti build, test runner o prove reali su server pubblico; verificare HTTP 429/503, timeout e resa sul telefono nella prima sessione autorizzata.
+
+## Aggiornamento 23 novembre 2026 — profilo esclusivo dell'anteprima Android
+
+- **Cambio di collocazione approvato dall'utente:** il grafico altimetrico è stato rimosso dal dialog Road DNA e dalla scheda che resta presente nella schermata di navigazione. Ora compare **solo** nell'anteprima Android, in una card espandibile all'interno dell'elenco scorrevole dei percorsi; l'area mappa e il pulsante di avvio non vengono rimpiazzati.
+- **Road DNA:** la card conserva indice, curve dolci/medie/strette e tornanti stimati, mentre la ricerca luoghi turistici non interroga più il servizio `/height`.
+- **Online DEM:** nuova funzione `NavigationViewModel.requestRoutePreviewElevation()` chiamata solo dal controllo **Mostra** dell'anteprima se il percorso non contiene DEM locali; `routePreviewElevation` e `routePreviewElevationLoading` sono stati indipendenti dai dati turistici. Chiusura dell'anteprima, cambio variante, nuovo calcolo o avvio navigazione annullano e ripuliscono la richiesta.
+- **Parametri Compose:** `NavigationScreen` acquisisce tre nuovi parametri opzionali (`previewElevation`, `previewElevationLoading`, `onPreviewElevationRequest`); tutte le firme e i callback esistenti conservano nomi e comportamento, e `MainActivity` li connette. Non rivendicare più la piena identità testuale della firma di `NavigationScreen` con `valhalla`.
+- **Stato verifica:** sorgente aggiornato, nessuna build, test unitario o CI avviati; schermate, landscape e affidabilità demo server ancora da collaudare.

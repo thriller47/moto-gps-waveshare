@@ -3089,13 +3089,6 @@ fun NavigationScreen(
                                                 " curve stimate",
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = MotoChatColors.Green)
-                                            selectedTerrain.elevation?.let { altitude ->
-                                                Text("Quota " + altitude.minMeters + "–" +
-                                                    altitude.maxMeters + " m · salita +" +
-                                                    altitude.ascentMeters + " m",
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    color = MotoChatColors.TextMuted)
-                                            }
                                         }
                                     }
                                 }
