@@ -55,6 +55,8 @@ internal object OfflineValhallaRouter {
                 waypoints, isReroute, travelBearingDegrees, strictBearing))
             .put("costing", "auto")
             .put("shape_format", "polyline6")
+            // Samples in meters; generated only when the routing graph has DEM data.
+            .put("elevation_interval", 30)
             .put("directions_options", JSONObject().put("units", "kilometers").put("language", "it-IT"))
         ValhallaRouteLocations.suppressUnsupportedAlternates(preferences.applyTo(request))
         val raw = requireNotNull(engine).routeRaw(request.toString())
@@ -117,6 +119,8 @@ internal object ValhallaRouteAdapter {
         require(legs.length() > 0) { "Valhalla route has no legs" }
         val routePoints = JSONArray()
         val maneuvers = JSONArray()
+        // Chainage and altitude are deliberately separate from route vertices / BLE.
+        val heightProfile = JSONArray()
         var pointOffset = 0
         var distanceBeforeLegM = 0L
         for (legIndex in 0 until legs.length()) {
@@ -128,6 +132,23 @@ internal object ValhallaRouteAdapter {
                 routePoints.put(JSONObject()
                     .put("latitude_deg", points[i].first)
                     .put("longitude_deg", points[i].second))
+            }
+            val legElevation = leg.optJSONArray("elevation")
+            val intervalMeters = leg.optDouble("elevation_interval", 0.0)
+            val legLengthMeters = (leg.optJSONObject("summary")
+                ?.optDouble("length", 0.0) ?: 0.0) * 1000.0
+            if (legElevation != null && legElevation.length() > 0 &&
+                intervalMeters >= 5.0 && legLengthMeters > 0.0) {
+                for (heightIndex in 0 until legElevation.length()) {
+                    if (legIndex > 0 && heightIndex == 0) continue
+                    val height = legElevation.optDouble(heightIndex, Double.NaN)
+                    val point = JSONObject().put("distance_m",
+                        distanceBeforeLegM + kotlin.math.min(heightIndex * intervalMeters,
+                            legLengthMeters))
+                    point.put("elevation_m", if (height.isFinite() &&
+                            height in -500.0..9000.0) height else JSONObject.NULL)
+                    heightProfile.put(point)
+                }
             }
             val legManeuvers = leg.optJSONArray("maneuvers") ?: JSONArray()
             val legStart = pointOffset
@@ -175,6 +196,7 @@ internal object ValhallaRouteAdapter {
             .put("maneuvers", maneuvers)
             .put("origin", JSONObject().put("latitude_deg", originLat).put("longitude_deg", originLon))
             .put("destination", JSONObject().put("latitude_deg", destinationLat).put("longitude_deg", destinationLon))
+        if (heightProfile.length() > 0) route.put("elevation_profile", heightProfile)
         return JSONObject().put("protocol_version", 1).put("route", route)
     }
 
