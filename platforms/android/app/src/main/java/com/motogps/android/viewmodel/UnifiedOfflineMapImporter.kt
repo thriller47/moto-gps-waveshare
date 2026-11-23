@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import com.motogps.android.map.MotomapPackImporter
 import com.motogps.android.routing.ValhallaGraphImporter
+import com.motogps.android.routing.ValhallaElevationImporter
 import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
@@ -12,7 +13,7 @@ import org.json.JSONObject
 
 /**
  * Unified offline package. Verify every component before invoking any of the
- * existing (individually atomic) installers. This does NOT make the four
+ * existing (individually atomic) installers. This does NOT make the five
  * installers collectively atomic; an installer failure can leave mixed data.
  */
 internal object UnifiedOfflineMapImporter {
@@ -24,7 +25,8 @@ internal object UnifiedOfflineMapImporter {
         "motomap" to "motomap/italy-v4.motomap.zip",
         "valhalla" to "valhalla/valhalla_tiles.tar.zst",
         "photon" to "photon/photon-italy-v2.sqlite",
-        "tourist" to "road-dna/tourist-italy-v1.sqlite"
+        "tourist" to "road-dna/tourist-italy-v1.sqlite",
+        "elevation" to "elevation/elevation-italy.zip"
     )
 
     /** Preserve native extensions: Valhalla's importer uses .tar.zst to select Zstd. */
@@ -98,7 +100,7 @@ internal object UnifiedOfflineMapImporter {
             if (seen != names.values.toSet() + MANIFEST)
                 throw IOException("Pacchetto incompleto")
             val root = JSONObject(manifestText ?: throw IOException("Manifest assente"))
-            if (root.optString("format") != FORMAT || root.optInt("version") != 2 ||
+            if (root.optString("format") != FORMAT || root.optInt("version") != 3 ||
                 root.optString("region") != "IT") throw IOException("Versione del pacchetto non supportata")
             val components = root.getJSONObject("components")
             if (components.length() != names.size) throw IOException("Manifest non coerente")
@@ -127,9 +129,12 @@ internal object UnifiedOfflineMapImporter {
             if (graphBytes <= 0L) throw IOException("Valhalla non installato")
             progress("Valhalla installato (${graphBytes / 1048576L} MiB)")
             if (cancelled()) throw java.util.concurrent.CancellationException("Importazione annullata")
+            if (cancelled()) throw java.util.concurrent.CancellationException("Importazione annullata")
+            progress("Installazione quote DEM Valhalla...")
+            ValhallaElevationImporter.install(context, staged.getValue("elevation"), cancelled)
             progress("Installazione Road DNA...")
             OfflineTouristPlaceSearch.install(context, Uri.fromFile(staged.getValue("tourist")))
-            progress("MotoPack v2 installato (MotoMap, Photon, Valhalla, Road DNA)")
+            progress("MotoPack v3 installato (MotoMap, Photon, Valhalla, DEM, Road DNA)")
         } finally {
             staged.values.forEach { it.delete() }
             if (dir.exists() && dir.listFiles().isNullOrEmpty()) dir.delete()
