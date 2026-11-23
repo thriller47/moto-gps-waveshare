@@ -1825,7 +1825,8 @@ fun NavigationScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     if (selectedTerrain != null) {
-                        RoadDnaTerrainPanel(selectedTerrain)
+                        RoadDnaTerrainPanel(selectedTerrain,
+                            fetchingElevation = roadDnaSummary?.elevationLoading == true)
                         HorizontalDivider(color = MotoChatColors.Outline)
                     }
                     if (roadDnaLoading) {
