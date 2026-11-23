@@ -244,6 +244,12 @@ MOTOGPS_ELEVATION_CACHE="$HOME/motogps-build/DEM-Italia" \
 
 Il nuovo componente è `elevation-italy.zip` all'interno di `MotoChatGPS-Italia.motopack`. La verifica Python controlla tipo, SHA-256, lunghezza e presenza minima dei tasselli. L'importatore Android verifica l'intero contenuto prima di installare e copia le quote in `Android/data/com.motogps.android/files/routing/elevation`. Valhalla riceve quel percorso nella configurazione locale. Il grafico delle quote compare solo quando i campioni restituiti sono validi: altrimenti Road DNA dice espressamente che il DEM non è disponibile.
 
+**Quote online quando non ci sono DEM sulla rotta:** dopo aver selezionato una rotta, aprire **Road DNA · Guida e luoghi**. L'app prima mostra le curve e la ricerca turistica offline; se le quote reali sono assenti invia **una sola richiesta** al servizio pubblico Valhalla `/height` con la geometria della rotta selezionata (massimo 4.500 punti, campionamento non più fitto di 100 m). Il pannello mostra **Recupero online delle quote DEM…** e, se arrivano campioni validi, aggiorna il grafico. Non serve attivare manualmente un'altra opzione, né ricalcolare il percorso.
+
+Il recupero online **richiede Internet** e che il server abbia DEM disponibili; senza rete, su HTTP 429/503 o con risposta senza quote, il percorso e l'analisi delle curve restano funzionanti. **Non è prevista alcuna chiamata automatica durante la navigazione o i ricalcoli BLE.** I valori di dislivello ricavati dal server sono comunque indicativi.
+
+**Font del design Dark Touring:** Space Grotesk (titoli e etichette) e Manrope (testo) sono risorse incluse nell'APK `NewUI` e **non richiedono Internet**. I testi SIL Open Font License 1.1 sono nel repository in `docs/licenses/MANROPE_OFL.txt` e `docs/licenses/SPACE_GROTESK_OFL.txt`, con attribuzione nella schermata Informazioni. L'aspetto del font sul telefono resta da validare con la prima build autorizzata.
+
 **Attenzione:** le quote sono DEM, quindi indicative; tornanti e classificazione delle curve sono stimati geometricamente, non misure di aderenza o di velocità consigliata. Il codice è su `NewUI`, **senza build né prova end-to-end**: attendere l'ordine esplicito prima di avviare Gradle/GitHub Actions.
 
 
