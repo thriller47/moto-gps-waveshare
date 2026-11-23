@@ -6,18 +6,20 @@ import androidx.compose.material3.Shapes
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.shape.RoundedCornerShape
+import com.motogps.android.R
 
 /**
  * Moto Chat GPS — Stitch "Dark Touring".
  *
  * Tokens are shared by the home cockpit, route preview, bottom sheets and dialogs.
- * Space Grotesk/Manrope are not bundled in the Stitch export: Android's sans-serif
- * is used until redistributable font resources are explicitly provided.
+ * Official Space Grotesk and Manrope variable Open Font License resources are
+ * bundled in res/font so the app typography also works fully offline.
  */
 object MotoChatColors {
     val Background = Color(0xFF080C0B)
@@ -66,8 +68,18 @@ val MotoChatDarkColorScheme = darkColorScheme(
     scrim = MotoChatColors.Scrim
 )
 
-private val TouringDisplay = FontFamily.SansSerif
-private val TouringBody = FontFamily.SansSerif
+private val TouringDisplay = FontFamily(
+    Font(R.font.space_grotesk_variable, FontWeight.Normal),
+    Font(R.font.space_grotesk_variable, FontWeight.Medium),
+    Font(R.font.space_grotesk_variable, FontWeight.SemiBold),
+    Font(R.font.space_grotesk_variable, FontWeight.Bold)
+)
+private val TouringBody = FontFamily(
+    Font(R.font.manrope_variable, FontWeight.Normal),
+    Font(R.font.manrope_variable, FontWeight.Medium),
+    Font(R.font.manrope_variable, FontWeight.SemiBold),
+    Font(R.font.manrope_variable, FontWeight.Bold)
+)
 
 val MotoChatTypography = Typography(
     displayLarge = TextStyle(
