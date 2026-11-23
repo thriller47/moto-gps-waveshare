@@ -2135,55 +2135,106 @@ fun NavigationScreen(
             title = { Text("Tour circolare con tappe") },
             text = {
                 Column(
-                    modifier = Modifier.heightIn(max = 440.dp)
+                    modifier = Modifier.heightIn(max = 520.dp)
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("Partenza e arrivo dalla posizione GPS. " +
-                        "Le tappe scelte da te hanno sempre priorità.")
-                    Text("Distanza indicativa: ${circularDistanceKm.toInt()} km")
+                    Surface(
+                        color = MotoChatColors.SurfaceRaised,
+                        shape = RoundedCornerShape(16.dp),
+                        border = BorderStroke(1.dp, MotoChatColors.Outline)
+                    ) {
+                        Text(
+                            "Partenza e arrivo dalla posizione GPS. " +
+                                "Le tappe scelte da te hanno sempre priorità.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.fillMaxWidth().padding(14.dp)
+                        )
+                    }
+                    Surface(
+                        color = MotoChatColors.SurfaceRaised,
+                        shape = RoundedCornerShape(16.dp),
+                        border = BorderStroke(1.dp, MotoChatColors.Outline)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("DISTANZA INDICATIVA",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MotoChatColors.TextMuted)
+                            Text("${circularDistanceKm.toInt()} km",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MotoChatColors.Green)
+                        }
+                    }
                     Slider(
                         value = circularDistanceKm,
                         onValueChange = { circularDistanceKm = it },
                         valueRange = 30f..300f, steps = 26
                     )
-                    Text("Direzione prevalente")
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("DIREZIONE PREVALENTE",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MotoChatColors.TextMuted)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
                         listOf(0 to "N", 90 to "E", 180 to "S", 270 to "O")
                             .forEach { (degrees, label) ->
                                 FilterChip(
                                     selected = circularOrientation == degrees,
                                     onClick = { circularOrientation = degrees },
-                                    label = { Text(label) }
+                                    modifier = Modifier.weight(1f).heightIn(min = 52.dp),
+                                    shape = RoundedCornerShape(12.dp),
+                                    label = { Text(label, style = MaterialTheme.typography.labelLarge) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        containerColor = MotoChatColors.SurfaceRaised,
+                                        labelColor = MotoChatColors.Text,
+                                        selectedContainerColor = MotoChatColors.Green,
+                                        selectedLabelColor = MotoChatColors.OnGreen
+                                    )
                                 )
                             }
                     }
                     Text("Luoghi da visitare (${circularMandatoryStops.size}/8)",
                         style = MaterialTheme.typography.titleSmall)
                     circularMandatoryStops.forEachIndexed { index, stop ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MotoChatColors.SurfaceRaised,
+                            border = BorderStroke(1.dp, MotoChatColors.Outline)
                         ) {
-                            Text("${index + 1}. ${stop.name}",
-                                modifier = Modifier.weight(1f), maxLines = 2)
-                            IconButton(
-                                onClick = { onMoveCircularMandatoryStop(index, -1) },
-                                enabled = index > 0
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(start = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(Icons.Default.KeyboardArrowUp,
-                                    contentDescription = "Sposta tappa su")
-                            }
-                            IconButton(
-                                onClick = { onMoveCircularMandatoryStop(index, 1) },
-                                enabled = index < circularMandatoryStops.lastIndex
-                            ) {
-                                Icon(Icons.Default.KeyboardArrowDown,
-                                    contentDescription = "Sposta tappa giù")
-                            }
-                            IconButton(onClick = { onRemoveCircularMandatoryStop(index) }) {
-                                Icon(Icons.Default.Delete,
-                                    contentDescription = "Rimuovi tappa obbligatoria")
+                                Text("${index + 1}", color = MotoChatColors.Green,
+                                    style = MaterialTheme.typography.labelLarge)
+                                Text(stop.name,
+                                    modifier = Modifier.weight(1f).padding(start = 8.dp),
+                                    maxLines = 2,
+                                    style = MaterialTheme.typography.bodyMedium)
+                                IconButton(
+                                    onClick = { onMoveCircularMandatoryStop(index, -1) },
+                                    enabled = index > 0
+                                ) {
+                                    Icon(Icons.Default.KeyboardArrowUp,
+                                        contentDescription = "Sposta tappa su")
+                                }
+                                IconButton(
+                                    onClick = { onMoveCircularMandatoryStop(index, 1) },
+                                    enabled = index < circularMandatoryStops.lastIndex
+                                ) {
+                                    Icon(Icons.Default.KeyboardArrowDown,
+                                        contentDescription = "Sposta tappa giù")
+                                }
+                                IconButton(onClick = { onRemoveCircularMandatoryStop(index) }) {
+                                    Icon(Icons.Default.Delete,
+                                        contentDescription = "Rimuovi tappa obbligatoria",
+                                        tint = MotoChatColors.Error)
+                                }
                             }
                         }
                     }
@@ -2192,6 +2243,7 @@ fun NavigationScreen(
                             value = circularPoiQuery,
                             onValueChange = { circularPoiQuery = it },
                             label = { Text("Cerca passo, lago, paese o coordinate") },
+                            shape = RoundedCornerShape(16.dp),
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth(),
                             trailingIcon = {
@@ -2241,15 +2293,18 @@ fun NavigationScreen(
                 }
             },
             confirmButton = {
-                TextButton(onClick = {
+                Button(onClick = {
                     showCircularTourDialog = false
                     onCircularTour(circularDistanceKm.toInt(), circularOrientation)
-                }, enabled = !isNavigating && !isLoading) {
-                    Text("Calcola tour")
+                }, enabled = !isNavigating && !isLoading,
+                    modifier = Modifier.heightIn(min = 52.dp)) {
+                    Text("Calcola tour circolare",
+                        style = MaterialTheme.typography.labelMedium)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showCircularTourDialog = false }) {
+                OutlinedButton(onClick = { showCircularTourDialog = false },
+                    modifier = Modifier.heightIn(min = 52.dp)) {
                     Text("Annulla")
                 }
             }
