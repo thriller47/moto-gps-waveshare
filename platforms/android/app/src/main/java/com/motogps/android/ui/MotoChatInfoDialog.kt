@@ -159,6 +159,15 @@ fun MotoChatInfoDialog(onDismiss: () -> Unit) {
                         linkLabel = "github.com/komoot/photon",
                         link = "https://github.com/komoot/photon/blob/master/LICENSE"
                     )
+                    HorizontalDivider(color = MotoChatColors.Outline)
+                    LicenseEntry(
+                        name = "Space Grotesk · Manrope",
+                        tag = "SIL OFL 1.1",
+                        description = "Font open source inclusi nell'APK per l'uso anche offline. " +
+                            "Le licenze integrali sono nel repository del progetto.",
+                        linkLabel = "Google Fonts · licenze",
+                        link = "https://github.com/google/fonts/tree/main/ofl"
+                    )
                     Text(
                         "Le attribuzioni dei dati e le licenze dei componenti di terze parti " +
                             "rimangono applicabili. Questa schermata non sostituisce i testi " +
