@@ -5,7 +5,7 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: $0 INPUT.osm.pbf NEW_OUTPUT_DIR [--zstd] [--threads N] [--config-only]"
+  echo "Usage: $0 INPUT.osm.pbf NEW_OUTPUT_DIR [--zstd] [--threads N] [--elevation-dir CACHED_DEM] [--config-only]"
   echo "Requires valhalla_build_config, Python 3; full build also requires valhalla_build_tiles and valhalla_build_extract."
   exit 2
 }
@@ -15,15 +15,24 @@ OUT=$2
 COMPRESS=false
 THREADS=2
 CONFIG_ONLY=false
+ELEVATION_DIR=""
 shift 2
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --zstd) $COMPRESS && usage; COMPRESS=true; shift ;;
     --threads) [[ $# -ge 2 && "$2" =~ ^[1-9][0-9]*$ ]] || usage; THREADS=$2; shift 2 ;;
     --config-only) $CONFIG_ONLY && usage; CONFIG_ONLY=true; shift ;;
+    --elevation-dir) [[ $# -ge 2 ]] || usage; ELEVATION_DIR=$2; shift 2 ;;
     *) usage ;;
   esac
 done
+if [[ -n "$ELEVATION_DIR" ]]; then
+  [[ -d "$ELEVATION_DIR" ]] || { echo "Elevation tiles directory missing: $ELEVATION_DIR" >&2; exit 2; }
+  ELEVATION_DIR=$(realpath -- "$ELEVATION_DIR")
+elif ! $CONFIG_ONLY; then
+  echo "Elevation is required for MotoPack v3: provide --elevation-dir" >&2
+  exit 2
+fi
 [[ -f "$PBF" && "$PBF" == *.osm.pbf ]] || { echo "Missing input .osm.pbf: $PBF" >&2; exit 2; }
 for cmd in valhalla_build_config python3; do
   command -v "$cmd" >/dev/null || { echo "Missing command: $cmd" >&2; exit 2; }
@@ -49,11 +58,16 @@ TAR="$OUT/valhalla_tiles.tar"
 CONFIG="$OUT/valhalla.json"
 mkdir "$TILES"
 
-valhalla_build_config --mjolnir-tile-dir "$TILES" \
+elevation_args=()
+if [[ -n "$ELEVATION_DIR" ]]; then
+  elevation_args=(--additional-data-elevation "$ELEVATION_DIR")
+fi
+valhalla_build_config --mjolnir-tile-dir "$TILES" \\
   --mjolnir-tile-extract "$TAR" \
   --mjolnir-concurrency "$THREADS" \
   --mjolnir-timezone "$TILES/timezones.sqlite" \
-  --mjolnir-admin "$TILES/admins.sqlite" > "$CONFIG"
+  --mjolnir-admin "$TILES/admins.sqlite" \\
+  "${elevation_args[@]}" > "$CONFIG"
 
 # Modify the JSON produced by the INSTALLED Valhalla builder, rather than
 # assuming a particular CLI spelling for boolean flags. Fail on unknown schema.
