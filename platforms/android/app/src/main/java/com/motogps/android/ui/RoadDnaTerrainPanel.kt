@@ -21,7 +21,9 @@ import kotlin.math.max
 
 /** Offline-first Road DNA section, with no new ViewModel callbacks or BLE data. */
 @Composable
-internal fun RoadDnaTerrainPanel(terrain: RoadDnaTerrain) {
+internal fun RoadDnaTerrainPanel(
+    terrain: RoadDnaTerrain, fetchingElevation: Boolean = false
+) {
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(9.dp)
@@ -50,7 +52,11 @@ internal fun RoadDnaTerrainPanel(terrain: RoadDnaTerrain) {
         Text("Profilo altimetrico", style = MaterialTheme.typography.titleMedium,
             color = MotoChatColors.Green)
         val elevation = terrain.elevation
-        if (elevation == null) {
+        if (elevation == null && fetchingElevation) {
+            Text("Recupero online delle quote DEM lungo il percorso…",
+                style = MaterialTheme.typography.bodySmall,
+                color = MotoChatColors.TextMuted)
+        } else if (elevation == null) {
             Text("Quote non disponibili: serve un grafo Valhalla con dati DEM " +
                 "e una risposta contenente i campioni di elevazione. " +
                 "Non vengono stimate quote dalla sola mappa.",
