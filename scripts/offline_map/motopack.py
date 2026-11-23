@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build and verify Moto Chat GPS unified offline bundles (Python 3 stdlib).
 
-python3 scripts/offline_map/motopack.py build --motomap italy-v4.motomap.zip --valhalla valhalla_tiles.tar.zst --photon photon-italy-v2.sqlite --tourist tourist-italy-v1.sqlite -o italy.motopack
+python3 scripts/offline_map/motopack.py build --motomap italy-v4.motomap.zip --valhalla valhalla_tiles.tar.zst --photon photon-italy-v2.sqlite --tourist tourist-italy-v1.sqlite --elevation elevation-italy.zip -o italy.motopack
 python3 scripts/offline_map/motopack.py verify italy.motopack
 """
 import argparse
@@ -18,6 +18,7 @@ NAMES = {
     "valhalla": "valhalla/valhalla_tiles.tar.zst",
     "photon": "photon/photon-italy-v2.sqlite",
     "tourist": "road-dna/tourist-italy-v1.sqlite",
+    "elevation": "elevation/elevation-italy.zip",
 }
 CHUNK = 1024 * 1024
 
@@ -77,6 +78,19 @@ def validate_inputs(paths):
             raise ValueError("Road DNA tourist spatial index missing")
         if db.execute("PRAGMA integrity_check").fetchone() != ("ok",):
             raise ValueError("Road DNA tourist SQLite integrity check failed")
+    with zipfile.ZipFile(paths["elevation"]) as dem:
+        names = [name for name in dem.namelist() if not name.endswith("/")]
+        pattern = re.compile(r"[NS][0-9]{2}/[NS][0-9]{2}[EW][0-9]{3}\\.hgt\\.gz")
+        if (len(names) < 50 or len(names) != len(set(names)) or
+                not all(pattern.fullmatch(name) for name in names)):
+            raise ValueError("Invalid Skadi DEM Italia tile archive")
+        for example in ("N45/N45E009.hgt.gz", "N40/N40E014.hgt.gz"):
+            if example not in names:
+                raise ValueError("Missing DEM sample tile: " + example)
+        for name in names:
+            with dem.open(name) as entry:
+                if entry.read(2) != b"\\x1f\\x8b":
+                    raise ValueError("DEM tile not gzip: " + name)
     with paths["valhalla"].open("rb") as f:
         if f.read(4) != bytes.fromhex("28b52ffd"):
             raise ValueError("Valhalla must be .tar.zst")
@@ -93,7 +107,7 @@ def verify(filename):
             raise ValueError("Invalid manifest length")
         manifest = json.loads(archive.read("manifest.json"))
         if (manifest.get("format"), manifest.get("version"), manifest.get("region")) != (
-            FORMAT, 2, "IT"
+            FORMAT, 3, "IT"
         ):
             raise ValueError("Unsupported bundle format")
         components = manifest.get("components")
@@ -131,7 +145,7 @@ def build(args):
     pending = output.with_name(output.name + ".part")
     if pending.exists():
         raise FileExistsError(pending)
-    manifest = {"format": FORMAT, "version": 2, "region": "IT",
+    manifest = {"format": FORMAT, "version": 3, "region": "IT",
                 "attribution": "OpenStreetMap contributors (ODbL); Valhalla; Photon",
                 "components": {}}
     try:
@@ -173,7 +187,7 @@ def main():
         build(args)
     else:
         verify(args.file)
-        print("OK: MotoPack v2 / MotoMap v4 + Valhalla V5 + Photon v2 + Road DNA v1")
+        print("OK: MotoPack v3 / MotoMap v4 + Valhalla V5 + DEM + Photon v2 + Road DNA v1")
 
 if __name__ == "__main__":
     main()
