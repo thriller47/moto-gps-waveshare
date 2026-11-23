@@ -48,7 +48,7 @@
 ## Incongruenze di asset, design e comportamento da risolvere
 
 1. **Colori incompatibili nello stesso Design System:** il front matter YAML di `dark_touring/DESIGN.md` dichiara `background: #101413` e `primary: #70F6AF`, mentre la sezione narrativa dichiara esplicitamente `Background #080C0B` e `Primary Accent #50D995`. È stata adottata la palette narrativa, coerente con route mint e revisioni Android già presenti; richiede eventuale conferma grafica.
-2. **Font non inclusi:** Stitch specifica Space Grotesk e Manrope ma lo ZIP non contiene font redistribuibili. Il tema usa provvisoriamente `FontFamily.SansSerif`, mantenendo gerarchia/size/weight. La tipografia **non è pixel-perfect**.
+2. **Font risolti nel codice (23/11):** i due font variabili ufficiali Space Grotesk e Manrope sono stati inseriti in `res/font` e configurati in `MotoChatTheme.kt` per titoli e testi. Le licenze SIL OFL 1.1 sono in `docs/licenses/` e attribuite nel dialog Informazioni. La resa tipografica sul dispositivo va ancora verificata con la prima build.
 3. **Riferimenti visivi ambigui:** gli HTML della cartella Mappe offline e della cartella API Road DNA contengono markup di più schermate e screenshot riferiti prevalentemente al tour builder; la cartella principale tour builder non contiene `screen.png`. La traduzione privilegia il nome funzionale delle sezioni reali.
 4. **Tecnologia cartografica:** le schermate Stitch raffigurano mappe scure/vettoriali; il progetto usa la vista `osmdroid` su `MAPNIK` con filtro notturno. Cambiare renderer, tasselli o fonte cartografica sarebbe fuori ambito e potrebbe pregiudicare routing e waypoint. Non è stata sostituita la mappa.
 5. **Guida a frecce vs requisiti storici:** la descrizione Stitch menziona "routing turn arrows", ma `PROJECT_STATE.md`/`AGENTS.md` vietano le normali frecce di svolta nel dispositivo ESP32. Rimane la navigazione a linea verde/distanza/zoom; nessuna freccia ripristinata.
@@ -72,7 +72,7 @@
 
 ## Prossimo passo
 
-Attendere **ordine esplicito** prima della prima build; eseguire una sola build Android consolidata su `NewUI`, registrare errori di compilazione e schermate reali, risolvere solo dopo diagnosi e senza perdere le firme/callback. In seguito concordare se estendere il ViewModel per GPX/altimetria/analytics, e valutare merge in `valhalla` **solo dopo autorizzazione**.
+Attendere **ordine esplicito** prima della prima build; eseguire una sola build Android consolidata su `NewUI`, registrare errori di compilazione e schermate reali, risolvere solo dopo diagnosi e senza perdere le firme/callback. Le estensioni altimetria/analytics al ViewModel sono ora implementate nel codice, GPX resta una funzione separata da concordare. Valutare merge in `valhalla` **solo dopo validazione e autorizzazione**.
 
 
 ## Aggiornamento 23 novembre 2026 — altimetria e analisi curve
@@ -81,4 +81,11 @@ Attendere **ordine esplicito** prima della prima build; eseguire una sola build 
 - **Routing:** le richieste Valhalla chiedono quote ogni 30 m, l'adattatore conserva una serie separata dalla geometria BLE. Le risposte senza quote danno uno stato esplicito, mai valori inventati.
 - **MotoPack v3:** un quinto componente `elevation/elevation-italy.zip` contiene i tasselli Skadi necessari in esecuzione sull'Android. `UnifiedOfflineMapImporter` li verifica e `ValhallaElevationImporter` li installa, quindi il factory Valhalla punta alla cartella DEM.
 - **Rigenerazione:** `valhalla_build_elevation` acquisisce DEM Tilezen/SRTMv3, cache esterna all'output; il generatore grafo usa `--additional-data-elevation`. Ora il MotoPack v2 non è accettato da questo importatore, con consenso dell'utente.
-- **Restano da verificare:** disponibilità CLI su WSL, rete/coverage Tilezen, tempo/spazio, ZIP/import Android, API v0.6.6 nel progetto, build e rendering, indici curve su strade reali, font Stitch ancora mancanti. Nessuna build, CI, test eseguito o navigazione hardware autorizzata in questa sessione.
+- **Restano da verificare:** disponibilità CLI su WSL, rete/coverage Tilezen, tempo/spazio, ZIP/import Android, API v0.6.6 nel progetto, build e rendering, indici curve su strade reali, resa dei font Stitch sul dispositivo ancora non verificata. Nessuna build, CI, test runner o navigazione hardware eseguiti in questa sessione.
+
+## Aggiornamento 23 novembre 2026 — `/height` online e font Dark Touring
+
+- **Online DEM:** `routing/OnlineValhallaElevation.kt` prepara una polyline6 dalla vera geometria selezionata, limita i punti a 4.500 (campionamento a distanza non inferiore a 100 m), invia una sola POST `/height` e convalida `range_height`; quote nulle o insufficienti restano non disponibili. Nessun ricalcolo rotta, auto-retry o chiamata in navigazione.
+- **Attivazione:** soltanto con apertura Road DNA su una rotta priva di quote utilizzabili, dopo la pubblicazione del risultato turistico offline. `NavigationViewModel` pubblica lo stato `elevationLoading` e poi il profilo, se valido; una selezione rotta cambiata invalida la risposta. Non modifica i dati BLE/ESP32.
+- **Risorse font:** due TTF variabili ufficiali Google Fonts (Manrope e Space Grotesk), inclusi nell'APK senza dipendenza dalla rete a runtime; OFL in `docs/licenses/MANROPE_OFL.txt` e `SPACE_GROTESK_OFL.txt`. `MotoChatTheme.kt` usa Space Grotesk per titoli/etichette e Manrope per corpo testo.
+- **Test aggiunti:** `routing/OnlineValhallaElevationTest.kt` verifica payload, parsing delle quote, dati nulli e ordinamento. Non eseguiti build, test runner o prove reali su server pubblico; verificare HTTP 429/503, timeout e resa sul telefono nella prima sessione autorizzata.
