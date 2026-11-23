@@ -80,7 +80,7 @@ def validate_inputs(paths):
             raise ValueError("Road DNA tourist SQLite integrity check failed")
     with zipfile.ZipFile(paths["elevation"]) as dem:
         names = [name for name in dem.namelist() if not name.endswith("/")]
-        pattern = re.compile(r"[NS][0-9]{2}/[NS][0-9]{2}[EW][0-9]{3}\\.hgt\\.gz")
+        pattern = re.compile(r"[NS][0-9]{2}/[NS][0-9]{2}[EW][0-9]{3}\.hgt\.gz")
         if (len(names) < 50 or len(names) != len(set(names)) or
                 not all(pattern.fullmatch(name) for name in names)):
             raise ValueError("Invalid Skadi DEM Italia tile archive")
@@ -89,7 +89,7 @@ def validate_inputs(paths):
                 raise ValueError("Missing DEM sample tile: " + example)
         for name in names:
             with dem.open(name) as entry:
-                if entry.read(2) != b"\\x1f\\x8b":
+                if entry.read(2) != b"\x1f\x8b":
                     raise ValueError("DEM tile not gzip: " + name)
     with paths["valhalla"].open("rb") as f:
         if f.read(4) != bytes.fromhex("28b52ffd"):
