@@ -208,6 +208,46 @@ Se la connessione tra telefono ed ESP32 si interrompe **involontariamente** (es.
 
 ## 2. Rigenerazione completa MotoPack — procedura consigliata
 
+### Nuovo MotoPack v3 con quote DEM (branch `NewUI`, 23/11/2026 — **sperimentale, non ancora collaudato**)
+
+Questa estensione **non è ancora parte del branch stabile `valhalla`**. In `NewUI` il pacchetto unificato diventa **MotoPack v3**: MotoMap v4, Photon v2, Tourist/Road DNA v1, grafo Valhalla V5 e archivio DEM Skadi. **Un MotoPack v2 precedente non è accettato dal nuovo importatore v3**; l'utente ha autorizzato questa incompatibilità per poter ripartire con dati aggiornati. Il firmware ESP32 e il protocollo BLE non cambiano.
+
+**Prima di lanciare la rigenerazione**, in **WSL Ubuntu** (non PowerShell) controllare che il progetto sia davvero sul branch di prova e che siano disponibili gli strumenti:
+
+```bash
+cd ~/MotoGPS/moto-gps-waveshare
+git switch NewUI
+git pull --ff-only origin NewUI
+source ~/valhalla-env/bin/activate
+command -v valhalla_build_config
+command -v valhalla_build_elevation
+command -v valhalla_build_tiles
+command -v valhalla_build_extract
+command -v zstd
+ls -lh /mnt/c/MotoGPS/PBF/italy-latest.osm.pbf /mnt/c/MotoGPS/PBF/italy.poly /mnt/c/MotoGPS/PBF/photon-italy.jsonl.zst
+```
+
+Se `valhalla_build_elevation` non viene trovato, **fermarsi**: occorre rendere disponibile lo script di download dell'installazione Valhalla compatibile con `valhalla-env`; non modificare il PBF né cancellare il vecchio pacchetto per tentare di risolvere. Il downloader Tilezen richiede **internet e spazio aggiuntivo su disco**, perché scarica i DEM di Italia e zone limitrofe; la generazione e l'importazione dell'APK non sono state ancora verificate sul PC/telefono.
+
+**Rigenerazione completa** (dopo un controllo dello spazio libero):
+
+```bash
+bash scripts/offline_map/rebuild_motopack_wsl.sh --threads 2
+```
+
+Il sistema mantiene i tasselli SRTMv3 nella cache persistente `~/motogps-build/DEM-Italia`, **fuori** dalla cartella di output che lo script sostituisce dopo la verifica. Un download successivo può riutilizzare i file già presenti. La cartella può essere cambiata senza spostarla nel PBF:
+
+```bash
+MOTOGPS_ELEVATION_CACHE="$HOME/motogps-build/DEM-Italia" \
+  bash scripts/offline_map/rebuild_motopack_wsl.sh --threads 2
+```
+
+Il nuovo componente è `elevation-italy.zip` all'interno di `MotoChatGPS-Italia.motopack`. La verifica Python controlla tipo, SHA-256, lunghezza e presenza minima dei tasselli. L'importatore Android verifica l'intero contenuto prima di installare e copia le quote in `Android/data/com.motogps.android/files/routing/elevation`. Valhalla riceve quel percorso nella configurazione locale. Il grafico delle quote compare solo quando i campioni restituiti sono validi: altrimenti Road DNA dice espressamente che il DEM non è disponibile.
+
+**Attenzione:** le quote sono DEM, quindi indicative; tornanti e classificazione delle curve sono stimati geometricamente, non misure di aderenza o di velocità consigliata. Il codice è su `NewUI`, **senza build né prova end-to-end**: attendere l'ordine esplicito prima di avviare Gradle/GitHub Actions.
+
+
+
 **Un unico comando in WSL** ricrea **MotoMap v4** (strade e copertura), **Photon SQLite v2 con POI OSM** (ricerca indirizzi, carburante, ristorazione e alloggi), **Tourist SQLite v1** (Road DNA turistico) e **Valhalla V5** (grafo moto dal PBF aggiornato), quindi assembla e verifica il pacchetto `MotoChatGPS-Italia.motopack`. Usa lo script `scripts/offline_map/rebuild_motopack_wsl.sh`, presente nel branch stabile `valhalla`.
 
 **Sorgenti attuali in `C:\MotoGPS\PBF`:**
