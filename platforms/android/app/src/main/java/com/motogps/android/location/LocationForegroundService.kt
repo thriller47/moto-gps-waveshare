@@ -10,11 +10,11 @@ import android.content.pm.ServiceInfo
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
-import android.os.SystemClock
-import android.util.Log
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
+import android.os.SystemClock
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -80,8 +80,6 @@ open class LocationForegroundService : Service(), LocationListener {
             }
         } catch (e: Exception) {
             Log.e("LocationForegroundService", "Failed to start foreground service", e)
-            stopSelf()
-            return START_NOT_STICKY
         }
 
         startLocationUpdates()
@@ -146,13 +144,14 @@ open class LocationForegroundService : Service(), LocationListener {
         } else {
             net.time - gps.time
         }
+        // Prefer GPS unless network is significantly fresher and GPS is stale (> 60s)
         if (timeDiffMs > 60_000L) {
             return net
         }
         if (gps.hasAccuracy() && net.hasAccuracy() && gps.accuracy <= net.accuracy) {
             return gps
         }
-        return if (timeDiffMs <= 0L) gps else net
+        return if (gps.time >= net.time) gps else net
     }
 
     override fun onLocationChanged(location: Location) {
