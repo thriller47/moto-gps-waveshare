@@ -27,6 +27,12 @@ class OnlineValhallaElevationTest {
         assertTrue(payload.optBoolean("range"))
         assertEquals("polyline6", payload.optString("shape_format"))
         assertTrue(payload.getString("encoded_polyline").length > 10)
+        // Reuse the adapter's production polyline6 decoder for coordinate order.
+        val decoded = ValhallaRouteAdapter.decodePolyline6(
+            payload.getString("encoded_polyline"))
+        assertEquals(45.0, decoded.first().first, 0.000002)
+        assertEquals(9.0, decoded.first().second, 0.000002)
+        assertEquals(45.008, decoded.last().first, 0.000002)
         assertEquals(previous, r.toString())
         assertNull(OnlineValhallaElevation.heightRequest(JSONObject()))
     }
