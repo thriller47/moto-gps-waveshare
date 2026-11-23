@@ -354,7 +354,8 @@ internal object RoadDnaAnalysis {
                 cancelled: CancellationSignal? = null): RoadDnaSummary {
         val points = geometry(option.rawRouteJson)
         if (points.size < 2) throw IllegalArgumentException("Geometria Valhalla assente")
-        val curvature = curves(points)
+        val curvature = RoadDnaTerrainAnalysis.curveMetrics(
+            points, option.distanceMeters.toDouble()).index
         val file = OfflineTouristPlaceSearch.file(context)
         if (!file.isFile) return RoadDnaSummary(
             option.id, curvature, emptyMap(), emptyList(), false, points.size)
