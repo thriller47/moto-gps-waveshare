@@ -404,6 +404,57 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
 
     private val _routeOptions = MutableStateFlow<List<RouteOption>>(emptyList())
     val routeOptions: StateFlow<List<RouteOption>> = _routeOptions
+
+    // Elevation is exclusive to the Android planning preview, never navigation.
+    private val _routePreviewElevation = MutableStateFlow<RoadDnaElevation?>(null)
+    val routePreviewElevation: StateFlow<RoadDnaElevation?> = _routePreviewElevation
+    private val _routePreviewElevationLoading = MutableStateFlow(false)
+    val routePreviewElevationLoading: StateFlow<Boolean> = _routePreviewElevationLoading
+    private var routePreviewElevationJob: Job? = null
+    private var routePreviewElevationAttempted: RouteOption? = null
+
+    private fun resetRoutePreviewElevation() {
+        routePreviewElevationJob?.cancel()
+        routePreviewElevationJob = null
+        routePreviewElevationAttempted = null
+        _routePreviewElevation.value = null
+        _routePreviewElevationLoading.value = false
+    }
+
+    /** Only an explicit expansion of the Android preview profile calls /height. */
+    fun requestRoutePreviewElevation() {
+        if (_isNavigating.value || _isLoading.value || _routePreview.value == null) return
+        val option = _routeOptions.value.getOrNull(_selectedRouteIndex.value) ?: return
+        val local = RoadDnaTerrainAnalysis.elevation(option.rawRouteJson)
+        if (local != null) {
+            _routePreviewElevation.value = local
+            _routePreviewElevationLoading.value = false
+            return
+        }
+        if (routePreviewElevationAttempted === option) return
+        resetRoutePreviewElevation()
+        routePreviewElevationAttempted = option
+        _routePreviewElevationLoading.value = true
+        routePreviewElevationJob = viewModelScope.launch {
+            val remote = try {
+                withContext(Dispatchers.IO) {
+                    OnlineValhallaElevation.fetch(option.rawRouteJson)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w("NavigationVM",
+                    "Preview /height unavailable: " + e.javaClass.simpleName)
+                null
+            }
+            if (!_isNavigating.value && _routePreview.value != null &&
+                routePreviewElevationAttempted === option &&
+                _routeOptions.value.getOrNull(_selectedRouteIndex.value) === option) {
+                _routePreviewElevation.value = remote
+                _routePreviewElevationLoading.value = false
+            }
+        }
+    }
     private val _routePreviewError = MutableStateFlow<String?>(null)
     val routePreviewError: StateFlow<String?> = _routePreviewError
     private val _routingSource = MutableStateFlow<String?>(null)
@@ -420,8 +471,6 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     private var roadDnaJob: Job? = null
     private var roadDnaRequestId = 0L
     private var roadDnaCancelSignal: CancellationSignal? = null
-    // One optional public /height attempt per selected route object, per session.
-    private var roadDnaHeightAttemptedOption: RouteOption? = null
 
     private val _roadDnaOnline = MutableStateFlow<RoadDnaOnlineResult?>(null)
     val roadDnaOnline: StateFlow<RoadDnaOnlineResult?> = _roadDnaOnline
@@ -798,36 +847,9 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                         _routeOptions.value.getOrNull(_selectedRouteIndex.value) === option
                 }
                 if (stillSelected()) {
-                    // Always publish the offline tourist/curve analysis first.
-                    val localHeight = RoadDnaTerrainAnalysis.elevation(option.rawRouteJson)
-                    val needsRemoteHeight = localHeight == null &&
-                        roadDnaHeightAttemptedOption !== option
-                    val initial = report.copy(elevation = localHeight,
-                        elevationLoading = needsRemoteHeight)
-                    _roadDnaSummary.value = initial
-                    _roadDnaLoading.value = false
-
-                    // Only this deliberate Road DNA gesture can use /height; no
-                    // traffic in preview generation, navigation or rerouting.
-                    if (needsRemoteHeight) {
-                        roadDnaHeightAttemptedOption = option
-                        val remoteHeight = try {
-                            withContext(Dispatchers.IO) {
-                                OnlineValhallaElevation.fetch(option.rawRouteJson)
-                            }
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (e: Exception) {
-                            Log.w("NavigationVM",
-                                "Road DNA /height unavailable: " + e.javaClass.simpleName)
-                            null
-                        }
-                        if (stillSelected()) {
-                            // This is UI-only; native route and BLE are untouched.
-                            _roadDnaSummary.value = _roadDnaSummary.value?.copy(
-                                elevation = remoteHeight, elevationLoading = false)
-                        }
-                    }
+                    // Tourist places and curvature are independent from the
+                    // optional altitude profile in Android's route preview.
+                    _roadDnaSummary.value = report
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -1191,6 +1213,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                 "non è verificato: cerca una strada o località vicina per navigare."
             return
         }
+        resetRoutePreviewElevation()
         routePreviewJob?.cancel()
         DiagnosticLog.event("ROUTE_PREVIEW", "begin stops=${_routeWaypoints.value.size}")
         _routePreview.value = place
@@ -1224,14 +1247,16 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     }
 
     fun selectRouteOption(index: Int) {
-        if (index in _routeOptions.value.indices) {
+        if (index in _routeOptions.value.indices && index != _selectedRouteIndex.value) {
             invalidateRoadDna()
+            resetRoutePreviewElevation()
             _selectedRouteIndex.value = index
         }
     }
 
     fun clearRoutePreview() {
         invalidateRoadDna()
+        resetRoutePreviewElevation()
         resumeOriginSession = null
         _hasArrived.value = false
         arrivalDetector.reset()
@@ -1267,6 +1292,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         }
         if (_isLoading.value || _isNavigating.value) return
 
+        resetRoutePreviewElevation()
         _routePreviewError.value = null
         _hasArrived.value = false
         arrivalDetector.reset()

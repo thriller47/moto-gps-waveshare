@@ -278,6 +278,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             val routePreviewError = viewModel.routePreviewError.collectAsState().value
             val routePreferences = viewModel.routePreferences.collectAsState().value
             val selectedRouteIndex = viewModel.selectedRouteIndex.collectAsState().value
+            val previewElevation = viewModel.routePreviewElevation.collectAsState().value
+            val previewElevationLoading =
+                viewModel.routePreviewElevationLoading.collectAsState().value
             val roadDnaSummary = viewModel.roadDnaSummary.collectAsState().value
             val roadDnaLoading = viewModel.roadDnaLoading.collectAsState().value
             val roadDnaError = viewModel.roadDnaError.collectAsState().value
@@ -375,6 +378,11 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                         viewModel.updateRoutePreferences(this@MainActivity, it)
                     },
                     selectedRouteIndex = selectedRouteIndex,
+                    previewElevation = previewElevation,
+                    previewElevationLoading = previewElevationLoading,
+                    onPreviewElevationRequest = {
+                        viewModel.requestRoutePreviewElevation()
+                    },
                     roadDnaSummary = roadDnaSummary,
                     roadDnaLoading = roadDnaLoading,
                     roadDnaError = roadDnaError,

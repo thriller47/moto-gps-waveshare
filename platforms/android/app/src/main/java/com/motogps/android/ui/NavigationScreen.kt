@@ -56,6 +56,7 @@ import com.motogps.android.viewmodel.SavedCircularTour
 import com.motogps.android.viewmodel.TourSession
 import com.motogps.android.viewmodel.RouteOption
 import com.motogps.android.viewmodel.RoadDnaSummary
+import com.motogps.android.viewmodel.RoadDnaElevation
 import com.motogps.android.viewmodel.RoadDnaTerrainAnalysis
 import com.motogps.android.viewmodel.RoadDnaPoi
 import com.motogps.android.viewmodel.RoadDnaAreaAccess
@@ -753,6 +754,9 @@ fun NavigationScreen(
     onRemoveWaypoint: (Int) -> Unit = {},
     onMoveWaypoint: (Int, Int) -> Unit = { _, _ -> },
     selectedRouteIndex: Int,
+    previewElevation: RoadDnaElevation? = null,
+    previewElevationLoading: Boolean = false,
+    onPreviewElevationRequest: () -> Unit = {},
     roadDnaSummary: RoadDnaSummary? = null,
     roadDnaLoading: Boolean = false,
     roadDnaError: String? = null,
@@ -864,14 +868,12 @@ fun NavigationScreen(
         mutableStateOf<RoadDnaRoadsideCandidate?>(null)
     }
     var selectedRoadDnaPoi by remember { mutableStateOf<RoadDnaOnlinePoi?>(null) }
-    // Computed from the selected route's real geometry and optional DEM samples.
-    // No new public Composable parameters or NavigationViewModel callbacks.
-    val selectedTerrain = remember(routeOptions, selectedRouteIndex, roadDnaSummary) {
+    // The profile is derived from route geometry; online heights are Android
+    // preview-only state, independent from Road DNA tourist/curve queries.
+    val selectedTerrain = remember(routeOptions, selectedRouteIndex, previewElevation) {
         routeOptions.getOrNull(selectedRouteIndex)?.let { option ->
             val terrain = RoadDnaTerrainAnalysis.analyze(option.rawRouteJson)
-            val remoteElevation = roadDnaSummary
-                ?.takeIf { it.routeId == option.id }?.elevation
-            if (remoteElevation != null) terrain.copy(elevation = remoteElevation)
+            if (previewElevation != null) terrain.copy(elevation = previewElevation)
             else terrain
         }
     }
@@ -1825,8 +1827,7 @@ fun NavigationScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     if (selectedTerrain != null) {
-                        RoadDnaTerrainPanel(selectedTerrain,
-                            fetchingElevation = roadDnaSummary?.elevationLoading == true)
+                        RoadDnaTerrainPanel(selectedTerrain)
                         HorizontalDivider(color = MotoChatColors.Outline)
                     }
                     if (roadDnaLoading) {
@@ -2867,6 +2868,9 @@ fun NavigationScreen(
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
             if (routePreview != null) {
                 val selectedRoute = routeOptions.getOrNull(selectedRouteIndex)
+                var altitudeExpanded by remember(selectedRoute, isNavigating) {
+                    mutableStateOf(false)
+                }
                 val geoPoints = remember(selectedRoute, currentLocation, routePreview) {
                     extractGeoPoints(selectedRoute, currentLocation, routePreview)
                 }
@@ -3094,6 +3098,22 @@ fun NavigationScreen(
                                             }
                                         }
                                     }
+                                }
+                            }
+                            if (!isNavigating && selectedRoute != null) {
+                                item(key = "preview-altitude") {
+                                    RoutePreviewElevationSection(
+                                        elevation = selectedTerrain?.elevation,
+                                        loading = previewElevationLoading,
+                                        expanded = altitudeExpanded,
+                                        onToggle = {
+                                            altitudeExpanded = !altitudeExpanded
+                                            if (altitudeExpanded &&
+                                                selectedTerrain?.elevation == null) {
+                                                onPreviewElevationRequest()
+                                            }
+                                        }
+                                    )
                                 }
                             }
                         }

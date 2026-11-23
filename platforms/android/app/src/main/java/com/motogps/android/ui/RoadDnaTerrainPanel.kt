@@ -1,11 +1,14 @@
 package com.motogps.android.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -21,9 +24,7 @@ import kotlin.math.max
 
 /** Offline-first Road DNA section, with no new ViewModel callbacks or BLE data. */
 @Composable
-internal fun RoadDnaTerrainPanel(
-    terrain: RoadDnaTerrain, fetchingElevation: Boolean = false
-) {
+internal fun RoadDnaTerrainPanel(terrain: RoadDnaTerrain) {
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(9.dp)
@@ -48,23 +49,6 @@ internal fun RoadDnaTerrainPanel(
             style = MaterialTheme.typography.bodySmall,
             color = MotoChatColors.TextMuted)
 
-        HorizontalDivider(color = MotoChatColors.Outline)
-        Text("Profilo altimetrico", style = MaterialTheme.typography.titleMedium,
-            color = MotoChatColors.Green)
-        val elevation = terrain.elevation
-        if (elevation == null && fetchingElevation) {
-            Text("Recupero online delle quote DEM lungo il percorso…",
-                style = MaterialTheme.typography.bodySmall,
-                color = MotoChatColors.TextMuted)
-        } else if (elevation == null) {
-            Text("Quote non disponibili: serve un grafo Valhalla con dati DEM " +
-                "e una risposta contenente i campioni di elevazione. " +
-                "Non vengono stimate quote dalla sola mappa.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MotoChatColors.TextMuted)
-        } else {
-            RoadDnaElevationDetails(elevation)
-        }
     }
 }
 
@@ -75,6 +59,82 @@ private fun TerrainMetric(title: String, number: String, modifier: Modifier) {
             color = MotoChatColors.Text)
         Text(title, style = MaterialTheme.typography.labelSmall,
             color = MotoChatColors.TextMuted)
+    }
+}
+
+/**
+ * Route-planning-only altitude accordion. It lives inside the preview's
+ * LazyColumn to keep the map and the Start Navigation button visible.
+ */
+@Composable
+internal fun RoutePreviewElevationSection(
+    elevation: RoadDnaElevation?,
+    loading: Boolean,
+    expanded: Boolean,
+    onToggle: () -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 5.dp),
+        shape = RoundedCornerShape(16.dp),
+        color = MotoChatColors.SurfaceRaised,
+        border = BorderStroke(1.dp, MotoChatColors.Outline)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth()
+                    .clickable(onClick = onToggle)
+                    .heightIn(min = 56.dp)
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Profilo altimetrico",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MotoChatColors.Green)
+                    if (!expanded && elevation != null) {
+                        Text("Quota " + elevation.minMeters + "–" +
+                            elevation.maxMeters + " m · salita +" +
+                            elevation.ascentMeters + " m",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MotoChatColors.TextMuted)
+                    } else if (!expanded) {
+                        Text("Quote e dislivelli del percorso",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MotoChatColors.TextMuted)
+                    }
+                }
+                Text(if (expanded) "Nascondi ▲" else "Mostra ▼",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MotoChatColors.Text)
+            }
+            if (expanded) {
+                Column(
+                    modifier = Modifier.fillMaxWidth()
+                        .padding(start = 14.dp, end = 14.dp, bottom = 14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    when {
+                        elevation != null -> RoadDnaElevationDetails(elevation)
+                        loading -> {
+                            androidx.compose.material3.LinearProgressIndicator(
+                                modifier = Modifier.fillMaxWidth())
+                            Text("Recupero online delle quote DEM lungo il percorso…",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MotoChatColors.TextMuted)
+                        }
+                        else -> Text(
+                            "Quote non disponibili. La rotta non contiene dati DEM " +
+                                "utilizzabili oppure il servizio online non è raggiungibile. " +
+                                "L'itinerario resta invariato.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MotoChatColors.TextMuted)
+                    }
+                }
+            }
+        }
     }
 }
 
