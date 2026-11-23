@@ -2407,7 +2407,7 @@ fun NavigationScreen(
                                 OutlinedTextField(
                                     value = value,
                                     onValueChange = onValueChange,
-                                    label = { Text("Chiave $""{name}") },
+                                    label = { Text("Chiave ${name}") },
                                     shape = RoundedCornerShape(12.dp),
                                     visualTransformation = PasswordVisualTransformation(),
                                     singleLine = true,
