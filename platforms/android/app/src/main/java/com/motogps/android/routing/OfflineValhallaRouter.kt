@@ -45,7 +45,9 @@ internal object OfflineValhallaRouter {
         if (engine == null || loadedTilePath != path) {
             engine?.close()
             engine = null
-            val config = ValhallaConfigFactory.usingTileExtract(path)
+            val demDir = File(tiles.parentFile, "elevation")
+            val config = ValhallaConfigFactory.usingTileExtract(
+                path, elevationDir = demDir.takeIf { it.isDirectory }?.absolutePath)
             engine = Valhalla(context.applicationContext, config)
             loadedTilePath = path
         }
