@@ -204,7 +204,7 @@ internal object RoadDnaTerrainAnalysis {
                 smooth.add(null)
                 continue
             }
-            val near = (max(0, i - 2)..min(points.lastIndex, i + 2))
+            val near = (max(0, i - 1)..min(points.lastIndex, i + 1))
                 .mapNotNull { points[it].altitudeMeters }
                 .sorted()
             smooth.add(near[near.size / 2])
