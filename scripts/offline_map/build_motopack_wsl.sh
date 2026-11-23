@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # WSL-only, end-to-end builder: OSM PBF + matching POLY + Photon JSONL(.zst)
-# => MotoMap v4, Valhalla V5, Photon SQLite v2, Road DNA tourist SQLite v1.
+# => MotoMap v4, Valhalla V5 + Skadi DEM, Photon SQLite v2, Road DNA tourist SQLite v1.
 set -euo pipefail
 
 usage() {
@@ -51,7 +51,7 @@ done
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 command -v "$PYTHON" >/dev/null || { echo "Missing Python: $PYTHON" >&2; exit 2; }
-for program in valhalla_build_config valhalla_build_tiles valhalla_build_extract zstd; do
+for program in valhalla_build_config valhalla_build_tiles valhalla_build_extract valhalla_build_elevation zstd; do
   command -v "$program" >/dev/null || { echo "Missing required command: $program" >&2; exit 2; }
 done
 "$PYTHON" -c 'import osmium, shapely' || { echo "Install osmium and shapely into the selected Python environment" >&2; exit 2; }
@@ -75,11 +75,14 @@ TOURIST="$OUT/tourist-italy-v1.sqlite"
 DB="$OUT/photon-italy-v2.sqlite"
 VAL_DIR="$OUT/ValhallaItaliaV5"
 GRAPH="$VAL_DIR/valhalla_tiles.tar.zst"
+DEM_ARCHIVE="$OUT/elevation-italy.zip"
+# Persistent elevation cache is OUTSIDE the replaceable MotoPack output folder.
+DEM_CACHE="${MOTOGPS_ELEVATION_CACHE:-$HOME/motogps-build/DEM-Italia}"
 PACK="$OUT/MotoChatGPS-Italia.motopack"
 [[ ! -e "$PACK" && ! -e "$PACK.part" ]] || { echo "Package output already exists: $PACK" >&2; exit 2; }
 
 step() { printf '\n===== %s =====\n' "$1"; }
-step '1/5 MotoMap v4 (PBF + POLY)'
+step '1/6 MotoMap v4 (PBF + POLY)'
 if [[ -e "$MAP" ]]; then
   $RESUME || { echo "Unexpected existing MotoMap: $MAP" >&2; exit 2; }
   echo "Reusing $MAP"
@@ -89,7 +92,7 @@ else
   mv -- "$MAP.part" "$MAP"
 fi
 
-step '2/5 Photon v2 (JSONL dump)'
+step '2/6 Photon v2 (JSONL dump)'
 if [[ -e "$DB" ]]; then
   $RESUME || { echo "Unexpected existing Photon: $DB" >&2; exit 2; }
   echo "Reusing $DB"
@@ -148,7 +151,7 @@ else
   fi
 fi
 
-step '3/5 Road DNA tourist SQLite v1 (PBF: 3 passes, polygon validation)'
+step '3/6 Road DNA tourist SQLite v1 (PBF: 3 passes, polygon validation)'
 if [[ -e "$TOURIST" ]]; then
   $RESUME || { echo "Unexpected existing Road DNA index: $TOURIST" >&2; exit 2; }
   "$PYTHON" - "$TOURIST" <<'PY'
@@ -175,19 +178,39 @@ else
   "$PYTHON" "$SCRIPT_DIR/tourist_to_sqlite.py" "${tourist_args[@]}"
 fi
 
-step '4/5 Valhalla motorcycle graph V5'
+step '4/6 Skadi DEM for the Italian region'
+if [[ -s "$DEM_ARCHIVE" ]]; then
+  $RESUME || { echo "Unexpected existing DEM ZIP: $DEM_ARCHIVE" >&2; exit 2; }
+  echo "Reusing $DEM_ARCHIVE"
+else
+  [[ ! -e "$DEM_ARCHIVE.part" ]] || {
+    echo "Incomplete DEM archive: $DEM_ARCHIVE.part" >&2; exit 2;
+  }
+  mkdir -p -- "$DEM_CACHE"
+  DEM_CACHE=$(realpath -- "$DEM_CACHE")
+  # Tilezen/Skadi SRTMv3 1-degree cells, cached across rebuilt MotoPacks.
+  # Covers continental Italy, islands and an Alpine border margin.
+  valhalla_build_elevation --from-bbox "6,35,19,48" \
+    --outdir "$DEM_CACHE" --parallelism "$THREADS" -v
+  "$PYTHON" "$SCRIPT_DIR/prepare_elevation_zip.py" "$DEM_CACHE" "$DEM_ARCHIVE"
+fi
+
+step '5/6 Valhalla motorcycle graph V5 + DEM'
 if [[ -s "$GRAPH" ]]; then
   $RESUME || { echo "Unexpected existing graph: $GRAPH" >&2; exit 2; }
+  [[ -s "$VAL_DIR/.dem-enabled" ]] || {
+    echo "Existing Valhalla graph was generated without DEM: use a new output." >&2; exit 2;
+  }
   echo "Reusing $GRAPH"
 elif [[ -e "$VAL_DIR" ]]; then
   echo "Valhalla output directory already exists but compressed graph is missing/empty: $VAL_DIR" >&2
   echo "Inspect this incomplete build manually; never delete or overwrite it automatically." >&2
   exit 2
 else
-  bash "$SCRIPT_DIR/build_valhalla_moto_v5.sh" "$PBF" "$VAL_DIR" --zstd --threads "$THREADS"
+  bash "$SCRIPT_DIR/build_valhalla_moto_v5.sh" "$PBF" "$VAL_DIR" --zstd --threads "$THREADS" --elevation-dir "$DEM_CACHE"
 fi
 
-step '5/5 Package + SHA-256 verification'
-"$PYTHON" "$SCRIPT_DIR/motopack.py" build --motomap "$MAP" --valhalla "$GRAPH" --photon "$DB" --tourist "$TOURIST" -o "$PACK"
+step '6/6 Package v3 + SHA-256 verification'
+"$PYTHON" "$SCRIPT_DIR/motopack.py" build --motomap "$MAP" --valhalla "$GRAPH" --photon "$DB" --tourist "$TOURIST" --elevation "$DEM_ARCHIVE" -o "$PACK"
 "$PYTHON" "$SCRIPT_DIR/motopack.py" verify "$PACK"
 echo "READY: $PACK"
