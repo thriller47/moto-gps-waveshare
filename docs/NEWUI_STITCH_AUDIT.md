@@ -41,9 +41,9 @@
 | `moto_chat_gps_informazioni_e_licenze` | **Integrato**: pannello dark, attribuzioni OSM/Valhalla/Photon con link reali. | Non inventata una versione APK presentata nel mock; MapLibre non è una libreria UI Android attestata nel codice, perciò evitare attribuzioni tecniche non verificate. |
 | `moto_chat_gps_i_miei_tour_salvati` | **Integrato parzialmente**: tour conservati a card con nome, km richiesti, tappe e due opzioni di partenza. | Le statistiche di durata, dislivello e dettagli simulati nel mock non sono proprietà del tipo `SavedCircularTour`; non visualizzati. |
 | `moto_chat_gps_esporta_e_condividi_gpx` | **Non implementato** come nuova funzione. | Nel Composable attuale mancano callback per serializzazione/condivisione GPX e flussi appositi: introdurli violerebbe i vincoli dati dall'utente. Non confondere con la preesistente esportazione diagnostica ZIP. |
-| `moto_chat_gps_profilo_altimetrico_espanso` | **Non implementato**. | Mancano serie di quota/profilo/pendenze affidabili e le corrispondenti API UI. |
-| `moto_chat_gps_profilo_altimetrico_touring` | **Non implementato**. | Idem; nessun grafico costruito con dati sintetici. |
-| `moto_chat_gps_analisi_curve_touring` | **Non implementato** come dashboard dedicata. | Il sistema Road DNA attuale calcola un riassunto `curvature`, non l'analitica completa per raggio, pendenze, eventi di guida e tornanti telemetrati presentata nel mock. |
+| `moto_chat_gps_profilo_altimetrico_espanso` | **Implementato nel codice**: grafico DEM e dislivelli nel pannello Road DNA. | Build/importazione MotoPack v3 e fedeltà grafica da verificare. |
+| `moto_chat_gps_profilo_altimetrico_touring` | **Implementato parzialmente**: profilo Road DNA e dati quota sulla scheda del percorso. | Non è stata creata una pagina Touring autonoma; senza DEM quote assenti. |
+| `moto_chat_gps_analisi_curve_touring` | **Implementato parzialmente**: conteggio dolci/medie/strette/tornanti stimati e indice. | Solo geometria, nessuna misura di aderenza/raggio reale/velocità sicura. |
 
 ## Incongruenze di asset, design e comportamento da risolvere
 
@@ -52,7 +52,7 @@
 3. **Riferimenti visivi ambigui:** gli HTML della cartella Mappe offline e della cartella API Road DNA contengono markup di più schermate e screenshot riferiti prevalentemente al tour builder; la cartella principale tour builder non contiene `screen.png`. La traduzione privilegia il nome funzionale delle sezioni reali.
 4. **Tecnologia cartografica:** le schermate Stitch raffigurano mappe scure/vettoriali; il progetto usa la vista `osmdroid` su `MAPNIK` con filtro notturno. Cambiare renderer, tasselli o fonte cartografica sarebbe fuori ambito e potrebbe pregiudicare routing e waypoint. Non è stata sostituita la mappa.
 5. **Guida a frecce vs requisiti storici:** la descrizione Stitch menziona "routing turn arrows", ma `PROJECT_STATE.md`/`AGENTS.md` vietano le normali frecce di svolta nel dispositivo ESP32. Rimane la navigazione a linea verde/distanza/zoom; nessuna freccia ripristinata.
-6. **Dati/stati mancanti:** GPX, altimetria, pendenze, analytics curve, stime avanzate di tour, dimensioni e durata dei log, RSSI esatto, tempi simulati nei tour salvati. Si richiedono futuri design di API e modifiche di ViewModel con approvazione, non semplici trasformazioni del layout.
+6. **Dati/stati mancanti (aggiornamento):** GPX, pendenze puntuali certificate, stime avanzate dei tour, dimensioni/durata dei log e RSSI esatto. Altimetria e analisi curve sono integrate a livello sorgente su `NewUI`, ma non ancora collaudate.
 7. **Touch target e spazi:** i nuovi pulsanti principali sono generalmente 52–56dp, ma alcune `IconButton`, `TextButton` e controlli preesistenti di dettagli Road DNA possono ancora essere inferiori; va fatta verifica sistematica con guanti e su schermi piccoli, non attribuire conformità totale al requisito 52dp.
 8. **Dialoghi e scrolling:** parte dei dialog Road DNA mantiene il comportamento scrolling/stato precedente per non rompere il flusso; non tutti sono copie 1:1 dei mock. Controllare overflow e accessibilità del pulsante mappa, soprattutto con tastiera e landscape.
 9. **Densità home/mappa:** con search results, tour in pausa e dock inferiore, la vista mappa pesata può restringersi. Non è stata introdotta una nuova regola di visibilità che nasconda stati precedenti; occorre prova visiva.
@@ -73,3 +73,12 @@
 ## Prossimo passo
 
 Attendere **ordine esplicito** prima della prima build; eseguire una sola build Android consolidata su `NewUI`, registrare errori di compilazione e schermate reali, risolvere solo dopo diagnosi e senza perdere le firme/callback. In seguito concordare se estendere il ViewModel per GPX/altimetria/analytics, e valutare merge in `valhalla` **solo dopo autorizzazione**.
+
+
+## Aggiornamento 23 novembre 2026 — altimetria e analisi curve
+
+- **App Android:** `RoadDnaTerrain.kt`, `RoadDnaTerrainPanel.kt` e `NavigationScreen.kt` mostrano classificazione e densità delle curve, tornanti indicativi e profilo DEM reale con dislivelli; nessuna nuova firma/callback pubblica di `NavigationScreen`.
+- **Routing:** le richieste Valhalla chiedono quote ogni 30 m, l'adattatore conserva una serie separata dalla geometria BLE. Le risposte senza quote danno uno stato esplicito, mai valori inventati.
+- **MotoPack v3:** un quinto componente `elevation/elevation-italy.zip` contiene i tasselli Skadi necessari in esecuzione sull'Android. `UnifiedOfflineMapImporter` li verifica e `ValhallaElevationImporter` li installa, quindi il factory Valhalla punta alla cartella DEM.
+- **Rigenerazione:** `valhalla_build_elevation` acquisisce DEM Tilezen/SRTMv3, cache esterna all'output; il generatore grafo usa `--additional-data-elevation`. Ora il MotoPack v2 non è accettato da questo importatore, con consenso dell'utente.
+- **Restano da verificare:** disponibilità CLI su WSL, rete/coverage Tilezen, tempo/spazio, ZIP/import Android, API v0.6.6 nel progetto, build e rendering, indici curve su strade reali, font Stitch ancora mancanti. Nessuna build, CI, test eseguito o navigazione hardware autorizzata in questa sessione.
