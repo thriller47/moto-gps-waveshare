@@ -2045,29 +2045,69 @@ fun NavigationScreen(
                         Text("Nessun tour salvato.")
                     }
                     savedCircularTours.forEach { tour ->
-                        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                            Text(tour.title, style = MaterialTheme.typography.titleSmall)
-                            Text("${tour.desiredKm} km richiesti · " +
-                                "${tour.mandatory.size} luoghi obbligatori · " +
-                                "${tour.via.size} tappe",
-                                style = MaterialTheme.typography.bodySmall)
-                            Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                                TextButton(onClick = {
-                                    showSavedToursDialog = false
-                                    onOpenSavedCircularTour(tour, false)
-                                }) { Text("Partenza salvata") }
-                                TextButton(onClick = {
-                                    showSavedToursDialog = false
-                                    onOpenSavedCircularTour(tour, true)
-                                }, enabled = currentLocation != null) {
-                                    Text("Da qui")
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(16.dp),
+                            color = MotoChatColors.SurfaceRaised,
+                            border = BorderStroke(1.dp, MotoChatColors.Outline)
+                        ) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth().padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Text("TOUR CIRCOLARE · VALHALLA",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MotoChatColors.Green)
+                                Text(tour.title, style = MaterialTheme.typography.titleMedium)
+                                Text(
+                                    "${tour.desiredKm} km richiesti · " +
+                                        "${tour.mandatory.size} luoghi obbligatori · " +
+                                        "${tour.via.size} tappe",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MotoChatColors.TextMuted
+                                )
+                                Button(
+                                    onClick = {
+                                        showSavedToursDialog = false
+                                        onOpenSavedCircularTour(tour, false)
+                                    },
+                                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                                    shape = RoundedCornerShape(28.dp)
+                                ) {
+                                    Icon(Icons.Default.Place, contentDescription = null)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("CARICA SU MAPPA",
+                                        style = MaterialTheme.typography.labelMedium)
                                 }
-                                IconButton(onClick = { onDeleteSavedCircularTour(tour.id) }) {
-                                    Icon(Icons.Default.Delete,
-                                        contentDescription = "Elimina ${tour.title}")
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            showSavedToursDialog = false
+                                            onOpenSavedCircularTour(tour, true)
+                                        },
+                                        enabled = currentLocation != null,
+                                        modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                                        shape = RoundedCornerShape(24.dp),
+                                        border = BorderStroke(1.dp, MotoChatColors.Outline)
+                                    ) {
+                                        Text("Parti da qui", maxLines = 1)
+                                    }
+                                    IconButton(
+                                        onClick = { onDeleteSavedCircularTour(tour.id) },
+                                        modifier = Modifier.heightIn(min = 48.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Delete,
+                                            contentDescription = "Elimina ${tour.title}",
+                                            tint = MotoChatColors.Error
+                                        )
+                                    }
                                 }
                             }
-                            HorizontalDivider()
                         }
                     }
                     Text("La rotta viene ricalcolata da Valhalla all'apertura. " +
