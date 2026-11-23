@@ -28,6 +28,7 @@ import com.motogps.android.location.LocationFixFilter
 import com.motogps.android.location.NavigationFixFreshness
 import com.motogps.android.routing.OfflineValhallaRouter
 import com.motogps.android.routing.OnlineValhallaRouter
+import com.motogps.android.routing.OnlineValhallaElevation
 import com.motogps.android.routing.ValhallaGraphImporter
 import com.motogps.android.routing.RoutePreferences
 import com.motogps.android.routing.RouteStyle
@@ -419,6 +420,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     private var roadDnaJob: Job? = null
     private var roadDnaRequestId = 0L
     private var roadDnaCancelSignal: CancellationSignal? = null
+    // One optional public /height attempt per selected route object, per session.
+    private var roadDnaHeightAttemptedOption: RouteOption? = null
 
     private val _roadDnaOnline = MutableStateFlow<RoadDnaOnlineResult?>(null)
     val roadDnaOnline: StateFlow<RoadDnaOnlineResult?> = _roadDnaOnline
@@ -790,9 +793,40 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                 val report = withContext(Dispatchers.IO) {
                     RoadDnaAnalysis.analyze(context, option, signal)
                 }
-                if (roadDnaRequestId == request &&
-                    _routeOptions.value.getOrNull(_selectedRouteIndex.value) === option)
-                    _roadDnaSummary.value = report
+                val stillSelected = {
+                    roadDnaRequestId == request &&
+                        _routeOptions.value.getOrNull(_selectedRouteIndex.value) === option
+                }
+                if (stillSelected()) {
+                    // Always publish the offline tourist/curve analysis first.
+                    val localHeight = RoadDnaTerrainAnalysis.elevation(option.rawRouteJson)
+                    val initial = report.copy(elevation = localHeight)
+                    _roadDnaSummary.value = initial
+                    _roadDnaLoading.value = false
+
+                    // Only this deliberate Road DNA gesture can use /height; no
+                    // traffic in preview generation, navigation or rerouting.
+                    if (localHeight == null && roadDnaHeightAttemptedOption !== option) {
+                        roadDnaHeightAttemptedOption = option
+                        val remoteHeight = try {
+                            withContext(Dispatchers.IO) {
+                                OnlineValhallaElevation.fetch(option.rawRouteJson)
+                            }
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            Log.w("NavigationVM",
+                                "Road DNA /height unavailable: " + e.javaClass.simpleName)
+                            null
+                        }
+                        if (remoteHeight != null && stillSelected()) {
+                            // This is UI-only; the selected native route and BLE
+                            // geometry are never replaced or mutated.
+                            _roadDnaSummary.value =
+                                _roadDnaSummary.value?.copy(elevation = remoteHeight)
+                        }
+                    }
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
