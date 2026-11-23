@@ -29,6 +29,7 @@ internal object OnlineValhallaRouter {
             .put("units", "km")
             .put("language", "it-IT")
             .put("shape_format", "polyline6")
+            .put("elevation_interval", 30)
         return ValhallaRouteLocations.suppressUnsupportedAlternates(
             preferences.applyTo(request))
     }
