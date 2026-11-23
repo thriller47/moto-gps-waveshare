@@ -1,5 +1,6 @@
 package com.motogps.android.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
@@ -481,9 +482,10 @@ fun MapDownloadProgressBox(
     modifier: Modifier = Modifier
 ) {
     Card(
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, MotoChatColors.Outline),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
+            containerColor = MotoChatColors.SurfaceRaised
         ),
         modifier = modifier
             .fillMaxWidth()
@@ -553,8 +555,13 @@ fun OfflineMapsDialog(
 ) {
     var showAdvancedImports by remember { mutableStateOf(false) }
     AlertDialog(
+        modifier = Modifier.fillMaxWidth(0.94f),
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+        containerColor = MotoChatColors.Surface,
+        shape = RoundedCornerShape(24.dp),
+        tonalElevation = 0.dp,
         onDismissRequest = onDismiss,
-        title = { Text("Mappe offline") },
+        title = { Text("MotoPack · Mappe offline", style = MaterialTheme.typography.titleMedium) },
         text = {
             Column(
                 modifier = Modifier.fillMaxWidth().heightIn(max = 560.dp)
@@ -564,14 +571,15 @@ fun OfflineMapsDialog(
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+                        containerColor = MotoChatColors.SurfaceRaised
                     )
                 ) {
                     Column(
                         modifier = Modifier.fillMaxWidth().padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Text("MotoPack Italia", style = MaterialTheme.typography.titleMedium)
+                        Text("MOTOPACK V2 · ITALIA", style = MaterialTheme.typography.labelSmall,
+                            color = MotoChatColors.Green)
                         Text("MotoPack v2: MotoMap, Valhalla, Photon e Road DNA.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -585,7 +593,7 @@ fun OfflineMapsDialog(
                             "installato (" + String.format("%.1f MiB",
                                 roadDnaInstalledBytes / 1048576.0) + ")" else "assente",
                             style = MaterialTheme.typography.labelMedium)
-                        FilledTonalButton(
+                        Button(
                             onClick = onImportUnifiedPack,
                             modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
                             enabled = !isDownloadingMap && !photonImporting && !valhallaImporting && !isNavigating
@@ -617,7 +625,12 @@ fun OfflineMapsDialog(
                         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
                         Text("Importa solo MotoMap ZIP")
                     }
-                Card(modifier = Modifier.fillMaxWidth()) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    border = BorderStroke(1.dp, MotoChatColors.Outline),
+                    colors = CardDefaults.cardColors(containerColor = MotoChatColors.SurfaceRaised)
+                ) {
                     Column(
                         modifier = Modifier.fillMaxWidth().padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -859,6 +872,11 @@ fun NavigationScreen(
     if (showRoadDnaDialog && selectedRoadDnaPoi != null) {
         val poi = selectedRoadDnaPoi!!
         AlertDialog(
+            modifier = Modifier.fillMaxWidth(0.94f),
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+            containerColor = MotoChatColors.Surface,
+            shape = RoundedCornerShape(24.dp),
+            tonalElevation = 0.dp,
             onDismissRequest = { selectedRoadDnaPoi = null },
             title = { Text("Scheda ${poi.source}") },
             text = {
@@ -910,8 +928,10 @@ fun NavigationScreen(
         ) {
             Surface(
                 modifier = Modifier.fillMaxWidth(0.95f).fillMaxHeight(0.88f),
-                shape = RoundedCornerShape(20.dp),
-                tonalElevation = 4.dp
+                shape = RoundedCornerShape(24.dp),
+                color = MotoChatColors.Surface,
+                border = BorderStroke(1.dp, MotoChatColors.Outline),
+                tonalElevation = 0.dp
             ) {
                 Column(
                     modifier = Modifier.fillMaxSize().padding(vertical = 12.dp),
@@ -1131,6 +1151,11 @@ fun NavigationScreen(
             (roadDnaZoneOffline.isNotEmpty() ||
                 !roadDnaZone?.places.isNullOrEmpty())
         AlertDialog(
+            modifier = Modifier.fillMaxWidth(0.94f),
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+            containerColor = MotoChatColors.Surface,
+            shape = RoundedCornerShape(24.dp),
+            tonalElevation = 0.dp,
             onDismissRequest = { showRoadDnaSearchParams = false },
             title = { Text("Road DNA", maxLines = 1) },
             text = {
@@ -1305,8 +1330,10 @@ fun NavigationScreen(
         ) {
             Surface(
                 modifier = Modifier.fillMaxWidth(0.95f).fillMaxHeight(0.84f),
-                shape = RoundedCornerShape(20.dp),
-                tonalElevation = 4.dp
+                shape = RoundedCornerShape(24.dp),
+                color = MotoChatColors.Surface,
+                border = BorderStroke(1.dp, MotoChatColors.Outline),
+                tonalElevation = 0.dp
             ) {
                 Column(
                     modifier = Modifier.fillMaxSize().padding(vertical = 12.dp),
@@ -1417,8 +1444,10 @@ fun NavigationScreen(
         ) {
             Surface(
                 modifier = Modifier.fillMaxWidth(0.95f).fillMaxHeight(0.88f),
-                shape = RoundedCornerShape(20.dp),
-                tonalElevation = 4.dp
+                shape = RoundedCornerShape(24.dp),
+                color = MotoChatColors.Surface,
+                border = BorderStroke(1.dp, MotoChatColors.Outline),
+                tonalElevation = 0.dp
             ) {
                 Column(
                     modifier = Modifier.fillMaxSize().padding(vertical = 12.dp),
@@ -1624,6 +1653,11 @@ fun NavigationScreen(
     if (showRoadDnaDialog && showRoadDnaResults && selectedRoadDnaPoi == null &&
         !showOnlineSuggestionsMap) {
         AlertDialog(
+            modifier = Modifier.fillMaxWidth(0.94f),
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+            containerColor = MotoChatColors.Surface,
+            shape = RoundedCornerShape(24.dp),
+            tonalElevation = 0.dp,
             onDismissRequest = { showRoadDnaResults = false },
             title = { Text("Luoghi lungo il percorso") },
             text = {
@@ -1763,6 +1797,11 @@ fun NavigationScreen(
     if (showRoadDnaDialog && !showRoadDnaResults &&
         selectedRoadDnaPoi == null && !showOnlineSuggestionsMap) {
         AlertDialog(
+            modifier = Modifier.fillMaxWidth(0.94f),
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+            containerColor = MotoChatColors.Surface,
+            shape = RoundedCornerShape(24.dp),
+            tonalElevation = 0.dp,
             onDismissRequest = { showRoadDnaDialog = false },
             title = { Text("Road DNA") },
             text = {
@@ -1957,6 +1996,11 @@ fun NavigationScreen(
     var showSavedToursDialog by remember { mutableStateOf(false) }
     if (showSaveCircularDialog) {
         AlertDialog(
+            modifier = Modifier.fillMaxWidth(0.94f),
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+            containerColor = MotoChatColors.Surface,
+            shape = RoundedCornerShape(24.dp),
+            tonalElevation = 0.dp,
             onDismissRequest = { showSaveCircularDialog = false },
             title = { Text("Salva tour per un altro giorno") },
             text = {
@@ -1982,6 +2026,11 @@ fun NavigationScreen(
     }
     if (showSavedToursDialog) {
         AlertDialog(
+            modifier = Modifier.fillMaxWidth(0.94f),
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+            containerColor = MotoChatColors.Surface,
+            shape = RoundedCornerShape(24.dp),
+            tonalElevation = 0.dp,
             onDismissRequest = { showSavedToursDialog = false },
             title = { Text("I miei tour salvati") },
             text = {
@@ -2035,6 +2084,11 @@ fun NavigationScreen(
     var circularPoiQuery by remember { mutableStateOf("") }
     if (showCircularTourDialog) {
         AlertDialog(
+            modifier = Modifier.fillMaxWidth(0.94f),
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+            containerColor = MotoChatColors.Surface,
+            shape = RoundedCornerShape(24.dp),
+            tonalElevation = 0.dp,
             onDismissRequest = { showCircularTourDialog = false },
             title = { Text("Tour circolare con tappe") },
             text = {
@@ -2166,6 +2220,11 @@ fun NavigationScreen(
     if (corridorConfirmation != null && corridorDestination != null) {
         val count = corridorConfirmation!!
         AlertDialog(
+            modifier = Modifier.fillMaxWidth(0.94f),
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+            containerColor = MotoChatColors.Surface,
+            shape = RoundedCornerShape(24.dp),
+            tonalElevation = 0.dp,
             onDismissRequest = { corridorConfirmation = null; corridorDestination = null },
             title = { Text("Prepara strade OpenFreeMap") },
             text = { Text(
@@ -2202,6 +2261,11 @@ fun NavigationScreen(
         var geoDraft by remember(showRoadDnaKeysDialog) { mutableStateOf("") }
         var tripDraft by remember(showRoadDnaKeysDialog) { mutableStateOf("") }
         AlertDialog(
+            modifier = Modifier.fillMaxWidth(0.94f),
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+            containerColor = MotoChatColors.Surface,
+            shape = RoundedCornerShape(24.dp),
+            tonalElevation = 0.dp,
             onDismissRequest = { showRoadDnaKeysDialog = false },
             title = { Text("API Road DNA") },
             text = {
@@ -2312,6 +2376,11 @@ fun NavigationScreen(
             mutableFloatStateOf(coffeeTimeoutMinutes.toFloat())
         }
         AlertDialog(
+            modifier = Modifier.fillMaxWidth(0.94f),
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+            containerColor = MotoChatColors.Surface,
+            shape = RoundedCornerShape(24.dp),
+            tonalElevation = 0.dp,
             onDismissRequest = { showCoffeeDialog = false },
             title = { Text("☕ Pausa caffè") },
             text = {
@@ -2329,6 +2398,21 @@ fun NavigationScreen(
                         valueRange = 1f..30f,
                         steps = 28
                     )
+                    Text("SCELTA RAPIDA CON GUANTI", style = MaterialTheme.typography.labelSmall,
+                        color = MotoChatColors.Green)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        listOf(5, 10, 15, 30).forEach { minutes ->
+                            FilterChip(
+                                selected = draftMinutes.roundToInt() == minutes,
+                                onClick = { draftMinutes = minutes.toFloat() },
+                                modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                                label = { Text("${minutes}m", maxLines = 1) }
+                            )
+                        }
+                    }
                     Text(
                         "Predefinito: 10 minuti · Massimo: 30 minuti. " +
                             "Dopo lo spegnimento serve il pulsante fisico. " +
@@ -2358,6 +2442,11 @@ fun NavigationScreen(
     if (showDiagnosticsDialog) {
         var selectedDiagnosticLevel by remember { mutableIntStateOf(1) }
         AlertDialog(
+            modifier = Modifier.fillMaxWidth(0.94f),
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+            containerColor = MotoChatColors.Surface,
+            shape = RoundedCornerShape(24.dp),
+            tonalElevation = 0.dp,
             onDismissRequest = { showDiagnosticsDialog = false },
             title = { Text("Diagnostica completa") },
             text = {
@@ -2750,6 +2839,11 @@ fun NavigationScreen(
                             }
                             if (confirmSkip) {
                                 AlertDialog(
+                                    modifier = Modifier.fillMaxWidth(0.94f),
+                                    properties = DialogProperties(usePlatformDefaultWidth = false),
+                                    containerColor = MotoChatColors.Surface,
+                                    shape = RoundedCornerShape(24.dp),
+                                    tonalElevation = 0.dp,
                                     onDismissRequest = { confirmSkip = false },
                                     title = { Text("Saltare questa tappa?") },
                                     text = {
