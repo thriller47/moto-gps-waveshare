@@ -800,13 +800,16 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                 if (stillSelected()) {
                     // Always publish the offline tourist/curve analysis first.
                     val localHeight = RoadDnaTerrainAnalysis.elevation(option.rawRouteJson)
-                    val initial = report.copy(elevation = localHeight)
+                    val needsRemoteHeight = localHeight == null &&
+                        roadDnaHeightAttemptedOption !== option
+                    val initial = report.copy(elevation = localHeight,
+                        elevationLoading = needsRemoteHeight)
                     _roadDnaSummary.value = initial
                     _roadDnaLoading.value = false
 
                     // Only this deliberate Road DNA gesture can use /height; no
                     // traffic in preview generation, navigation or rerouting.
-                    if (localHeight == null && roadDnaHeightAttemptedOption !== option) {
+                    if (needsRemoteHeight) {
                         roadDnaHeightAttemptedOption = option
                         val remoteHeight = try {
                             withContext(Dispatchers.IO) {
@@ -819,11 +822,10 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                                 "Road DNA /height unavailable: " + e.javaClass.simpleName)
                             null
                         }
-                        if (remoteHeight != null && stillSelected()) {
-                            // This is UI-only; the selected native route and BLE
-                            // geometry are never replaced or mutated.
-                            _roadDnaSummary.value =
-                                _roadDnaSummary.value?.copy(elevation = remoteHeight)
+                        if (stillSelected()) {
+                            // This is UI-only; native route and BLE are untouched.
+                            _roadDnaSummary.value = _roadDnaSummary.value?.copy(
+                                elevation = remoteHeight, elevationLoading = false)
                         }
                     }
                 }
