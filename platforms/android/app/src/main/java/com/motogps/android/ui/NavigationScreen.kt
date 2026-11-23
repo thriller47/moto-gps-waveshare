@@ -2372,43 +2372,94 @@ fun NavigationScreen(
                     Text("Chiavi personali, conservate cifrate sul dispositivo " +
                         "ed escluse dal backup. Non vengono incluse nei log.")
                     HorizontalDivider()
-                    Text(if (geoapifyConfigured) "Geoapify · configurata"
-                        else "Geoapify · non configurata")
-                    OutlinedTextField(
-                        value = geoDraft, onValueChange = { geoDraft = it },
-                        label = { Text("Chiave Geoapify") },
-                        visualTransformation = PasswordVisualTransformation(),
-                        singleLine = true, modifier = Modifier.fillMaxWidth())
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        TextButton(onClick = {
-                            onSaveRoadDnaKey("geoapify", geoDraft); geoDraft = ""
-                        }, enabled = geoDraft.isNotBlank() && !roadDnaKeyBusy) {
-                            Text("Salva")
+                    @Composable
+                    fun ProviderCard(
+                        name: String,
+                        provider: String,
+                        configured: Boolean,
+                        value: String,
+                        onValueChange: (String) -> Unit,
+                        onSave: () -> Unit
+                    ) {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            color = MotoChatColors.SurfaceRaised,
+                            shape = RoundedCornerShape(16.dp),
+                            border = BorderStroke(1.dp, MotoChatColors.Outline)
+                        ) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth().padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(name, style = MaterialTheme.typography.titleSmall)
+                                    Text(
+                                        if (configured) "CONFIGURATA" else "NON CONFIGURATA",
+                                        color = if (configured) MotoChatColors.Green
+                                            else MotoChatColors.Warning,
+                                        style = MaterialTheme.typography.labelSmall
+                                    )
+                                }
+                                OutlinedTextField(
+                                    value = value,
+                                    onValueChange = onValueChange,
+                                    label = { Text("Chiave $""{name}") },
+                                    shape = RoundedCornerShape(12.dp),
+                                    visualTransformation = PasswordVisualTransformation(),
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    TextButton(
+                                        onClick = onSave,
+                                        enabled = value.isNotBlank() && !roadDnaKeyBusy,
+                                        modifier = Modifier.heightIn(min = 48.dp)
+                                    ) { Text("Salva") }
+                                    TextButton(
+                                        onClick = { onTestRoadDnaKey(provider) },
+                                        enabled = configured && !roadDnaKeyBusy,
+                                        modifier = Modifier.heightIn(min = 48.dp)
+                                    ) { Text("Verifica") }
+                                    TextButton(
+                                        onClick = { onDeleteRoadDnaKey(provider) },
+                                        enabled = configured && !roadDnaKeyBusy,
+                                        modifier = Modifier.heightIn(min = 48.dp)
+                                    ) {
+                                        Text("Elimina", color = MotoChatColors.Error)
+                                    }
+                                }
+                            }
                         }
-                        TextButton(onClick = { onTestRoadDnaKey("geoapify") },
-                            enabled = geoapifyConfigured && !roadDnaKeyBusy) { Text("Verifica") }
-                        TextButton(onClick = { onDeleteRoadDnaKey("geoapify") },
-                            enabled = geoapifyConfigured && !roadDnaKeyBusy) { Text("Elimina") }
                     }
-                    HorizontalDivider()
-                    Text(if (opentripmapConfigured) "OpenTripMap · configurata"
-                        else "OpenTripMap · non configurata")
-                    OutlinedTextField(
-                        value = tripDraft, onValueChange = { tripDraft = it },
-                        label = { Text("Chiave OpenTripMap") },
-                        visualTransformation = PasswordVisualTransformation(),
-                        singleLine = true, modifier = Modifier.fillMaxWidth())
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        TextButton(onClick = {
-                            onSaveRoadDnaKey("opentripmap", tripDraft); tripDraft = ""
-                        }, enabled = tripDraft.isNotBlank() && !roadDnaKeyBusy) {
-                            Text("Salva")
+                    ProviderCard(
+                        name = "Geoapify",
+                        provider = "geoapify",
+                        configured = geoapifyConfigured,
+                        value = geoDraft,
+                        onValueChange = { geoDraft = it },
+                        onSave = {
+                            onSaveRoadDnaKey("geoapify", geoDraft)
+                            geoDraft = ""
                         }
-                        TextButton(onClick = { onTestRoadDnaKey("opentripmap") },
-                            enabled = opentripmapConfigured && !roadDnaKeyBusy) { Text("Verifica") }
-                        TextButton(onClick = { onDeleteRoadDnaKey("opentripmap") },
-                            enabled = opentripmapConfigured && !roadDnaKeyBusy) { Text("Elimina") }
-                    }
+                    )
+                    ProviderCard(
+                        name = "OpenTripMap",
+                        provider = "opentripmap",
+                        configured = opentripmapConfigured,
+                        value = tripDraft,
+                        onValueChange = { tripDraft = it },
+                        onSave = {
+                            onSaveRoadDnaKey("opentripmap", tripDraft)
+                            tripDraft = ""
+                        }
+                    )
                     if (roadDnaKeyBusy) CircularProgressIndicator()
                     if (roadDnaKeyStatus != null) Text(roadDnaKeyStatus)
                     Text("OpenTripMap richiede la chiave come parametro HTTPS; " +
