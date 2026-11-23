@@ -649,21 +649,27 @@
     );
   }
 
+  function setWakeLabel(text) {
+    if (!elements.wakeState) return;
+    elements.wakeState.textContent = "";
+    elements.wakeState.append(document.createElement("i"), document.createTextNode(" " + text));
+  }
+
   async function acquireWakeLock() {
     if (!("wakeLock" in navigator) || document.visibilityState !== "visible") {
-      elements.wakeState.innerHTML = "<i></i> 请保持屏幕常亮";
+      setWakeLabel("Mantieni lo schermo acceso");
       return false;
     }
     try {
       state.wakeLock = await navigator.wakeLock.request("screen");
-      elements.wakeState.innerHTML = "<i></i> 屏幕常亮中";
+      setWakeLabel("Schermo attivo");
       state.wakeLock.addEventListener("release", () => {
         state.wakeLock = null;
-        elements.wakeState.innerHTML = "<i></i> 常亮已释放";
+        setWakeLabel("Blocco schermo rilasciato");
       });
       return true;
     } catch {
-      elements.wakeState.innerHTML = "<i></i> 请手动保持亮屏";
+      setWakeLabel("Mantieni lo schermo acceso manualmente");
       return false;
     }
   }
@@ -892,6 +898,7 @@
   updateSystemState();
   checkBackend();
   window.setInterval(() => {
+    if (document.hidden) return;
     if (state.runtimeReady) state.runtime.tick(Date.now());
     updateRideReadouts();
   }, 1000);

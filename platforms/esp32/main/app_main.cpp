@@ -145,7 +145,10 @@ void power_down(const char* reason) {
   vTaskDelay(pdMS_TO_TICKS(500));
   // GPIO3 is also the wake source: never enter deep sleep until PWR
   // is actually released. Keep existing three-second hold-to-power-off.
-  while (board_port_power_button_pressed()) vTaskDelay(pdMS_TO_TICKS(20));
+  // Bound the wait for PWR release (max 5s) so a stuck button cannot block deep sleep forever.
+  for (int wait_iter = 0; wait_iter < 250 && board_port_power_button_pressed(); ++wait_iter) {
+    vTaskDelay(pdMS_TO_TICKS(20));
+  }
   rtc_gpio_pulldown_en(GPIO_NUM_3);
   rtc_gpio_pullup_dis(GPIO_NUM_3);
   ESP_ERROR_CHECK(esp_sleep_enable_ext1_wakeup_io(
@@ -340,7 +343,7 @@ extern "C" void app_main(void) {
              esp_err_to_name(motion_result));
   }
 
-  if (xTaskCreate(power_button_task, "moto_power", 3'072, nullptr, 3,
+  if (xTaskCreate(power_button_task, "moto_power", 4'096, nullptr, 3,
                   nullptr) != pdPASS) {
     ESP_LOGW(kTag, "PWR long-hold task could not start");
   }
@@ -443,7 +446,7 @@ extern "C" void app_main(void) {
   }
   ESP_LOGI(kTag, "BOOT_DIAG stage=renderer_ready");
   static PowerMonitorContext power_monitor_context{&phone_bridge, &motion_sensor};
-  if (xTaskCreate(power_monitor_task, "moto_auto_power", 3'072,
+  if (xTaskCreate(power_monitor_task, "moto_auto_power", 4'096,
                   &power_monitor_context, 2, nullptr) != pdPASS) {
     ESP_LOGW(kTag, "automatic power monitor could not start");
   }

@@ -23,17 +23,27 @@ internal object SavedCircularTourStore {
     private const val KEY = "tours"
     const val MAX_TOURS = 30
 
-    fun read(context: Context): List<SavedCircularTour> = try {
+    @Synchronized fun read(context: Context): List<SavedCircularTour> = try {
         decode(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getString(KEY, "[]").orEmpty())
-    } catch (_: Exception) { emptyList() }
+    } catch (e: Exception) {
+        android.util.Log.w("SavedCircularTourStore", "Errore lettura tour salvati", e)
+        emptyList()
+    }
 
-    fun save(context: Context, tour: SavedCircularTour): List<SavedCircularTour> {
+    @Synchronized fun save(context: Context, tour: SavedCircularTour): List<SavedCircularTour> {
+        val normalizedTitle = tour.title.trim()
+        require(normalizedTitle.isNotEmpty()) { "Nome tour vuoto" }
+        require(tour.departure.first.isFinite() && tour.departure.second.isFinite() &&
+            tour.departure.first in -90.0..90.0 && tour.departure.second in -180.0..180.0)
+        require(tour.desiredKm in com.motogps.android.routing.CircularTourPlanner.MIN_DISTANCE_KM..com.motogps.android.routing.CircularTourPlanner.MAX_DISTANCE_KM)
+        require(tour.orientationDegrees in 0..359)
+        require(tour.via.size <= com.motogps.android.routing.ValhallaRouteLocations.MAX_STOPS &&
+            tour.mandatory.size <= com.motogps.android.routing.ValhallaRouteLocations.MAX_STOPS)
+        val cleanTour = tour.copy(title = normalizedTitle.take(80))
         val existing = read(context)
-        // Saving a revised tour under the same name updates its entry instead
-        // of filling the local archive with indistinguishable duplicates.
-        val updated = (listOf(tour) + existing.filterNot {
-            it.id == tour.id || it.title.equals(tour.title, ignoreCase = true)
+        val updated = (listOf(cleanTour) + existing.filterNot {
+            it.id == cleanTour.id || it.title.trim().equals(cleanTour.title, ignoreCase = true)
         }).take(MAX_TOURS)
         require(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().putString(KEY, encode(updated)).commit()) {
@@ -42,7 +52,7 @@ internal object SavedCircularTourStore {
         return updated
     }
 
-    fun remove(context: Context, id: String): List<SavedCircularTour> {
+    @Synchronized fun remove(context: Context, id: String): List<SavedCircularTour> {
         val updated = read(context).filterNot { it.id == id }
         require(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().putString(KEY, encode(updated)).commit()) {

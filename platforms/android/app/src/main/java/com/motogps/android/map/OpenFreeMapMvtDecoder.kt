@@ -242,15 +242,17 @@ internal object OpenFreeMapMvtDecoder {
                         val slice = part.subList(offset, minOf(offset + MAX_ROW_POINTS, part.size))
                         offset += slice.size - 1
                         if (totalParts >= MAX_ROAD_PARTS ||
-                            totalPoints + slice.size > MAX_ROAD_POINTS)
-                            throw IOException("MVT: decoded road budget exceeded")
+                            totalPoints + slice.size > MAX_ROAD_POINTS) break
                         val grid = (1 shl z).toDouble()
-                        val pts = slice.map { (px, py) ->
+                        // Deduplicate only consecutive identical vertices so closed roundabout rings stay closed.
+                        val pts = ArrayList<Point>(slice.size)
+                        for ((px, py) in slice) {
                             val lon = (x + px.toDouble() / extent) / grid * 360.0 - 180.0
                             val latitude = Math.toDegrees(atan(sinh(
                                 PI * (1 - 2.0 * (y + py.toDouble() / extent) / grid))))
-                            Point((latitude * 1e6).roundToInt(), (lon * 1e6).roundToInt())
-                        }.distinct()
+                            val pt = Point((latitude * 1e6).roundToInt(), (lon * 1e6).roundToInt())
+                            if (pts.lastOrNull() != pt) pts.add(pt)
+                        }
                         if (pts.size < 2) continue
                         val speed = when (roadType) { 0 -> 110; 1 -> 90; 2 -> 70; else -> 50 }
                         writer.write(roadType.toString() + "," + speed + "|" +

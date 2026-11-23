@@ -97,7 +97,7 @@ internal object RoadDnaTerrainAnalysis {
             if (!p.first.isFinite() || !p.second.isFinite()) continue
             if (clean.isNotEmpty()) {
                 val d = distance(clean.last(), p)
-                if (d < 0.5 || d > 2000.0) continue
+                if (d < 0.5 || d > 50_000.0) continue
                 travelled += d
             }
             clean.add(p)

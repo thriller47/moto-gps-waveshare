@@ -31,7 +31,7 @@ internal object OfflinePhotonPlaceSearch {
         cachedMtime = -1L
     }
 
-    private fun <T> withReadOnlyDb(context: Context, query: (SQLiteDatabase) -> T): T {
+    internal fun <T> withReadOnlyDb(context: Context, query: (SQLiteDatabase) -> T): T {
         val target = file(context)
         if (!target.isFile || target.length() == 0L) throw IOException("Indice Photon non installato")
         val path = target.absolutePath
@@ -46,9 +46,10 @@ internal object OfflinePhotonPlaceSearch {
         } finally {
             read.unlock()
         }
-        // Cache miss: open once under write lock; a later read can run in parallel.
+        // Cache miss: open once under write lock, then downgrade to read lock before running query.
         val write = dbLock.writeLock()
         write.lock()
+        val openedDb: SQLiteDatabase
         try {
             var db = cachedDb
             if (db == null || !db.isOpen || cachedPath != path || cachedMtime != mtime) {
@@ -58,9 +59,15 @@ internal object OfflinePhotonPlaceSearch {
                 cachedPath = path
                 cachedMtime = mtime
             }
-            return query(db!!)
+            openedDb = db!!
+            read.lock()
         } finally {
             write.unlock()
+        }
+        return try {
+            query(openedDb)
+        } finally {
+            read.unlock()
         }
     }
 
@@ -220,9 +227,9 @@ internal object OfflinePhotonPlaceSearch {
                 longitudeScale.toString(), longitudeScale.toString()), cancellationSignal).use { rows ->
                 while (rows.moveToNext()) {
                     candidates.add(PhotonOfflineRanking.Candidate(
-                        rows.getString(0), rows.getString(1), rows.getString(2),
-                        rows.getString(3), rows.getString(4), rows.getString(5),
-                        rows.getString(6), rows.getDouble(7), rows.getDouble(8),
+                        rows.getString(0).orEmpty(), rows.getString(1).orEmpty(), rows.getString(2).orEmpty(),
+                        rows.getString(3).orEmpty(), rows.getString(4).orEmpty(), rows.getString(5).orEmpty(),
+                        rows.getString(6).orEmpty(), rows.getDouble(7), rows.getDouble(8),
                         rows.getDouble(9)))
                 }
             }
@@ -248,11 +255,12 @@ internal object PhotonOfflineRanking {
         val importance: Double, val lat: Double, val lon: Double
     )
     private val tokenPattern = Regex("""[\p{L}\p{N}]+""")
+    private val combiningMarksPattern = Regex("""\p{M}+""")
     private val roadPrefixes = setOf("via", "viale", "piazza", "corso", "strada", "vicolo")
 
     fun normalize(text: String): String {
         val folded = Normalizer.normalize(text.lowercase(Locale.ROOT), Normalizer.Form.NFKD)
-            .replace(Regex("""\p{M}+"""), "")
+            .replace(combiningMarksPattern, "")
         return tokenPattern.findAll(folded).joinToString(" ") { it.value }
     }
     fun words(text: String): List<String> = normalize(text).split(' ').filter { it.isNotEmpty() }

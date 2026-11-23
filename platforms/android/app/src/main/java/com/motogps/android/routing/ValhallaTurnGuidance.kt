@@ -30,12 +30,14 @@ internal object ValhallaTurnGuidance {
             // maneuver at zero for kilometres. Preserve real exits normally,
             // but cap the hold to a generous 250m after the entrance.
             // The additional 15m hysteresis prevents GPS snap flicker.
-            val action = actions.firstOrNull {
-                val release = if (it.type == "roundabout")
-                    it.releaseMeters.coerceAtMost(it.shapeMeters + 250.0)
-                else it.releaseMeters
-                release + 15.0 >= progress
-            } ?: return null
+            val action = actions.withIndex().firstOrNull { (idx, item) ->
+                val release = if (item.type == "roundabout")
+                    item.releaseMeters.coerceAtMost(item.shapeMeters + 400.0)
+                else item.releaseMeters
+                val nextStart = actions.getOrNull(idx + 1)?.shapeMeters ?: Double.POSITIVE_INFINITY
+                val hysteresis = ((nextStart - release) * 0.4).coerceIn(0.0, 15.0)
+                release + hysteresis >= progress
+            }?.value ?: return null
             return Next(action, (action.shapeMeters - progress)
                 .coerceAtLeast(0.0).toLong())
         }

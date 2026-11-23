@@ -85,6 +85,8 @@ internal object PhotonPlaceSearch {
                         coords.optDouble(0, Double.NaN) != place.longitude ||
                         coords.optDouble(1, Double.NaN) != place.latitude) continue
                     val props = feature.optJSONObject("properties") ?: continue
+                    val featureName = props.optString("name", "").trim()
+                    if (featureName.isNotEmpty() && featureName != place.name) continue
                     city = listOf("city", "town", "village").map {
                         props.optString(it, "").trim()
                     }.firstOrNull { it.isNotBlank() } ?: ""
@@ -111,10 +113,9 @@ internal object PhotonPlaceSearch {
                 it.first in -90.0..90.0 && it.second in -180.0..180.0
         }
         if (validGps == null) return parsed.take(8)
+        val lookup = mapped.toMap()
         val ranked = PhotonOfflineRanking.rank(mapped.map { it.first }, query, validGps, 8)
-        return ranked.mapNotNull { candidate ->
-            mapped.firstOrNull { it.first === candidate }?.second
-        }
+        return ranked.mapNotNull { candidate -> lookup[candidate] }
     }
 
 

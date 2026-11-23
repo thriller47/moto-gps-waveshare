@@ -31,7 +31,7 @@ inline double experimental_curve_zoom(
   std::array<XY, kMaxPoints> poly{};
   std::array<double, kMaxPoints> along{};
   const double lat_scale = (kPi / 180.0) * kEarthMetersPerRadian;
-  const double lon_scale = lat_scale * std::cos(origin_lat * kPi / 180.0);
+  const double lon_scale = lat_scale * std::max(0.02, std::cos(origin_lat * kPi / 180.0));
   for (std::size_t i = 0; i < count; ++i) {
     const auto& p = points[i];
     if (!std::isfinite(p.latitude_deg) || !std::isfinite(p.longitude_deg) ||

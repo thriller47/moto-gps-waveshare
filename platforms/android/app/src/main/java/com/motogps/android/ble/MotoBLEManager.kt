@@ -16,6 +16,7 @@ import android.content.Context
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.os.ParcelUuid
 import android.util.Log
 import com.motogps.android.diagnostics.DiagnosticLog
@@ -69,7 +70,21 @@ class MotoBLEManager(private val context: Context) {
     }
 
     @Volatile private var handshakeState = HandshakeState.IDLE
-    private var currentSessionId: Long = 0L
+    @Volatile private var currentSessionId: Long = 0L
+    private var lastWriteStartMs: Long = 0L
+    private val writeWatchdogRunnable = Runnable {
+        val timedOutSeq: Int?
+        synchronized(writeQueue) {
+            val active = activeWriteFrame ?: return@Runnable
+            timedOutSeq = sequenceOf(active)
+            activeWriteFrame = null
+            activeMessageSequence = null
+            writeQueue.removeAll { sequenceOf(it) == timedOutSeq }
+        }
+        Log.w("MotoBLEManager", "GATT write callback timeout after 3000ms, dropping seq=$timedOutSeq")
+        DiagnosticLog.event("BLE_WRITE_FAILURE", "phase=timeout seq=$timedOutSeq")
+        processNextWrite()
+    }
 
     @Volatile private var isScanning = false
     // The user's Connect action opts into recovery until explicit Disconnect/close.
@@ -305,20 +320,21 @@ class MotoBLEManager(private val context: Context) {
     }
 
     private fun processNextWrite() {
-        val frame: ByteArray?
+        mainHandler.removeCallbacks(writeWatchdogRunnable)
+        val frame: ByteArray
         synchronized(writeQueue) {
-            frame = if (writeQueue.isNotEmpty()) writeQueue.removeFirst() else null
-            if (frame == null) {
+            val next = if (writeQueue.isNotEmpty()) writeQueue.removeFirst() else null
+            if (next == null) {
                 activeWriteFrame = null
                 activeMessageSequence = null
                 writeInProgress = false
                 return
             }
-        }
-
-        synchronized(writeQueue) {
+            frame = next
             activeWriteFrame = frame
-            if (frame != null && activeMessageSequence == null) activeMessageSequence = sequenceOf(frame)
+            if (activeMessageSequence == null) {
+                activeMessageSequence = sequenceOf(frame)
+            }
         }
         val gatt = bluetoothGatt ?: run {
             synchronized(writeQueue) {
@@ -331,6 +347,8 @@ class MotoBLEManager(private val context: Context) {
         }
         val characteristic = writeCharacteristic ?: run {
             synchronized(writeQueue) {
+                val droppedSeq = sequenceOf(frame)
+                writeQueue.removeAll { sequenceOf(it) == droppedSeq }
                 activeWriteFrame = null
                 activeMessageSequence = null
                 writeInProgress = false
@@ -362,13 +380,17 @@ class MotoBLEManager(private val context: Context) {
                 if (failed != null) {
                     val failedSeq = sequenceOf(failed)
                     writeQueue.removeAll { sequenceOf(it) == failedSeq }
+                    val failedType = if (failed.size >= 3) failed[2].toInt() and 0xff else -1
                     Log.w("MotoBLEManager", "GATT write start rejected, dropping seq=$failedSeq")
                     DiagnosticLog.event("BLE_WRITE_FAILURE",
-                        "phase=start type=${failed[2].toInt() and 0xff} seq=$failedSeq")
+                        "phase=start type=$failedType seq=$failedSeq")
                 }
                 activeMessageSequence = null
             }
             mainHandler.postDelayed({ processNextWrite() }, 100L)
+        } else {
+            lastWriteStartMs = SystemClock.elapsedRealtime()
+            mainHandler.postDelayed(writeWatchdogRunnable, 3_000L)
         }
     }
 
@@ -479,8 +501,14 @@ class MotoBLEManager(private val context: Context) {
                         enqueueOperation {
                             val started = gatt.requestMtu(185)
                             if (!started) {
-                                Log.e("MotoBLEManager", "gatt.requestMtu(185) returned false")
+                                Log.w("MotoBLEManager", "gatt.requestMtu(185) returned false; falling back to default MTU and CCCD")
                                 completeOperation()
+                                enqueueOperation {
+                                    mainHandler.postDelayed({
+                                        if (bluetoothGatt === gatt && !closed) startCccdWrite(gatt)
+                                        else completeOperation()
+                                    }, 300)
+                                }
                             }
                         }
                     }, 300)
@@ -503,6 +531,7 @@ class MotoBLEManager(private val context: Context) {
             enqueueOperation {
                 mainHandler.postDelayed({
                     if (bluetoothGatt === gatt && !closed) startCccdWrite(gatt)
+                    else completeOperation()
                 }, 300)
             }
             completeOperation()
@@ -526,10 +555,13 @@ class MotoBLEManager(private val context: Context) {
 
         override fun onCharacteristicWrite(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) {
             if (bluetoothGatt !== gatt) return
+            mainHandler.removeCallbacks(writeWatchdogRunnable)
             synchronized(writeQueue) {
                 val failed = activeWriteFrame
                 activeWriteFrame = null
-                if (failed != null && ((failed[3].toInt() and MotoBLEProtocolCodec.FRAME_END) != 0 || status != BluetoothGatt.GATT_SUCCESS)) {
+                val isEnd = failed != null && failed.size >= 4 &&
+                    ((failed[3].toInt() and MotoBLEProtocolCodec.FRAME_END) != 0)
+                if (failed != null && (isEnd || status != BluetoothGatt.GATT_SUCCESS)) {
                     activeMessageSequence = null
                 }
                 if (status != BluetoothGatt.GATT_SUCCESS && failed != null) {
@@ -539,9 +571,10 @@ class MotoBLEManager(private val context: Context) {
                     while (iterator.hasNext()) {
                         if (sequenceOf(iterator.next()) == failedSeq) iterator.remove()
                     }
-                    Log.w("MotoBLEManager", "BLE message dropped after GATT status=$status type=${failed[2].toInt() and 0xff} seq=$failedSeq")
+                    val failedType = if (failed.size >= 3) failed[2].toInt() and 0xff else -1
+                    Log.w("MotoBLEManager", "BLE message dropped after GATT status=$status type=$failedType seq=$failedSeq")
                     DiagnosticLog.event("BLE_WRITE_FAILURE",
-                        "phase=callback status=$status type=${failed[2].toInt() and 0xff} seq=$failedSeq")
+                        "phase=callback status=$status type=$failedType seq=$failedSeq")
                 }
             }
             mainHandler.post {
@@ -638,10 +671,14 @@ class MotoBLEManager(private val context: Context) {
 
     private fun handleInboundFrame(frame: ByteArray) {
         if (codecPtr == 0L) return
-        val inboundMessage = bleCodec.nativePushDeviceFrame(codecPtr, frame, System.currentTimeMillis())
-        if (inboundMessage.complete) {
+        val inboundMessage = bleCodec.nativePushDeviceFrame(codecPtr, frame, SystemClock.elapsedRealtime())
+        if (inboundMessage.complete && !inboundMessage.duplicate) {
             val status = inboundMessage.connStatus
-            if (status != null && status.role == 2 /* Device */ && status.state == 1 /* Ready */) {
+            if (status != null && status.role == 2 /* Device */ && status.state == 1 /* Ready */ &&
+                status.sessionId == currentSessionId) {
+                if (status.maxFrameSize in 20..182) {
+                    bleCodec.nativeSetMaximumFrameSize(codecPtr, status.maxFrameSize)
+                }
                 if (handshakeState == HandshakeState.STARTING_SENT) {
                     handshakeState = HandshakeState.READY_SENT
                     val frames = bleCodec.nativeEncodePhoneReady(codecPtr, currentSessionId)
@@ -758,10 +795,8 @@ class MotoBLEManager(private val context: Context) {
         try {
             isScanning = true
             scanner.startScan(listOf(filter), settings, scanCallback)
-            if (automaticRetry) {
-                mainHandler.postDelayed(scanWindowTimeout,
-                    BleReconnectPolicy.SCAN_WINDOW_MS)
-            }
+            mainHandler.postDelayed(scanWindowTimeout,
+                BleReconnectPolicy.SCAN_WINDOW_MS)
         } catch (e: Exception) {
             isScanning = false
             Log.e("MotoBLEManager", "Failed to start BLE scan: ${e.message}")
@@ -776,8 +811,11 @@ class MotoBLEManager(private val context: Context) {
         heartbeatScheduler = Executors.newSingleThreadScheduledExecutor()
         heartbeatScheduler?.scheduleAtFixedRate({
             try {
-                if (codecPtr != 0L && currentSessionId != 0L) {
-                    val frames = bleCodec.nativeEncodeHeartbeat(codecPtr, currentSessionId, System.currentTimeMillis() % Int.MAX_VALUE)
+                if (codecPtr != 0L && currentSessionId != 0L && bluetoothGatt != null) {
+                    val frames = bleCodec.nativeEncodeHeartbeat(
+                        codecPtr, currentSessionId,
+                        SystemClock.elapsedRealtime() and 0xFFFFFFFFL
+                    )
                     enqueueSendFramesTask(frames)
                 }
             } catch (e: Exception) {
@@ -796,7 +834,9 @@ class MotoBLEManager(private val context: Context) {
         cancelReconnect()
         stopHeartbeat()
         stopScan()
-        mainHandler.removeCallbacksAndMessages(null)
+        mainHandler.removeCallbacks(writeWatchdogRunnable)
+        mainHandler.removeCallbacks(cccdTimeoutRunnable)
+        mainHandler.removeCallbacks(gattCloseFallbackRunnable)
         // A second recovery/Connect action must not cancel the previous
         // GATT's close fallback without actually closing that session.
         pendingDisconnectGatt?.let {

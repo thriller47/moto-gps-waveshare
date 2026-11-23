@@ -49,7 +49,7 @@ internal class RouteProgressMatcher {
     var lastMatchEvidence: MatchEvidence? = null
         private set
 
-    fun reset(points: List<GeoPointE6> = emptyList()) {
+    @Synchronized fun reset(points: List<GeoPointE6> = emptyList()) {
         route = points
         cumulative = DoubleArray(points.size)
         for (i in 1 until points.size) {
@@ -80,7 +80,7 @@ internal class RouteProgressMatcher {
      * Clip long segments to the progress interval (not just segment indices)
      * so a single long road cannot silently extend the corridor forward.
      */
-    fun distanceToMatchedCorridorMeters(
+    @Synchronized fun distanceToMatchedCorridorMeters(
         lat: Double, lon: Double,
         behindMeters: Double = 30.0,
         aheadMeters: Double = 100.0
@@ -118,7 +118,7 @@ internal class RouteProgressMatcher {
     }
 
     /** Display-only hint; routing and reroute decisions remain unchanged. */
-    fun matchedProgressMeters(): Double? = progress
+    @Synchronized fun matchedProgressMeters(): Double? = progress
 
     /** A reverse candidate consistent with the already matched route progress.
      * The nearest point of the *entire* shape is not enough: on hairpins,
@@ -128,7 +128,7 @@ internal class RouteProgressMatcher {
                                 val bearingDegrees: Float,
                                 val progressDeltaMeters: Double)
 
-    fun reverseCandidate(lat: Double, lon: Double, heading: Float?,
+    @Synchronized fun reverseCandidate(lat: Double, lon: Double, heading: Float?,
                          speed: Float): ReverseCandidate? {
         val anchor = progress ?: return null
         if (route.size < 2 || !lat.isFinite() || !lon.isFinite() ||
@@ -176,7 +176,7 @@ internal class RouteProgressMatcher {
         return candidate
     }
 
-    fun remaining(lat: Double, lon: Double, heading: Float?, speed: Float): Long? {
+    @Synchronized fun remaining(lat: Double, lon: Double, heading: Float?, speed: Float): Long? {
         if (route.size < 2 || !lat.isFinite() || !lon.isFinite()) {
             lastMatchEvidence = null
             return null

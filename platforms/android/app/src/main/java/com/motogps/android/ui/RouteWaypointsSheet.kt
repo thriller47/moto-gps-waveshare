@@ -37,6 +37,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
@@ -62,6 +63,7 @@ fun RouteWaypointsSheet(
     onDismiss: () -> Unit
 ) {
     var query by remember { mutableStateOf("") }
+    val focusManager = LocalFocusManager.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -152,14 +154,20 @@ fun RouteWaypointsSheet(
                     shape = RoundedCornerShape(16.dp),
                     trailingIcon = {
                         IconButton(
-                            onClick = { onSearch(query) },
+                            onClick = {
+                                focusManager.clearFocus()
+                                onSearch(query)
+                            },
                             enabled = query.isNotBlank()
                         ) {
                             Icon(Icons.Default.Search, contentDescription = "Cerca")
                         }
                     },
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    keyboardActions = KeyboardActions(onSearch = { onSearch(query) })
+                    keyboardActions = KeyboardActions(onSearch = {
+                        focusManager.clearFocus()
+                        if (query.isNotBlank()) onSearch(query)
+                    })
                 )
                 if (searching) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 if (error != null) {

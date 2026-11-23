@@ -24,8 +24,12 @@ internal object ValhallaElevationImporter {
         val active = File(parent, "elevation")
         val staging = File(parent, "elevation.import")
         val backup = File(parent, "elevation.previous")
-        if (staging.exists() || backup.exists())
-            throw IOException("Installazione DEM precedente incompleta: verificare elevation.import / elevation.previous")
+        if (backup.exists() && !active.exists() && !backup.renameTo(active))
+            throw IOException("Impossibile recuperare la cartella DEM precedente")
+        if (backup.exists() && active.exists() && !backup.deleteRecursively())
+            throw IOException("Impossibile pulire il vecchio backup DEM")
+        if (staging.exists() && !staging.deleteRecursively())
+            throw IOException("Impossibile rimuovere un'importazione DEM incompleta")
         if (!staging.mkdirs()) throw IOException("Impossibile preparare i dati DEM")
 
         var installed = false
@@ -62,10 +66,8 @@ internal object ValhallaElevationImporter {
                     zip.closeEntry()
                 }
             }
-            if (seen.size < 50 ||
-                !seen.contains("N45/N45E009.hgt.gz") ||
-                !seen.contains("N40/N40E014.hgt.gz"))
-                throw IOException("Pacchetto DEM Italia incompleto o copertura insufficiente")
+            if (seen.isEmpty())
+                throw IOException("Pacchetto DEM vuoto: nessuna tile .hgt.gz trovata")
             // The native actor scans the elevation directory at construction.
             OfflineValhallaRouter.close()
             if (active.exists() && !active.renameTo(backup))

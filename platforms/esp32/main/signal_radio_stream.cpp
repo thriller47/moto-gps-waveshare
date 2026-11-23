@@ -321,7 +321,7 @@ void signal_radio_play_test(std::size_t station_index, moto::signal::RadioUiCont
 
     esp_http_client_config_t config{};
     config.url = station.stream_url;
-    config.timeout_ms = 3000;
+    config.timeout_ms = 1800;  // Keep stop/station-switch responsive on stalled mobile links.
     config.buffer_size = 4096;
     config.buffer_size_tx = 1024;
     config.disable_auto_redirect = false;

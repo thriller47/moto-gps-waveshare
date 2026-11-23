@@ -8,8 +8,12 @@ import com.motogps.android.jni.MotoBLENavigationSnapshot
 import com.motogps.android.jni.MotoBLERouteGeometry
 import com.motogps.android.routing.ValhallaTurnGuidance
 import com.motogps.android.viewmodel.RouteProgressMatcher
+import java.io.BufferedOutputStream
 import java.io.File
-import java.util.concurrent.Executors
+import java.io.FileOutputStream
+import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 import java.util.Locale
 import org.json.JSONArray
 import org.json.JSONObject
@@ -23,18 +27,29 @@ import org.json.JSONObject
  * exclusively on one private worker and never blocks the GPS/BLE callbacks.
  */
 object ReplayTraceRecorder {
-    private val worker = Executors.newSingleThreadExecutor { job ->
-        Thread(job, "MotoGpsPrivateReplay").apply { isDaemon = true }
-    }
-    @Volatile private var active = false
-    @Volatile private var startElapsed = 0L
-    @Volatile private var sessionId = 0L
+    private data class ActiveSession(val id: Long, val startElapsedMs: Long)
+
+    private val worker = ThreadPoolExecutor(
+        1, 1, 0L, TimeUnit.MILLISECONDS,
+        ArrayBlockingQueue(2048),
+        { job -> Thread(job, "MotoGpsPrivateReplay").apply { isDaemon = true } },
+        ThreadPoolExecutor.DiscardOldestPolicy()
+    )
+    @Volatile private var activeSession: ActiveSession? = null
+    private var nextSessionId = 0L
     private var workerSessionId = -1L
     private var workerRoot: File? = null
     private var sessionWallMs = 0L
     private var partStartedAtMs = 0L
     private var partIndex = 0
     private var partFile: File? = null
+    private var partOut: BufferedOutputStream? = null
+    private var partBytesWritten = 0L
+
+    private fun closePartStream() {
+        runCatching { partOut?.flush(); partOut?.close() }
+        partOut = null
+    }
     // Carry the last visible route, scene and snapshot into every new part.
     // Otherwise a file opened on its own could start without map context.
     private var lastRouteFullEvent: String? = null
@@ -43,17 +58,16 @@ object ReplayTraceRecorder {
     private var lastSceneEvent: String? = null
     private var lastSnapshotEvent: String? = null
 
-    fun isRecording(): Boolean = active
+    fun isRecording(): Boolean = activeSession != null
 
     @Synchronized fun start(context: Context) {
-        if (active) return
+        if (activeSession != null) return
         val root = File(context.applicationContext.filesDir, "diagnostics")
         require(root.mkdirs() || root.isDirectory) { "Directory diagnostica non disponibile" }
-        val id = sessionId + 1L
-        sessionId = id
+        val id = ++nextSessionId
         val capturedWallMs = System.currentTimeMillis()
-        startElapsed = SystemClock.elapsedRealtime()
-        active = true
+        val startedAt = SystemClock.elapsedRealtime()
+        activeSession = ActiveSession(id, startedAt)
         lastFullRouteKey = null
         worker.execute {
             try {
@@ -67,22 +81,28 @@ object ReplayTraceRecorder {
                 workerSessionId = id
                 workerRoot = root
                 sessionWallMs = capturedWallMs
+                closePartStream()
                 partIndex = 0
                 partFile = null
+                partBytesWritten = 0L
                 lastRouteFullEvent = null
                 lastRouteEvent = null
                 lastSceneEvent = null
                 lastSnapshotEvent = null
-                startPart(0L)
+                startPart(0L, incomingType = null)
             } catch (e: Exception) {
                 fail(id, e)
             }
         }
     }
 
-    @Synchronized fun stop() { active = false }
+    @Synchronized fun stop() {
+        activeSession = null
+        worker.execute { closePartStream() }
+    }
 
-    private fun startPart(elapsedMs: Long) {
+    private fun startPart(elapsedMs: Long, incomingType: String?) {
+        closePartStream()
         val root = requireNotNull(workerRoot)
         ++partIndex
         partStartedAtMs = elapsedMs
@@ -96,54 +116,69 @@ object ReplayTraceRecorder {
             .put("captured_at_ms", sessionWallMs + elapsedMs)
             .put("part_index", partIndex)
             .put("session_elapsed_ms", elapsedMs)
-        val prefix = StringBuilder(header.toString()).append('\n')
-        // Every part can be replayed independently, including one starting
-        // halfway through a curve or immediately before a reroute.
-        for (event in listOfNotNull(
-                lastRouteFullEvent, lastRouteEvent, lastSceneEvent, lastSnapshotEvent)) {
-            prefix.append(JSONObject(event).put("t_ms", 0L).toString()).append('\n')
+        val out = BufferedOutputStream(FileOutputStream(file, false), 16 * 1024)
+        var written = 0L
+        fun writeRawLine(line: String) {
+            val bytes = (line + "\n").toByteArray(Charsets.UTF_8)
+            out.write(bytes)
+            written += bytes.size
         }
-        file.writeText(prefix.toString())
+        writeRawLine(header.toString())
+        val carried = listOf(
+            "route_full" to lastRouteFullEvent,
+            "route" to lastRouteEvent,
+            "scene" to lastSceneEvent,
+            "snapshot" to lastSnapshotEvent
+        )
+        for ((type, event) in carried) {
+            if (event != null && type != incomingType) {
+                writeRawLine(event)
+            }
+        }
+        out.flush()
         partFile = file
+        partOut = out
+        partBytesWritten = written
     }
 
-    private fun fail(id: Long, exception: Exception) {
-        if (sessionId == id) active = false
-        // DiagnosticLog is coordinate-free; record only the failure type.
+    @Synchronized private fun fail(id: Long, exception: Exception) {
+        if (activeSession?.id == id) activeSession = null
+        closePartStream()
         DiagnosticLog.event("GPS_REPLAY_ERROR", exception.javaClass.simpleName)
     }
 
     private fun point(p: GeoPointE6): JSONArray =
         JSONArray().put(p.latitudeE6 / 1e6).put(p.longitudeE6 / 1e6)
 
-    private fun write(data: JSONObject) {
-        if (!active) return
-        val id = sessionId
-        val elapsedMs = SystemClock.elapsedRealtime() - startElapsed
+    private fun enqueueWrite(buildEvent: () -> JSONObject) {
+        val session = activeSession ?: return
+        val elapsedMs = SystemClock.elapsedRealtime() - session.startElapsedMs
         if (elapsedMs < 0L) return
-        // Never stop at 60 minutes or 24 MiB: only the *current part* rotates.
+        val id = session.id
         worker.execute {
             if (workerSessionId != id) return@execute
             try {
-                var file = requireNotNull(partFile)
+                val data = buildEvent()
+                val eventType = data.optString("type")
+                var out = requireNotNull(partOut)
                 data.put("t_ms", (elapsedMs - partStartedAtMs).coerceAtLeast(0L))
-                var line = data.toString() + "\n"
+                var lineBytes = (data.toString() + "\n").toByteArray(Charsets.UTF_8)
                 if (ReplayTraceSegmentPolicy.rotate(
-                        elapsedMs, partStartedAtMs, file.length(),
-                        line.toByteArray(Charsets.UTF_8).size)) {
-                    startPart(elapsedMs)
-                    file = requireNotNull(partFile)
+                        elapsedMs, partStartedAtMs, partBytesWritten,
+                        lineBytes.size)) {
+                    startPart(elapsedMs, incomingType = eventType)
+                    out = requireNotNull(partOut)
                     data.put("t_ms", 0L)
-                    line = data.toString() + "\n"
+                    lineBytes = (data.toString() + "\n").toByteArray(Charsets.UTF_8)
                 }
-                file.appendText(line)
-                // Update the replay context only after the event was
-                // successfully written, never from a discarded queue entry.
-                when (data.optString("type")) {
-                    "route_full" -> lastRouteFullEvent = data.toString()
-                    "route" -> lastRouteEvent = data.toString()
-                    "scene" -> lastSceneEvent = data.toString()
-                    "snapshot" -> lastSnapshotEvent = data.toString()
+                out.write(lineBytes)
+                out.flush()
+                partBytesWritten += lineBytes.size
+                when (eventType) {
+                    "route_full" -> { data.put("t_ms", 0L); lastRouteFullEvent = data.toString() }
+                    "route" -> { data.put("t_ms", 0L); lastRouteEvent = data.toString() }
+                    "scene" -> { data.put("t_ms", 0L); lastSceneEvent = data.toString() }
+                    "snapshot" -> { data.put("t_ms", 0L); lastSnapshotEvent = data.toString() }
                 }
             } catch (e: Exception) {
                 fail(id, e)
@@ -154,33 +189,28 @@ object ReplayTraceRecorder {
     /** Accepted raw GNSS fix; used later for true Android rerun, not the LVGL replay. */
     fun fix(lat: Double, lon: Double, speedMps: Float,
             headingDeg: Float?, accuracyM: Float) {
-        if (!active || !lat.isFinite() || !lon.isFinite()) return
-        val e = JSONObject().put("type", "fix").put("lat", lat).put("lon", lon)
-            .put("speed_mps", if (speedMps.isFinite()) speedMps.toDouble() else 0.0)
-            .put("accuracy_m", if (accuracyM.isFinite()) accuracyM.toDouble() else -1.0)
-        if (headingDeg != null && headingDeg.isFinite())
-            e.put("heading_deg", headingDeg.toDouble())
-        write(e)
+        if (activeSession == null || !lat.isFinite() || !lon.isFinite()) return
+        enqueueWrite {
+            val e = JSONObject().put("type", "fix").put("lat", lat).put("lon", lon)
+                .put("speed_mps", if (speedMps.isFinite()) speedMps.toDouble() else 0.0)
+                .put("accuracy_m", if (accuracyM.isFinite()) accuracyM.toDouble() else -1.0)
+            if (headingDeg != null && headingDeg.isFinite())
+                e.put("heading_deg", headingDeg.toDouble())
+            e
+        }
     }
 
-    /**
-     * Private, complete routing geometry; never sent over BLE or written to
-     * DiagnosticLog. Record once per navigation route per explicit session,
-     * including when GPS recording is enabled halfway through a ride.
-     */
     @Synchronized internal fun fullRoute(
         g: MotoBLERouteGeometry, plan: ValhallaTurnGuidance.Plan
     ) {
-        if (!active || g.points.size < 2 || g.points.size > 150_000) return
-        val key = "${sessionId}:${g.routeToken}:${g.routeGeneration}"
+        val session = activeSession ?: return
+        if (g.points.size < 2 || g.points.size > 150_000) return
+        val key = "${session.id}:${g.routeToken}:${g.routeGeneration}"
         if (key == lastFullRouteKey) return
-        // Only mark as recorded after building the event successfully.
-        val event = ReplayProgressPayload.fullRoute(g, plan)
         lastFullRouteKey = key
-        write(event)
+        enqueueWrite { ReplayProgressPayload.fullRoute(g, plan) }
     }
 
-    /** Same fix, raw matcher remaining, guarded remaining and Valhalla turn. */
     internal fun progress(
         lat: Double, lon: Double,
         routeToken: Long, generation: Long, speedMps: Float,
@@ -190,78 +220,81 @@ object ReplayTraceRecorder {
         next: ValhallaTurnGuidance.Plan.Next?,
         totalShapeM: Double
     ) {
-        if (!active || !lat.isFinite() || !lon.isFinite()) return
-        write(ReplayProgressPayload.progress(
-            lat, lon, routeToken, generation, speedMps, travelHeading,
-            rawRemainingM, guardedRemainingM, match, next, totalShapeM))
-    }
-
-    /** The same moving 24-point geometry window submitted to BLE. */
-    fun route(g: MotoBLERouteGeometry) {
-        if (!active) return
-        val points = JSONArray()
-        for (p in g.points) points.put(point(p))
-        write(JSONObject().put("type", "route")
-            .put("origin", point(g.viewOrigin))
-            .put("route_token", g.routeToken)
-            .put("generation", g.routeGeneration)
-            .put("points", points))
-    }
-
-    /** The exact selected MotoMap road scene submitted to BLE. */
-    fun scene(s: MotoBLEMapScene) {
-        if (!active) return
-        val roads = JSONArray()
-        for (road in s.roads) {
-            val points = JSONArray()
-            for (p in road.points) points.put(point(p))
-            roads.put(JSONObject().put("road_class", road.roadClass)
-                .put("points", points))
+        if (activeSession == null || !lat.isFinite() || !lon.isFinite()) return
+        enqueueWrite {
+            ReplayProgressPayload.progress(
+                lat, lon, routeToken, generation, speedMps, travelHeading,
+                rawRemainingM, guardedRemainingM, match, next, totalShapeM)
         }
-        write(JSONObject().put("type", "scene")
-            .put("revision", s.sceneRevision)
-            .put("roads", roads))
     }
 
-    /** Outgoing BLE state paired with the last accepted GPS fix (not predicted).
-     * Old replay files may contain extrapolated snapshot positions; newly
-     * recorded snapshots explicitly label their coordinate source.
-     */
+    fun route(g: MotoBLERouteGeometry) {
+        if (activeSession == null) return
+        enqueueWrite {
+            val points = JSONArray()
+            for (p in g.points) points.put(point(p))
+            JSONObject().put("type", "route")
+                .put("origin", point(g.viewOrigin))
+                .put("route_token", g.routeToken)
+                .put("generation", g.routeGeneration)
+                .put("points", points)
+        }
+    }
+
+    fun scene(s: MotoBLEMapScene) {
+        if (activeSession == null) return
+        enqueueWrite {
+            val roads = JSONArray()
+            for (road in s.roads) {
+                val points = JSONArray()
+                for (p in road.points) points.put(point(p))
+                roads.put(JSONObject().put("road_class", road.roadClass)
+                    .put("points", points))
+            }
+            JSONObject().put("type", "scene")
+                .put("revision", s.sceneRevision)
+                .put("roads", roads)
+        }
+    }
+
     fun snapshot(s: MotoBLENavigationSnapshot, lat: Double, lon: Double) {
-        if (!active || !lat.isFinite() || !lon.isFinite()) return
-        write(JSONObject().put("type", "snapshot")
-            .put("lat", lat).put("lon", lon)
-            .put("position_source", "accepted_gps")
-            .put("state", s.stateName).put("network", s.networkName)
-            .put("maneuver", s.maneuverName)
-            .put("has_turn", s.maneuverName !in listOf("none", "continue", "arrive") &&
-                s.distanceToManeuverM > 0)
-            .put("exit", s.roundaboutExit)
-            .put("heading_deg", s.headingCentiDegrees / 100.0)
-            .put("speed_mps", s.speedDeciKPH / 36.0)
-            .put("turn_m", s.distanceToManeuverM)
-            .put("remaining_m", s.remainingDistanceM)
-            .put("total_m", s.totalDistanceM)
-            .put("progress_m", s.routeProgressM)
-            .put("duration_s", s.remainingDurationS)
-            .put("speed_limit", s.speedLimitKPH)
-            .put("route_token", s.routeToken)
-            .put("generation", s.routeGeneration))
+        if (activeSession == null || !lat.isFinite() || !lon.isFinite()) return
+        enqueueWrite {
+            val hasTurn = s.maneuverName !in setOf("none", "continue") &&
+                (s.distanceToManeuverM > 0 || s.maneuverName == "roundabout" || s.maneuverName == "arrive")
+            JSONObject().put("type", "snapshot")
+                .put("lat", lat).put("lon", lon)
+                .put("position_source", "accepted_gps")
+                .put("state", s.stateName).put("network", s.networkName)
+                .put("maneuver", s.maneuverName)
+                .put("has_turn", hasTurn)
+                .put("exit", s.roundaboutExit)
+                .put("heading_deg", s.headingCentiDegrees / 100.0)
+                .put("speed_mps", s.speedDeciKPH / 36.0)
+                .put("turn_m", s.distanceToManeuverM)
+                .put("remaining_m", s.remainingDistanceM)
+                .put("total_m", s.totalDistanceM)
+                .put("progress_m", s.routeProgressM)
+                .put("duration_s", s.remainingDurationS)
+                .put("speed_limit", s.speedLimitKPH)
+                .put("route_token", s.routeToken)
+                .put("generation", s.routeGeneration)
+        }
     }
 
     fun waypointReached(index: Int, total: Int) {
-        if (!active) return
-        write(JSONObject().put("type", "waypoint")
-            .put("reached", index).put("total", total))
+        if (activeSession == null) return
+        enqueueWrite {
+            JSONObject().put("type", "waypoint")
+                .put("reached", index).put("total", total)
+        }
     }
 
-    /**
-     * Export after pending events on the same worker. Large ZIPs are streamed,
-     * so an arbitrarily long recording does not require a large RAM buffer.
-     * Caller must invoke this from a background thread, never the UI.
-     */
     fun export(context: Context): File {
         val root = File(context.applicationContext.filesDir, "diagnostics")
-        return worker.submit<File> { ReplayTraceArchive.export(root) }.get()
+        return worker.submit<File> {
+            closePartStream()
+            ReplayTraceArchive.export(root)
+        }.get()
     }
 }

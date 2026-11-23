@@ -47,7 +47,10 @@ jbyteArray CreateByteArray(JNIEnv *env, const Bytes& bytes) {
 
 std::string GetStringField(JNIEnv *env, jobject obj, jclass cls, const char* fieldName) {
     jfieldID fid = env->GetFieldID(cls, fieldName, "Ljava/lang/String;");
-    if (!fid) return "";
+    if (!fid) {
+        if (env->ExceptionCheck()) env->ExceptionClear();
+        return "";
+    }
     jstring jstr = (jstring)env->GetObjectField(obj, fid);
     if (!jstr) return "";
     const char *cstr = env->GetStringUTFChars(jstr, nullptr);
@@ -206,6 +209,7 @@ Java_com_motogps_android_jni_MotoBLEProtocolCodec_nativeDestroy(JNIEnv *env, job
 extern "C" JNIEXPORT void JNICALL
 Java_com_motogps_android_jni_MotoBLEProtocolCodec_nativeSetMaximumFrameSize(JNIEnv *env, jobject thiz, jlong ptr, jint maximum_frame_size) {
     auto* storage = reinterpret_cast<CodecStorage*>(ptr);
+    if (!storage) return;
     storage->max_frame_size = std::clamp<std::size_t>(
         maximum_frame_size, kFrameOverhead + 1, kMaxBleAttributeValueSize);
 }
@@ -213,6 +217,7 @@ Java_com_motogps_android_jni_MotoBLEProtocolCodec_nativeSetMaximumFrameSize(JNIE
 extern "C" JNIEXPORT void JNICALL
 Java_com_motogps_android_jni_MotoBLEProtocolCodec_nativeResetInboundState(JNIEnv *env, jobject thiz, jlong ptr) {
     auto* storage = reinterpret_cast<CodecStorage*>(ptr);
+    if (!storage) return;
     storage->reassembler.reset();
 }
 
@@ -339,7 +344,7 @@ Java_com_motogps_android_jni_MotoBLEProtocolCodec_nativePushDeviceFrame(JNIEnv *
             if (std::holds_alternative<ConnectionStatus>(payload)) {
                 const auto& s = std::get<ConnectionStatus>(payload);
                 jclass csCls = env->FindClass("com/motogps/android/jni/MotoBLEConnectionStatus");
-                jmethodID csCtor = env->GetMethodID(csCls, "<init>", "(IIIIJJI)V");
+                jmethodID csCtor = env->GetMethodID(csCls, "<init>", "(IIIIJJII)V");
                 jConnStatus = env->NewObject(csCls, csCtor,
                                            (jint)s.role, (jint)s.state,
                                            (jint)s.minimum_version, (jint)s.maximum_version,
@@ -379,5 +384,6 @@ Java_com_motogps_android_jni_MotoBLEProtocolCodec_nativePushDeviceFrame(JNIEnv *
 extern "C" JNIEXPORT jint JNICALL
 Java_com_motogps_android_jni_MotoBLEProtocolCodec_nativeGetLastEncodedSequence(JNIEnv *env, jobject thiz, jlong ptr) {
     auto* storage = reinterpret_cast<CodecStorage*>(ptr);
+    if (!storage) return 0;
     return storage->last_encoded_sequence;
 }

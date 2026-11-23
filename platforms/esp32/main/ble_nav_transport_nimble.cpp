@@ -414,7 +414,7 @@ void BleNavTransport::run_rx_worker() {
     has_observed_loss_epoch = false;
     resynchronizing_after_loss = false;
     has_last_rx_ack_ = false;
-    if (xSemaphoreTake(tx_mutex_, pdMS_TO_TICKS(100)) == pdTRUE) {
+    if (xSemaphoreTake(tx_mutex_, portMAX_DELAY) == pdTRUE) {
       pending_ack_ = {};
       tx_sequence_.reset();
       last_tx_ms_.store(static_cast<std::uint32_t>(monotonic_ms()));
@@ -535,7 +535,7 @@ void BleNavTransport::run_rx_worker() {
           protocol_ready = false;
           has_last_rx_ack_ = false;
           reassembler_.reset();
-          if (xSemaphoreTake(tx_mutex_, pdMS_TO_TICKS(100)) == pdTRUE) {
+          if (xSemaphoreTake(tx_mutex_, portMAX_DELAY) == pdTRUE) {
             pending_ack_ = {};
             tx_sequence_.reset();
             xSemaphoreGive(tx_mutex_);

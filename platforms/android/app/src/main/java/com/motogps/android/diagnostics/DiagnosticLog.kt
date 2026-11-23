@@ -3,12 +3,17 @@ package com.motogps.android.diagnostics
 import android.content.Context
 import android.os.SystemClock
 import com.motogps.android.jni.MotoBLEDiagnosticRecord
+import java.io.BufferedWriter
 import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-import java.util.TimeZone
-import java.util.concurrent.Executors
+import java.io.FileWriter
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
 import java.util.zip.ZipOutputStream
@@ -19,12 +24,46 @@ object DiagnosticLog {
     // Keep a useful one-hour joint Android/ESP32 trace without unbounded growth.
     private const val MAX_ANDROID_FILE_BYTES = 1L * 1024L * 1024L
     private const val MAX_ESP32_FILE_BYTES = 2L * 1024L * 1024L
-    private val worker = Executors.newSingleThreadExecutor { runnable ->
-        Thread(runnable, "MotoGpsTrace").apply { isDaemon = true }
-    }
+    private val worker = ThreadPoolExecutor(
+        1, 1, 0L, TimeUnit.MILLISECONDS,
+        ArrayBlockingQueue(2048),
+        { runnable -> Thread(runnable, "MotoGpsTrace").apply { isDaemon = true } },
+        ThreadPoolExecutor.DiscardOldestPolicy()
+    )
     @Volatile private var root: File? = null
-    private val timeFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSXXX", Locale.ROOT)
-        .apply { timeZone = TimeZone.getDefault() }
+    private val timeFormatter: DateTimeFormatter =
+        DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSXXX")
+    private var androidWriter: BufferedWriter? = null
+    private var androidFile: File? = null
+    private var esp32Writer: BufferedWriter? = null
+    private var esp32File: File? = null
+
+    private fun closeWriters() {
+        runCatching { androidWriter?.flush(); androidWriter?.close() }
+        androidWriter = null
+        androidFile = null
+        runCatching { esp32Writer?.flush(); esp32Writer?.close() }
+        esp32Writer = null
+        esp32File = null
+    }
+
+    private fun rotateIfNeeded(current: File, previousName: String, maxBytes: Long, isEsp32: Boolean) {
+        if (current.length() < maxBytes) return
+        if (isEsp32) {
+            runCatching { esp32Writer?.flush(); esp32Writer?.close() }
+            esp32Writer = null
+            esp32File = null
+        } else {
+            runCatching { androidWriter?.flush(); androidWriter?.close() }
+            androidWriter = null
+            androidFile = null
+        }
+        val previous = File(current.parentFile, previousName)
+        if (previous.exists()) previous.delete()
+        if (!current.renameTo(previous)) {
+            runCatching { current.writeText("") }
+        }
+    }
 
     fun init(context: Context) {
         val dir = File(context.filesDir, "diagnostics")
@@ -42,13 +81,15 @@ object DiagnosticLog {
         worker.execute {
             try {
                 val current = File(dir, "current.log")
-                if (current.length() >= MAX_ANDROID_FILE_BYTES) {
-                    val previous = File(dir, "previous.log")
-                    if (previous.exists()) previous.delete()
-                    current.renameTo(previous)
+                rotateIfNeeded(current, "previous.log", MAX_ANDROID_FILE_BYTES, isEsp32 = false)
+                if (androidWriter == null || androidFile != current) {
+                    runCatching { androidWriter?.close() }
+                    androidWriter = BufferedWriter(FileWriter(current, true), 8192)
+                    androidFile = current
                 }
-                val stamp = timeFormat.format(Date(wall))
-                current.appendText("$stamp wall_ms=$wall elapsed_ms=$elapsed $type $safe\n")
+                val stamp = Instant.ofEpochMilli(wall).atZone(ZoneId.systemDefault()).format(timeFormatter)
+                androidWriter!!.write("$stamp wall_ms=$wall elapsed_ms=$elapsed $type $safe\n")
+                androidWriter!!.flush()
             } catch (_: Exception) {
                 // Diagnostics must never interrupt navigation, BLE or GPS.
             }
@@ -63,16 +104,18 @@ object DiagnosticLog {
         worker.execute {
             try {
                 val current = File(dir, "esp32-current.log")
-                if (current.length() >= MAX_ESP32_FILE_BYTES) {
-                    val previous = File(dir, "esp32-previous.log")
-                    if (previous.exists()) previous.delete()
-                    current.renameTo(previous)
+                rotateIfNeeded(current, "esp32-previous.log", MAX_ESP32_FILE_BYTES, isEsp32 = true)
+                if (esp32Writer == null || esp32File != current) {
+                    runCatching { esp32Writer?.close() }
+                    esp32Writer = BufferedWriter(FileWriter(current, true), 8192)
+                    esp32File = current
                 }
-                current.appendText(records.joinToString("") { record ->
+                esp32Writer!!.write(records.joinToString("") { record ->
                     "wall_ms=$wall esp32_uptime_ms=${record.uptimeMs} " +
                         "seq=${record.sequence} event=${record.event} " +
                         "v=${record.values.joinToString(",")}\n"
                 })
+                esp32Writer!!.flush()
             } catch (_: Exception) {
                 // Never interrupt BLE or navigation because of diagnostics.
             }
@@ -91,7 +134,7 @@ object DiagnosticLog {
         val replay = ReplayTraceRecorder.export(context)
         val logs = exportZip()
         val dir = requireNotNull(root) { "Diagnostic logger not initialized" }
-        val exportDir = File(dir, "exports")
+        val exportDir = File(dir, "exports").apply { mkdirs() }
         val complete = File(exportDir, "motogps-diagnostica-completa.zip")
         val staged = File(exportDir, "motogps-diagnostica-completa.tmp")
         try {
@@ -126,21 +169,29 @@ object DiagnosticLog {
                 }
                 zip.putNextEntry(ZipEntry("README.txt"))
                 zip.write((
-                    "Moto Chat GPS - diagnostica completa privata.\\n" +
-                    "logs/: eventi Android e ESP32 ricevuti via BLE.\\n" +
-                    "gps/: tracce JSONL complete con coordinate, percorsi e velocita'.\\n" +
-                    "Caricare le parti JSONL nel simulatore in ordine numerico.\\n" +
-                    "Le coordinate sono informazioni personali: condividere solo volontariamente.\\n"
-                ).replace("\\\\n", "\\n").toByteArray(Charsets.UTF_8))
+                    "Moto Chat GPS - diagnostica completa privata.\n" +
+                    "logs/: eventi Android e ESP32 ricevuti via BLE.\n" +
+                    "gps/: tracce JSONL complete con coordinate, percorsi e velocita'.\n" +
+                    "Caricare le parti JSONL nel simulatore in ordine numerico.\n" +
+                    "Le coordinate sono informazioni personali: condividere solo volontariamente.\n"
+                ).toByteArray(Charsets.UTF_8))
                 zip.closeEntry()
             }
-            if (complete.exists() && !complete.delete()) {
-                throw IllegalStateException("Impossibile sostituire l'archivio precedente")
+            try {
+                Files.move(
+                    staged.toPath(), complete.toPath(),
+                    StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE
+                )
+            } catch (_: Exception) {
+                Files.move(staged.toPath(), complete.toPath(), StandardCopyOption.REPLACE_EXISTING)
             }
-            check(staged.renameTo(complete)) { "Impossibile finalizzare l'archivio" }
             return complete
         } finally {
             if (staged.exists()) staged.delete()
+            if (logs.exists() && logs != complete) logs.delete()
+            if (replay.exists() && replay != complete && replay.parentFile?.name == "exports") {
+                replay.delete()
+            }
         }
     }
 
@@ -148,22 +199,29 @@ object DiagnosticLog {
     fun exportZip(): File {
         val dir = requireNotNull(root) { "Diagnostic logger not initialized" }
         return worker.submit<File> {
+            closeWriters()
             val exportDir = File(dir, "exports").apply { mkdirs() }
             val zipFile = File(exportDir, "motogps-android-diagnostics.zip")
-            ZipOutputStream(zipFile.outputStream().buffered()).use { zip ->
-                for (name in listOf("previous.log", "current.log", "esp32-previous.log", "esp32-current.log")) {
-                    val file = File(dir, name)
-                    if (file.isFile) {
-                        zip.putNextEntry(ZipEntry(name))
-                        file.inputStream().use { it.copyTo(zip) }
-                        zip.closeEntry()
+            val staged = File(exportDir, "motogps-android-diagnostics.tmp")
+            try {
+                ZipOutputStream(staged.outputStream().buffered()).use { zip ->
+                    for (name in listOf("previous.log", "current.log", "esp32-previous.log", "esp32-current.log")) {
+                        val file = File(dir, name)
+                        if (file.isFile) {
+                            zip.putNextEntry(ZipEntry(name))
+                            file.inputStream().use { it.copyTo(zip) }
+                            zip.closeEntry()
+                        }
                     }
+                    zip.putNextEntry(ZipEntry("README.txt"))
+                    zip.write("MotoGPS Android persistent trace. Sensitive timing, route and speed metadata.\n".toByteArray(Charsets.UTF_8))
+                    zip.closeEntry()
                 }
-                zip.putNextEntry(ZipEntry("README.txt"))
-                zip.write("MotoGPS Android persistent trace. Sensitive timing, route and speed metadata.\n".toByteArray())
-                zip.closeEntry()
+                Files.move(staged.toPath(), zipFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
+                zipFile
+            } finally {
+                if (staged.exists()) staged.delete()
             }
-            zipFile
         }.get()
     }
 }

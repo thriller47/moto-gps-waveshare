@@ -274,7 +274,8 @@ void PhoneNavBridge::on_imu_sample(float heading_rate_dps,
     snapshot_.heading_deg = heading_fusion_.heading_deg();
     // The QMI8658 runs at 125 Hz. Reproject at the display's unified 40 Hz
     // cadence; requests still coalesce if one physical refresh runs long.
-    if (sample_ms - last_motion_present_ms_ >= 25 &&
+    if (sample_ms >= last_motion_present_ms_ &&
+        sample_ms - last_motion_present_ms_ >= 25 &&
         (snapshot_.has_route_view ||
          snapshot_.display_page == moto::nav::DisplayPage::Compass)) {
       // Preserve the 25 ms phase. Setting this to sample_ms quantizes every

@@ -39,8 +39,12 @@ internal object UnifiedOfflineMapImporter {
      * imports while this operation is running.
      */
     fun install(context: Context, uri: Uri, progress: (String) -> Unit = {}, cancelled: () -> Boolean = { false }) {
-        val dir = File(context.cacheDir, "motopack-staging")
-        if (!dir.exists() && !dir.mkdirs()) throw IOException("Directory temporanea non disponibile")
+        val dir = File(context.filesDir, "motopack-staging")
+        if (dir.exists()) dir.deleteRecursively()
+        if (!dir.mkdirs()) throw IOException("Directory temporanea non disponibile")
+        if (dir.usableSpace < 512L * 1024 * 1024) {
+            throw IOException("Spazio libero insufficiente per importare il MotoPack (servono almeno 512 MB liberi)")
+        }
         val staged = names.mapValues { (key, _) -> File(dir, stagingName(key)) }
         val lengths = mutableMapOf<String, Long>()
         val hashes = mutableMapOf<String, String>()
@@ -116,9 +120,11 @@ internal object UnifiedOfflineMapImporter {
             if (cancelled()) throw java.util.concurrent.CancellationException("Importazione annullata")
             progress("Installazione MotoMap...")
             MotomapPackImporter.install(context, Uri.fromFile(staged.getValue("motomap")))
+            staged.getValue("motomap").delete()
             if (cancelled()) throw java.util.concurrent.CancellationException("Importazione annullata")
             progress("Installazione Photon...")
             OfflinePhotonPlaceSearch.install(context, Uri.fromFile(staged.getValue("photon")))
+            staged.getValue("photon").delete()
             if (cancelled()) throw java.util.concurrent.CancellationException("Importazione annullata")
             progress("Installazione Valhalla...")
             val graphBytes = ValhallaGraphImporter.install(
@@ -126,14 +132,17 @@ internal object UnifiedOfflineMapImporter {
                 { copied -> progress("Valhalla: elaborati ${copied / 1048576L} MiB") },
                 cancelled
             )
+            staged.getValue("valhalla").delete()
             if (graphBytes <= 0L) throw IOException("Valhalla non installato")
             progress("Valhalla installato (${graphBytes / 1048576L} MiB)")
             if (cancelled()) throw java.util.concurrent.CancellationException("Importazione annullata")
-            if (cancelled()) throw java.util.concurrent.CancellationException("Importazione annullata")
             progress("Installazione quote DEM Valhalla...")
             ValhallaElevationImporter.install(context, staged.getValue("elevation"), cancelled)
+            staged.getValue("elevation").delete()
+            if (cancelled()) throw java.util.concurrent.CancellationException("Importazione annullata")
             progress("Installazione Road DNA...")
             OfflineTouristPlaceSearch.install(context, Uri.fromFile(staged.getValue("tourist")))
+            staged.getValue("tourist").delete()
             progress("MotoPack v3 installato (MotoMap, Photon, Valhalla, DEM, Road DNA)")
         } finally {
             staged.values.forEach { it.delete() }

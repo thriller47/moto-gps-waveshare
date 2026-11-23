@@ -49,8 +49,16 @@ internal object OpenFreeMapTileProbe {
         var responseLength = -1L
         var contentEncoding = ""
         try {
-            if (connection.responseCode != 200)
-                throw IOException("OpenFreeMap HTTP " + connection.responseCode)
+            val code = connection.responseCode
+            if (code == 204 || code == 404) {
+                val maps = HybridMapRepository.getSharedMapsDir(context)
+                val name = "ofm_trial_" + z + "_" + tile.x + "_" + tile.y + ".motomap"
+                val target = File(maps, name)
+                if (!target.exists()) target.writeText("")
+                return Result(tile, 0, OpenFreeMapMvtDecoder.Stats(0, 0, 0, 0), name)
+            }
+            if (code != 200)
+                throw IOException("OpenFreeMap HTTP " + code)
             contentType = connection.contentType.orEmpty().take(80)
             responseLength = connection.contentLengthLong
             contentEncoding = connection.contentEncoding.orEmpty().take(40)
@@ -90,14 +98,15 @@ internal object OpenFreeMapTileProbe {
                 OpenFreeMapMvtDecoder.writeTile(
                     z, tile.x, tile.y, bytes, writer)
             }
-            if (stats.parts == 0) throw IOException(
-                "MVT zero strade tile=" + tile.key +
-                    " bytes=" + bytes.size + " type=" + contentType +
-                    " features=" + stats.features + " roads=" + stats.roads +
-                    " layers=" + stats.layers + " classes=" + stats.roadClasses
-            )
-            if (target.exists() && !target.delete()) throw IOException("Cannot replace trial tile")
-            if (!temp.renameTo(target)) throw IOException("Cannot save trial tile")
+            try {
+                java.nio.file.Files.move(
+                    temp.toPath(), target.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING
+                )
+            } catch (_: Exception) {
+                if (target.exists() && !target.delete()) throw IOException("Cannot replace trial tile")
+                if (!temp.renameTo(target)) throw IOException("Cannot save trial tile")
+            }
             return Result(tile, bytes.size, stats, name)
         } finally {
             temp.delete()

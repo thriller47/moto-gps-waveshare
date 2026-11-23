@@ -42,7 +42,7 @@ internal object RoadContextExitContinuations {
         latitude: Double
     ): Extension {
         val unchanged = Extension(exit.points, emptyList())
-        if (ringNodeIds.isEmpty() || exit.points.size < 2 ||
+        if (!latitude.isFinite() || ringNodeIds.isEmpty() || exit.points.size < 2 ||
             exit.nodeIds.size != exit.points.size || exit.nodeIds.any { it <= 0L })
             return unchanged
 
@@ -60,9 +60,10 @@ internal object RoadContextExitContinuations {
         excluded.addAll(chosenExits)
         excluded.addAll(alreadyConsumed)
         excluded.add(exit)
+        val visitedNodeIds = HashSet<Long>(exit.nodeIds)
         val used = ArrayList<MapRoadSegment>()
         var addedMeters = 0.0
-        val longitudeScale = 111_320.0 * cos(Math.toRadians(latitude))
+        val longitudeScale = 111_320.0 * cos(Math.toRadians(latitude)).coerceAtLeast(0.02)
 
         fun distance(a: GeoPointE6, b: GeoPointE6): Double = hypot(
             (b.latitudeE6.toDouble() - a.latitudeE6) / 1e6 * 111_320.0,
@@ -78,10 +79,10 @@ internal object RoadContextExitContinuations {
             return acos(((ax * bx + ay * by) / norm).coerceIn(-1.0, 1.0)) * 180.0 / PI
         }
 
-        repeat(MAX_FOLLOWING_WAYS) {
+        for (step in 0 until MAX_FOLLOWING_WAYS) {
             val tail = line.last()
             val previous = line.dropLast(1).lastOrNull { distance(it, tail) > 0.8 }
-                ?: return@repeat
+                ?: break
             val options = roads.mapNotNull { road ->
                 if (road in excluded || road.junctionKind != 0 ||
                     road.points.size < 2 || road.nodeIds.size != road.points.size ||
@@ -89,21 +90,20 @@ internal object RoadContextExitContinuations {
                 val fromStart = road.nodeIds.first() == endingNodeId
                 val fromEnd = road.nodeIds.last() == endingNodeId
                 if (fromStart == fromEnd) return@mapNotNull null
+                val candidateEndNode = if (fromStart) road.nodeIds.last() else road.nodeIds.first()
+                if (candidateEndNode in visitedNodeIds) return@mapNotNull null
                 val points = if (fromStart) road.points else road.points.asReversed()
-                if (points.first() != tail) return@mapNotNull null
+                if (distance(points.first(), tail) > 1.0) return@mapNotNull null
                 val next = points.drop(1).firstOrNull { distance(tail, it) > 0.8 }
                     ?: return@mapNotNull null
                 val turn = error(previous, tail, next)
                 if (turn > MAX_BEND_DEGREES) return@mapNotNull null
-                Candidate(road, points,
-                    if (fromStart) road.nodeIds.last() else road.nodeIds.first(), turn)
+                Candidate(road, points, candidateEndNode, turn)
             }.sortedBy { it.turnDegrees }
-            val best = options.firstOrNull() ?: return@repeat
-            // Two nearly aligned possible ways form a real fork; do not
-            // fabricate a continuation by guessing which arm is correct.
+            val best = options.firstOrNull() ?: break
             if (options.size > 1 &&
                 options[1].turnDegrees - best.turnDegrees < MIN_RUNNER_UP_GAP_DEGREES)
-                return@repeat
+                break
 
             var appended = false
             for (next in best.outwardPoints.drop(1)) {
@@ -128,9 +128,10 @@ internal object RoadContextExitContinuations {
                 addedMeters += segment
                 appended = true
             }
-            if (!appended) return@repeat
+            if (!appended) break
             used.add(best.road)
             excluded.add(best.road)
+            visitedNodeIds.addAll(best.road.nodeIds)
             endingNodeId = best.endingNodeId
             if (addedMeters >= MAX_ADDED_METERS) return Extension(line, used)
         }

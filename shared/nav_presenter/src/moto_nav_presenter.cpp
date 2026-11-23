@@ -530,8 +530,6 @@ void NavPresenter::update(const NavSnapshot& snapshot) {
   ui_state_.route_generation = snapshot.route_generation;
   ui_state_.route_geometry_signature = route_geometry_signature(snapshot);
   ui_state_.map_scene_revision = snapshot.map_scene_revision;
-  ui_state_.maneuver_map_zoom_active =
-      maneuver_zoom_available(snapshot) ? 1U : 0U;
   ui_state_.speed_kph = rounded_saturated<std::uint16_t>(
       static_cast<double>(snapshot.speed_mps) * 3.6);
   ui_state_.speed_limit_kph = snapshot.speed_limit_kph;

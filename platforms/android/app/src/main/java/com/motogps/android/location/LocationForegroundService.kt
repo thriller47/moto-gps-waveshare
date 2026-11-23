@@ -80,6 +80,8 @@ open class LocationForegroundService : Service(), LocationListener {
             }
         } catch (e: Exception) {
             Log.e("LocationForegroundService", "Failed to start foreground service", e)
+            stopSelf()
+            return START_NOT_STICKY
         }
 
         startLocationUpdates()
@@ -129,21 +131,28 @@ open class LocationForegroundService : Service(), LocationListener {
                     this
                 )
             }
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            Log.w("LocationForegroundService", "Failed to register location updates", e)
+        }
     }
 
     private fun selectBestLocation(gps: Location?, net: Location?): Location? {
         if (gps == null) return net
         if (net == null) return gps
-        // Prefer GPS unless network is significantly fresher and GPS is stale (> 60s)
-        val timeDiff = net.time - gps.time
-        if (timeDiff > 60_000L) {
+        val gpsNs = gps.elapsedRealtimeNanos
+        val netNs = net.elapsedRealtimeNanos
+        val timeDiffMs = if (gpsNs > 0L && netNs > 0L) {
+            (netNs - gpsNs) / 1_000_000L
+        } else {
+            net.time - gps.time
+        }
+        if (timeDiffMs > 60_000L) {
             return net
         }
         if (gps.hasAccuracy() && net.hasAccuracy() && gps.accuracy <= net.accuracy) {
             return gps
         }
-        return if (gps.time >= net.time) gps else net
+        return if (timeDiffMs <= 0L) gps else net
     }
 
     override fun onLocationChanged(location: Location) {

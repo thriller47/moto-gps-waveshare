@@ -170,16 +170,17 @@ class MotionHeadingFusion {
     const float dt_s = static_cast<float>(elapsed_ms) / 1'000.0F;
     const float bounded =
         std::clamp(yaw_rate_dps - bias_dps_, -500.0F, 500.0F);
-    // About 20 ms of smoothing at the 125 Hz sensor rate: vibration is
-    // suppressed without the sluggish response of phone-only course updates.
-    filtered_rate_dps_ += (bounded - filtered_rate_dps_) * 0.15F;
+    // Time-step-aware low-pass filter (~45 ms tau) so RTOS jitter does not skew gyro phase.
+    const float alpha = 1.0F - std::exp(-dt_s / 0.045F);
+    filtered_rate_dps_ += (bounded - filtered_rate_dps_) * alpha;
     const float active_rate = std::abs(filtered_rate_dps_) < kDeadbandDps
                                   ? 0.0F
                                   : filtered_rate_dps_;
 
-    // Propagate angular variance:
+    // Propagate angular variance with an upper bound for long tunnels without GPS.
     const float rate_noise = 0.08F * std::abs(active_rate) * dt_s;
-    heading_var_deg2_ += (rate_noise * rate_noise) + 0.5F * dt_s;
+    heading_var_deg2_ = std::min(
+        900.0F, heading_var_deg2_ + (rate_noise * rate_noise) + 0.5F * dt_s);
 
     if (active_rate == 0.0F) {
       return false;

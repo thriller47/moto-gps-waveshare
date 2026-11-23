@@ -70,6 +70,8 @@ internal class RouteProgressStallPolicy {
             onRouteChanged()
             routeToken = token
         }
+        val effectiveCorridorCross = if (matchedCorridorCrossTrackM == Double.POSITIVE_INFINITY &&
+            matchedProgressM?.isFinite() == true) 999.0 else matchedCorridorCrossTrackM
         val good = nowMs >= 0L && lat.isFinite() && lon.isFinite() &&
             matchedProgressM?.isFinite() == true &&
             speedMps.isFinite() && speedMps >= MIN_SPEED_MPS &&
@@ -78,9 +80,26 @@ internal class RouteProgressStallPolicy {
             accuracyM.isFinite() && accuracyM in 0f..MAX_ACCURACY_M &&
             globalCrossTrackM.isFinite() &&
             globalCrossTrackM <= MAX_GLOBAL_CROSS_TRACK_M &&
-            matchedCorridorCrossTrackM.isFinite() &&
-            matchedCorridorCrossTrackM >= MIN_CORRIDOR_CROSS_TRACK_M &&
-            matchedCorridorCrossTrackM - globalCrossTrackM >= MIN_CROSS_TRACK_DIFFERENCE_M
+            effectiveCorridorCross.isFinite() &&
+            effectiveCorridorCross >= MIN_CORRIDOR_CROSS_TRACK_M &&
+            effectiveCorridorCross - globalCrossTrackM >= MIN_CROSS_TRACK_DIFFERENCE_M
+        if (confirmedUntilMs >= nowMs) {
+            val currentProgress = matchedProgressM
+            if (currentProgress != null && currentProgress.isFinite() &&
+                currentProgress > confirmedProgressM + 50.0) {
+                confirmedUntilMs = -1L
+                fixes.clear()
+                return false
+            }
+            // Keep confirmed latch alive across transient single-fix speed/accuracy dips
+            // unless we are clearly back near the matched corridor.
+            if (effectiveCorridorCross.isFinite() && effectiveCorridorCross < 30.0) {
+                confirmedUntilMs = -1L
+                fixes.clear()
+                return false
+            }
+            return true
+        }
         if (!good) {
             fixes.clear()
             confirmedUntilMs = -1L
@@ -88,15 +107,6 @@ internal class RouteProgressStallPolicy {
         }
         val progress = matchedProgressM!!
         val heading = courseDeg!!
-        if (confirmedUntilMs >= nowMs) {
-            // If the matcher catches up on its own, cancel the reroute signal.
-            if (progress > confirmedProgressM + 50.0) {
-                confirmedUntilMs = -1L
-                fixes.clear()
-                return false
-            }
-            return true
-        }
 
         val previous = fixes.peekLast()
         if (previous != null) {

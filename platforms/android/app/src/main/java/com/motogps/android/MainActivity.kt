@@ -60,6 +60,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     private var lastSentHeadingTime = 0L
     private var lastBackPressTime = 0L
     private val rotationMatrix = FloatArray(9)
+    private val remappedRotationMatrix = FloatArray(9)
     private val inclinationMatrix = FloatArray(9)
     private val orientationAngles = FloatArray(3)
     private var diagnosticMode by mutableStateOf(0)
@@ -153,14 +154,36 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         NavigationViewModelFactory(applicationContext)
     }
 
+    private fun hasLocationPermission(): Boolean =
+        ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+
+    private fun hasBlePermissions(): Boolean =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED &&
+                ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
+        } else {
+            ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH) == PackageManager.PERMISSION_GRANTED &&
+                ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_ADMIN) == PackageManager.PERMISSION_GRANTED
+        }
+
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { permissions ->
-        if (permissions.all { it.value }) {
-            if (!bleManager.hasActiveConnectionOrScan()) bleManager.startScan()
+    ) { _ ->
+        val locationGranted = hasLocationPermission()
+        val bleGranted = hasBlePermissions()
+        if (locationGranted) {
             startLocationUpdates()
-        } else {
-            Toast.makeText(this, "Permessi necessari per la connessione BLE e GPS", Toast.LENGTH_LONG).show()
+        }
+        if (bleGranted && !bleManager.hasActiveConnectionOrScan()) {
+            bleManager.startScan()
+        }
+        if (!locationGranted || !bleGranted) {
+            val missing = buildList {
+                if (!locationGranted) add("GPS")
+                if (!bleGranted) add("Bluetooth")
+            }.joinToString(" e ")
+            Toast.makeText(this, "Permessi $missing non concessi: alcune funzioni sono limitate", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -212,10 +235,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 }
             }
             onDeviceCommandReceived = { command ->
-                if (command.kind == 21) { // Confirmed waypoint-marker request from ESP32
-                    DiagnosticLog.event("WAYPOINT_SKIP", "phase=device_command")
-                    viewModel.skipNextWaypoint()
-                }
+                viewModel.handleDeviceCommand(command)
             }
             onDiagnosticBatchReceived = { records ->
                 DiagnosticLog.esp32Batch(records)
@@ -223,12 +243,16 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             onConnectionError = { errorMsg ->
                 DiagnosticLog.event("BLE_ERROR", errorMsg)
                 runOnUiThread {
-                    Toast.makeText(this@MainActivity, errorMsg, Toast.LENGTH_LONG).show()
+                    if (!isFinishing && !isDestroyed) {
+                        Toast.makeText(this@MainActivity, errorMsg, Toast.LENGTH_LONG).show()
+                    }
                 }
             }
         }
 
         viewModel.loadRoutePreferences(this)
+        viewModel.loadSavedCircularTours(this)
+        viewModel.loadTourSession(this)
 
         // BLE must exist before the foreground GPS service can initialize the
         // ViewModel through its first location update on an already-running app.
@@ -270,6 +294,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             val routePreview = viewModel.routePreview.collectAsState().value
             val routeOptions = viewModel.routeOptions.collectAsState().value
             val routeWaypoints = viewModel.routeWaypoints.collectAsState().value
+            val pausedTour = viewModel.pausedTour.collectAsState().value
+            val circularMandatoryStops = viewModel.circularMandatoryStops.collectAsState().value
+            val savedCircularTours = viewModel.savedCircularTours.collectAsState().value
             val nextWaypointToSkip = viewModel.nextWaypointToSkip.collectAsState().value
             val waypointSearchResults = viewModel.waypointSearchResults.collectAsState().value
             val waypointSearching = viewModel.waypointSearching.collectAsState().value
@@ -346,6 +373,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     onSearch = { query ->
                         viewModel.searchDestination(query)
                     },
+                    onCircularTour = { distanceKm, orientation ->
+                        viewModel.previewCircularTour(distanceKm, orientation)
+                    },
                     onConnectRequest = {
                         checkPermissionsAndScan(forceScan = true)
                     },
@@ -360,6 +390,18 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     routePreview = routePreview,
                     routeOptions = routeOptions,
                     routeWaypoints = routeWaypoints,
+                    pausedTour = pausedTour,
+                    onPauseTour = { viewModel.pauseTour() },
+                    onPreviewResumeTour = { viewModel.previewResumeTour() },
+                    onDiscardPausedTour = { viewModel.discardPausedTour() },
+                    circularMandatoryStops = circularMandatoryStops,
+                    savedCircularTours = savedCircularTours,
+                    onSaveCircularTour = { title -> viewModel.saveCurrentCircularTour(this@MainActivity, title) },
+                    onOpenSavedCircularTour = { tour, fromCurrent -> viewModel.openSavedCircularTour(tour, fromCurrent) },
+                    onDeleteSavedCircularTour = { id -> viewModel.removeSavedCircularTour(this@MainActivity, id) },
+                    onAddCircularMandatoryStop = { viewModel.addCircularMandatoryStop(it) },
+                    onRemoveCircularMandatoryStop = { viewModel.removeCircularMandatoryStop(it) },
+                    onMoveCircularMandatoryStop = { idx, dir -> viewModel.moveCircularMandatoryStop(idx, dir) },
                     nextWaypointToSkip = nextWaypointToSkip,
                     onSkipNextWaypoint = { viewModel.skipNextWaypoint() },
                     waypointSearchResults = waypointSearchResults,
@@ -518,14 +560,13 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }
 
-        if (missingPermissions.isEmpty()) {
-            // Automatic startup must not disconnect an already-live session
-            // after Activity recreation. An explicit Connect request may rescan.
-            if (forceScan || !bleManager.hasActiveConnectionOrScan()) {
-                bleManager.startScan()
-            }
+        if (hasLocationPermission()) {
             startLocationUpdates()
-        } else {
+        }
+        if (hasBlePermissions() && (forceScan || !bleManager.hasActiveConnectionOrScan())) {
+            bleManager.startScan()
+        }
+        if (missingPermissions.isNotEmpty()) {
             requestPermissionLauncher.launch(missingPermissions.toTypedArray())
         }
     }
@@ -544,12 +585,15 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     }
 
     override fun onDestroy() {
-        // finish() is an actual app exit, not merely Home/background navigation.
-        // Release GATT and callbacks so the next launch can reconnect to an
-        // already powered-on ESP32 without an orphaned Android BLE session.
+        bleManager.onConnectionError = null
+        bleManager.onConnectionStateChange = { state ->
+            DiagnosticLog.event("BLE_LINK", state)
+            viewModel.setConnectionState(state)
+        }
+        bleManager.onDeviceCommandReceived = { command ->
+            viewModel.handleDeviceCommand(command)
+        }
         diagnosticTimeoutHandler.removeCallbacks(diagnosticRefresh)
-        // The retained ViewModel owns GATT and releases it from onCleared().
-        // A display rotation destroys the Activity, not the navigation session.
         if (isFinishing) {
             stopService(Intent(this, LocationForegroundService::class.java))
         }
@@ -583,11 +627,23 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         if (event == null) return
         var azimuthDeg: Float? = null
 
+        fun computeAzimuthFromMatrix(): Float {
+            val activeMatrix = if (kotlin.math.abs(rotationMatrix[8]) < 0.7f &&
+                SensorManager.remapCoordinateSystem(
+                    rotationMatrix, SensorManager.AXIS_X, SensorManager.AXIS_Z, remappedRotationMatrix
+                )) {
+                remappedRotationMatrix
+            } else {
+                rotationMatrix
+            }
+            SensorManager.getOrientation(activeMatrix, orientationAngles)
+            val azimuthRad = orientationAngles[0]
+            return ((Math.toDegrees(azimuthRad.toDouble()).toFloat() % 360f) + 360f) % 360f
+        }
+
         if (event.sensor.type == Sensor.TYPE_ROTATION_VECTOR) {
             SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
-            SensorManager.getOrientation(rotationMatrix, orientationAngles)
-            val azimuthRad = orientationAngles[0]
-            azimuthDeg = ((Math.toDegrees(azimuthRad.toDouble()).toFloat() % 360f) + 360f) % 360f
+            azimuthDeg = computeAzimuthFromMatrix()
         } else if (event.sensor.type == Sensor.TYPE_ACCELEROMETER) {
             System.arraycopy(event.values, 0, gravity, 0, 3)
             hasGravity = true
@@ -598,16 +654,15 @@ class MainActivity : ComponentActivity(), SensorEventListener {
 
         if (azimuthDeg == null && hasGravity && hasGeomagnetic) {
             if (SensorManager.getRotationMatrix(rotationMatrix, inclinationMatrix, gravity, geomagnetic)) {
-                SensorManager.getOrientation(rotationMatrix, orientationAngles)
-                val azimuthRad = orientationAngles[0]
-                azimuthDeg = ((Math.toDegrees(azimuthRad.toDouble()).toFloat() % 360f) + 360f) % 360f
+                azimuthDeg = computeAzimuthFromMatrix()
             }
         }
 
         if (azimuthDeg != null) {
-            val now = System.currentTimeMillis()
+            val now = android.os.SystemClock.elapsedRealtime()
+            val elapsed = now - lastSentHeadingTime
             val deltaDeg = if (lastSentHeading < 0f) 360f else kotlin.math.abs(((azimuthDeg - lastSentHeading + 540f) % 360f) - 180f)
-            if (deltaDeg >= 1.5f || now - lastSentHeadingTime >= 150L) {
+            if ((elapsed >= 150L && deltaDeg >= 1.5f) || elapsed >= 500L) {
                 lastSentHeading = azimuthDeg
                 lastSentHeadingTime = now
                 viewModel.updateDeviceHeading(azimuthDeg)

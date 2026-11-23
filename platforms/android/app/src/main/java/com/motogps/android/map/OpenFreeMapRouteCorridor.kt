@@ -160,7 +160,7 @@ internal object OpenFreeMapRouteCorridor {
         val missing = candidates.filterNot { it in certified || coveredByMotoMap(it, found) }
         DiagnosticLog.event("OFM_COVERAGE",
             "planned=${tiles.size} cached=$cached motoMap=${candidates.size - missing.size} certified=${candidates.count { it in certified }} missing=${missing.size} packs=${packs.size}")
-        for (tile in missing) {
+        for (tile in missing.take(15)) {
             val x = tile.x * 2
             val y = tile.y * 2
             val expected = (0..1).flatMap { dx ->
@@ -175,12 +175,19 @@ internal object OpenFreeMapRouteCorridor {
     }
 
     /** Single-thread download; prevents exceeding the public offline limits. */
-    fun download(context: Context, tiles: List<Tile>, progress: (Int, Int, Long) -> Unit) {
+    fun download(
+        context: Context,
+        tiles: List<Tile>,
+        cancelled: () -> Boolean = { false },
+        progress: (Int, Int, Long) -> Unit
+    ) {
         require(tiles.size <= MAX_TILES) { "Corridoio oltre 3000 tile" }
         var bytes = 0L
         for ((index, tile) in tiles.withIndex()) {
             if (bytes >= MAX_BYTES) throw IOException("Limite download 50 MB raggiunto")
-            if (Thread.currentThread().isInterrupted) throw IOException("Interrotto")
+            if (cancelled() || Thread.currentThread().isInterrupted) {
+                throw java.util.concurrent.CancellationException("Download corridoio annullato")
+            }
             val item = OpenFreeMapTileProbe.downloadTile(
                 context, ZOOM, tile.x, tile.y,
                 remainingBytes = MAX_BYTES - bytes

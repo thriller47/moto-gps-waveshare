@@ -112,7 +112,8 @@ internal object RouteGeometryWindow {
             ahead.add(full.last())
             if (ahead[0] == ahead[1]) {
                 ahead.clear()
-                ahead.add(full[full.lastIndex - 1])
+                val prevDistinct = full.dropLast(1).lastOrNull { it != full.last() } ?: full[full.lastIndex - 1]
+                ahead.add(prevDistinct)
                 ahead.add(full.last())
             }
         }

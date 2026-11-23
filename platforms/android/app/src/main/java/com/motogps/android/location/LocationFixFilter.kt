@@ -33,6 +33,8 @@ internal class LocationFixFilter {
 
     private var previous: Fix? = null
     private var lastAcceptedGpsTimeMs: Long = -1L
+    private var pendingJumpFix: Fix? = null
+    private var pendingJumpStreak: Int = 0
 
     fun evaluate(fix: Fix, nowElapsedRealtimeMs: Long): Decision {
         if (!fix.latitude.isFinite() || !fix.longitude.isFinite() ||
@@ -66,7 +68,7 @@ internal class LocationFixFilter {
         // network fix must not replace a recently accepted GPS fix just
         // because its timestamp is a fraction of a second newer.
         if (!isGps && lastAcceptedGpsTimeMs >= 0L &&
-            nowElapsedRealtimeMs - lastAcceptedGpsTimeMs in 0L..12_000L) {
+            nowElapsedRealtimeMs - lastAcceptedGpsTimeMs in -2_000L..12_000L) {
             return Decision(false, "gps_has_priority")
         }
 
@@ -82,10 +84,36 @@ internal class LocationFixFilter {
                 35.0, last.accuracyMeters.toDouble() + fix.accuracyMeters.toDouble()
             )
             if (distance > 65.0 * seconds + accuracyBudget) {
+                if (isGps && fix.accuracyMeters <= 25f) {
+                    val prevPending = pendingJumpFix
+                    if (prevPending != null && fix.elapsedRealtimeMs > prevPending.elapsedRealtimeMs) {
+                        val pSec = (fix.elapsedRealtimeMs - prevPending.elapsedRealtimeMs) / 1_000.0
+                        val pDist = distanceMeters(prevPending.latitude, prevPending.longitude, fix.latitude, fix.longitude)
+                        if (pSec <= 5.0 && pDist <= 65.0 * pSec + 35.0) {
+                            pendingJumpStreak++
+                            pendingJumpFix = fix
+                        } else {
+                            pendingJumpFix = fix
+                            pendingJumpStreak = 1
+                        }
+                    } else {
+                        pendingJumpFix = fix
+                        pendingJumpStreak = 1
+                    }
+                    if (pendingJumpStreak >= 3) {
+                        pendingJumpFix = null
+                        pendingJumpStreak = 0
+                        previous = fix
+                        lastAcceptedGpsTimeMs = fix.elapsedRealtimeMs
+                        return Decision(true, "accepted_consensus_recovery", distance)
+                    }
+                }
                 return Decision(false, "implausible_jump", distance)
             }
         }
 
+        pendingJumpFix = null
+        pendingJumpStreak = 0
         previous = fix
         if (isGps) lastAcceptedGpsTimeMs = fix.elapsedRealtimeMs
         return Decision(true, "accepted", distance)

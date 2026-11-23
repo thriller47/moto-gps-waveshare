@@ -43,7 +43,7 @@ void retain(const Point* points, unsigned count, std::uint8_t* keep) {
   // Mandatory corners split the RDP search; never discard these vertices.
   for(unsigned to = 1; to < count; ++to) {
     if(!keep[to]) continue;
-    if(to > from + 1) stack[top++] = {from, to};
+    if(to > from + 1 && top < stack.size()) stack[top++] = {from, to};
     from = to;
   }
   constexpr float kToleranceSquared = 1.25F * 1.25F;
@@ -71,9 +71,9 @@ void retain(const Point* points, unsigned count, std::uint8_t* keep) {
     }
     if(max_distance2 > kToleranceSquared && farthest > range.first) {
       keep[farthest] = 1;
-      // At most count-1 ranges can exist on the stack.
-      if(farthest + 1 < range.last) stack[top++] = {farthest, range.last};
-      if(range.first + 1 < farthest) stack[top++] = {range.first, farthest};
+      // At most count-1 ranges can exist on the stack; guard defensively.
+      if(farthest + 1 < range.last && top < stack.size()) stack[top++] = {farthest, range.last};
+      if(range.first + 1 < farthest && top < stack.size()) stack[top++] = {range.first, farthest};
     }
   }
 }

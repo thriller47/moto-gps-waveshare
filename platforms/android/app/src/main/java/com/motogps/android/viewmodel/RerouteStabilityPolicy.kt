@@ -31,16 +31,21 @@ internal class RerouteStabilityPolicy {
     /** Only accepted moving GNSS courses, not stale BLE/compass headings. */
     fun observeCourse(nowMs: Long, courseDeg: Float?, speedMps: Float) {
         if (courseDeg == null || !courseDeg.isFinite() ||
-            courseDeg < 0f || courseDeg >= 360f ||
+            courseDeg < 0f || courseDeg > 360f ||
             !speedMps.isFinite() || speedMps < 3f) return
+        val normalized = if (courseDeg == 360f) 0f else courseDeg
         val previous = previousCourseDeg
         if (previous != null && previousCourseMs >= 0L &&
             nowMs >= previousCourseMs && nowMs - previousCourseMs <= 2_500L) {
             val delta = kotlin.math.abs(
-                ((courseDeg - previous + 540f) % 360f) - 180f)
-            if (delta >= 14f) turnGuardUntilMs = nowMs + 6_000L
+                ((normalized - previous + 540f) % 360f) - 180f)
+            val dtSec = ((nowMs - previousCourseMs) / 1000.0).coerceAtLeast(0.15)
+            // Support both 1 Hz fixes (delta >= 14 deg) and 5 Hz fixes (turn rate >= 25 deg/s).
+            if (delta >= 14f || (delta >= 4.5f && delta / dtSec >= 25.0)) {
+                turnGuardUntilMs = nowMs + 6_000L
+            }
         }
-        previousCourseDeg = courseDeg
+        previousCourseDeg = normalized
         previousCourseMs = nowMs
     }
 
@@ -95,6 +100,8 @@ internal class RerouteStabilityPolicy {
         acceptedAtMs = nowMs
         acceptedLat = lat
         acceptedLon = lon
+        previousCourseDeg = null
+        previousCourseMs = -1L
         turnGuardUntilMs = -1L
         credibleDepartureSinceMs = -1L
         lastCredibleDepartureMs = -1L

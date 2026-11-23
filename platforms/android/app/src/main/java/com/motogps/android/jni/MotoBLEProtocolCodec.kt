@@ -54,6 +54,8 @@ class MotoBLEProtocolCodec {
         const val FRAME_CRC_SIZE = 2
         const val FRAME_OVERHEAD = FRAME_HEADER_SIZE + FRAME_CRC_SIZE // 12
         const val MAX_BLE_ATTRIBUTE_VALUE_SIZE = 512
+        const val MAX_REASSEMBLY_BYTES = 4096
+        const val REASSEMBLY_TIMEOUT_MS = 1000L
 
         // Frame flags
         const val FRAME_START = 1
@@ -104,6 +106,8 @@ class MotoBLEProtocolCodec {
         var activeSequence: Int = 0
         var activeMessageLength: Int = 0
         var activeType: Byte = 0
+        var activeFlags: Int = 0
+        var lastCompletedSequence: Int = 0
         var lastFragmentReceivedAtMs: Long = 0L
         val reassemblyBuffer = mutableListOf<Byte>()
 
@@ -124,6 +128,7 @@ class MotoBLEProtocolCodec {
             activeSequence = 0
             activeMessageLength = 0
             activeType = 0
+            activeFlags = 0
             reassemblyBuffer.clear()
             lastFragmentReceivedAtMs = 0L
         }
@@ -153,6 +158,7 @@ class MotoBLEProtocolCodec {
 
     fun nativeEncodePhoneStarting(ptr: Long, sessionID: Long): Array<ByteArray> {
         val storage = instances[ptr] ?: return emptyArray()
+        val maxFrame = synchronized(storage.txLock) { storage.maxFrameSize }
         val payload = buildConnectionStatusPayload(
             role = 1, // Phone
             state = 0, // Starting
@@ -160,7 +166,7 @@ class MotoBLEProtocolCodec {
             maxVersion = 1,
             capabilities = 19L, // GattWrite | GattWriteWithoutResponse | GattEncryptedPermission
             sessionId = sessionID,
-            maxFrameSize = storage.maxFrameSize,
+            maxFrameSize = maxFrame,
             heartbeatIntervalMs = 1000
         )
         return fragmentMessage(storage, MSG_CONNECTION_STATUS, payload, ackRequested = false, urgent = true)
@@ -168,6 +174,7 @@ class MotoBLEProtocolCodec {
 
     fun nativeEncodePhoneReady(ptr: Long, sessionID: Long): Array<ByteArray> {
         val storage = instances[ptr] ?: return emptyArray()
+        val maxFrame = synchronized(storage.txLock) { storage.maxFrameSize }
         val payload = buildConnectionStatusPayload(
             role = 1, // Phone
             state = 1, // Ready
@@ -175,7 +182,7 @@ class MotoBLEProtocolCodec {
             maxVersion = 1,
             capabilities = 19L,
             sessionId = sessionID,
-            maxFrameSize = storage.maxFrameSize,
+            maxFrameSize = maxFrame,
             heartbeatIntervalMs = 1000
         )
         return fragmentMessage(storage, MSG_CONNECTION_STATUS, payload, ackRequested = false, urgent = true)
@@ -200,7 +207,7 @@ class MotoBLEProtocolCodec {
         writer.writeU8(status)
         writer.writeU16(commandID)
         val payload = writer.toByteArray()
-        return fragmentMessage(storage, MSG_ACK, payload, ackRequested = true, urgent = true)
+        return fragmentMessage(storage, MSG_ACK, payload, ackRequested = false, urgent = true)
     }
 
     fun nativeEncodeNavigationSnapshot(ptr: Long, snapshot: MotoBLENavigationSnapshot): Array<ByteArray> {
@@ -296,6 +303,14 @@ class MotoBLEProtocolCodec {
 
         val starts = (flags and FRAME_START) != 0
         val ends = (flags and FRAME_END) != 0
+        val ackReq = (flags and ACK_REQUESTED) != 0
+        val payloadSize = frame.size - FRAME_OVERHEAD
+        if (sequence == 0 || messageLength > MAX_REASSEMBLY_BYTES) {
+            return MotoBLEInboundMessage(0, false, false, false, null, null, null, null)
+        }
+        if (starts && fragmentOffset != 0) {
+            return MotoBLEInboundMessage(0, false, false, false, null, null, null, null)
+        }
 
         var connStatus: MotoBLEConnectionStatus? = null
         var heartbeat: MotoBLEHeartbeat? = null
@@ -303,25 +318,37 @@ class MotoBLEProtocolCodec {
         var command: MotoBLEDeviceCommand? = null
         var diagnosticRecords: List<MotoBLEDiagnosticRecord> = emptyList()
         var isComplete = false
+        var isDuplicate = false
 
         synchronized(storage.rxLock) {
-            // Reset buffer if more than 500 ms elapsed since previous fragment
             if (storage.activeSequence != 0 && storage.lastFragmentReceivedAtMs != 0L &&
-                receivedAtMs - storage.lastFragmentReceivedAtMs > 500L) {
+                receivedAtMs - storage.lastFragmentReceivedAtMs > REASSEMBLY_TIMEOUT_MS) {
                 storage.resetInbound()
             }
 
             if (starts) {
+                if (msgType != MSG_CONNECTION_STATUS &&
+                    storage.lastCompletedSequence != 0 &&
+                    sequence == storage.lastCompletedSequence &&
+                    ends) {
+                    isDuplicate = true
+                    return MotoBLEInboundMessage(
+                        sequence, ackReq = ackReq, complete = false, duplicate = true,
+                        connStatus = null, heartbeat = null, ack = null, command = null
+                    )
+                }
                 storage.resetInbound()
                 storage.activeSequence = sequence
                 storage.activeMessageLength = messageLength
                 storage.activeType = msgType
+                storage.activeFlags = flags and (ACK_REQUESTED or URGENT)
                 storage.lastFragmentReceivedAtMs = receivedAtMs
             } else {
-                // Verify sequence matching and contiguous fragmentOffset
                 if (storage.activeSequence == 0 ||
                     storage.activeSequence != sequence ||
                     storage.activeType != msgType ||
+                    storage.activeMessageLength != messageLength ||
+                    storage.activeFlags != (flags and (ACK_REQUESTED or URGENT)) ||
                     fragmentOffset != storage.reassemblyBuffer.size) {
                     storage.resetInbound()
                     return MotoBLEInboundMessage(0, false, false, false, null, null, null, null)
@@ -329,7 +356,11 @@ class MotoBLEProtocolCodec {
                 storage.lastFragmentReceivedAtMs = receivedAtMs
             }
 
-            val payloadSize = frame.size - FRAME_OVERHEAD
+            if (storage.reassemblyBuffer.size + payloadSize > storage.activeMessageLength ||
+                storage.reassemblyBuffer.size + payloadSize > MAX_REASSEMBLY_BYTES) {
+                storage.resetInbound()
+                return MotoBLEInboundMessage(0, false, false, false, null, null, null, null)
+            }
             for (i in 0 until payloadSize) {
                 storage.reassemblyBuffer.add(frame[10 + i])
             }
@@ -337,6 +368,7 @@ class MotoBLEProtocolCodec {
             if (ends) {
                 if (storage.reassemblyBuffer.size == storage.activeMessageLength) {
                     isComplete = true
+                    storage.lastCompletedSequence = sequence
                     val payload = storage.reassemblyBuffer.toByteArray()
                     val reader = Reader(payload)
 
@@ -357,6 +389,16 @@ class MotoBLEProtocolCodec {
                                         connStatus = MotoBLEConnectionStatus(
                                             role, state, minVer, maxVer, capabilities, sessionId, maxFrameSize, hbInterval
                                         )
+                                    }
+                                }
+                                MSG_HEARTBEAT -> {
+                                    if (reader.remaining() >= 10) {
+                                        heartbeat = MotoBLEHeartbeat()
+                                    }
+                                }
+                                MSG_ACK -> {
+                                    if (reader.remaining() >= 5) {
+                                        ack = MotoBLEAcknowledgement()
                                     }
                                 }
                                 MSG_DIAGNOSTIC_BATCH -> {
@@ -383,7 +425,7 @@ class MotoBLEProtocolCodec {
                                         val y = reader.readU16()
                                         val eventTimeMs = reader.readU32()
                                         command = MotoBLEDeviceCommand(
-                                            sequence, false, kind, cmdId, page, x, y, eventTimeMs
+                                            sequence, ackReq, kind, cmdId, page, x, y, eventTimeMs
                                         )
                                     }
                                 }
@@ -397,9 +439,9 @@ class MotoBLEProtocolCodec {
 
         return MotoBLEInboundMessage(
             sequence,
-            ackReq = false,
+            ackReq = ackReq,
             complete = isComplete,
-            duplicate = false,
+            duplicate = isDuplicate,
             connStatus = connStatus,
             heartbeat = heartbeat,
             ack = ack,

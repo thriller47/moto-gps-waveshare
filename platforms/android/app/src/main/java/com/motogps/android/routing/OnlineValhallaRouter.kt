@@ -28,6 +28,7 @@ internal object OnlineValhallaRouter {
             .put("costing", "auto")
             .put("units", "km")
             .put("language", "it-IT")
+            .put("directions_options", JSONObject().put("units", "kilometers").put("language", "it-IT"))
             .put("shape_format", "polyline6")
             .put("elevation_interval", 30)
         return ValhallaRouteLocations.suppressUnsupportedAlternates(
@@ -67,7 +68,19 @@ internal object OnlineValhallaRouter {
                 }
                 throw IOException("Valhalla online HTTP $status: $details")
             }
-            val body = conn.inputStream.bufferedReader().use { it.readText() }
+            val body = conn.inputStream.bufferedReader().use { reader ->
+                val sb = StringBuilder()
+                val buf = CharArray(8192)
+                var total = 0
+                while (true) {
+                    val n = reader.read(buf)
+                    if (n < 0) break
+                    total += n
+                    if (total > 8 * 1024 * 1024) throw IOException("Risposta Valhalla online troppo grande")
+                    sb.append(buf, 0, n)
+                }
+                sb.toString()
+            }
             return ValhallaRouteAdapter.toMotoRoute(
                 RouteCurvatureSelector.select(JSONObject(body), preferences),
                 fromLat, fromLon, toLat, toLon, "valhalla-online")

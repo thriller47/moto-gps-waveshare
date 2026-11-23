@@ -94,20 +94,20 @@ internal object TourSessionStore {
             lat, lon, obj.getLong("updatedAt"), obj.getBoolean("paused"))
     }
 
-    fun read(context: Context): TourSession? {
+    @Synchronized fun read(context: Context): TourSession? {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val stored = prefs.getString(KEY, null) ?: return null
-        return try { decode(stored) } catch (_: Exception) { null }
+        return try { decode(stored) } catch (e: Exception) { android.util.Log.w("TourSessionStore", "Errore decodifica sessione tour", e); null }
     }
 
-    fun write(context: Context, session: TourSession) {
+    @Synchronized fun write(context: Context, session: TourSession) {
         require(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().putString(KEY, encode(session)).commit()) {
             "Impossibile salvare lo stato del tour"
         }
     }
 
-    fun clear(context: Context) {
+    @Synchronized fun clear(context: Context) {
         require(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().remove(KEY).commit()) {
             "Impossibile cancellare lo stato del tour"
