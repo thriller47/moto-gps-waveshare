@@ -12,7 +12,7 @@ Sorgenti predefiniti: /mnt/c/MotoGPS/PBF
   italy-latest.osm.pbf, italy.poly, photon-italy.jsonl.zst
 Destinazione predefinita: ~/motogps-build/ItaliaUnificata-RoadDNA-v2
 
-Ricrea MotoMap v4, Photon SQLite v2 con POI OSM, Road DNA turistico v1 e Valhalla V5 DAL PBF, quindi
+Ricrea MotoMap v4, Photon SQLite v2 con POI OSM, Road DNA turistico v1, DEM e Valhalla V5 DAL PBF, quindi
 assembla/verifica MotoChatGPS-Italia.motopack. Il vecchio
 valhalla_italia_v5.tar.zst nella cartella sorgenti NON viene riutilizzato.
 La vecchia destinazione rimane intatta finche' il pacchetto nuovo non supera
@@ -69,7 +69,7 @@ if [[ -e "$OUT" ]]; then
   shopt -s nullglob dotglob
   for existing in "$OUT"/*; do
     case "${existing##*/}" in
-      italy-v4.motomap.zip|photon-italy-v2.sqlite|tourist-italy-v1.sqlite|ValhallaItaliaV5|MotoChatGPS-Italia.motopack) ;;
+      italy-v4.motomap.zip|photon-italy-v2.sqlite|tourist-italy-v1.sqlite|elevation-italy.zip|ValhallaItaliaV5|MotoChatGPS-Italia.motopack) ;;
       *) echo "File estraneo nella cartella di output: $existing" >&2
          echo "Spostalo altrove o scegli --out prima di sostituire la cartella." >&2
          exit 2;;
@@ -143,7 +143,7 @@ echo "Sorgenti:    $SRC"
 echo "Destinazione: $OUT"
 echo "Staging:     $STAGE"
 echo "Thread:      $THREADS"
-echo "Genero MotoMap v4, Photon v2, Road DNA turistico v1 e Valhalla V5."
+echo "Genero MotoMap v4, Photon v2, Road DNA turistico v1, DEM e Valhalla V5."
 
 if [[ ! -e "$STAGE/MotoChatGPS-Italia.motopack" ]]; then
   bash "$BUILDER" \
