@@ -866,9 +866,13 @@ fun NavigationScreen(
     var selectedRoadDnaPoi by remember { mutableStateOf<RoadDnaOnlinePoi?>(null) }
     // Computed from the selected route's real geometry and optional DEM samples.
     // No new public Composable parameters or NavigationViewModel callbacks.
-    val selectedTerrain = remember(routeOptions, selectedRouteIndex) {
-        routeOptions.getOrNull(selectedRouteIndex)?.let {
-            RoadDnaTerrainAnalysis.analyze(it.rawRouteJson)
+    val selectedTerrain = remember(routeOptions, selectedRouteIndex, roadDnaSummary) {
+        routeOptions.getOrNull(selectedRouteIndex)?.let { option ->
+            val terrain = RoadDnaTerrainAnalysis.analyze(option.rawRouteJson)
+            if (roadDnaSummary?.routeId == option.id &&
+                roadDnaSummary.elevation != null) {
+                terrain.copy(elevation = roadDnaSummary.elevation)
+            } else terrain
         }
     }
     val roadDnaListScroll = rememberScrollState()
