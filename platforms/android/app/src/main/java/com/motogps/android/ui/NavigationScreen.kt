@@ -2634,7 +2634,7 @@ fun NavigationScreen(
                                     else MotoChatColors.Warning
                             )
                         }
-                    )
+                    }
                     if (!replayRecording) {
                         Text("Dettaglio eventi ESP32", style = MaterialTheme.typography.labelLarge)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
