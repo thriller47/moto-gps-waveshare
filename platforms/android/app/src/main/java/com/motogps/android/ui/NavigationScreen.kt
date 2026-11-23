@@ -1,6 +1,7 @@
 package com.motogps.android.ui
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
@@ -2553,10 +2554,27 @@ fun NavigationScreen(
     }
 
     Scaffold(
+        containerColor = MotoChatColors.Background,
+        contentColor = MotoChatColors.Text,
         topBar = {
             if (routePreview != null) {
                 TopAppBar(
-                    title = { Text("Percorso") },
+                    title = {
+                        Row(verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text("Percorso", style = MaterialTheme.typography.titleLarge)
+                            Surface(
+                                color = MotoChatColors.GreenSoft,
+                                shape = RoundedCornerShape(6.dp),
+                                border = BorderStroke(1.dp, MotoChatColors.Green.copy(alpha = 0.35f))
+                            ) {
+                                Text("VALHALLA", modifier = Modifier.padding(
+                                    horizontal = 7.dp, vertical = 4.dp),
+                                    color = MotoChatColors.Green,
+                                    style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    },
                     navigationIcon = {
                         IconButton(onClick = onBackToSearch) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Indietro")
@@ -2649,11 +2667,13 @@ fun NavigationScreen(
                 }
 
                 Card(
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(24.dp),
+                    border = BorderStroke(1.dp, MotoChatColors.Outline),
+                    colors = CardDefaults.cardColors(containerColor = MotoChatColors.SurfaceRaised),
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
-                        .padding(8.dp)
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
                         .clipToBounds()
                 ) {
                     Box(modifier = Modifier.fillMaxSize()) {
@@ -2694,7 +2714,12 @@ fun NavigationScreen(
 
                 HorizontalDivider()
 
-                Column(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.weight(1f).fillMaxWidth()
+                        .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+                        .background(MotoChatColors.Surface)
+                        .padding(top = 8.dp)
+                ) {
                     if (isDownloadingMap) {
                         MapDownloadProgressBox(
                             downloadStatus = downloadStatus,
@@ -2718,23 +2743,48 @@ fun NavigationScreen(
                         }
                     }
 
-                    OutlinedButton(
-                        onClick = { showWaypointsSheet = true },
-                        enabled = !isNavigating,
+                    Row(
                         modifier = Modifier.fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 2.dp)
-                            .heightIn(min = 44.dp)
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(Icons.Default.Add, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Tappe intermedie (${routeWaypoints.size})")
+                        OutlinedButton(
+                            onClick = { showRoutePreferencesDialog = true },
+                            enabled = !isNavigating,
+                            modifier = Modifier.weight(1f).heightIn(min = 52.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = MotoChatColors.SurfaceRaised,
+                                contentColor = MotoChatColors.Text
+                            ),
+                            border = BorderStroke(1.dp, MotoChatColors.Outline)
+                        ) {
+                            Icon(Icons.Default.Settings, contentDescription = null)
+                            Spacer(Modifier.width(6.dp))
+                            Text("Opzioni", style = MaterialTheme.typography.labelMedium)
+                        }
+                        OutlinedButton(
+                            onClick = { showWaypointsSheet = true },
+                            enabled = !isNavigating,
+                            modifier = Modifier.weight(1f).heightIn(min = 52.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = MotoChatColors.SurfaceRaised,
+                                contentColor = MotoChatColors.Text
+                            ),
+                            border = BorderStroke(1.dp, MotoChatColors.Outline)
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = null)
+                            Spacer(Modifier.width(6.dp))
+                            Text("Tappe (${routeWaypoints.size})",
+                                style = MaterialTheme.typography.labelMedium,
+                                maxLines = 1)
+                        }
                     }
 
                     OutlinedButton(
                         onClick = {
                             showRoadDnaDialog = true
-                            // Reopening Road DNA must preserve already fetched online
-                            // results. Route changes invalidate them in the ViewModel.
+                            // Preserve existing Road DNA results until the ViewModel
+                            // invalidates them for a changed route.
                             if (roadDnaOnline == null && !roadDnaOnlineLoading) {
                                 onRoadDnaAnalyze()
                             }
@@ -2742,32 +2792,36 @@ fun NavigationScreen(
                         enabled = !isNavigating && !isLoading &&
                             routeOptions.getOrNull(selectedRouteIndex) != null,
                         modifier = Modifier.fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 2.dp)
-                            .heightIn(min = 44.dp)
+                            .padding(horizontal = 16.dp, vertical = 4.dp)
+                            .heightIn(min = 52.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = MotoChatColors.SurfaceRaised,
+                            contentColor = MotoChatColors.Green
+                        ),
+                        border = BorderStroke(1.dp, MotoChatColors.Outline)
                     ) {
                         Icon(Icons.Default.Search, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Road DNA · Guida e luoghi da scoprire")
+                        Spacer(Modifier.width(8.dp))
+                        Text("Road DNA · Guida e luoghi", style = MaterialTheme.typography.labelMedium)
                     }
 
-                    OutlinedButton(
-                        onClick = { showRoutePreferencesDialog = true },
-                        enabled = !isNavigating,
+                    Row(
                         modifier = Modifier.fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 4.dp)
-                            .heightIn(min = 48.dp)
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Default.Settings, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Opzioni percorso")
+                        Text("VARIANTI DI PERCORSO",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MotoChatColors.TextMuted)
+                        Text(
+                            routingSource ?: if (isLoading) "Calcolo Valhalla"
+                                else "Valhalla non disponibile",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MotoChatColors.Green,
+                            maxLines = 1
+                        )
                     }
-
-                    Text(
-                        text = routingSource ?: if (isLoading) "Calcolo percorso Valhalla"
-                            else "Percorso Valhalla non disponibile",
-                        style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.padding(16.dp)
-                    )
 
                     if (isLoading) {
                         Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -2779,21 +2833,49 @@ fun NavigationScreen(
                                 val isSelected = index == selectedRouteIndex
                                 val mins = option.durationSeconds / 60
                                 val km = String.format("%.1f", option.distanceMeters / 1000.0)
-                                ListItem(
-                                    headlineContent = { Text(option.name) },
-                                    supportingContent = { Text("$mins min · $km km") },
-                                    trailingContent = {
-                                        if (isSelected) {
-                                            Icon(
-                                                Icons.Default.Check,
-                                                contentDescription = "Selezionato",
-                                                tint = MaterialTheme.colorScheme.primary
-                                            )
+                                Surface(
+                                    modifier = Modifier.fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 5.dp)
+                                        .clickable { onRouteOptionSelect(index) },
+                                    shape = RoundedCornerShape(16.dp),
+                                    color = if (isSelected) MotoChatColors.GreenSoft
+                                        else MotoChatColors.SurfaceRaised,
+                                    border = BorderStroke(
+                                        if (isSelected) 1.5.dp else 1.dp,
+                                        if (isSelected) MotoChatColors.Green else MotoChatColors.Outline
+                                    )
+                                ) {
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth().padding(14.dp),
+                                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Text(option.name,
+                                                style = MaterialTheme.typography.titleSmall,
+                                                color = MotoChatColors.Text)
+                                            if (isSelected) {
+                                                Icon(Icons.Default.Check,
+                                                    contentDescription = "Selezionato",
+                                                    tint = MotoChatColors.Green)
+                                            }
                                         }
-                                    },
-                                    modifier = Modifier.clickable { onRouteOptionSelect(index) }
-                                )
-                                HorizontalDivider()
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text("$mins min",
+                                                style = MaterialTheme.typography.headlineSmall)
+                                            Text("$km km",
+                                                style = MaterialTheme.typography.labelMedium,
+                                                color = MotoChatColors.TextMuted)
+                                        }
+                                    }
+                                }
                             }
                         }
                     } else {
@@ -2915,7 +2997,7 @@ fun NavigationScreen(
                                 .padding(horizontal = 16.dp, vertical = 8.dp)
                                 .height(56.dp)
                         ) {
-                            Text("Avvia navigazione", style = MaterialTheme.typography.titleMedium)
+                            Text("AVVIA NAVIGAZIONE", style = MaterialTheme.typography.labelLarge)
                         }
                     }
                 }
