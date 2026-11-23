@@ -13,6 +13,7 @@ class UnifiedOfflineMapImporterTest {
         assertEquals("valhalla_tiles.tar.zst", UnifiedOfflineMapImporter.stagingName("valhalla"))
         assertEquals("photon-italy-v2.sqlite", UnifiedOfflineMapImporter.stagingName("photon"))
         assertEquals("tourist-italy-v1.sqlite", UnifiedOfflineMapImporter.stagingName("tourist"))
+        assertEquals("elevation-italy.zip", UnifiedOfflineMapImporter.stagingName("elevation"))
         assertTrue(UnifiedOfflineMapImporter.stagingName("valhalla").endsWith(".tar.zst"))
         assertTrue(ValhallaGraphImporter.isSupportedName(UnifiedOfflineMapImporter.stagingName("valhalla")))
     }
