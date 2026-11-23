@@ -50,6 +50,7 @@ import com.motogps.android.R
 import androidx.core.content.ContextCompat
 import com.motogps.android.map.SavedMapInfo
 import com.motogps.android.routing.RoutePreferences
+import com.motogps.android.viewmodel.NavigationReconnectPolicy
 import com.motogps.android.viewmodel.PlaceSearchResult
 import com.motogps.android.viewmodel.SavedCircularTour
 import com.motogps.android.viewmodel.TourSession
@@ -2553,12 +2554,20 @@ fun NavigationScreen(
         )
     }
 
+    val displayConnected = NavigationReconnectPolicy.isReady(connectionState)
+
     Scaffold(
         containerColor = MotoChatColors.Background,
         contentColor = MotoChatColors.Text,
         topBar = {
             if (routePreview != null) {
                 TopAppBar(
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MotoChatColors.Background,
+                        titleContentColor = MotoChatColors.Text,
+                        actionIconContentColor = MotoChatColors.TextMuted,
+                        navigationIconContentColor = MotoChatColors.Text
+                    ),
                     title = {
                         Row(verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -2568,9 +2577,9 @@ fun NavigationScreen(
                                 shape = RoundedCornerShape(6.dp),
                                 border = BorderStroke(1.dp, MotoChatColors.Green.copy(alpha = 0.35f))
                             ) {
-                                Text("VALHALLA", modifier = Modifier.padding(
+                                Text(if (displayConnected) "ESP32 ON" else "ESP32 OFF", modifier = Modifier.padding(
                                     horizontal = 7.dp, vertical = 4.dp),
-                                    color = MotoChatColors.Green,
+                                    color = if (displayConnected) MotoChatColors.Green else MotoChatColors.Warning,
                                     style = MaterialTheme.typography.labelSmall)
                             }
                         }
@@ -2618,6 +2627,12 @@ fun NavigationScreen(
                 )
             } else {
                 TopAppBar(
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MotoChatColors.Background,
+                        titleContentColor = MotoChatColors.Text,
+                        actionIconContentColor = MotoChatColors.TextMuted,
+                        navigationIconContentColor = MotoChatColors.Text
+                    ),
                     title = { MotoChatAppBarTitle() },
                     actions = {
                         IconButton(onClick = {
@@ -3025,18 +3040,33 @@ fun NavigationScreen(
                     enabled = !isNavigating && !isLoading,
                     modifier = Modifier.fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 4.dp)
-                        .heightIn(min = 48.dp)
+                        .heightIn(min = 56.dp),
+                    shape = RoundedCornerShape(28.dp),
+                    border = BorderStroke(1.dp, MotoChatColors.Outline),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = MotoChatColors.Surface,
+                        contentColor = MotoChatColors.Green
+                    )
                 ) {
                     Icon(Icons.Default.Place, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
-                    Text("Cerca intorno a me · GPS")
+                    Text("Cerca intorno a me · GPS",
+                        style = MaterialTheme.typography.labelLarge)
                 }
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .heightIn(min = 56.dp),
+                    shape = RoundedCornerShape(28.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = MotoChatColors.Surface,
+                        unfocusedContainerColor = MotoChatColors.Surface,
+                        focusedBorderColor = MotoChatColors.Green,
+                        unfocusedBorderColor = MotoChatColors.Outline
+                    ),
                     placeholder = { Text("Cerca indirizzo o inserisci coordinate GPS") },
                     leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                     trailingIcon = {
@@ -3059,10 +3089,55 @@ fun NavigationScreen(
                     })
                 )
 
+                Surface(
+                    modifier = Modifier.fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                        .clickable { onConnectRequest() },
+                    shape = RoundedCornerShape(16.dp),
+                    color = MotoChatColors.SurfaceRaised,
+                    border = BorderStroke(1.dp, MotoChatColors.Outline)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth()
+                            .heightIn(min = 64.dp)
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier.size(10.dp)
+                                .background(
+                                    if (displayConnected) MotoChatColors.Green
+                                    else MotoChatColors.Warning,
+                                    shape = RoundedCornerShape(5.dp)
+                                )
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("IL MIO DISPLAY", style = MaterialTheme.typography.labelMedium)
+                            Text(connectionState,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MotoChatColors.TextMuted, maxLines = 1)
+                        }
+                        Text(
+                            if (displayConnected) "ESP32 ON" else "ESP32 OFF",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (displayConnected) MotoChatColors.Green
+                                else MotoChatColors.Warning
+                        )
+                        Text("›", style = MaterialTheme.typography.headlineSmall,
+                            color = MotoChatColors.TextMuted)
+                    }
+                }
+
                 if (pausedTour != null) {
                     Card(
                         modifier = Modifier.fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 4.dp)
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        border = BorderStroke(1.dp, MotoChatColors.Green.copy(alpha = 0.45f)),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MotoChatColors.SurfaceRaised
+                        )
                     ) {
                         Column(
                             modifier = Modifier.padding(12.dp),
@@ -3090,73 +3165,6 @@ fun NavigationScreen(
                                 }
                             }
                         }
-                    }
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Button(
-                        onClick = { showCircularTourDialog = true },
-                        enabled = !isLoading && !isNavigating && currentLocation != null,
-                        modifier = Modifier.weight(1f).heightIn(min = 54.dp)
-                    ) {
-                        Text("Crea tour")
-                    }
-                    OutlinedButton(
-                        onClick = { showSavedToursDialog = true },
-                        modifier = Modifier.weight(1f).heightIn(min = 54.dp)
-                    ) {
-                        Text("Tour salvati (${savedCircularTours.size})")
-                    }
-                }
-
-                Text(
-                    "Cerca una destinazione, crea un tour o tieni premuto sulla mappa.",
-                    style = MaterialTheme.typography.labelSmall,
-                    modifier = Modifier.padding(horizontal = 16.dp)
-                )
-                ListItem(
-                    headlineContent = { Text("Il mio display") },
-                    supportingContent = { Text(connectionState) },
-                    leadingContent = {
-                        Icon(Icons.Default.Settings, contentDescription = null)
-                    },
-                    modifier = Modifier.clickable { onConnectRequest() }
-                )
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Button(
-                        onClick = { centerOnLocationTrigger++ },
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Icon(
-                            Icons.Default.Place,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("La mia posizione", style = MaterialTheme.typography.labelSmall)
-                    }
-
-                    Button(
-                        onClick = { showOfflineDialog = true },
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Icon(
-                            Icons.Default.Place,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Mappe offline", style = MaterialTheme.typography.labelSmall)
                     }
                 }
 
@@ -3200,11 +3208,15 @@ fun NavigationScreen(
                 }
 
                 Card(
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(24.dp),
+                    border = BorderStroke(1.dp, MotoChatColors.Outline),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MotoChatColors.SurfaceRaised
+                    ),
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
-                        .padding(8.dp)
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
                         .clipToBounds()
                 ) {
                     MainMapView(
@@ -3227,6 +3239,85 @@ fun NavigationScreen(
                             activeMapView = mapView
                         },
                         modifier = Modifier.fillMaxSize()
+                    )
+                }
+                Column(
+                    modifier = Modifier.fillMaxWidth()
+                        .background(MotoChatColors.Surface)
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = { showCircularTourDialog = true },
+                            enabled = !isLoading && !isNavigating && currentLocation != null,
+                            modifier = Modifier.weight(1f).heightIn(min = 56.dp),
+                            shape = RoundedCornerShape(28.dp)
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = null)
+                            Spacer(Modifier.width(6.dp))
+                            Text("Crea tour", style = MaterialTheme.typography.labelLarge)
+                        }
+                        OutlinedButton(
+                            onClick = { showSavedToursDialog = true },
+                            modifier = Modifier.weight(1f).heightIn(min = 56.dp),
+                            shape = RoundedCornerShape(28.dp),
+                            border = BorderStroke(1.dp, MotoChatColors.Outline),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = MotoChatColors.SurfaceRaised,
+                                contentColor = MotoChatColors.Text
+                            )
+                        ) {
+                            Text("Tour salvati (${savedCircularTours.size})",
+                                style = MaterialTheme.typography.labelMedium,
+                                maxLines = 1)
+                        }
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = { centerOnLocationTrigger++ },
+                            modifier = Modifier.weight(1f).heightIn(min = 52.dp),
+                            shape = RoundedCornerShape(16.dp),
+                            border = BorderStroke(1.dp, MotoChatColors.Outline),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = MotoChatColors.Background,
+                                contentColor = MotoChatColors.Green
+                            )
+                        ) {
+                            Icon(Icons.Default.Place, contentDescription = null,
+                                modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(5.dp))
+                            Text("La mia posizione",
+                                style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                        }
+                        OutlinedButton(
+                            onClick = { showOfflineDialog = true },
+                            modifier = Modifier.weight(1f).heightIn(min = 52.dp),
+                            shape = RoundedCornerShape(16.dp),
+                            border = BorderStroke(1.dp, MotoChatColors.Outline),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = MotoChatColors.Background,
+                                contentColor = MotoChatColors.Green
+                            )
+                        ) {
+                            Icon(Icons.Default.Place, contentDescription = null,
+                                modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(5.dp))
+                            Text("Mappe offline",
+                                style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                        }
+                    }
+                    Text(
+                        "Cerca una destinazione, crea un tour o tieni premuto sulla mappa.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MotoChatColors.TextMuted,
+                        modifier = Modifier.align(Alignment.CenterHorizontally)
                     )
                 }
             }
