@@ -11,17 +11,26 @@ class RoadDnaTerrainTest {
     private fun route(vararg points: Pair<Double, Double>): JSONObject {
         val geometry = JSONArray()
         for ((lat, lon) in points) {
-            geometry.put(JSONObject().put("latitude_deg", lat)
-                .put("longitude_deg", lon))
+            geometry.put(
+                JSONObject()
+                    .put("latitude_deg", lat)
+                    .put("longitude_deg", lon)
+            )
         }
-        return JSONObject().put("geometry_gcj02", geometry)
+        return JSONObject()
+            .put("geometry_gcj02", geometry)
             .put("total_distance_m", 400)
     }
 
     @Test
     fun straightRouteHasNoInventedHairpinsOrElevation() {
-        val route = route(45.000, 9.0, 45.001, 9.0, 45.002, 9.0,
-            45.003, 9.0, 45.004, 9.0)
+        val route = route(
+            45.000 to 9.0,
+            45.001 to 9.0,
+            45.002 to 9.0,
+            45.003 to 9.0,
+            45.004 to 9.0
+        )
         val analysis = RoadDnaTerrainAnalysis.analyze(route)
         assertEquals(0, analysis.curves.total)
         assertEquals(0, analysis.curves.hairpins)
@@ -30,12 +39,15 @@ class RoadDnaTerrainTest {
 
     @Test
     fun availableDemSamplesGenerateRealRangeAndAscent() {
-        val route = route(45.0, 9.0, 45.001, 9.0, 45.002, 9.0)
+        val route = route(45.0 to 9.0, 45.001 to 9.0, 45.002 to 9.0)
         val values = listOf(100, 110, 115, 130, 145, 140, 135, 120)
         val elevation = JSONArray()
         for ((index, value) in values.withIndex()) {
-            elevation.put(JSONObject().put("distance_m", index * 30)
-                .put("elevation_m", value))
+            elevation.put(
+                JSONObject()
+                    .put("distance_m", index * 30)
+                    .put("elevation_m", value)
+            )
         }
         route.put("elevation_profile", elevation)
         val analysis = RoadDnaTerrainAnalysis.analyze(route)
@@ -49,11 +61,14 @@ class RoadDnaTerrainTest {
 
     @Test
     fun sparseMissingDemSamplesAreNotSilentlyReplacedWithZero() {
-        val route = route(45.0, 9.0, 45.001, 9.0)
+        val route = route(45.0 to 9.0, 45.001 to 9.0)
         val elevation = JSONArray()
         for (i in 0 until 10) {
-            elevation.put(JSONObject().put("distance_m", i * 30)
-                .put("elevation_m", if (i < 4) 100 + i else JSONObject.NULL))
+            elevation.put(
+                JSONObject()
+                    .put("distance_m", i * 30)
+                    .put("elevation_m", if (i < 4) 100 + i else JSONObject.NULL)
+            )
         }
         route.put("elevation_profile", elevation)
         assertNull(RoadDnaTerrainAnalysis.analyze(route).elevation)
@@ -61,8 +76,13 @@ class RoadDnaTerrainTest {
 
     @Test
     fun curvyGeometryIsCountedButNotLabeledAsSafeSpeed() {
-        val route = route(45.0, 9.0, 45.0, 9.001, 45.001, 9.001,
-            45.001, 9.0, 45.002, 9.0)
+        val route = route(
+            45.0 to 9.0,
+            45.0 to 9.001,
+            45.001 to 9.001,
+            45.001 to 9.0,
+            45.002 to 9.0
+        )
         val analysis = RoadDnaTerrainAnalysis.analyze(route)
         assertTrue(analysis.curves.total > 0)
         assertTrue(analysis.curves.index.contains("indicativa"))
