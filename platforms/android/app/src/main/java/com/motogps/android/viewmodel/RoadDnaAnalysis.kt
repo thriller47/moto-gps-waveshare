@@ -36,7 +36,8 @@ data class RoadDnaSummary(
     val examples: List<RoadDnaPoi>,
     val indexAvailable: Boolean,
     val routeVertices: Int,
-    val places: List<RoadDnaPoi> = emptyList()
+    val places: List<RoadDnaPoi> = emptyList(),
+    val elevation: RoadDnaElevation? = null
 ) {
     val totalByCategory: Int get() = countByCategory.values.sum()
 }
