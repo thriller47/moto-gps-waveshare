@@ -121,10 +121,10 @@ internal object OnlineValhallaElevation {
             val pair = pairs.optJSONArray(index) ?: return null
             if (pair.length() != 2) return null
             val range = pair.optDouble(0, Double.NaN)
-            if (!range.isFinite() || range < 0.0 || range <= previous) {
-                // First sample is 0; all subsequent samples must advance.
+            if (!range.isFinite() || range < 0.0 || range < previous) {
                 return null
             }
+            if (range == previous) continue
             val meters = pair.optDouble(1, Double.NaN)
             profile.put(JSONObject().put("distance_m", range).put("elevation_m",
                 if (meters.isFinite() && meters in -500.0..9000.0)

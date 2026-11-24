@@ -5,8 +5,10 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.Shapes
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.dp
@@ -68,17 +70,20 @@ val MotoChatDarkColorScheme = darkColorScheme(
     scrim = MotoChatColors.Scrim
 )
 
+@OptIn(ExperimentalTextApi::class)
 private val TouringDisplay = FontFamily(
-    Font(R.font.space_grotesk_variable, FontWeight.Normal),
-    Font(R.font.space_grotesk_variable, FontWeight.Medium),
-    Font(R.font.space_grotesk_variable, FontWeight.SemiBold),
-    Font(R.font.space_grotesk_variable, FontWeight.Bold)
+    Font(R.font.space_grotesk_variable, FontWeight.Normal, variationSettings = FontVariation.Settings(FontVariation.weight(400))),
+    Font(R.font.space_grotesk_variable, FontWeight.Medium, variationSettings = FontVariation.Settings(FontVariation.weight(500))),
+    Font(R.font.space_grotesk_variable, FontWeight.SemiBold, variationSettings = FontVariation.Settings(FontVariation.weight(600))),
+    Font(R.font.space_grotesk_variable, FontWeight.Bold, variationSettings = FontVariation.Settings(FontVariation.weight(700)))
 )
+
+@OptIn(ExperimentalTextApi::class)
 private val TouringBody = FontFamily(
-    Font(R.font.manrope_variable, FontWeight.Normal),
-    Font(R.font.manrope_variable, FontWeight.Medium),
-    Font(R.font.manrope_variable, FontWeight.SemiBold),
-    Font(R.font.manrope_variable, FontWeight.Bold)
+    Font(R.font.manrope_variable, FontWeight.Normal, variationSettings = FontVariation.Settings(FontVariation.weight(400))),
+    Font(R.font.manrope_variable, FontWeight.Medium, variationSettings = FontVariation.Settings(FontVariation.weight(500))),
+    Font(R.font.manrope_variable, FontWeight.SemiBold, variationSettings = FontVariation.Settings(FontVariation.weight(600))),
+    Font(R.font.manrope_variable, FontWeight.Bold, variationSettings = FontVariation.Settings(FontVariation.weight(700)))
 )
 
 val MotoChatTypography = Typography(

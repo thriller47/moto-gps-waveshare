@@ -126,7 +126,9 @@ fun MotoChatInfoDialog(onDismiss: () -> Unit) {
                             Text(description, style = MaterialTheme.typography.bodyMedium)
                             Text(
                                 "$linkLabel ↗",
-                                modifier = Modifier.clickable { uriHandler.openUri(link) },
+                                modifier = Modifier.clickable {
+                                    runCatching { uriHandler.openUri(link) }
+                                },
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MotoChatColors.Green
                             )

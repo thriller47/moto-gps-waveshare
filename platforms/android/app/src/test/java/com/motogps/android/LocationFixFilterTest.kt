@@ -104,6 +104,17 @@ class LocationFixFilterTest {
     }
 
     @Test
+    fun recoversOnlyAfterThreeCoherentAccurateGpsJumps() {
+        val filter = LocationFixFilter()
+        assertTrue(filter.evaluate(fix(), 100_000L).accepted)
+        assertFalse(filter.evaluate(fix(lat = 45.01, timestamp = 100_200L), 100_200L).accepted)
+        assertFalse(filter.evaluate(fix(lat = 45.01002, timestamp = 100_400L), 100_400L).accepted)
+        val recovered = filter.evaluate(fix(lat = 45.01004, timestamp = 100_600L), 100_600L)
+        assertTrue(recovered.accepted)
+        assertEquals("accepted_consensus_recovery", recovered.reason)
+    }
+
+    @Test
     fun rejectsInvalidCoordinateAndFutureTimestamp() {
         val filter = LocationFixFilter()
         assertEquals(

@@ -5,6 +5,7 @@ import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.hypot
+import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
 /**
@@ -71,6 +72,16 @@ internal object RoadContextJunctions {
          */
         fun forwardOverlap(points: List<GeoPointE6>, route: List<GeoPointE6>): Double {
             if (points.size < 3 || route.size < 2) return 0.0
+            val edgeCount = points.lastIndex
+            val ringSx = DoubleArray(edgeCount)
+            val ringSy = DoubleArray(edgeCount)
+            val ringLen = DoubleArray(edgeCount)
+            for (j in 0 until edgeCount) {
+                val (sx, sy) = toXY(points[j + 1], points[j])
+                ringSx[j] = sx
+                ringSy[j] = sy
+                ringLen[j] = hypot(sx, sy)
+            }
             var closeOverlap = 0.0
             var outerOverlap = 0.0
             val outerRingEdges = HashSet<Int>()
@@ -87,21 +98,18 @@ internal object RoadContextJunctions {
                 for (chunk in 0 until chunks) {
                     val t = (chunk + 0.5) / chunks
                     val middle = GeoPointE6(
-                        (a.latitudeE6 + (b.latitudeE6 - a.latitudeE6) * t).toInt(),
-                        (a.longitudeE6 + (b.longitudeE6 - a.longitudeE6) * t).toInt()
+                        (a.latitudeE6 + (b.latitudeE6 - a.latitudeE6) * t).roundToInt(),
+                        (a.longitudeE6 + (b.longitudeE6 - a.longitudeE6) * t).roundToInt()
                     )
                     var closest = Double.POSITIVE_INFINITY
                     var matchedEdge = -1
-                    for (j in 0 until points.lastIndex) {
-                        val first = points[j]
-                        val last = points[j + 1]
-                        val (sx, sy) = toXY(last, first)
-                        val ringLength = hypot(sx, sy)
-                        if (ringLength < 0.7) continue
+                    for (j in 0 until edgeCount) {
+                        val rLen = ringLen[j]
+                        if (rLen < 0.7) continue
                         val alignment = kotlin.math.abs(
-                            (rx * sx + ry * sy) / (routeLength * ringLength))
+                            (rx * ringSx[j] + ry * ringSy[j]) / (routeLength * rLen))
                         if (alignment < 0.72) continue
-                        val distanceSquared = segmentSquared(middle, first, last)
+                        val distanceSquared = segmentSquared(middle, points[j], points[j + 1])
                         if (distanceSquared < closest) {
                             closest = distanceSquared
                             matchedEdge = j
@@ -358,7 +366,7 @@ internal object RoadContextJunctions {
         if (roads.isEmpty() || !latitude.isFinite() || !longitude.isFinite())
             return Analysis(null, 0, 0, emptyMap())
         val metric = Metric(latitude)
-        val gps = GeoPointE6((latitude * 1e6).toInt(), (longitude * 1e6).toInt())
+        val gps = GeoPointE6((latitude * 1e6).roundToInt(), (longitude * 1e6).roundToInt())
         val reasons = linkedMapOf<String, Int>()
         fun reject(reason: String) {
             reasons[reason] = (reasons[reason] ?: 0) + 1
@@ -405,8 +413,6 @@ internal object RoadContextJunctions {
             val memberSet = members.toSet()
             val osmTagged = members.isNotEmpty() &&
                 members.all { it.junctionKind in 1..2 }
-            val ringNodeIds = if (nodeIds.size == points.size)
-                nodeIds.filter { it > 0L }.toHashSet() else hashSetOf<Long>()
             val choices = chooseExits(roads, memberSet, points, nodeIds,
                 gps, upcoming, metric)
             val exits = choices.selected.map { it.road }
@@ -449,7 +455,7 @@ internal object RoadContextJunctions {
             qualified++
             val ring = if (members.size == 1) members.first() else MapRoadSegment(
                 roadClass = members.minOf { it.roadClass },
-                maxSpeedKph = members.minOf { it.maxSpeedKph },
+                maxSpeedKph = members.map { it.maxSpeedKph }.filter { it > 0 }.minOrNull() ?: 0,
                 minLatE6 = points.minOf { it.latitudeE6 },
                 minLonE6 = points.minOf { it.longitudeE6 },
                 maxLatE6 = points.maxOf { it.latitudeE6 },

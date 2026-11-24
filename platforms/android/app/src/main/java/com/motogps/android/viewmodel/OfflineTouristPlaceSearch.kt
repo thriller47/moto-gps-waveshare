@@ -51,10 +51,15 @@ internal object OfflineTouristPlaceSearch {
     fun installed(context: Context): Boolean {
         val target = file(context)
         if (!target.isFile || target.length() < 1024) return false
+        // Fast metadata check for frequent UI refreshes; full PRAGMA integrity_check stays in install().
         return try {
             SQLiteDatabase.openDatabase(target.absolutePath, null, SQLiteDatabase.OPEN_READONLY)
-                .use { checkDatabase(it) }
-            true
+                .use { db ->
+                    if (db.version != 1) return false
+                    db.rawQuery("SELECT value FROM tourist_metadata WHERE key='schema'", null).use { c ->
+                        c.moveToFirst() && c.getString(0) == SCHEMA
+                    }
+                }
         } catch (_: Exception) {
             false
         }
@@ -200,16 +205,27 @@ internal object OfflineTouristPlaceSearch {
                         lat, lon, requiresRoadAccess = true)
                     candidates.add((if (exact) 0 else if (begins) 1 else 2) to place)
                 }
-                val lat0 = gps?.first?.takeIf { it.isFinite() } ?: 0.0
-                val lon0 = gps?.second?.takeIf { it.isFinite() } ?: 0.0
+                val validGps = gps?.takeIf {
+                    it.first.isFinite() && it.second.isFinite() &&
+                        it.first in -90.0..90.0 && it.second in -180.0..180.0
+                }
                 val seen = HashSet<String>()
-                candidates.sortWith(compareBy<Pair<Int, PlaceSearchResult>> { it.first }
-                    .thenBy {
-                        val dlat = it.second.latitude - lat0
-                        val dlon = it.second.longitude - lon0
-                        dlat * dlat + dlon * dlon *
-                            kotlin.math.cos(Math.toRadians(lat0)).let { c -> c * c }
-                    })
+                val comparator = if (validGps != null) {
+                    val lat0 = validGps.first
+                    val lon0 = validGps.second
+                    val cosSq = kotlin.math.cos(Math.toRadians(lat0)).let { c -> c * c }
+                    compareBy<Pair<Int, PlaceSearchResult>> { it.first }
+                        .thenBy {
+                            val dlat = it.second.latitude - lat0
+                            val dlon = it.second.longitude - lon0
+                            dlat * dlat + dlon * dlon * cosSq
+                        }
+                } else {
+                    compareBy<Pair<Int, PlaceSearchResult>> { it.first }
+                        .thenBy { it.second.name.length }
+                        .thenBy { it.second.name }
+                }
+                candidates.sortWith(comparator)
                 for ((_, place) in candidates) {
                     val key = PhotonOfflineRanking.normalize(place.name) +
                         ":" + (place.latitude * 1000).toInt() +

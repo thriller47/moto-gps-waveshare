@@ -21,4 +21,11 @@ class NavigationFixFreshnessTest {
         assertTrue(NavigationFixFreshness.isStale(true, 30_000L))
         assertTrue(NavigationFixFreshness.isStale(true, -1L))
     }
+    @Test
+    fun smallNegativeClockSkewDoesNotMarkAnAcceptedFixStale() {
+        assertFalse(NavigationFixFreshness.isStaleWithSkewTolerance(true, -2_000L))
+        assertTrue(NavigationFixFreshness.isStaleWithSkewTolerance(true, -2_001L))
+        assertTrue(NavigationFixFreshness.isStaleWithSkewTolerance(false, -100L))
+        assertTrue(NavigationFixFreshness.isStaleWithSkewTolerance(true, 3_001L))
+    }
 }

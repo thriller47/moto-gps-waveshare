@@ -18,6 +18,8 @@ import kotlin.math.roundToLong
 internal object OfflineValhallaRouter {
     private var engine: Valhalla? = null
     private var loadedTilePath: String? = null
+    private var loadedTileLength: Long = -1L
+    private var loadedTileLastModified: Long = -1L
 
     fun tileFile(context: Context): File =
         File(context.getExternalFilesDir(null) ?: context.filesDir,
@@ -42,7 +44,10 @@ internal object OfflineValhallaRouter {
         val tiles = tileFile(context)
         if (!tiles.isFile || tiles.length() == 0L) return null
         val path = tiles.absolutePath
-        if (engine == null || loadedTilePath != path) {
+        val length = tiles.length()
+        val mtime = tiles.lastModified()
+        if (engine == null || loadedTilePath != path ||
+            loadedTileLength != length || loadedTileLastModified != mtime) {
             engine?.close()
             engine = null
             val demDir = File(tiles.parentFile, "elevation")
@@ -50,6 +55,8 @@ internal object OfflineValhallaRouter {
                 path, elevationDir = demDir.takeIf { it.isDirectory }?.absolutePath)
             engine = Valhalla(context.applicationContext, config)
             loadedTilePath = path
+            loadedTileLength = length
+            loadedTileLastModified = mtime
         }
         val request = JSONObject()
             .put("locations", ValhallaRouteLocations.build(
@@ -72,6 +79,8 @@ internal object OfflineValhallaRouter {
         engine?.close()
         engine = null
         loadedTilePath = null
+        loadedTileLength = -1L
+        loadedTileLastModified = -1L
     }
 }
 

@@ -25,6 +25,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
@@ -82,26 +88,53 @@ import org.osmdroid.views.overlay.Polyline
 // Keep action icons within the configured material-icons-core set (Check/Place).
 // Numbered stop markers are drawn separately from the route geometry.
 // They do not affect Valhalla waypoints or the ESP32 BLE payload.
+private val waypointIconCache = HashMap<Int, Bitmap>()
+
 private fun waypointMarkerIcon(map: MapView, number: Int): BitmapDrawable {
-    val diameter = 58
-    val bitmap = Bitmap.createBitmap(diameter, diameter, Bitmap.Config.ARGB_8888)
-    val canvas = Canvas(bitmap)
-    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.rgb(24, 102, 73)
-        style = Paint.Style.FILL
+    val bitmap = waypointIconCache.getOrPut(number) {
+        val diameter = 58
+        val bmp = Bitmap.createBitmap(diameter, diameter, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(24, 102, 73)
+            style = Paint.Style.FILL
+        }
+        canvas.drawCircle(29f, 29f, 24f, paint)
+        paint.color = Color.WHITE
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = 3f
+        canvas.drawCircle(29f, 29f, 24f, paint)
+        paint.style = Paint.Style.FILL
+        paint.textAlign = Paint.Align.CENTER
+        paint.typeface = android.graphics.Typeface.create(
+            android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+        paint.textSize = 26f
+        canvas.drawText(number.toString(), 29f, 38f, paint)
+        bmp
     }
-    canvas.drawCircle(29f, 29f, 24f, paint)
-    paint.color = Color.WHITE
-    paint.style = Paint.Style.STROKE
-    paint.strokeWidth = 3f
-    canvas.drawCircle(29f, 29f, 24f, paint)
-    paint.style = Paint.Style.FILL
-    paint.textAlign = Paint.Align.CENTER
-    paint.typeface = android.graphics.Typeface.create(
-        android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
-    paint.textSize = 26f
-    canvas.drawText(number.toString(), 29f, 38f, paint)
     return BitmapDrawable(map.resources, bitmap)
+}
+
+@Composable
+private fun BindMapViewLifecycle(mapView: MapView?) {
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, mapView) {
+        val view = mapView ?: return@DisposableEffect onDispose {}
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> view.onResume()
+                Lifecycle.Event.ON_PAUSE -> view.onPause()
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        view.onResume()
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            view.onPause()
+            view.onDetach()
+        }
+    }
 }
 
 // Recolor only the osmdroid base tiles (day/night toggle): overlays, route lines and markers stay
@@ -163,6 +196,8 @@ fun RouteMapView(
     // dialog state, theme). Fit the whole route only when its identity changes.
     // A plain remembered cell avoids recomposition just to record the fitted key.
     val lastFitKey = remember { arrayOfNulls<String>(1) }
+    var routeMapInstance by remember { mutableStateOf<MapView?>(null) }
+    BindMapViewLifecycle(routeMapInstance)
     AndroidView(
         factory = { context ->
             Configuration.getInstance().userAgentValue = context.packageName
@@ -170,6 +205,7 @@ fun RouteMapView(
                 setTileSource(TileSourceFactory.MAPNIK)
                 applyMapNightMode(this, nightMode)
                 setMultiTouchControls(true)
+                routeMapInstance = this
             }
         },
         update = { mapView ->
@@ -342,6 +378,7 @@ fun MainMapView(
     modifier: Modifier = Modifier
 ) {
     var mapViewInstance by remember { mutableStateOf<MapView?>(null) }
+    BindMapViewLifecycle(mapViewInstance)
 
     LaunchedEffect(centerTrigger) {
         if (centerTrigger > 0 && mapViewInstance != null && currentLocation != null) {
@@ -2188,7 +2225,7 @@ fun NavigationScreen(
                     }
                     Slider(
                         value = circularDistanceKm,
-                        onValueChange = { circularDistanceKm = it },
+                        onValueChange = { circularDistanceKm = it.roundToInt().toFloat() },
                         valueRange = 30f..300f, steps = 26
                     )
                     Text("DIREZIONE PREVALENTE",
@@ -2312,7 +2349,7 @@ fun NavigationScreen(
             confirmButton = {
                 Button(onClick = {
                     showCircularTourDialog = false
-                    onCircularTour(circularDistanceKm.toInt(), circularOrientation)
+                    onCircularTour(circularDistanceKm.roundToInt(), circularOrientation)
                 }, enabled = !isNavigating && !isLoading,
                     modifier = Modifier.heightIn(min = 52.dp)) {
                     Text("Calcola tour circolare",
@@ -2871,8 +2908,10 @@ fun NavigationScreen(
                 var altitudeExpanded by remember(selectedRoute, isNavigating) {
                     mutableStateOf(false)
                 }
-                val geoPoints = remember(selectedRoute, currentLocation, routePreview) {
-                    extractGeoPoints(selectedRoute, currentLocation, routePreview)
+                // Extract route vertices only when the selected route changes, not on every 5 Hz GPS tick.
+                val fallbackOrigin = if (selectedRoute == null) currentLocation else null
+                val geoPoints = remember(selectedRoute, routePreview, fallbackOrigin) {
+                    extractGeoPoints(selectedRoute, fallbackOrigin, routePreview)
                 }
 
                 Card(
@@ -2992,9 +3031,8 @@ fun NavigationScreen(
                     OutlinedButton(
                         onClick = {
                             showRoadDnaDialog = true
-                            // Preserve existing Road DNA results until the ViewModel
-                            // invalidates them for a changed route.
-                            if (roadDnaOnline == null && !roadDnaOnlineLoading) {
+                            // Trigger offline Road DNA analysis when summary is missing (not tied to online results).
+                            if (roadDnaSummary == null && !roadDnaLoading) {
                                 onRoadDnaAnalyze()
                             }
                         },

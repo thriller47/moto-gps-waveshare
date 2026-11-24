@@ -10,6 +10,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Path
@@ -158,13 +159,23 @@ private fun RoadDnaElevationDetails(info: RoadDnaElevation) {
 
 @Composable
 private fun RoadDnaElevationChart(points: List<RoadDnaHeightPoint>) {
-    val valid = points.mapNotNull { it.altitudeMeters }
-    if (valid.size < 2) return
-    val low = valid.minOrNull() ?: return
-    val high = valid.maxOrNull() ?: return
+    val bounds = remember(points) {
+        var minH = Double.POSITIVE_INFINITY
+        var maxH = Double.NEGATIVE_INFINITY
+        var validCount = 0
+        for (p in points) {
+            val h = p.altitudeMeters ?: continue
+            if (h < minH) minH = h
+            if (h > maxH) maxH = h
+            validCount++
+        }
+        if (validCount < 2) null else (minH to maxH)
+    } ?: return
+    val (low, high) = bounds
     val first = points.first().distanceMeters
     val spanDistance = max(1.0, points.last().distanceMeters - first)
     val spanAltitude = max(30.0, high - low)
+    val chartPath = remember { Path() }
     Canvas(modifier = Modifier.fillMaxWidth().height(114.dp)
         .clip(RoundedCornerShape(14.dp))
         .background(MotoChatColors.SurfaceRaised)
@@ -176,7 +187,7 @@ private fun RoadDnaElevationChart(points: List<RoadDnaHeightPoint>) {
                 end = androidx.compose.ui.geometry.Offset(size.width, y),
                 strokeWidth = 1.dp.toPx())
         }
-        val path = Path()
+        chartPath.reset()
         var penUp = true
         for (point in points) {
             val height = point.altitudeMeters
@@ -187,10 +198,10 @@ private fun RoadDnaElevationChart(points: List<RoadDnaHeightPoint>) {
             val x = ((point.distanceMeters - first) / spanDistance * size.width).toFloat()
             val y = (size.height -
                 ((height - low) / spanAltitude * size.height).toFloat())
-            if (penUp) path.moveTo(x, y) else path.lineTo(x, y)
+            if (penUp) chartPath.moveTo(x, y) else chartPath.lineTo(x, y)
             penUp = false
         }
-        drawPath(path, color = MotoChatColors.Green,
+        drawPath(chartPath, color = MotoChatColors.Green,
             style = Stroke(width = 2.5.dp.toPx()))
     }
     Text(String.format(Locale.ITALY, "Distanza %.1f km",

@@ -80,10 +80,13 @@ internal object RoadDnaApiKeys {
         check(provider)
         val encrypted = file(context, provider)
         if (!encrypted.isFile) return null
+        val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        val existingKey = ks.getKey("moto_road_dna_$provider", null) as? SecretKey
+            ?: throw IOException("Chiave di cifratura non disponibile; reinserisci la chiave API")
         val bytes = AtomicFile(encrypted).openRead().use { it.readBytes() }
         if (bytes.size !in 29..2048) throw IOException("Chiave salvata non leggibile")
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.DECRYPT_MODE, key(provider), GCMParameterSpec(
+        cipher.init(Cipher.DECRYPT_MODE, existingKey, GCMParameterSpec(
             128, bytes.copyOfRange(0, 12)))
         return String(cipher.doFinal(bytes.copyOfRange(12, bytes.size)),
             StandardCharsets.UTF_8)
@@ -316,12 +319,12 @@ internal object RoadDnaOnline {
     }
 
     private fun fetch(url: String, key: String? = null, body: String? = null,
-                      userAgent: String? = null): String {
+                      userAgent: String? = null, allowRedirects: Boolean = false): String {
         val conn = URL(url).openConnection() as HttpURLConnection
         try {
             conn.connectTimeout = 8000
             conn.readTimeout = 12000
-            conn.instanceFollowRedirects = false
+            conn.instanceFollowRedirects = allowRedirects
             conn.setRequestProperty("Accept", "application/json")
             if (userAgent != null) conn.setRequestProperty("User-Agent", userAgent)
             if (key != null) conn.setRequestProperty("x-api-key", key)
@@ -335,16 +338,16 @@ internal object RoadDnaOnline {
             val httpStatus = conn.responseCode
             if (httpStatus !in 200..299) throw RoadDnaProviderHttpException(httpStatus)
             conn.inputStream.use { stream ->
-                val bytes = ByteArray(MAX_RESPONSE + 1)
-                var read = 0
-                while (read < bytes.size) {
-                    val count = stream.read(bytes, read, bytes.size - read)
+                val out = java.io.ByteArrayOutputStream(16 * 1024)
+                val buf = ByteArray(16 * 1024)
+                while (true) {
+                    val count = stream.read(buf)
                     if (count < 0) break
                     if (count == 0) continue
-                    read += count
+                    if (out.size() + count > MAX_RESPONSE) throw IOException("Risposta online troppo grande")
+                    out.write(buf, 0, count)
                 }
-                if (read > MAX_RESPONSE) throw IOException("Risposta online troppo grande")
-                return String(bytes, 0, read, StandardCharsets.UTF_8)
+                return out.toString(StandardCharsets.UTF_8.name())
             }
         } finally {
             conn.disconnect()
@@ -794,7 +797,7 @@ internal object RoadDnaOnline {
 
     private fun linkedWikipediaSummary(url: String): Triple<String, String, String>? {
         return try {
-            val summary = JSONObject(fetch(url, userAgent = WIKIMEDIA_UA))
+            val summary = JSONObject(fetch(url, userAgent = WIKIMEDIA_UA, allowRedirects = true))
             if (summary.optString("type") == "disambiguation") return null
             val excerpt = summary.optString("extract").trim()
                 .takeIf { it.isNotEmpty() }?.take(1200) ?: return null

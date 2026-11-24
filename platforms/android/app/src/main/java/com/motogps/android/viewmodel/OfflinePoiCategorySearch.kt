@@ -49,8 +49,7 @@ internal object OfflinePoiCategorySearch {
         val file = OfflinePhotonPlaceSearch.file(context)
         if (!file.isFile) return false
         return try {
-            SQLiteDatabase.openDatabase(file.absolutePath, null,
-                SQLiteDatabase.OPEN_READONLY).use { db ->
+            OfflinePhotonPlaceSearch.withReadOnlyDb(context) { db ->
                 db.version == 2 && db.rawQuery(
                     "SELECT 1 FROM sqlite_master WHERE type='table' AND name='poi_places'",
                     null).use { it.moveToFirst() }
@@ -82,8 +81,7 @@ internal object OfflinePoiCategorySearch {
              LIMIT 32
         """.trimIndent()
         val result = ArrayList<PlaceSearchResult>(8)
-        SQLiteDatabase.openDatabase(file.absolutePath, null,
-            SQLiteDatabase.OPEN_READONLY).use { db ->
+        OfflinePhotonPlaceSearch.withReadOnlyDb(context) { db ->
             for (radiusKm in listOf(15.0, 50.0, 150.0)) {
                 val deltaLat = radiusKm / 111.2
                 val lonScale = cos(Math.toRadians(lat)).coerceAtLeast(0.05)
@@ -97,12 +95,15 @@ internal object OfflinePoiCategorySearch {
                 result.clear()
                 db.rawQuery(sql, values.toTypedArray()).use { cursor ->
                     while (cursor.moveToNext()) {
-                        val name = cursor.getString(0)
-                        val subtype = cursor.getString(1)
+                        val subtype = cursor.getString(1).orEmpty()
+                        val name = cursor.getString(0).orEmpty().trim()
+                            .ifBlank { subtype.replace('_', ' ').ifBlank { "POI" } }
                         val poiLat = cursor.getDouble(2)
                         val poiLon = cursor.getDouble(3)
-                        result.add(PlaceSearchResult(
-                            name, "", subtype, poiLat, poiLon))
+                        if (poiLat.isFinite() && poiLon.isFinite()) {
+                            result.add(PlaceSearchResult(
+                                name, "", subtype, poiLat, poiLon))
+                        }
                     }
                 }
                 if (result.size >= 8) break

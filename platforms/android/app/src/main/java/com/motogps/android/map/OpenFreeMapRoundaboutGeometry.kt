@@ -116,6 +116,7 @@ internal object OpenFreeMapRoundaboutGeometry {
         var best: RoadContextJunctions.Priority? = null
         var states = 0
         val used = HashSet<Int>()
+        val visitedNodes = HashSet<Int>()
         val path = ArrayList<Step>()
 
         fun consider() {
@@ -185,7 +186,7 @@ internal object OpenFreeMapRoundaboutGeometry {
                 .take(RoadContextJunctions.MAX_PRIORITIZED_EXITS)
             val combined = MapRoadSegment(
                 roadClass = members.minOf { it.roadClass },
-                maxSpeedKph = members.minOf { it.maxSpeedKph },
+                maxSpeedKph = members.map { it.maxSpeedKph }.filter { it > 0 }.minOrNull() ?: 0,
                 minLatE6 = shape.minOf { it.latitudeE6 },
                 minLonE6 = shape.minOf { it.longitudeE6 },
                 maxLatE6 = shape.maxOf { it.latitudeE6 },
@@ -216,10 +217,13 @@ internal object OpenFreeMapRoundaboutGeometry {
                 if (index in used) continue
                 val arc = arcs[index]
                 val next = if (arc.a == current) arc.b else arc.a
+                if (next != start && next in visitedNodes) continue
                 used.add(index)
+                if (next != start) visitedNodes.add(next)
                 path.add(Step(index, arc.a == current))
                 walk(start, next, length + arc.meters)
                 path.removeAt(path.lastIndex)
+                if (next != start) visitedNodes.remove(next)
                 used.remove(index)
                 if (states >= MAX_STATES || circuits >= MAX_CIRCUITS) break
             }
@@ -227,10 +231,13 @@ internal object OpenFreeMapRoundaboutGeometry {
         arcs.forEachIndexed { index, arc ->
             if (states >= MAX_STATES || circuits >= MAX_CIRCUITS) return@forEachIndexed
             used.add(index)
+            visitedNodes.add(arc.a)
+            visitedNodes.add(arc.b)
             path.add(Step(index, true))
             walk(arc.a, arc.b, arc.meters)
             path.clear()
             used.clear()
+            visitedNodes.clear()
         }
         return Analysis(best, arcs.size, circuits, rejected)
     }

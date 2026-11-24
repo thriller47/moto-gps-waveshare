@@ -17,7 +17,9 @@ import com.motogps.android.jni.GeoPointE6
 import com.motogps.android.jni.MotoBLEMapRoadPolyline
 import com.motogps.android.jni.MotoBLEMapScene
 import com.motogps.android.jni.MotoBLENavigationSnapshot
+import com.motogps.android.jni.MotoBLEDeviceCommand
 import com.motogps.android.jni.MotoBLERouteGeometry
+import kotlin.math.roundToInt
 import com.motogps.android.map.HybridMapRepository
 import com.motogps.android.map.RoadContextJunctions
 import com.motogps.android.map.OpenFreeMapTileProbe
@@ -937,6 +939,9 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     private var telemetryJob: Job? = null
 
     private var navigationJob: Job? = null
+    private var rerouteJob: Job? = null
+    @Volatile private var navigationSessionId: Long = 0L
+    @Volatile private var cachedMapRepo: HybridMapRepository? = null
     // A bit in the existing 16-bit navigation flags tells the device whether
     // any intermediate stop remains. It is independent of the visible BLE
     // geometry window, so the circular >> button is available even kilometres
@@ -948,8 +953,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
             snapshot.copy(hasPendingWaypoints = hasPendingStops))
     }
 
-    private var currentSnapshot: MotoBLENavigationSnapshot? = null
-    private var currentGeometry: MotoBLERouteGeometry? = null
+    @Volatile private var currentSnapshot: MotoBLENavigationSnapshot? = null
+    @Volatile private var currentGeometry: MotoBLERouteGeometry? = null
     private var lastWindowGapDiagnosticMs = 0L
 
     private fun sendNearbyRouteGeometry(route: MotoBLERouteGeometry) {
@@ -984,17 +989,17 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         } ?: -1
         Log.i("NavigationVM", "Route BLE window: ${window.points.size}/${route.points.size} points origin=$lat,$lon destinationPointDistance=${endMeters}m")
     }
-    private var turnPlan = ValhallaTurnGuidance.Plan(0.0, emptyList())
-    private var lastSpeedLimitKph = 0
+    @Volatile private var turnPlan = ValhallaTurnGuidance.Plan(0.0, emptyList())
+    @Volatile private var lastSpeedLimitKph = 0
 
     private val locationFixFilter = LocationFixFilter()
     private val routeDistanceGuard = RouteDistanceGuard()
     private val routeProgressMatcher = RouteProgressMatcher()
     private val routeProgressStallPolicy = RouteProgressStallPolicy()
     private val rerouteStability = RerouteStabilityPolicy()
-    private var lastLocationTimeMs: Long = 0L
-    private var lastFixElapsedMs: Long = 0L
-    private var lastFixAccuracyM: Float = Float.POSITIVE_INFINITY
+    @Volatile private var lastLocationElapsedMs: Long = 0L
+    @Volatile private var lastFixElapsedMs: Long = 0L
+    @Volatile private var lastFixAccuracyM: Float = Float.POSITIVE_INFINITY
     private var lastFixCourseDeg: Float? = null
     private var lastDiagnosticFixMs: Long = 0L
     private var lastDiagnosticLatencyMs: Long = 0L
@@ -1007,12 +1012,18 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     private var lastMapSceneRevision: Long = 0L
     private var navigationMapsContext: Context? = null
 
-    init {
-        bleManager.onDeviceCommandReceived = { cmd ->
-            if (cmd.kind == 0) { // PageSelected
-                _currentDevicePage.value = cmd.page
+    fun handleDeviceCommand(cmd: MotoBLEDeviceCommand) {
+        when (cmd.kind) {
+            0 -> _currentDevicePage.value = cmd.page // PageSelected
+            21 -> { // Confirmed waypoint-marker request from ESP32
+                DiagnosticLog.event("WAYPOINT_SKIP", "phase=device_command")
+                skipNextWaypoint()
             }
         }
+    }
+
+    init {
+        bleManager.onDeviceCommandReceived = { cmd -> handleDeviceCommand(cmd) }
     }
 
     /** Attach straight-line distance to search items for both result lists.
@@ -1303,6 +1314,10 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         offRouteFirstFixMs = 0L
 
         navigationJob?.cancel()
+        rerouteJob?.cancel()
+        rerouteJob = null
+        rerouteInProgress = false
+        val sessionId = ++navigationSessionId
         DiagnosticLog.event("ROUTE_START", "begin stops=${_routeWaypoints.value.size}")
         navigationJob = viewModelScope.launch {
             _isLoading.value = true
@@ -1312,6 +1327,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                 val (snapshot, geometry, guidance) = withContext(Dispatchers.IO) {
                     performRoutingWithGeometry(place)
                 }
+                if (sessionId != navigationSessionId) return@launch
 
                 activeDestination = place
                 val resumed = resumeOriginSession
@@ -1376,7 +1392,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                     if (!_isNavigating.value) break
                     loopCount++
 
-                    if (System.currentTimeMillis() - lastLocationTimeMs > 3000L) {
+                    if (SystemClock.elapsedRealtime() - lastLocationElapsedMs > 3000L) {
                         currentSpeedDeciKph = 0
                     }
 
@@ -1384,7 +1400,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
 
                     val (lat, lon) = currentLocation.value
                     val ageMs = SystemClock.elapsedRealtime() - lastFixElapsedMs
-                    val gnssStale = NavigationFixFreshness.isStale(hasFirstFix, ageMs)
+                    val gnssStale = NavigationFixFreshness.isStaleWithSkewTolerance(hasFirstFix, ageMs)
                     // GPS accepted by LocationFixFilter is authoritative for
                     // route progress, distances, maneuvers and recorded replay.
                     // Prediction belongs exclusively to the ESP32 map renderer.
@@ -1433,17 +1449,14 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                     // A stationary GPS provider may stop emitting fixes. Keep
                     // offline map lookup / online tile retry alive independently
                     // of location callbacks during an active route.
-                    if (loopCount == 1 ||
-                        System.currentTimeMillis() - lastMapSceneSendTimeMs >= 20_000L) {
-                        val mapContext = navigationMapsContext
+                    val nowMapMs = SystemClock.elapsedRealtime()
+                    if (loopCount == 1 || nowMapMs - lastMapSceneSendTimeMs >= 20_000L) {
+                        val mapContext = appContext ?: navigationMapsContext
                         if (mapContext != null) {
-                            val now = System.currentTimeMillis()
-                            if (loopCount == 1 || now - lastMapSceneSendTimeMs >= 15_000L) {
-                                lastMapSceneSendTimeMs = now
-                                lastMapSceneLat = lat
-                                lastMapSceneLon = lon
-                                updateSpeedLimitAndMapScene(lat, lon, mapContext)
-                            }
+                            lastMapSceneSendTimeMs = nowMapMs
+                            lastMapSceneLat = lat
+                            lastMapSceneLon = lon
+                            updateSpeedLimitAndMapScene(lat, lon, mapContext)
                         }
                     }
 
@@ -1459,13 +1472,16 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                                 (activeSnap.maneuverName !in
                                     setOf("continue", "none", "arrive") &&
                                     activeSnap.distanceToManeuverM <= 100L)
-                            val winding = !nearTurn && elapsed >= 1_400L &&
-                                RouteGeometryWindow.isWinding(
-                                    RouteGeometryWindow.around(activeGeom, lat, lon)
-                                )
-                            if (nearTurn || winding || elapsed >= 1_500L) {
+                            if (nearTurn || elapsed >= 1_500L) {
                                 sendNearbyRouteGeometry(activeGeom)
                                 lastGeometryTransmissionMs = now
+                            } else if (elapsed >= 1_400L) {
+                                val candidateWindow = RouteGeometryWindow.around(
+                                    activeGeom, lat, lon, routeProgressMatcher.matchedProgressMeters())
+                                if (RouteGeometryWindow.isWinding(candidateWindow)) {
+                                    sendNearbyRouteGeometry(activeGeom)
+                                    lastGeometryTransmissionMs = now
+                                }
                             }
                         }
                     }
@@ -1484,7 +1500,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                 _routePreviewError.value = e.message ?: "Navigazione Valhalla non disponibile"
                 _errorMessage.value = "Errore durante la navigazione: ${e.message}"
             } finally {
-                _isLoading.value = false
+                if (sessionId == navigationSessionId) _isLoading.value = false
             }
         }
     }
@@ -1504,8 +1520,10 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         val remaining = skip.pending
         rerouteInProgress = true
         _isLoading.value = true
+        val sessionId = navigationSessionId
         DiagnosticLog.event("WAYPOINT_SKIP", "phase=request remaining=${remaining.size}")
-        viewModelScope.launch {
+        rerouteJob?.cancel()
+        rerouteJob = viewModelScope.launch {
             try {
                 val (snapshot, geometry, guidance) = withContext(Dispatchers.IO) {
                     performRoutingWithGeometry(destination, isReroute = true,
@@ -1513,7 +1531,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                 }
                 // If the rider reached the stop while Valhalla was working,
                 // or the tour was stopped, the result is stale: discard it.
-                if (!_isNavigating.value || _hasArrived.value ||
+                if (sessionId != navigationSessionId || !_isNavigating.value || _hasArrived.value ||
                     activeDestination != destination ||
                     nextWaypointIndex != index ||
                     activeWaypoints.getOrNull(index) != skipped) {
@@ -1559,8 +1577,10 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                 DiagnosticLog.event("WAYPOINT_SKIP",
                     "phase=failed type=${e.javaClass.simpleName}")
             } finally {
-                rerouteInProgress = false
-                _isLoading.value = false
+                if (sessionId == navigationSessionId) {
+                    rerouteInProgress = false
+                    _isLoading.value = false
+                }
             }
         }
     }
@@ -1575,9 +1595,14 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         }
         _hasArrived.value = false
         arrivalDetector.reset()
+        navigationSessionId++
+        _isLoading.value = false
         _isNavigating.value = false
         navigationJob?.cancel()
         navigationJob = null
+        rerouteJob?.cancel()
+        rerouteJob = null
+        rerouteInProgress = false
         activeDestination = null
         activeWaypoints = emptyList()
         nextWaypointIndex = 0
@@ -1659,7 +1684,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         if (applySensor && normalized != null) {
             currentHeadingCentiDeg = (normalized * 100f).toInt().coerceIn(0, 35999)
         }
-        val now = System.currentTimeMillis()
+        val now = SystemClock.elapsedRealtime()
         if (now - lastDiagnosticHeadingMs >= 3000L) {
             DiagnosticLog.event(
                 if (applySensor) "PHONE_SENSOR_HEADING" else "PHONE_SENSOR_IGNORED",
@@ -1724,8 +1749,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         if (context != null) navigationMapsContext = context.applicationContext
         hasFirstFix = true
         _currentLocation.value = Pair(latitude, longitude)
-        val now = System.currentTimeMillis()
-        lastLocationTimeMs = now
+        val now = SystemClock.elapsedRealtime()
+        lastLocationElapsedMs = now
 
         lastGpsSpeedMs = speedMs
         val speedZero = speedMs < 0.8f
@@ -1822,6 +1847,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                     SystemClock.elapsedRealtime())) {
                 _hasArrived.value = true
                 offRouteFixCount = 0
+                rerouteJob?.cancel()
+                rerouteJob = null
                 rerouteInProgress = false
                 val arrived = currentSnapshot?.copy(
                     stateName = "arrived",
@@ -1866,8 +1893,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         mapSceneUpdateJob = viewModelScope.launch(Dispatchers.IO) {
             try {
                 val repository = getOrCreateRepo(context)
-                val latE6 = (lat * 1e6).toInt()
-                val lonE6 = (lon * 1e6).toInt()
+                val latE6 = (lat * 1e6).roundToInt()
+                val lonE6 = (lon * 1e6).roundToInt()
                 val deltaE6 = 5000
 
                 val segments = repository.loadFromRegionalFiles(
@@ -1891,12 +1918,16 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                 val roadPolylines = mutableListOf<MotoBLEMapRoadPolyline>()
 
                 if (segments.isNotEmpty()) {
+                    // This trial deliberately leaves layer/grade filtering OFF.
+                    // Read the whole local graph even after leaving the route.
+                    val contextRoads = segments.filter { it.roadClass in 0..3 && it.points.size >= 2 }
                     var minDistance = Double.MAX_VALUE
                     var bestSpeed = 0
 
-                    for (seg in segments) {
-                        for (pt in seg.points) {
-                            val dist = calculateDistanceMeters(lat, lon, pt.latitudeE6 / 1e6, pt.longitudeE6 / 1e6)
+                    // Measure distance to road segments (not only vertices) so long straight roads keep their speed limit.
+                    for (seg in contextRoads) {
+                        for (idx in 0 until seg.points.lastIndex) {
+                            val dist = distanceToSegmentMeters(lat, lon, seg.points[idx], seg.points[idx + 1])
                             if (dist < minDistance) {
                                 minDistance = dist
                                 bestSpeed = seg.maxSpeedKph
@@ -1905,10 +1936,6 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                     }
 
                     lastSpeedLimitKph = if (minDistance <= 50.0) bestSpeed else 0
-
-                    // This trial deliberately leaves layer/grade filtering OFF.
-                    // Read the whole local graph even after leaving the route.
-                    val contextRoads = segments.filter { it.roadClass in 0..3 && it.points.size >= 2 }
                     val nearbyRoute = currentGeometry?.let { geometry ->
                         RouteGeometryWindow.around(geometry, lat, lon,
                             routeProgressMatcher.matchedProgressMeters()).points
@@ -2222,6 +2249,9 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                 _valhallaInstalledBytes.value =
                     OfflineValhallaRouter.tileFile(appContext).length()
                 _valhallaStatus.value = "Grafo Valhalla importato. Puoi provare la navigazione."
+            } catch (e: CancellationException) {
+                _valhallaStatus.value = "Importazione grafo annullata"
+                throw e
             } catch (e: Exception) {
                 _valhallaStatus.value = "Importazione grafo fallita: " + e.message
             } finally {
@@ -2256,8 +2286,11 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         _downloadStatus.value = "Download annullato"
     }
 
-    private fun getOrCreateRepo(context: Context): HybridMapRepository =
-        HybridMapRepository(context.applicationContext)
+    @Synchronized private fun getOrCreateRepo(context: Context): HybridMapRepository {
+        val existing = cachedMapRepo
+        if (existing != null) return existing
+        return HybridMapRepository(context.applicationContext).also { cachedMapRepo = it }
+    }
 
     fun importUnifiedOfflinePack(context: Context, uri: Uri) {
         if (_isNavigating.value || _isDownloadingMap.value ||
@@ -2281,10 +2314,13 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                     )
                 }
                 refreshSavedMaps(context)
-                val graphInstalled = OfflineValhallaRouter.hasTiles(context.applicationContext)
-                val photonInstalled = OfflinePhotonPlaceSearch.installed(context.applicationContext)
-                val touristInstalled = withContext(Dispatchers.IO) {
-                    OfflineTouristPlaceSearch.installed(context.applicationContext)
+                cachedMapRepo?.clearTileCache()
+                val (graphInstalled, photonInstalled, touristInstalled) = withContext(Dispatchers.IO) {
+                    Triple(
+                        OfflineValhallaRouter.hasTiles(context.applicationContext),
+                        OfflinePhotonPlaceSearch.installed(context.applicationContext),
+                        OfflineTouristPlaceSearch.installed(context.applicationContext)
+                    )
                 }
                 if (!graphInstalled || !photonInstalled || !touristInstalled) {
                     throw java.io.IOException(
@@ -2312,8 +2348,9 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     }
 
     fun importOsmRoadPack(context: Context, uri: Uri) {
-        if (_isDownloadingMap.value) {
-            _errorMessage.value = "Un download mappe è già in corso"
+        if (_isNavigating.value || _isDownloadingMap.value) {
+            _errorMessage.value = if (_isNavigating.value) "Termina la navigazione prima di importare mappe"
+                else "Un download mappe è già in corso"
             return
         }
         mapDownloadJob?.cancel()
@@ -2327,11 +2364,15 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                         _downloadStatus.value = "Importate $count tile OSM..."
                     }
                 }
+                cachedMapRepo?.clearTileCache()
                 _downloadProgress.value = 1f
                 _downloadStatus.value = "Pacchetto OSM importato: $tiles tile disponibili"
                 refreshSavedMaps(context)
                 val (lat, lon) = currentLocation.value
                 if (hasFirstFix) updateSpeedLimitAndMapScene(lat, lon, context.applicationContext)
+            } catch (e: CancellationException) {
+                _downloadStatus.value = "Importazione OSM annullata"
+                throw e
             } catch (e: Exception) {
                 com.motogps.android.diagnostics.DiagnosticLog.event("OSM_IMPORT_ERROR", "${e.javaClass.simpleName}: ${e.message}")
                 _downloadStatus.value = "Errore importazione OSM: ${e.message}"
@@ -2343,15 +2384,23 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     }
 
     fun refreshSavedMaps(context: Context) {
-        // A legacy v1 file is not a usable offline index in the v2 reader.
-        _photonInstalledBytes.value = if (OfflinePhotonPlaceSearch.installed(context))
-            OfflinePhotonPlaceSearch.file(context).length() else 0L
-        _valhallaInstalledBytes.value = OfflineValhallaRouter.tileFile(context)
-            .let { if (it.isFile) it.length() else 0L }
-        _roadDnaInstalledBytes.value = OfflineTouristPlaceSearch.file(context)
-            .let { if (it.isFile) it.length() else 0L }
-        val list = getOrCreateRepo(context).listSavedMaps()
-        _savedMaps.value = list
+        val app = context.applicationContext
+        viewModelScope.launch {
+            val snapshot = withContext(Dispatchers.IO) {
+                val photon = if (OfflinePhotonPlaceSearch.installed(app))
+                    OfflinePhotonPlaceSearch.file(app).length() else 0L
+                val valhalla = OfflineValhallaRouter.tileFile(app)
+                    .let { if (it.isFile) it.length() else 0L }
+                val roadDna = OfflineTouristPlaceSearch.file(app)
+                    .let { if (it.isFile) it.length() else 0L }
+                val list = getOrCreateRepo(app).listSavedMaps()
+                listOf(photon, valhalla, roadDna) to list
+            }
+            _photonInstalledBytes.value = snapshot.first[0]
+            _valhallaInstalledBytes.value = snapshot.first[1]
+            _roadDnaInstalledBytes.value = snapshot.first[2]
+            _savedMaps.value = snapshot.second
+        }
     }
 
     fun deleteSavedMap(context: Context, fileName: String): Boolean {
@@ -2452,7 +2501,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         // The public FOSSGIS online endpoint is a fair-use demo service:
         // leave more breathing room than the local embedded Valhalla graph.
         val usesOnline = lastRoutingProvider == "valhalla-online" ||
-            navigationMapsContext?.let { !OfflineValhallaRouter.hasTiles(it) } == true
+            (appContext ?: navigationMapsContext)?.let { !OfflineValhallaRouter.hasTiles(it) } == true
         val cooldownMs = if (usesOnline) 15_000L else 8_000L
         if (now - lastRecalculationTime < cooldownMs) return
         DiagnosticLog.event("REROUTE",
@@ -2463,14 +2512,14 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         offRouteFixCount = 0
         offRouteFirstFixMs = 0L
         rerouteInProgress = true
-        viewModelScope.launch {
+        val sessionId = navigationSessionId
+        rerouteJob?.cancel()
+        rerouteJob = viewModelScope.launch {
             try {
                 val (snapshot, geometry, guidance) = withContext(Dispatchers.IO) {
                     performRoutingWithGeometry(dest, isReroute = true)
                 }
-                // The rider may reach the finish while a reroute was calculating.
-                // Never replace an 'arrived' snapshot with stale guidance.
-                if (_hasArrived.value || !_isNavigating.value) return@launch
+                if (sessionId != navigationSessionId || _hasArrived.value || !_isNavigating.value) return@launch
                 currentSnapshot = snapshot
                 currentGeometry = geometry
                 turnPlan = guidance
@@ -2503,11 +2552,13 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                 _routingSource.value = lastRoutingProvider
                 if (geometry != null) sendNearbyRouteGeometry(geometry)
                 sendNavigationSnapshotWithStops(refreshed)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 DiagnosticLog.event("REROUTE_ERROR", e.message.orEmpty())
                 Log.w("NavigationVM", "Route recalculation failed: ${e.message}")
             } finally {
-                rerouteInProgress = false
+                if (sessionId == navigationSessionId) rerouteInProgress = false
             }
         }
     }
@@ -2519,7 +2570,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         val a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
                 Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) *
                 Math.sin(dLon / 2) * Math.sin(dLon / 2)
-        val c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+        val c = 2 * Math.atan2(Math.sqrt(a.coerceIn(0.0, 1.0)), Math.sqrt((1 - a).coerceAtLeast(0.0)))
         return r * c
     }
 
@@ -2542,7 +2593,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         strictBearing: Boolean = false
     ): JSONObject {
         var localError = "nessuna regione Valhalla installata"
-        val context = navigationMapsContext
+        val context = appContext ?: navigationMapsContext
         if (context != null && OfflineValhallaRouter.hasTiles(context)) {
             try {
                 val result = OfflineValhallaRouter.route(
@@ -2591,7 +2642,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         val instructions = (0 until (maneuvers?.length() ?: 0)).map { i ->
             maneuvers!!.getJSONObject(i).optString("instruction", "")
         }.filter { it.isNotBlank() }
-        val displayName = if (_routeWaypoints.value.firstOrNull()?.displayArea == "Tour circolare")
+        val displayName = if (place.displayArea == "Tour circolare")
             "Tour circolare · distanza effettiva"
         else "Percorso Valhalla"
         return listOf(RouteOption(
@@ -2711,7 +2762,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                 val lat = item.optDouble("latitude_deg", item.optDouble("latitude", Double.NaN))
                 val lon = item.optDouble("longitude_deg", item.optDouble("longitude", Double.NaN))
                 if (!lat.isNaN() && !lon.isNaN()) {
-                    pointsE6.add(GeoPointE6((lat * 1e6).toInt(), (lon * 1e6).toInt()))
+                    pointsE6.add(GeoPointE6((lat * 1e6).roundToInt(), (lon * 1e6).roundToInt()))
                 }
             } else {
                 val coordArr = geomArray.optJSONArray(i)
@@ -2719,7 +2770,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                     val lon = coordArr.optDouble(0, Double.NaN)
                     val lat = coordArr.optDouble(1, Double.NaN)
                     if (!lat.isNaN() && !lon.isNaN()) {
-                        pointsE6.add(GeoPointE6((lat * 1e6).toInt(), (lon * 1e6).toInt()))
+                        pointsE6.add(GeoPointE6((lat * 1e6).roundToInt(), (lon * 1e6).roundToInt()))
                     }
                 }
             }
@@ -2727,8 +2778,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     }
 
     if (pointsE6.isEmpty()) {
-        pointsE6.add(GeoPointE6((originLat * 1e6).toInt(), (originLon * 1e6).toInt()))
-        pointsE6.add(GeoPointE6((place.latitude * 1e6).toInt(), (place.longitude * 1e6).toInt()))
+        pointsE6.add(GeoPointE6((originLat * 1e6).roundToInt(), (originLon * 1e6).roundToInt()))
+        pointsE6.add(GeoPointE6((place.latitude * 1e6).roundToInt(), (place.longitude * 1e6).roundToInt()))
     }
 
     val fullRoutePoints = pointsE6.toList()
@@ -2870,8 +2921,9 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     }
 
     override fun onCleared() {
-        // A configuration change retains this ViewModel and its BLE session.
-        // Close GATT/codec only when the navigation owner truly goes away.
+        activeSearchSignal?.cancel()
+        roadDnaCancelSignal?.cancel()
+        rerouteJob?.cancel()
         bleManager.close()
         super.onCleared()
     }

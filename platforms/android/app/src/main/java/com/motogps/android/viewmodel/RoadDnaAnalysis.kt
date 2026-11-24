@@ -163,14 +163,14 @@ internal object RoadDnaAnalysis {
                 SELECT category,name,lat,lon,min_lat,max_lat,min_lon,max_lon,
                        geometry_type,location_quality
                   FROM tourist_poi
-                 WHERE lat BETWEEN ? AND ?
-                   AND lon BETWEEN ? AND ?
+                 WHERE max_lat >= ? AND min_lat <= ?
+                   AND max_lon >= ? AND min_lon <= ?
                    AND name != ''
             """.trimIndent(), arrayOf(
                 south.toString(), north.toString(),
                 west.toString(), east.toString())).use { rows ->
                 while (rows.moveToNext()) {
-                    val category = rows.getString(0)
+                    val category = rows.getString(0) ?: continue
                     if (!RoadDnaOfflineFilter.categoryMatches(categoryId, category))
                         continue
                     val lat = rows.getDouble(2)
@@ -378,7 +378,8 @@ internal object RoadDnaAnalysis {
                 b[0].toString(), b[1].toString(),
                 b[2].toString(), b[3].toString()), cancelled).use { rows ->
                 while (rows.moveToNext()) {
-                    val category = rows.getString(0)
+                    cancelled?.throwIfCanceled()
+                    val category = rows.getString(0) ?: continue
                     val name = rows.getString(1).orEmpty()
                     val lat = rows.getDouble(2)
                     val lon = rows.getDouble(3)

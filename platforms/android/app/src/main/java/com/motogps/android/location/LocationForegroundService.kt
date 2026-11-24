@@ -10,11 +10,11 @@ import android.content.pm.ServiceInfo
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
-import android.os.SystemClock
-import android.util.Log
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
+import android.os.SystemClock
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -129,15 +129,23 @@ open class LocationForegroundService : Service(), LocationListener {
                     this
                 )
             }
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            Log.w("LocationForegroundService", "Failed to register location updates", e)
+        }
     }
 
     private fun selectBestLocation(gps: Location?, net: Location?): Location? {
         if (gps == null) return net
         if (net == null) return gps
+        val gpsNs = gps.elapsedRealtimeNanos
+        val netNs = net.elapsedRealtimeNanos
+        val timeDiffMs = if (gpsNs > 0L && netNs > 0L) {
+            (netNs - gpsNs) / 1_000_000L
+        } else {
+            net.time - gps.time
+        }
         // Prefer GPS unless network is significantly fresher and GPS is stale (> 60s)
-        val timeDiff = net.time - gps.time
-        if (timeDiff > 60_000L) {
+        if (timeDiffMs > 60_000L) {
             return net
         }
         if (gps.hasAccuracy() && net.hasAccuracy() && gps.accuracy <= net.accuracy) {

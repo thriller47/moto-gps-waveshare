@@ -109,8 +109,13 @@ internal object RoadContextSceneSelector {
             consumedWays.addAll(extension.consumedWays)
         }
         val available = roads.filter { it !in ringMembers && it !in consumedWays }
+        // Precompute GPS distance once per candidate road instead of O(N log N) inside sortedBy.
+        val gpsDistMap = HashMap<MapRoadSegment, Double>(available.size * 2)
+        for (r in available) {
+            gpsDistMap[r] = metric.distance(gps, r.points)
+        }
         val gpsOrder = available.sortedBy {
-            metric.distance(gps, it.points) + importancePenaltyMeters(it)
+            (gpsDistMap[it] ?: Double.POSITIVE_INFINITY) + importancePenaltyMeters(it)
         }
         // The old forward probes started 90m ahead. On a small ring the
         // unprotected 0-90m corridor can contain almost the entire junction.
@@ -124,12 +129,12 @@ internal object RoadContextSceneSelector {
         } else emptyList()
         val nearRouteOrder = if (nearRouteProbes.isNotEmpty()) {
             available.asSequence().filter { road ->
-                metric.distance(gps, road.points) <= 95.0 &&
+                (gpsDistMap[road] ?: Double.POSITIVE_INFINITY) <= 95.0 &&
                     nearRouteProbes.any { probe ->
                         metric.distance(probe, road.points) <= 13.0
                     }
             }.sortedBy { road ->
-                metric.distance(gps, road.points) + importancePenaltyMeters(road)
+                (gpsDistMap[road] ?: Double.POSITIVE_INFINITY) + importancePenaltyMeters(road)
             }.toList()
         } else emptyList()
         // Sample the *forward route corridor*, not a single point 90-220m
@@ -271,7 +276,8 @@ internal object RoadContextSceneSelector {
                 metric.length(point, gps)
             }?.let { nearest -> metric.distance(nearest, route) > 20.0 } == true
         }
-        val nearRouteDrawn = drawn.count { it.road in nearRouteOrder }
+        val nearRouteSet = nearRouteOrder.toHashSet()
+        val nearRouteDrawn = drawn.count { it.road in nearRouteSet }
         val secondaryClosed = drawn.count { item ->
             item.role != Role.RING && item.points.size >= 4 &&
                 item.points.first() == item.points.last() &&

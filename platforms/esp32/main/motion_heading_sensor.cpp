@@ -160,7 +160,8 @@ esp_err_t MotionHeadingSensor::run() {
     xTaskDelayUntil(&next_sample_tick, kSampleDelay);
   }
 
-  float bias_dps = stable_samples > 0 ? bias_sum / stable_samples : 0.0F;
+  // Require at least 40 stable samples (~320 ms) before trusting cold-start bias.
+  float bias_dps = stable_samples >= 40 ? bias_sum / stable_samples : 0.0F;
   ESP_LOGI(kTag,
            "QMI8658 yaw assist ready (bias %.3f dps, %d stable samples)",
            static_cast<double>(bias_dps), stable_samples);
@@ -182,20 +183,32 @@ esp_err_t MotionHeadingSensor::run() {
         consecutive_failures = 0;
         update_gravity(gravity, data, kGravityAlpha);
         const float raw_rate = clockwise_heading_rate(gravity, data);
+        // Continuous runtime bias adaptation is owned solely by MotionHeadingFusion
+        // to avoid two cascaded integrators fighting each other.
         const float corrected_rate = raw_rate - bias_dps;
-        const float angular = magnitude(data.gyroX, data.gyroY, data.gyroZ);
-        const float accel = magnitude(data.accelX, data.accelY, data.accelZ);
-        // Learn residual bias only during convincingly quiet intervals.
-        if (std::abs(corrected_rate) < 1.1F && angular < 2.0F &&
-            accel > 8.2F && accel < 11.4F) {
-          bias_dps += (raw_rate - bias_dps) * 0.0008F;
-        }
         callback_(corrected_rate, monotonic_ms(), callback_context_);
       }
     }
-    if (result != ESP_OK && ++consecutive_failures == 25) {
-      ESP_LOGW(kTag, "QMI8658 read errors continue: %s",
-               esp_err_to_name(result));
+    if (result != ESP_OK) {
+      ++consecutive_failures;
+      if (consecutive_failures == 25 || consecutive_failures % 125 == 0) {
+        ESP_LOGW(kTag, "QMI8658 read errors continue: %s; attempting re-init",
+                 esp_err_to_name(result));
+        if (qmi8658_init(&device, bsp_i2c_get_handle(), QMI8658_ADDRESS_HIGH) == ESP_OK) {
+          qmi8658_set_accel_range(&device, QMI8658_ACCEL_RANGE_4G);
+          qmi8658_set_accel_odr(&device, QMI8658_ACCEL_ODR_125HZ);
+          qmi8658_set_gyro_range(&device, QMI8658_GYRO_RANGE_512DPS);
+          qmi8658_set_gyro_odr(&device, QMI8658_GYRO_ODR_125HZ);
+          qmi8658_set_accel_unit_mps2(&device, true);
+          qmi8658_set_gyro_unit_dps(&device, true);
+          consecutive_failures = 0;
+        }
+      }
+      if (consecutive_failures >= 25) {
+        vTaskDelay(pdMS_TO_TICKS(250));
+        next_sample_tick = xTaskGetTickCount();
+        continue;
+      }
     }
     xTaskDelayUntil(&next_sample_tick, kSampleDelay);
   }

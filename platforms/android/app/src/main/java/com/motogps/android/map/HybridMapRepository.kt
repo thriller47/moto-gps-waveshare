@@ -54,6 +54,16 @@ class HybridMapRepository(
 
     private val mapsDir: File by lazy { getSharedMapsDir(context) }
 
+    private val tileCacheLock = Any()
+    private val tileCache = object : LinkedHashMap<String, List<MapRoadSegment>>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<MapRoadSegment>>?): Boolean =
+            size > 48
+    }
+
+    fun clearTileCache() {
+        synchronized(tileCacheLock) { tileCache.clear() }
+    }
+
     fun listSavedMaps(): List<SavedMapInfo> {
         // Legacy individual tiles/cache are stored directly under maps/.
         val individual = mapsDir.listFiles { file ->
@@ -90,9 +100,12 @@ class HybridMapRepository(
                 fileName.endsWith(".json", ignoreCase = true))) return false
 
         val deleted = file.delete()
-        if (deleted && fileName.endsWith(".motomap", ignoreCase = true)) {
-            val base = fileName.removeSuffix("_parziale.motomap").removeSuffix(".motomap")
-            File(mapsDir, ".${base}_parts").deleteRecursively()
+        if (deleted) {
+            clearTileCache()
+            if (fileName.endsWith(".motomap", ignoreCase = true)) {
+                val base = fileName.removeSuffix("_parziale.motomap").removeSuffix(".motomap")
+                File(mapsDir, ".${base}_parts").deleteRecursively()
+            }
         }
         return deleted
     }
@@ -143,21 +156,51 @@ class HybridMapRepository(
         }?.toList().orEmpty()
         val wantedNames = nearTiles.map { "tile_${it.key}.motomap" }
         for (archive in packFiles) {
-            try {
-                ZipFile(archive).use { zip ->
-                    // An already-installed v3 ZIP is ignored, not silently
-                    // interpreted as v4. The user will replace it with v4.
-                    if (MotomapPackImporter.isV4Pack(zip)) {
-                        for (name in wantedNames) {
-                        val entry = zip.getEntry(name) ?: continue
-                        if (entry.size <= 0L || entry.size > 5L * 1024 * 1024) continue
-                        zip.getInputStream(entry).bufferedReader().useLines { lines ->
-                            for (line in lines) {
-                                parseRoadLine(line, queryMinLatE6, queryMinLonE6,
-                                    queryMaxLatE6, queryMaxLonE6, seenRoads, results)
-                            }
+            val archiveSig = "${archive.name}:${archive.length()}:${archive.lastModified()}"
+            val missingEntries = ArrayList<String>()
+            for (name in wantedNames) {
+                val cacheKey = "zip|$archiveSig|$name"
+                val cached = synchronized(tileCacheLock) { tileCache[cacheKey] }
+                if (cached != null) {
+                    for (seg in cached) {
+                        if (seg.maxLatE6 >= queryMinLatE6 && seg.minLatE6 <= queryMaxLatE6 &&
+                            seg.maxLonE6 >= queryMinLonE6 && seg.minLonE6 <= queryMaxLonE6) {
+                            val dedupKey = "v4:${seg.osmWayId}:${seg.points.firstOrNull()}:${seg.points.lastOrNull()}:${seg.points.size}"
+                            if (seenRoads.add(dedupKey)) results.add(seg)
                         }
                     }
+                } else {
+                    missingEntries.add(name)
+                }
+            }
+            if (missingEntries.isEmpty()) continue
+            try {
+                ZipFile(archive).use { zip ->
+                    if (MotomapPackImporter.isV4Pack(zip)) {
+                        for (name in missingEntries) {
+                            val cacheKey = "zip|$archiveSig|$name"
+                            val entry = zip.getEntry(name)
+                            if (entry == null || entry.size <= 0L || entry.size > 5L * 1024 * 1024) {
+                                synchronized(tileCacheLock) { tileCache[cacheKey] = emptyList() }
+                                continue
+                            }
+                            val tileRoads = ArrayList<MapRoadSegment>()
+                            val tileSeen = HashSet<String>()
+                            zip.getInputStream(entry).bufferedReader().useLines { lines ->
+                                for (line in lines) {
+                                    parseRoadLine(line, Int.MIN_VALUE, Int.MIN_VALUE,
+                                        Int.MAX_VALUE, Int.MAX_VALUE, tileSeen, tileRoads)
+                                }
+                            }
+                            synchronized(tileCacheLock) { tileCache[cacheKey] = tileRoads }
+                            for (seg in tileRoads) {
+                                if (seg.maxLatE6 >= queryMinLatE6 && seg.minLatE6 <= queryMaxLatE6 &&
+                                    seg.maxLonE6 >= queryMinLonE6 && seg.minLonE6 <= queryMaxLonE6) {
+                                    val dedupKey = "v4:${seg.osmWayId}:${seg.points.firstOrNull()}:${seg.points.lastOrNull()}:${seg.points.size}"
+                                    if (seenRoads.add(dedupKey)) results.add(seg)
+                                }
+                            }
+                        }
                     }
                 }
             } catch (e: Exception) {
@@ -228,7 +271,6 @@ class HybridMapRepository(
     ) {
         val trimmed = line.trim()
         if (trimmed.isEmpty() || trimmed.startsWith("#")) return
-        if (!seenRoads.add(trimmed)) return
 
         val parts = trimmed.split("|", limit = 3)
         if (parts.size < 3) return
@@ -250,12 +292,13 @@ class HybridMapRepository(
         val maxLatE6 = bboxParts[2].toIntOrNull() ?: return
         val maxLonE6 = bboxParts[3].toIntOrNull() ?: return
 
-        // Spatial BBox filter check
+        // Spatial BBox filter check before allocating/tracking deduplication keys
         if (maxLatE6 < queryMinLatE6 || minLatE6 > queryMaxLatE6 ||
             maxLonE6 < queryMinLonE6 || minLonE6 > queryMaxLonE6
         ) {
             return
         }
+        if (!seenRoads.add(trimmed)) return
 
         val coordStr = parts[2]
         val points = parseCoordinates(coordStr)

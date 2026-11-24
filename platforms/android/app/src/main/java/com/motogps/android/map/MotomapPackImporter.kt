@@ -44,7 +44,17 @@ internal object MotomapPackImporter {
         val entry = zip.getEntry(METADATA) ?: return false
         if (entry.size !in 1L..4096L) return false
         return try {
-            val manifest = zip.getInputStream(entry).bufferedReader().use { it.readText() }
+            val manifest = zip.getInputStream(entry).use { stream ->
+                val buf = ByteArray(4097)
+                var read = 0
+                while (read < buf.size) {
+                    val n = stream.read(buf, read, buf.size - read)
+                    if (n < 0) break
+                    read += n
+                }
+                if (read > 4096) return false
+                String(buf, 0, read, Charsets.UTF_8)
+            }
             isV4Manifest(manifest)
         } catch (_: Exception) {
             false
@@ -63,11 +73,12 @@ internal object MotomapPackImporter {
                 if (cursor.moveToFirst()) name = cursor.getString(0)
             }
         }
-        val clean = (name ?: "osm_roads.motomap.zip").substringAfterLast('/')
-            .substringAfterLast('\\').replace(packName, "_").take(120)
-        if (!clean.endsWith(".motomap.zip", ignoreCase = true))
+        val rawClean = (name ?: "osm_roads.motomap.zip").substringAfterLast('/')
+            .substringAfterLast('\\').replace(packName, "_")
+        if (!rawClean.endsWith(".motomap.zip", ignoreCase = true))
             throw IOException("Selezionare un archivio .motomap.zip")
-        return clean
+        val suffix = ".motomap.zip"
+        return rawClean.dropLast(suffix.length).take(120 - suffix.length) + suffix
     }
 
     /** Returns number of tiles. An existing pack with the same name is replaced atomically. */
@@ -94,6 +105,7 @@ internal object MotomapPackImporter {
                 }
             }
             var count = 0
+            var tileCount = 0
             var total = 0L
             var metadata = false
             var coverage = false
@@ -118,6 +130,8 @@ internal object MotomapPackImporter {
                     if (entry.name == COVERAGE) {
                         if (coverage) throw IOException("Coverage index duplicate")
                         coverage = true
+                    } else if (entry.name != METADATA) {
+                        tileCount++
                     }
                     total += entry.size
                     if (total > MAX_TOTAL_BYTES) throw IOException("Pacchetto OSM troppo grande")
@@ -127,7 +141,7 @@ internal object MotomapPackImporter {
                     throw IOException("MotoMap v4 obbligatoria: rigenerare lo ZIP dal PBF con il nuovo convertitore")
                 }
             }
-            if (count <= 1) throw IOException("Archivio MotoMap senza tile stradali")
+            if (tileCount == 0) throw IOException("Archivio MotoMap senza tile stradali")
             // Keep the previous archive intact if publishing the new one fails.
             val backup = File(dir, destination.name + ".backup")
             if (destination.exists()) {

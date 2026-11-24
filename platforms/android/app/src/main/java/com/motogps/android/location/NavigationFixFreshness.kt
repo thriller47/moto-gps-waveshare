@@ -10,7 +10,11 @@ package com.motogps.android.location
  */
 internal object NavigationFixFreshness {
     private const val STALE_AFTER_MS = 3_000L
+    private const val CLOCK_SKEW_TOLERANCE_MS = 2_000L
 
     fun isStale(hasAcceptedFix: Boolean, ageMs: Long): Boolean =
         !hasAcceptedFix || ageMs !in 0L..STALE_AFTER_MS
+
+    fun isStaleWithSkewTolerance(hasAcceptedFix: Boolean, ageMs: Long): Boolean =
+        isStale(hasAcceptedFix, if (ageMs in -CLOCK_SKEW_TOLERANCE_MS until 0L) 0L else ageMs)
 }

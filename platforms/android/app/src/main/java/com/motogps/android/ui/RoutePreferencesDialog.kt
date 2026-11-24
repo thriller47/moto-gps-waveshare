@@ -1,6 +1,8 @@
 package com.motogps.android.ui
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
+import kotlin.math.roundToInt
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -120,7 +122,7 @@ fun RoutePreferencesDialog(
                                 style = MaterialTheme.typography.bodyMedium)
                             Text(
                                 listOf("No", "Leggero", "Medio", "Alto")[
-                                    draftCurves.toInt().coerceIn(0, 3)
+                                    draftCurves.roundToInt().coerceIn(0, 3)
                                 ],
                                 color = MotoChatColors.Green,
                                 style = MaterialTheme.typography.labelMedium
@@ -131,7 +133,7 @@ fun RoutePreferencesDialog(
                             onValueChange = { draftCurves = it },
                             onValueChangeFinished = {
                                 onChange(preferences.copy(
-                                    curveLevel = draftCurves.toInt().coerceIn(0, 3)
+                                    curveLevel = draftCurves.roundToInt().coerceIn(0, 3)
                                 ))
                             },
                             valueRange = 0f..3f,
@@ -164,7 +166,8 @@ fun RoutePreferencesDialog(
             @Composable
             fun PreferenceItem(label: String, checked: Boolean, toggle: (Boolean) -> Unit) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
+                        .clickable(enabled = enabled) { toggle(!checked) },
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Checkbox(

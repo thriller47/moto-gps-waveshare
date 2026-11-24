@@ -13,7 +13,7 @@ internal object RoadContextWindow {
      */
     fun closedRing(points: List<GeoPointE6>, latitude: Double, maximumPoints: Int,
                    protectedPoints: Set<GeoPointE6> = emptySet()): List<GeoPointE6> {
-        if (points.size < 4 || maximumPoints < 4) return emptyList()
+        if (points.size < 4 || maximumPoints < 4 || !latitude.isFinite()) return emptyList()
         val xScale = 111_320.0 * cos(Math.toRadians(latitude))
         fun x(p: GeoPointE6) = p.longitudeE6 / 1e6 * xScale
         fun y(p: GeoPointE6) = p.latitudeE6 / 1e6 * 111_320.0
@@ -59,19 +59,20 @@ internal object RoadContextWindow {
             if (chosen < 0) break
             selected.add(chosen)
         }
-        // Keep at least three distinct sides even on a nearly perfect circle.
+        // Keep at least three distinct sides without ever exceeding maximumPoints or dropping lastIndex.
         if (selected.size < 5 && maximumPoints >= 5) {
             for (part in 1..3) {
+                if (selected.size >= maximumPoints) break
                 selected.add(normalized.lastIndex * part / 4)
             }
         }
-        return selected.take(maximumPoints).map { normalized[it] }.let { result ->
+        return selected.map { normalized[it] }.let { result ->
             if (result.size < 4) emptyList() else result
         }
     }
 
     fun around(points: List<GeoPointE6>, latitude: Double, longitude: Double, maximumPoints: Int): List<GeoPointE6> {
-        if (points.size < 2 || maximumPoints < 2) return emptyList()
+        if (points.size < 2 || maximumPoints < 2 || !latitude.isFinite() || !longitude.isFinite()) return emptyList()
 
         val xScale = 111_320.0 * cos(Math.toRadians(latitude))
         val yScale = 111_320.0
