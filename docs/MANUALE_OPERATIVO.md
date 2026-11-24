@@ -439,9 +439,27 @@ Inserire **una delle parole o frasi riportate esattamente nella tabella** nel ca
 
 ### Automazione build Windows (NewUI, da collaudare)
 
-Prima installazione degli script: dal checkout Windows eseguire `git switch NewUI` e `git pull --ff-only origin NewUI`. Non aggiornare il checkout WSL mentre genera il MotoPack. Gli script sono nella root Windows e devono essere presenti nel branch scelto per i successivi avvii.
+Prima installazione degli script: dal checkout Windows eseguire `git switch NewUI` e `git pull --ff-only origin NewUI`. Non aggiornare il checkout WSL mentre genera il MotoPack. Gli script sono nella root Windows; per mantenere i comandi disponibili anche su altri branch usare l'installer qui sotto.
 
-**Android — PowerShell**, da qualsiasi cartella:
+**Installazione dei comandi brevi (una sola volta, PowerShell Windows):**
+
+```powershell
+Set-Location "C:\MotoGPS\moto-gps-waveshare"
+git switch NewUI
+git pull --ff-only origin NewUI
+if ($LASTEXITCODE -eq 0) { .\install-moto-commands.ps1 }
+```
+
+Chiudere e riaprire PowerShell. Da qualsiasi cartella, anche con Android Studio chiuso:
+
+```powershell
+moto-android NewUI
+moto-esp32 NewUI
+```
+
+Il primo usa JAVA_HOME valido oppure il JBR di Android Studio nella posizione standard. Il secondo attiva automaticamente ESP-IDF 5.5.6 tramite export.bat e lancia build/flash: non serve digitare moto. Percorsi ESP-IDF corrispondono all'installazione Windows documentata in §4; per installazioni diverse adattare il launcher. L'installer salva copie dei launcher in LOCALAPPDATA, così i comandi rimangono disponibili anche passando a branch precedenti; il branch deve comunque avere la configurazione di build compatibile. Rieseguire l'installer dopo aggiornamenti degli script. Il profilo PowerShell esistente viene salvato e aggiornato in un blocco dedicato, senza duplicare il blocco né rimuovere la funzione moto. Non cambia la policy di esecuzione; se bloccata vedere §4.C. I comandi brevi sono da collaudare sul PC.
+
+**Android — alternativa diretta in PowerShell Windows**, da qualsiasi cartella:
 
 ```powershell
 & "C:\MotoGPS\moto-gps-waveshare\moto-android.ps1" NewUI

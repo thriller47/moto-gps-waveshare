@@ -28,6 +28,17 @@ function Update-MotoRepository {
 }
 
 try {
+    # Prefer the installed Android Studio JBR (21); allow an explicit JAVA_HOME.
+    $jbr = Join-Path $env:ProgramFiles 'Android\Android Studio\jbr'
+    if (-not $env:JAVA_HOME -or -not (Test-Path (Join-Path $env:JAVA_HOME 'bin\java.exe'))) {
+        if (Test-Path (Join-Path $jbr 'bin\java.exe')) {
+            $env:JAVA_HOME = $jbr
+        } elseif (-not (Get-Command java.exe -ErrorAction SilentlyContinue)) {
+            throw 'Java not found. Set JAVA_HOME to a compatible JDK (21 recommended).'
+        } else {
+            Remove-Item Env:JAVA_HOME -ErrorAction SilentlyContinue
+        }
+    }
     Update-MotoRepository $Branch $PSScriptRoot
     Set-Location platforms/android
     Invoke-Checked '.\gradlew.bat' @('testDebugUnitTest','assembleDebug')
