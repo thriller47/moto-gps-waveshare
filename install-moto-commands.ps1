@@ -14,7 +14,7 @@ foreach ($name in @('moto-android.ps1','moto-esp32.ps1')) {
     $source.Replace($needle,('Update-MotoRepository $Branch ' + $literal)) |
         Set-Content -LiteralPath (Join-Path $dir $name) -Encoding UTF8
 }
-foreach ($name in @('moto-esp32.cmd','moto-esp32-start.cmd','moto-motopack.ps1')) {
+foreach ($name in @('moto-esp32.cmd','moto-esp32-start.cmd','moto-motopack.ps1','moto-simulator.ps1')) {
     Copy-Item -LiteralPath (Join-Path $root $name) -Destination $dir -Force
 }
 $profilePath = $PROFILE.CurrentUserAllHosts
@@ -37,6 +37,9 @@ function moto-esp32 {
 function moto-motopack {
     & (Join-Path $env:LOCALAPPDATA 'MotoGPS\launchers\moto-motopack.ps1') @args
 }
+function moto-simulator {
+    & (Join-Path $env:LOCALAPPDATA 'MotoGPS\launchers\moto-simulator.ps1') @args
+}
 # END MOTO GPS BUILD COMMANDS
 '@
 $pattern = '(?ms)^' + [regex]::Escape($start) + '\r?\n.*?^' + [regex]::Escape($end) + '[ \t]*\r?$'
@@ -47,4 +50,4 @@ if ($existing.Contains($start) -or $existing.Contains($end)) {
     $existing = $existing.TrimEnd() + [Environment]::NewLine + [Environment]::NewLine + $block
 }
 Set-Content -LiteralPath $profilePath -Value $existing -Encoding UTF8
-Write-Host 'Installed. Open a new Windows PowerShell, then use moto-android NewUI or moto-esp32 NewUI or moto-motopack NewUI.'
+Write-Host 'Installed. Open a new Windows PowerShell, then use moto-android NewUI or moto-esp32 NewUI or moto-motopack NewUI or moto-simulator NewUI.'

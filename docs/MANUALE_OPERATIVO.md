@@ -2,7 +2,7 @@
 
 **Aggiornato:** 24 novembre 2026 · **Repository:** thriller47/moto-gps-waveshare · **Branch stabile:** valhalla · **Branch di lavoro:** NewUI.
 
-## Prima di cominciare — i tre comandi quotidiani
+## Prima di cominciare — i quattro comandi quotidiani
 
 Aprire **PowerShell di Windows** dal menu Start. Il prompt deve iniziare con `PS`. Non occorre aprire Android Studio, CMD ESP-IDF o Ubuntu per le operazioni automatiche.
 
@@ -11,8 +11,9 @@ Aprire **PowerShell di Windows** dal menu Start. Il prompt deve iniziare con `PS
 | `moto-android NewUI` | Aggiorna il checkout Windows, esegue test/build e installa l'APK sul Samsung. |
 | `moto-esp32 NewUI` | Attiva ESP-IDF, aggiorna, verifica sdkconfig, compila, flasha su COM3 e apre il monitor. |
 | `moto-motopack NewUI` | Aggiorna il checkout WSL, genera e verifica le mappe, copia il pacchetto in Windows. |
+| `moto-simulator NewUI` | Aggiorna WSL, compila WASM, avvia il server locale e apre il browser. |
 
-Sostituire NewUI con il branch desiderato, per esempio valhalla dopo l'integrazione. I launcher sono disponibili sul branch NewUI e vengono installati fuori dal checkout; il branch da compilare deve avere una configurazione compatibile. **I tre launcher non sono ancora collaudati end-to-end sul PC.** La build Android manuale e il nuovo layout Road DNA sono stati confermati dall'utente.
+Sostituire NewUI con il branch desiderato, per esempio valhalla dopo l'integrazione. I launcher sono disponibili sul branch NewUI e vengono installati fuori dal checkout; il branch da compilare deve avere una configurazione compatibile. **I quattro launcher non sono ancora collaudati end-to-end sul PC.** La build Android manuale e il nuovo layout Road DNA sono stati confermati dall'utente.
 
 ### Installazione iniziale o aggiornamento dei launcher
 
@@ -42,6 +43,7 @@ Chiudere e riaprire PowerShell. L'installer salva il profilo precedente, aggiorn
 | moto-motopack NewUI -Resume | Riprende senza aggiornare il checkout WSL. |
 | moto-motopack NewUI -CopyOnly | Verifica e copia il pacchetto già completato. |
 | moto-motopack NewUI -Threads 4 | Usa quattro thread invece di due. |
+| moto-simulator NewUI -BuildOnly | Compila WASM senza avviare il server. |
 
 Collegare il dispositivo corretto prima di installare/flashare; chiudere eventuali monitor seriali. Non avviare Android ed ESP32 contemporaneamente sullo stesso checkout. Non avviare un secondo MotoPack né aggiornare il checkout WSL durante la generazione. Il pacchetto finale viene copiato in C:\MotoGPS\MotoChatGPS-Italia.motopack dopo verifica e confronto dei byte; l'importazione sul telefono rimane manuale (§2). Conservare il vecchio pacchetto se serve un rollback.
 
@@ -769,6 +771,12 @@ Aprire **un solo monitor** per volta. Per il test in movimento, se il dispositiv
 
 ## 7. Simulatore LVGL/WASM e server web in WSL
 
+**Uso quotidiano da PowerShell Windows:** `moto-simulator NewUI`. Aggiorna il checkout WSL e i submodule, attiva emsdk, esegue il test Node delle fixture sintetiche se presente e Node disponibile, compila WASM, avvia HTTP locale sulla porta 4173 e apre il browser predefinito. Se Node manca il test viene dichiarato saltato. Con `-BuildOnly` non avvia il server. Per riavviare, fermare il launcher con Ctrl+C e ripetere il comando; Ctrl+F5 nel browser. Non termina server estranei sulla porta 4173. Il lock condiviso con moto-motopack resta attivo durante il server: fermarlo prima di rigenerare il pacchetto. Non avviare il simulatore mentre la rigenerazione manuale è in corso. Il launcher è da collaudare su Windows.
+
+**Scenari PR #13 (NewUI):** nel menu Scenario sintetico selezionare la scena e premere Esempio sintetico: guida normale, deviazione/cambio token, gap GPS di 8 s, inversione, percorso lungo, perdita/ritorno link, oltre alla rotatoria originale. Fixture visuali, non test live BLE/GNSS/IMU/Valhalla. Test sorgente: `node --test platforms/web/simulator/synthetic_scenarios.test.cjs`. Dettagli nel [README del simulatore](../platforms/web/simulator/README.md).
+
+### Alternativa manuale WSL
+
 Il simulatore usa Emscripten già installato in `~/emsdk`. Lavorare nello **stesso checkout WSL** sia per build sia per avvio server, evitando il vecchio percorso misto `/mnt/c/...`. **Da WSL Ubuntu-24.04:**
 
 ```bash
@@ -909,7 +917,7 @@ La prossima verifica consiste in **test nativi C++ con segnali sintetici coerent
 | Copiare MotoPack pronto | PowerShell | `moto-motopack NewUI -CopyOnly` |
 | Pacchetto Windows | Esplora file | `C:\MotoGPS\MotoChatGPS-Italia.motopack` |
 | Flash sola app ESP32 (recupero) | CMD/esptool | offset `0x20000` (non `0x10000`) |
-| Ricompilare simulatore | WSL + emsdk | `./scripts/build_web.sh` |
+| Ricompilare e aprire simulatore | PowerShell | `moto-simulator NewUI` |
 | Avviare / riavviare server | WSL | `python3 -m http.server 4173 --directory .` (fermare il precedente con Ctrl+C) |
 | Avviare diagnostica unificata | Android | Altre opzioni → Diagnostica e replay GPS → BASE/DEBUG → Avvia diagnostica completa |
 | Esportare GPS + ESP32 + Android | Android | Ferma ed esporta tutto (ZIP): `motogps-diagnostica-completa.zip` |
