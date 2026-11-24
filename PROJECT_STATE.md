@@ -4,7 +4,9 @@
 
 **Aggiornato: 24 novembre 2026.** Repository: `thriller47/moto-gps-waveshare`. **Branch di integrazione: `valhalla`**; branch sperimentale UI attivo: **`NewUI`**, creato dal ramo `valhalla` il 23/11/2026; nessun branch sperimentale Road DNA attivo (il branch `feature/road-dna-motopack-v2` è stato integrato con PR [#79](https://github.com/thriller47/moto-gps-waveshare/pull/79) e rimosso). `main` non esiste più. Questo è il punto di ripartenza; per le diagnosi e i passaggi intermedi vedere lo [snapshot storico completo del 22/11](docs/archive/PROJECT_STATE_SNAPSHOT_2026-11-22.md) e l'[archivio precedente al 19/11](docs/archive/PROJECT_STATE_PRE_CLEANUP_2026-11-19.md).
 
-**Ultimo lavoro su NewUI (24/11):** aggiunto installer idempotente dei comandi brevi moto-android e moto-esp32 nel profilo Windows PowerShell, con backup profilo, copie launcher esterne al checkout, ricerca JBR e attivazione ESP-IDF 5.5.6 automatica. Manuale §3 aggiornato. Nessuna build/CI eseguita; launcher da collaudare su Windows. MotoPack in corso, pausa caffè da verificare. Nessun merge.
+**Ultimo lavoro su NewUI (24/11):** aggiunto moto-motopack al profilo PowerShell con launcher WSL, ripresa senza pull, copia-only e copia verificata in C:\MotoGPS\MotoChatGPS-Italia.motopack tramite temporaneo e confronto byte. Lock tra launcher e controllo processi manuali; non avviare mentre la generazione manuale e' in corso. Script generatore invariato. Nessuna build/CI; launcher non collaudato su Windows. Prossimo passo completare generazione in corso e provare CopyOnly, poi import offline e pausa caffè. Nessun merge.
+
+**Lavoro precedente su NewUI (24/11):** aggiunto installer idempotente dei comandi brevi moto-android e moto-esp32 nel profilo Windows PowerShell, con backup profilo, copie launcher esterne al checkout, ricerca JBR e attivazione ESP-IDF 5.5.6 automatica. Manuale §3 aggiornato. Nessuna build/CI eseguita; launcher da collaudare su Windows. MotoPack in corso, pausa caffè da verificare. Nessun merge.
 
 **Lavoro precedente su NewUI (24/11):** aggiunti launcher Windows per aggiornamento branch, test/build/install Android e build/flash ESP32 con backup e migrazione mirata sdkconfig per runtime stats. Utente conferma build/install Android locale e migliore layout Road DNA. Build ESP32 fallita per sdkconfig locale privo delle opzioni FreeRTOS, non per il codice pausa caffè. Script non eseguiti su Windows; nessuna CI avviata. Prossimo passo: collaudare launcher ESP32 e pausa caffè; MotoPack v3 in corso. Nessun merge.
 
@@ -34,6 +36,10 @@
 **Rischi aggiuntivi `NewUI`:** MotoPack v3, downloader Tilezen/SRTMv3 e import DEM ancora senza validazione reale; un MotoPack v2 precedente non è più importabile su `NewUI`. Per le quote offline non bastano i tile del grafo Valhalla: servono anche i tasselli DEM installati sul telefono. Resa grafica non verificata su telefono/orientamento, compatibilità dei componenti Material 3 da validare con build su ordine dell'utente, possibile restringimento della mappa nella home con risultati e tour in pausa, alcune schermate Stitch senza equivalente nei dati/callback correnti, font Dark Touring inseriti nel sorgente ma non ancora verificati su dispositivo, mappe OSMDroid non vettoriali. **Rischi e limiti precedenti:** test su moto reale dell'IMU QMI8658 (piega, verticale stimata, bias e vibrazioni); verifica finale dei dettagli Road DNA e dei provider online su dati reali; conferma di un ciclo completo di rigenerazione/importazione MotoPack v2; valutazione OpenFreeMap senza topologia OSM per rotonde complesse. Evitare di confondere `skipped` con `success` in CI.
 
 **Prossima azione:** build Android locale con il blocco PowerShell del manuale e verifica Road DNA verticale/orizzontale, poi quote offline dopo import MotoPack v3; restano da verificare ESP32/native per pausa caffè. Nessun merge su `valhalla`.
+
+## Sessione 24 novembre 2026 — launcher MotoPack
+
+- Aggiunto moto-motopack.ps1, installer e manuale aggiornati. Copia finale verificata e sostituzione solo a copia completa; nessun cambio a builder, nessuna esecuzione Windows. La rigenerazione manuale attuale rimane indipendente.
 
 ## Sessione 24 novembre 2026 — automazione Windows
 

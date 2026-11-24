@@ -230,10 +230,22 @@ ls -lh /mnt/c/MotoGPS/PBF/italy-latest.osm.pbf /mnt/c/MotoGPS/PBF/italy.poly /mn
 
 Se `valhalla_build_elevation` non viene trovato, **fermarsi**: occorre rendere disponibile lo script di download dell'installazione Valhalla compatibile con `valhalla-env`; non modificare il PBF né cancellare il vecchio pacchetto per tentare di risolvere. Il downloader Tilezen richiede **internet e spazio aggiuntivo su disco**, perché scarica i DEM di Italia e zone limitrofe; la generazione e l'importazione dell'APK non sono state ancora verificate sul PC/telefono.
 
+**Comando breve da PowerShell Windows (dopo installazione §3):**
+
+```powershell
+moto-motopack NewUI
+# Ripresa senza aggiornare il checkout WSL:
+moto-motopack NewUI -Resume
+# Solo verifica e copia del pacchetto gia' completato:
+moto-motopack NewUI -CopyOnly
+```
+
+Default Ubuntu-24.04, due thread (opzionale `-Threads 4`), ambiente ~/valhalla-env. Seleziona la destinazione v2/v3 secondo il generatore del branch. Non avviare durante una rigenerazione manuale in corso; lock tra launcher e controllo processi manuali sono protezioni aggiuntive, non una garanzia contro avvii manuali simultanei. Resume e CopyOnly richiedono checkout WSL originale e non fanno pull. A fine generazione verifica il pacchetto, copia in un file temporaneo Windows, confronta i byte e sostituisce `C:\MotoGPS\MotoChatGPS-Italia.motopack` solo dopo successo. Conserva il pacchetto WSL e non installa sul telefono. Il launcher e la copia automatica sono da collaudare su Windows.
+
 **Rigenerazione completa** (dopo un controllo dello spazio libero):
 
 ```bash
-bash scripts/offline_map/rebuild_motopack_wsl.sh --threads 2
+bash scripts/offline_map/rebuild_motopack_wsl.sh --threads 2 --out "$HOME/motogps-build/ItaliaUnificata-RoadDNA-v3"
 ```
 
 Il sistema mantiene i tasselli SRTMv3 nella cache persistente `~/motogps-build/DEM-Italia`, **fuori** dalla cartella di output che lo script sostituisce dopo la verifica. Un download successivo può riutilizzare i file già presenti. La cartella può essere cambiata senza spostarla nel PBF:
@@ -455,6 +467,7 @@ Chiudere e riaprire PowerShell. Da qualsiasi cartella, anche con Android Studio 
 ```powershell
 moto-android NewUI
 moto-esp32 NewUI
+moto-motopack NewUI
 ```
 
 Il primo usa JAVA_HOME valido oppure il JBR di Android Studio nella posizione standard. Il secondo attiva automaticamente ESP-IDF 5.5.6 tramite export.bat e lancia build/flash: non serve digitare moto. Percorsi ESP-IDF corrispondono all'installazione Windows documentata in §4; per installazioni diverse adattare il launcher. L'installer salva copie dei launcher in LOCALAPPDATA, così i comandi rimangono disponibili anche passando a branch precedenti; il branch deve comunque avere la configurazione di build compatibile. Rieseguire l'installer dopo aggiornamenti degli script. Il profilo PowerShell esistente viene salvato e aggiornato in un blocco dedicato, senza duplicare il blocco né rimuovere la funzione moto. Non cambia la policy di esecuzione; se bloccata vedere §4.C. I comandi brevi sono da collaudare sul PC.
