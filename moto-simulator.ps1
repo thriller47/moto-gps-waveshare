@@ -82,7 +82,13 @@ try {
     $linux = & wsl.exe -d $Distro -- wslpath -a -u ($tmp.Replace('\','/'))
     if ($LASTEXITCODE -ne 0 -or -not $linux) { throw 'Cannot resolve temporary script in WSL.' }
     & wsl.exe -d $Distro -- bash $linux $Branch $mode
-    if ($LASTEXITCODE -ne 0) { throw "Simulator exited ($LASTEXITCODE)." }
+    $code = $LASTEXITCODE
+    if ($code -eq 130) {
+        Write-Host 'Simulator stopped (Ctrl+C).'
+        $global:LASTEXITCODE = 0
+    } elseif ($code -ne 0) {
+        throw "Simulator exited ($code)."
+    }
 } finally {
     Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
 }
