@@ -30,7 +30,7 @@ Solo la prima volta o dopo modifiche agli script, da PowerShell Windows:
 }
 ~~~
 
-Chiudere e riaprire PowerShell. L'installer salva il profilo precedente, aggiorna il proprio blocco senza duplicarlo e conserva il comando moto. Copia i launcher in LOCALAPPDATA. Non modifica la policy di esecuzione; se bloccata, vedere §4.C.
+Chiudere e riaprire PowerShell. L'installer controlla la sintassi PowerShell dei quattro launcher prima di copiarli e dei due script con percorso riscritto prima di salvarli; in caso di errore interrompe l'installazione. L'installer salva il profilo precedente, aggiorna il proprio blocco senza duplicarlo e conserva il comando moto. Copia i launcher in LOCALAPPDATA. Non modifica la policy di esecuzione; se bloccata, vedere §4.C.
 
 ### Opzioni e precauzioni
 
