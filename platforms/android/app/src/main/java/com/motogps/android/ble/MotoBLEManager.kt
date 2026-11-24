@@ -71,6 +71,7 @@ class MotoBLEManager(private val context: Context) {
 
     @Volatile private var handshakeState = HandshakeState.IDLE
     @Volatile private var currentSessionId: Long = 0L
+    @Volatile private var negotiatedMaxFrameSize: Int = 20
     private var lastWriteStartMs: Long = 0L
     private val writeWatchdogRunnable = Runnable {
         val timedOutSeq: Int?
@@ -421,6 +422,7 @@ class MotoBLEManager(private val context: Context) {
                     mainHandler.removeCallbacks(connectionTimeout)
                     mainHandler.postDelayed(connectionTimeout, BleReconnectPolicy.HANDSHAKE_TIMEOUT_MS)
                     connectedDevice = gatt.device
+                    negotiatedMaxFrameSize = 20
                     handshakeState = HandshakeState.IDLE
                     synchronized(operationQueue) {
                         operationQueue.clear()
@@ -524,9 +526,12 @@ class MotoBLEManager(private val context: Context) {
         override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
             if (bluetoothGatt !== gatt) return
             if (status == BluetoothGatt.GATT_SUCCESS) {
+                val localFrame = (mtu - 3).coerceIn(20, 182)
+                negotiatedMaxFrameSize = localFrame
                 if (codecPtr != 0L) {
-                    bleCodec.nativeSetMaximumFrameSize(codecPtr, (mtu - 3).coerceIn(20, 182))
+                    bleCodec.nativeSetMaximumFrameSize(codecPtr, localFrame)
                 }
+                DiagnosticLog.event("BLE_MTU", "mtu=$mtu frame=$localFrame")
             }
             enqueueOperation {
                 mainHandler.postDelayed({
@@ -676,8 +681,17 @@ class MotoBLEManager(private val context: Context) {
             val status = inboundMessage.connStatus
             if (status != null && status.role == 2 /* Device */ && status.state == 1 /* Ready */ &&
                 status.sessionId == currentSessionId) {
-                if (status.maxFrameSize in 20..182) {
-                    bleCodec.nativeSetMaximumFrameSize(codecPtr, status.maxFrameSize)
+                // Never downgrade an already-negotiated ATT MTU frame size back to 20 bytes
+                // if the peripheral sent DeviceReady before its BLE_GAP_EVENT_MTU callback.
+                val peerFrame = status.maxFrameSize
+                if (peerFrame in 21..182) {
+                    val effective = if (negotiatedMaxFrameSize > 20) {
+                        minOf(negotiatedMaxFrameSize, peerFrame)
+                    } else {
+                        peerFrame
+                    }
+                    negotiatedMaxFrameSize = effective
+                    bleCodec.nativeSetMaximumFrameSize(codecPtr, effective)
                 }
                 if (handshakeState == HandshakeState.STARTING_SENT) {
                     handshakeState = HandshakeState.READY_SENT
@@ -686,11 +700,17 @@ class MotoBLEManager(private val context: Context) {
                 } else if (handshakeState == HandshakeState.READY_SENT) {
                     handshakeState = HandshakeState.COMPLETED
                     lastReadyDevice = bluetoothGatt?.device
+                    runCatching {
+                        bluetoothGatt?.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
+                    }
                     sendCoffeeTimeoutPolicy()
                     reconnectAttempt = 0
                     preferSystemReconnect = true
                     cancelReconnect()
-                    DiagnosticLog.event("BLE_RECONNECT", "phase=ready")
+                    DiagnosticLog.event(
+                        "BLE_RECONNECT",
+                        "phase=ready frame=$negotiatedMaxFrameSize peer_frame=$peerFrame"
+                    )
                     mainHandler.post { onConnectionStateChange?.invoke("Connesso") }
                     startHeartbeat()
                 }
@@ -849,6 +869,7 @@ class MotoBLEManager(private val context: Context) {
         readCharacteristic = null
         connectedDevice = null
         currentSessionId = 0L
+        negotiatedMaxFrameSize = 20
         handshakeState = HandshakeState.IDLE
         cccdWritePending = false
         cccdRetryCount = 0
