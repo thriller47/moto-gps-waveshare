@@ -389,6 +389,9 @@ void BleNavTransport::run_rx_worker() {
   moto::esp32::ConnectionEpochGate epoch_gate(connection_epoch_.load(),
                                                connected_.load());
   bool protocol_ready = false;
+  bool pending_device_ready = false;
+  std::uint64_t last_advertising_check_ms = 0;
+  std::uint64_t last_ready_retry_ms = 0;
   bool has_observed_loss_epoch = false;
   bool resynchronizing_after_loss = false;
   std::uint32_t observed_loss_epoch = 0;
@@ -400,7 +403,7 @@ void BleNavTransport::run_rx_worker() {
 
   RxPacket packet;
   const auto synchronize_connection_epoch =
-      [this, &epoch_gate, &protocol_ready, &has_observed_loss_epoch,
+      [this, &epoch_gate, &protocol_ready, &pending_device_ready, &has_observed_loss_epoch,
        &resynchronizing_after_loss]() {
     const std::uint32_t current_epoch = connection_epoch_.load();
     if (!epoch_gate.synchronize(current_epoch, connected_.load())) {
@@ -411,6 +414,7 @@ void BleNavTransport::run_rx_worker() {
     watchdog_.set_timeout(kHandshakeGraceMs);
     disconnect_requested_ = false;
     protocol_ready = false;
+    pending_device_ready = false;
     has_observed_loss_epoch = false;
     resynchronizing_after_loss = false;
     has_last_rx_ack_ = false;
@@ -457,7 +461,7 @@ void BleNavTransport::run_rx_worker() {
       // START fragment before normal reassembly; subsequent fragments, if
       // any, are then assembled normally and the decoded session ID below
       // decides whether the protocol state itself must be replaced.
-      const moto::ble::FrameResult control_frame = moto::ble::decode_frame(
+      const moto::ble::FrameHeaderResult control_frame = moto::ble::peek_frame_header(
           moto::ble::ByteView(packet.bytes, packet.length));
       if (resynchronizing_after_loss && control_frame.ok()) {
         if ((control_frame.value.flags & moto::ble::FrameStart) == 0U) {
@@ -533,6 +537,7 @@ void BleNavTransport::run_rx_worker() {
           note_link(false);
           note_link(true);
           protocol_ready = false;
+          pending_device_ready = false;
           has_last_rx_ack_ = false;
           reassembler_.reset();
           if (xSemaphoreTake(tx_mutex_, pdMS_TO_TICKS(100)) == pdTRUE) {
@@ -576,20 +581,21 @@ void BleNavTransport::run_rx_worker() {
 
       if (phone_status != nullptr) {
         if (status == moto::ble::AckStatus::Unsupported) {
+          pending_device_ready = false;
           send_connection_status(moto::ble::ConnectionState::Closing);
         } else if (status == moto::ble::AckStatus::Ok) {
           if (phone_status->state == moto::ble::ConnectionState::Starting) {
             // Canonical v1 handshake: advertise device capabilities first;
             // display messages remain gated until Phone subsequently says
             // Ready.
-            send_connection_status(moto::ble::ConnectionState::Ready);
+            pending_device_ready = !send_connection_status(moto::ble::ConnectionState::Ready);
           } else if (phone_status->state ==
                      moto::ble::ConnectionState::Ready) {
             // CoreBluetooth may restore an encrypted/subscribed bond and send
             // Phone Ready as its first session frame. Always answer with the
             // device capability/status message before opening the display-data
             // gate, so the iOS side cannot wait forever for our status.
-            send_connection_status(moto::ble::ConnectionState::Ready);
+            pending_device_ready = !send_connection_status(moto::ble::ConnectionState::Ready);
             protocol_ready = true;
             // Once the phone is ready, return to the short heartbeat watchdog
             // that detects a dead Android process and frees the radio promptly.
@@ -607,6 +613,20 @@ void BleNavTransport::run_rx_worker() {
 
     const std::uint64_t now = monotonic_ms();
     service_pending_ack(now);
+    if (pending_device_ready && session_id_.load() != 0 &&
+        connected_.load() && encrypted_.load() && subscribed_.load() &&
+        now - last_ready_retry_ms >= 200U) {
+      last_ready_retry_ms = now;
+      pending_device_ready = !send_connection_status(moto::ble::ConnectionState::Ready);
+    }
+    // Retain the existing stale-link termination policy. Only recover
+    // advertising when the host and navigation UI have enabled it.
+    if (advertising_enabled_.load(std::memory_order_acquire) &&
+        host_ready_.load(std::memory_order_acquire) && !connected_.load() &&
+        now - last_advertising_check_ms >= 2'000U) {
+      last_advertising_check_ms = now;
+      if (ble_gap_adv_active() == 0) advertise();
+    }
 
     bool awaiting_ack = false;
     if (xSemaphoreTake(tx_mutex_, 0) == pdTRUE) {
@@ -655,11 +675,11 @@ void BleNavTransport::note_link(bool active) {
   }
 }
 
-void BleNavTransport::send_connection_status(
+bool BleNavTransport::send_connection_status(
     moto::ble::ConnectionState state) {
   const std::uint32_t session_id = session_id_.load();
   if (session_id == 0) {
-    return;
+    return false;
   }
   moto::ble::ConnectionStatus status;
   status.role = moto::ble::EndpointRole::Device;
@@ -679,7 +699,7 @@ void BleNavTransport::send_connection_status(
   status.max_frame_size =
       static_cast<std::uint16_t>(negotiated_frame_size());
   status.heartbeat_interval_ms = 1'000;
-  send_message(moto::ble::Message{status}, moto::ble::Urgent);
+  return send_message(moto::ble::Message{status}, moto::ble::Urgent);
 }
 
 void BleNavTransport::send_ack(std::uint16_t sequence,

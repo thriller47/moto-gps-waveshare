@@ -113,9 +113,18 @@ class MotionHeadingFusion {
     }
 
     // 2-state adaptive Kalman gain:
-    const float gain = std::clamp(
+    float gain = std::clamp(
         heading_var_deg2_ / (heading_var_deg2_ + sigma * sigma),
         0.08F, 0.65F);
+    // A delayed phone course can pull backwards against an ongoing turn.
+    // Attenuate only that opposing correction, preserving the adaptive
+    // gain for aligned corrections and normal straight-line reacquisition.
+    if (std::abs(filtered_rate_dps_) > 8.0F &&
+        error * filtered_rate_dps_ < 0.0F) {
+      const float turn_weight = std::clamp(
+          (std::abs(filtered_rate_dps_) - 8.0F) / 24.0F, 0.0F, 1.0F);
+      gain *= 1.0F - 0.8F * turn_weight;
+    }
     heading_deg_ = normalize(heading_deg_ + error * gain);
     heading_var_deg2_ *= (1.0F - gain);
 

@@ -88,7 +88,7 @@ class BleNavTransport {
   void advertise();
   void run_rx_worker();
   void note_link(bool active);
-  void send_connection_status(moto::ble::ConnectionState state);
+  bool send_connection_status(moto::ble::ConnectionState state);
   void send_ack(std::uint16_t sequence,
                 moto::ble::AckStatus status,
                 std::uint16_t command_id = 0);

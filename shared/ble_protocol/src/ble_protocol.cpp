@@ -1098,7 +1098,7 @@ BytesResult encode_frame(const Frame& frame) {
   return {std::move(encoded), Error::None, 0};
 }
 
-FrameResult decode_frame(ByteView bytes) {
+FrameHeaderResult peek_frame_header(ByteView bytes) noexcept {
   if (bytes.size > 0 && bytes.data == nullptr) {
     return {{}, Error::InvalidArgument, 0};
   }
@@ -1125,7 +1125,7 @@ FrameResult decode_frame(ByteView bytes) {
     return {{}, Error::UnsupportedVersion, 1};
   }
 
-  Frame frame;
+  FrameHeader frame;
   frame.version = bytes.data[1];
   frame.type = static_cast<MessageType>(bytes.data[2]);
   frame.flags = bytes.data[3];
@@ -1154,8 +1154,21 @@ FrameResult decode_frame(ByteView bytes) {
       ends != (fragment_end == frame.message_length)) {
     return {{}, Error::InvalidFragment, 6};
   }
+  return {frame, Error::None, 0};
+}
+
+FrameResult decode_frame(ByteView bytes) {
+  const auto header = peek_frame_header(bytes);
+  if (!header.ok()) return {{}, header.error, header.offset};
+  Frame frame;
+  frame.version = header.value.version;
+  frame.type = header.value.type;
+  frame.flags = header.value.flags;
+  frame.sequence = header.value.sequence;
+  frame.fragment_offset = header.value.fragment_offset;
+  frame.message_length = header.value.message_length;
   frame.payload.assign(bytes.data + kFrameHeaderSize,
-                       bytes.data + crc_offset);
+                       bytes.data + bytes.size - kFrameCrcSize);
   return {std::move(frame), Error::None, 0};
 }
 

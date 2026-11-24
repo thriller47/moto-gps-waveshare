@@ -80,6 +80,17 @@ internal class RouteProgressMatcher {
      * Clip long segments to the progress interval (not just segment indices)
      * so a single long road cannot silently extend the corridor forward.
      */
+    // Find the first segment whose end is >= the lower window boundary.
+    private fun firstSegmentAt(distance: Double): Int {
+        var lo = 1
+        var hi = cumulative.size
+        while (lo < hi) {
+            val mid = lo + (hi - lo) / 2
+            if (cumulative[mid] < distance) lo = mid + 1 else hi = mid
+        }
+        return lo - 1
+    }
+
     @Synchronized fun distanceToMatchedCorridorMeters(
         lat: Double, lon: Double,
         behindMeters: Double = 30.0,
@@ -93,10 +104,11 @@ internal class RouteProgressMatcher {
         val until = min(cumulative.last(), anchor + aheadMeters)
         val mx = 111_195.0 * cos(Math.toRadians(lat))
         var nearest = Double.POSITIVE_INFINITY
-        for (i in 0 until route.lastIndex) {
+        for (i in firstSegmentAt(from) until route.lastIndex) {
             val segStart = cumulative[i]
             val segEnd = cumulative[i + 1]
-            if (segEnd < from || segStart > until) continue
+            if (segStart > until) break
+            if (segEnd < from) continue
             val segLength = segEnd - segStart
             if (segLength <= 1e-6) continue
             val a = route[i]
