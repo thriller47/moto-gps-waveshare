@@ -39,13 +39,16 @@ Chiudere e riaprire PowerShell. L'installer salva il profilo precedente, aggiorn
 | moto-android NewUI -BuildOnly | Test e build senza installare. |
 | moto-esp32 NewUI -BuildOnly | Build senza flash. |
 | moto-android NewUI -Serial SERIAL | Seleziona un altro telefono ADB. |
-| moto-esp32 NewUI -Port COM5 | Seleziona un'altra porta seriale. |
+| moto-esp32 NewUI COM4 | Seleziona COM4 (PC di casa); COM3 resta il default. |
+| moto-esp32 NewUI -Port COM5 | Sintassi alternativa per selezionare un'altra porta seriale. |
 | moto-motopack NewUI -Resume | Riprende senza aggiornare il checkout WSL. |
 | moto-motopack NewUI -CopyOnly | Verifica e copia il pacchetto già completato. |
 | moto-motopack NewUI -Threads 4 | Usa quattro thread invece di due. |
 | moto-simulator NewUI -BuildOnly | Compila WASM senza avviare il server. |
 
 Se il solo file versionato modificato è `platforms/esp32/sdkconfig` (modifica non in staging), i launcher Android ed ESP32 ne salvano una copia verificata in `%LOCALAPPDATA%\MotoGPS\sdkconfig-backups` e ripristinano la versione Git prima dell'aggiornamento. La build ESP32 parte dalla configurazione del branch e riapplica i default prestazionali; eventuali personalizzazioni locali sono conservate nel backup, non riapplicate automaticamente. Modifiche in staging, conflitti, cancellazioni o altri file versionati bloccano ancora l'operazione. Se il pull manuale per aggiornare l'installer è bloccato, salvare sdkconfig con un nome univoco e usare `git restore --worktree -- platforms/esp32/sdkconfig` solo dopo aver verificato che sia una semplice modifica non in staging.
+
+Per ESP32, il launcher verifica che la porta selezionata esista prima di aggiornare o compilare (salvo `-BuildOnly`); non verifica che sia libera o che appartenga alla scheda. Per elencare le porte da PowerShell: `[System.IO.Ports.SerialPort]::GetPortNames()`. Se la porta è occupata, chiudere il monitor precedente. Se la build è già riuscita e il solo flash è fallito, aprire CMD ESP-IDF con il comando `moto`, entrare in `C:\MotoGPS\moto-gps-waveshare\platforms\esp32` ed eseguire `idf.py -p COM4 flash monitor`.
 
 Collegare il dispositivo corretto prima di installare/flashare; chiudere eventuali monitor seriali. Non avviare Android ed ESP32 contemporaneamente sullo stesso checkout. Non avviare un secondo MotoPack né aggiornare il checkout WSL durante la generazione. Il pacchetto finale viene copiato in C:\MotoGPS\MotoChatGPS-Italia.motopack dopo verifica e confronto dei byte; l'importazione sul telefono rimane manuale (§2). Conservare il vecchio pacchetto se serve un rollback.
 
