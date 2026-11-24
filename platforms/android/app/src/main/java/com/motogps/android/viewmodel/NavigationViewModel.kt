@@ -1434,7 +1434,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
 
                     val (lat, lon) = currentLocation.value
                     val ageMs = SystemClock.elapsedRealtime() - lastFixElapsedMs
-                    val gnssStale = NavigationFixFreshness.isStale(hasFirstFix, ageMs)
+                    val gnssStale = NavigationFixFreshness.isStaleWithSkewTolerance(hasFirstFix, ageMs)
                     // GPS accepted by LocationFixFilter is authoritative for
                     // route progress, distances, maneuvers and recorded replay.
                     // Prediction belongs exclusively to the ESP32 map renderer.
