@@ -7,14 +7,15 @@
 // 30-second display pause. Arrival always retains its previous 120s policy.
 class CoffeePausePolicy {
  public:
-  enum class State { Awake, Paused, PowerOffAfterLoss, PowerOffAfterArrival };
+  enum class State { Awake, Paused, PowerOffAfterLoss, PowerOffAfterArrival, PowerOffAfterClosing };
   static constexpr std::uint64_t kPauseAfterMs = 30'000;
   static constexpr std::uint64_t kArrivalOffAfterMs = 120'000;
   static constexpr std::uint8_t kDefaultMinutes = 10;
   static constexpr std::uint8_t kMaximumMinutes = 30;
 
   State update(std::uint64_t now_ms, bool ever_connected, bool connected,
-               bool arrived, std::uint8_t minutes) noexcept {
+               bool arrived, std::uint8_t minutes,
+               bool voluntary_close = false) noexcept {
     if (!ever_connected) return State::Awake;
     if (connected) {
       if (!was_connected_) {
@@ -44,6 +45,10 @@ class CoffeePausePolicy {
     if (arrival_timing_) {
       return now_ms - arrival_since_ >= kArrivalOffAfterMs
                  ? State::PowerOffAfterArrival : State::Awake;
+    }
+    if (voluntary_close) {
+      return now_ms - loss_since_ >= kArrivalOffAfterMs
+                 ? State::PowerOffAfterClosing : State::Awake;
     }
     const std::uint8_t bounded = minutes >= 1 && minutes <= kMaximumMinutes
                                      ? minutes : kDefaultMinutes;

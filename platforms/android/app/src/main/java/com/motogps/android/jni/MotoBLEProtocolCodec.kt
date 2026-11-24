@@ -181,6 +181,21 @@ class MotoBLEProtocolCodec {
         return fragmentMessage(storage, MSG_CONNECTION_STATUS, payload, ackRequested = false, urgent = true)
     }
 
+    fun nativeEncodePhoneClosing(ptr: Long, sessionID: Long): Array<ByteArray> {
+        val storage = instances[ptr] ?: return emptyArray()
+        val payload = buildConnectionStatusPayload(
+            role = 1, // Phone
+            state = 3, // Closing
+            minVersion = 1,
+            maxVersion = 1,
+            capabilities = 19L,
+            sessionId = sessionID,
+            maxFrameSize = storage.maxFrameSize,
+            heartbeatIntervalMs = 1000
+        )
+        return fragmentMessage(storage, MSG_CONNECTION_STATUS, payload, ackRequested = false, urgent = true)
+    }
+
     fun nativeEncodeHeartbeat(ptr: Long, sessionID: Long, monotonicMs: Long): Array<ByteArray> {
         val storage = instances[ptr] ?: return emptyArray()
         val writer = Writer()

@@ -126,6 +126,7 @@ class MotoBLEManager(private val context: Context) {
         mainHandler.postDelayed(reconnectRunnable, delay)
     }
     @Volatile private var closed = false
+    @Volatile private var gracefulClosing = false
 
     // Synchronized FIFO Write Queue for GATT Characteristic Writes
     private val writeQueue = ArrayDeque<ByteArray>()
@@ -206,6 +207,7 @@ class MotoBLEManager(private val context: Context) {
 
     private fun enqueueSendSnapshotFramesTask(frames: Array<ByteArray>) {
         synchronized(writeQueue) {
+            if (gracefulClosing || closed) return
             val protectedSequence = activeMessageSequence
             val iterator = writeQueue.iterator()
             while (iterator.hasNext()) {
@@ -245,6 +247,7 @@ class MotoBLEManager(private val context: Context) {
     // an in-flight sequence: that would strand the ESP32 reassembler.
     private fun enqueueLatestFramesTask(frames: Array<ByteArray>, type: Byte) {
         synchronized(writeQueue) {
+            if (gracefulClosing || closed) return
             val protectedSequence = activeMessageSequence
             val iterator = writeQueue.iterator()
             var removed = 0
@@ -294,6 +297,7 @@ class MotoBLEManager(private val context: Context) {
 
     fun enqueueSendFramesTask(frames: Array<ByteArray>) {
         synchronized(writeQueue) {
+            if (gracefulClosing || closed) return
             for (frame in frames) {
                 writeQueue.addLast(frame)
             }
@@ -792,7 +796,36 @@ class MotoBLEManager(private val context: Context) {
     }
 
     fun disconnect(userRequested: Boolean = true) {
-        if (userRequested) reconnectEnabled = false
+        if (userRequested) {
+            reconnectEnabled = false
+            if (gracefulClosing) return
+            if (bluetoothGatt != null && handshakeState == HandshakeState.COMPLETED &&
+                codecPtr != 0L && currentSessionId != 0L) {
+                gracefulClosing = true
+                cancelReconnect()
+                stopHeartbeat()
+                val frames = bleCodec.nativeEncodePhoneClosing(codecPtr, currentSessionId)
+                synchronized(writeQueue) {
+                    // Preserve the active fragmented message; discard unsent obsolete data.
+                    writeQueue.removeAll { sequenceOf(it) != activeMessageSequence }
+                    for (frame in frames) writeQueue.addLast(frame)
+                    if (!writeInProgress) {
+                        writeInProgress = true
+                        mainHandler.post { processNextWrite() }
+                    }
+                }
+                DiagnosticLog.event("BLE_POWER_POLICY", "phase=voluntary_closing")
+                // Bound shutdown even if the GATT callback is lost. Give the ESP RX
+                // worker time to process the Closing message before link teardown.
+                mainHandler.postDelayed({ finishDisconnect() }, 1_500L)
+                return
+            }
+        }
+        finishDisconnect()
+    }
+
+    private fun finishDisconnect() {
+        gracefulClosing = false
         cancelReconnect()
         stopHeartbeat()
         stopScan()
@@ -832,23 +865,18 @@ class MotoBLEManager(private val context: Context) {
             mainHandler.postDelayed(gattCloseFallbackRunnable, 1000L)
         }
         onConnectionStateChange?.invoke("Non connesso")
+        if (closed && codecPtr != 0L) {
+            bleCodec.nativeDestroy(codecPtr)
+            codecPtr = 0L
+        }
     }
 
     fun close() {
         closed = true
         disconnect()
-        mainHandler.removeCallbacks(gattCloseFallbackRunnable)
-        pendingDisconnectGatt?.let {
-            try { it.close() } catch (_: Exception) {}
-            pendingDisconnectGatt = null
-        }
         onConnectionStateChange = null
         onConnectionError = null
         onDeviceCommandReceived = null
         onDiagnosticBatchReceived = null
-        if (codecPtr != 0L) {
-            bleCodec.nativeDestroy(codecPtr)
-            codecPtr = 0L
-        }
     }
 }

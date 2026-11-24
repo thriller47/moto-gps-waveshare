@@ -203,7 +203,10 @@ void PhoneNavBridge::on_link_state(bool active) {
     }
     link_active_ = active;
     power_connected_.store(active, std::memory_order_relaxed);
-    if (active) power_ever_connected_.store(true, std::memory_order_relaxed);
+    if (active) {
+      power_voluntary_close_.store(false, std::memory_order_relaxed);
+      power_ever_connected_.store(true, std::memory_order_relaxed);
+    }
     if (!active) power_arrived_.store(false, std::memory_order_relaxed);
     if (!active) moto_diag_set_mode(0);
     ui_phone_connection_ = active ? MOTO_UI_PHONE_CONNECTING
@@ -366,6 +369,16 @@ moto::ble::AckStatus PhoneNavBridge::on_message(
               (value.capabilities & required_media) == required_media;
           {
             const std::lock_guard<std::mutex> lock(state_mutex_);
+            if (value.state == moto::ble::ConnectionState::Closing) {
+              if (!link_active_ || phone_session_id_ == 0 ||
+                  phone_session_id_ != value.session_id)
+                return moto::ble::AckStatus::InvalidState;
+              power_voluntary_close_.store(true, std::memory_order_relaxed);
+              ESP_LOGI(kTag, "Voluntary phone closing received");
+            } else if (value.state == moto::ble::ConnectionState::Starting ||
+                       value.state == moto::ble::ConnectionState::Ready) {
+              power_voluntary_close_.store(false, std::memory_order_relaxed);
+            }
             phone_session_id_ = value.session_id;
             music_page_enabled_ = media;
             switch (value.state) {

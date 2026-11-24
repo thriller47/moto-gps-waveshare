@@ -175,9 +175,12 @@ void power_monitor_task(void* context) {
     const bool connected = bridge->phone_connected();
     const auto state = policy.update(now, bridge->has_ever_connected(),
                                      connected, bridge->phone_arrived(),
-                                     bridge->coffee_timeout_minutes());
+                                     bridge->coffee_timeout_minutes(),
+                                     bridge->voluntary_close());
     if (state == CoffeePausePolicy::State::PowerOffAfterArrival) {
       power_down("120s after arrival");
+    } else if (state == CoffeePausePolicy::State::PowerOffAfterClosing) {
+      power_down("120s after voluntary phone closing");
     } else if (state == CoffeePausePolicy::State::PowerOffAfterLoss) {
       power_down("coffee pause timeout after BLE disconnection");
     }
