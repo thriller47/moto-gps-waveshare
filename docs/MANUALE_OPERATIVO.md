@@ -437,6 +437,25 @@ Inserire **una delle parole o frasi riportate esattamente nella tabella** nel ca
 
 ## 3. GitHub Actions e Android
 
+### Automazione build Windows (NewUI, da collaudare)
+
+Prima installazione degli script: dal checkout Windows eseguire `git switch NewUI` e `git pull --ff-only origin NewUI`. Non aggiornare il checkout WSL mentre genera il MotoPack. Gli script sono nella root Windows e devono essere presenti nel branch scelto per i successivi avvii.
+
+**Android — PowerShell**, da qualsiasi cartella:
+
+```powershell
+& "C:\MotoGPS\moto-gps-waveshare\moto-android.ps1" NewUI
+```
+
+**ESP32 — CMD dopo il comando moto**, dalla cartella firmware:
+
+```cmd
+..\..\moto-esp32.cmd NewUI
+```
+
+Entrambi aggiornano il branch da origin senza merge divergenti, rifiutano modifiche locali tracciate e verificano che HEAD coincida con origin. Aggiornano anche i submodule. Android esegue test, build e installazione ADB sul Samsung; ESP32 verifica le impostazioni di telemetria in sdkconfig, salva un backup datato e modifica solo le voci richieste, riconfigura, verifica i valori, compila e avvia flash/monitor su COM3. Nessun fullclean o erase_flash automatico. In caso di errore non eseguono installazione/flash. Se si cambia dispositivo usare `-Serial` o `-Port`; per sola compilazione aggiungere `-BuildOnly`. Non eseguire entrambi contemporaneamente nello stesso checkout. Non aggirare la policy PowerShell se bloccata: vedere §4.C. Script non ancora provati su Windows; le procedure manuali restano disponibili.
+
+
 [GitHub Actions — Project Build](https://github.com/thriller47/moto-gps-waveshare/actions/workflows/project-build.yml). I job `native`, `android` ed `esp32` sono selettivi; `skipped` non è equivalente a un test superato. Per avviare un solo job: pagina Project Build → **Run workflow** → branch `valhalla` → attivare solo la casella desiderata → **Run workflow**. **Non avviare workflow per questa revisione documentale.** Per il codice avviare **una sola CI consolidata alla fine**; una modifica al solo manuale non richiede build.
 
 Gli artifact della run corretta possono includere il firmware `ESP32-Firmware` (`moto-gps-waveshare.bin`, bootloader e partizioni) e l'APK `Glimpse-MOTO-GPS-Android-Final.apk` (in alcuni casi dentro un archivio da estrarre). Controllare sempre **branch, commit e firma**: non installare a caso un APK di un branch diverso.
