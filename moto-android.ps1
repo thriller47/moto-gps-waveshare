@@ -13,8 +13,24 @@ function Update-MotoRepository {
     param([string]$Branch, [string]$Root)
     Set-Location -LiteralPath $Root
     Invoke-Checked git @('check-ref-format','--branch',$Branch)
-    $dirty = & git status --porcelain --untracked-files=no
-    if ($LASTEXITCODE -ne 0 -or $dirty) { throw 'Tracked local changes: commit or save them first.' }
+    $dirty = @(& git status --porcelain --untracked-files=no)
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot inspect Git status.' }
+    $config = 'platforms/esp32/sdkconfig'
+    # Only a plain unstaged modification of the generated config is allowed.
+    # Staged changes, deletions, conflicts and every other file still block.
+    $other = @($dirty | Where-Object { $_ -cne " M $config" })
+    if ($other.Count -gt 0) { throw ("Tracked local changes: commit or save them first." + [Environment]::NewLine + ($other -join [Environment]::NewLine)) }
+    if ($dirty.Count -gt 0) {
+        $backupDir = Join-Path $env:LOCALAPPDATA 'MotoGPS\sdkconfig-backups'
+        New-Item -ItemType Directory -Force -Path $backupDir | Out-Null
+        $backup = Join-Path $backupDir ('sdkconfig-' + (Get-Date -Format 'yyyyMMdd-HHmmss-fff') + '-' + [Guid]::NewGuid().ToString('N'))
+        Copy-Item -LiteralPath $config -Destination $backup -ErrorAction Stop
+        if ((Get-FileHash -LiteralPath $config).Hash -ne (Get-FileHash -LiteralPath $backup).Hash) { throw 'sdkconfig backup verification failed.' }
+        Write-Host "Saved local sdkconfig: $backup"
+        Invoke-Checked git @('restore','--worktree','--',$config)
+        $remaining = @(& git status --porcelain --untracked-files=no)
+        if ($LASTEXITCODE -ne 0 -or $remaining.Count -gt 0) { throw 'Checkout is not clean after sdkconfig backup.' }
+    }
     Invoke-Checked git @('fetch','origin')
     & git show-ref --verify --quiet "refs/remotes/origin/$Branch"
     if ($LASTEXITCODE -ne 0) { throw "Remote branch not found: $Branch" }

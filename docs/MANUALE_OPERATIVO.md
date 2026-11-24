@@ -13,7 +13,7 @@ Aprire **PowerShell di Windows** dal menu Start. Il prompt deve iniziare con `PS
 | `moto-motopack NewUI` | Aggiorna il checkout WSL, genera e verifica le mappe, copia il pacchetto in Windows. |
 | `moto-simulator NewUI` | Aggiorna WSL, compila WASM, avvia il server locale e apre il browser. |
 
-Sostituire NewUI con il branch desiderato, per esempio valhalla dopo l'integrazione. I launcher sono disponibili sul branch NewUI e vengono installati fuori dal checkout; il branch da compilare deve avere una configurazione compatibile. **I quattro launcher non sono ancora collaudati end-to-end sul PC.** La build Android manuale e il nuovo layout Road DNA sono stati confermati dall'utente.
+Sostituire NewUI con il branch desiderato, per esempio valhalla dopo l'integrazione. I launcher sono disponibili sul branch NewUI e vengono installati fuori dal checkout; il branch da compilare deve avere una configurazione compatibile. **Il launcher ESP32 ha funzionato dopo ripristino manuale di sdkconfig (conferma utente); la nuova gestione automatica e gli altri launcher restano da collaudare end-to-end.** La build Android manuale e il nuovo layout Road DNA sono stati confermati dall'utente.
 
 ### Installazione iniziale o aggiornamento dei launcher
 
@@ -44,6 +44,8 @@ Chiudere e riaprire PowerShell. L'installer salva il profilo precedente, aggiorn
 | moto-motopack NewUI -CopyOnly | Verifica e copia il pacchetto già completato. |
 | moto-motopack NewUI -Threads 4 | Usa quattro thread invece di due. |
 | moto-simulator NewUI -BuildOnly | Compila WASM senza avviare il server. |
+
+Se il solo file versionato modificato è `platforms/esp32/sdkconfig` (modifica non in staging), i launcher Android ed ESP32 ne salvano una copia verificata in `%LOCALAPPDATA%\MotoGPS\sdkconfig-backups` e ripristinano la versione Git prima dell'aggiornamento. La build ESP32 parte dalla configurazione del branch e riapplica i default prestazionali; eventuali personalizzazioni locali sono conservate nel backup, non riapplicate automaticamente. Modifiche in staging, conflitti, cancellazioni o altri file versionati bloccano ancora l'operazione. Se il pull manuale per aggiornare l'installer è bloccato, salvare sdkconfig con un nome univoco e usare `git restore --worktree -- platforms/esp32/sdkconfig` solo dopo aver verificato che sia una semplice modifica non in staging.
 
 Collegare il dispositivo corretto prima di installare/flashare; chiudere eventuali monitor seriali. Non avviare Android ed ESP32 contemporaneamente sullo stesso checkout. Non avviare un secondo MotoPack né aggiornare il checkout WSL durante la generazione. Il pacchetto finale viene copiato in C:\MotoGPS\MotoChatGPS-Italia.motopack dopo verifica e confronto dei byte; l'importazione sul telefono rimane manuale (§2). Conservare il vecchio pacchetto se serve un rollback.
 
