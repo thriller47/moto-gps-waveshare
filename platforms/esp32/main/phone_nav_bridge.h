@@ -40,7 +40,7 @@ class PhoneNavBridge {
     return power_ever_connected_.load(std::memory_order_relaxed);
   }
   bool phone_connected() const noexcept {
-    return power_connected_.load(std::memory_order_relaxed);
+    return power_connected_.load(std::memory_order_acquire);
   }
   std::uint8_t coffee_timeout_minutes() const noexcept {
     return coffee_timeout_minutes_.load(std::memory_order_relaxed);

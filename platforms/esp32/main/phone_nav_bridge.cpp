@@ -202,12 +202,12 @@ void PhoneNavBridge::on_link_state(bool active) {
       return;
     }
     link_active_ = active;
-    power_connected_.store(active, std::memory_order_relaxed);
-    if (active) {
-      power_voluntary_close_.store(false, std::memory_order_relaxed);
-      power_ever_connected_.store(true, std::memory_order_relaxed);
+    // A physical link or partial handshake is not a resumed phone session.
+    // Preserve the departure/Closing countdown until an actual Ready arrives.
+    if (!active) {
+      power_connected_.store(false, std::memory_order_release);
+      power_arrived_.store(false, std::memory_order_relaxed);
     }
-    if (!active) power_arrived_.store(false, std::memory_order_relaxed);
     if (!active) moto_diag_set_mode(0);
     ui_phone_connection_ = active ? MOTO_UI_PHONE_CONNECTING
                                   : MOTO_UI_PHONE_OFFLINE;
@@ -369,15 +369,21 @@ moto::ble::AckStatus PhoneNavBridge::on_message(
               (value.capabilities & required_media) == required_media;
           {
             const std::lock_guard<std::mutex> lock(state_mutex_);
+            if (!link_active_ || value.session_id == 0)
+              return moto::ble::AckStatus::InvalidState;
             if (value.state == moto::ble::ConnectionState::Closing) {
-              if (!link_active_ || phone_session_id_ == 0 ||
+              if (!power_connected_.load(std::memory_order_relaxed) ||
                   phone_session_id_ != value.session_id)
                 return moto::ble::AckStatus::InvalidState;
               power_voluntary_close_.store(true, std::memory_order_relaxed);
               ESP_LOGI(kTag, "Voluntary phone closing received");
-            } else if (value.state == moto::ble::ConnectionState::Starting ||
-                       value.state == moto::ble::ConnectionState::Ready) {
+            } else if (value.state == moto::ble::ConnectionState::Ready) {
               power_voluntary_close_.store(false, std::memory_order_relaxed);
+              power_ever_connected_.store(true, std::memory_order_relaxed);
+              power_connected_.store(true, std::memory_order_release);
+            } else {
+              // Starting/Degraded cannot cancel an existing loss deadline.
+              power_connected_.store(false, std::memory_order_release);
             }
             phone_session_id_ = value.session_id;
             music_page_enabled_ = media;

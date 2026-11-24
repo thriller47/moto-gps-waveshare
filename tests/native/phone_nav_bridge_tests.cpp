@@ -1,4 +1,5 @@
 #include "phone_nav_bridge.h"
+#include "coffee_pause_policy.hpp"
 #include "phone_nav_bridge_test_probe.hpp"
 
 #include <atomic>
@@ -102,6 +103,13 @@ void test_power_monitor_tracks_arrival_and_phone_reconnection() {
   CHECK(!bridge.phone_arrived());
 
   bridge.on_link_state(true);
+  CHECK(!bridge.has_ever_connected());
+  CHECK(!bridge.phone_connected());
+  moto::ble::ConnectionStatus ready;
+  ready.role = moto::ble::EndpointRole::Phone;
+  ready.state = moto::ble::ConnectionState::Ready;
+  ready.session_id = 77;
+  CHECK(bridge.on_message(make_message(ready, 100)) == moto::ble::AckStatus::Ok);
   CHECK(bridge.has_ever_connected());
   CHECK(bridge.phone_connected());
   moto::ble::NavigationSnapshot nav;
@@ -124,8 +132,55 @@ void test_power_monitor_tracks_arrival_and_phone_reconnection() {
   CHECK(!bridge.phone_connected());
   CHECK(!bridge.phone_arrived());
   bridge.on_link_state(true);
-  CHECK(bridge.phone_connected());
+  CHECK(!bridge.phone_connected());
   CHECK(bridge.has_ever_connected());
+  ready.session_id = 78;
+  CHECK(bridge.on_message(make_message(ready, 104)) == moto::ble::AckStatus::Ok);
+  CHECK(bridge.phone_connected());
+}
+
+void test_partial_reconnect_preserves_power_deadline() {
+  moto::nav::NavPresenter presenter;
+  PhoneNavBridge bridge(presenter);
+  CoffeePausePolicy policy;
+  using State = CoffeePausePolicy::State;
+  auto tick = [&](std::uint64_t now) {
+    return policy.update(now, bridge.has_ever_connected(),
+                         bridge.phone_connected(), bridge.phone_arrived(),
+                         1, bridge.voluntary_close());
+  };
+  moto::ble::ConnectionStatus status;
+  status.role = moto::ble::EndpointRole::Phone;
+  status.state = moto::ble::ConnectionState::Ready;
+  status.session_id = 81;
+  bridge.on_link_state(true);
+  CHECK(bridge.on_message(make_message(status, 1)) == moto::ble::AckStatus::Ok);
+  CHECK(tick(0) == State::Awake);
+  bridge.on_link_state(false);
+  CHECK(tick(100) == State::Awake);
+  CHECK(tick(30100) == State::Paused);
+  bridge.on_link_state(true);
+  status.state = moto::ble::ConnectionState::Starting;
+  status.session_id = 82;
+  CHECK(bridge.on_message(make_message(status, 2)) == moto::ble::AckStatus::Ok);
+  CHECK(tick(45000) == State::Paused);
+  bridge.on_link_state(false);
+  bridge.on_link_state(true);
+  CHECK(tick(60100) == State::PowerOffAfterLoss);
+  status.state = moto::ble::ConnectionState::Ready;
+  CHECK(bridge.on_message(make_message(status, 3)) == moto::ble::AckStatus::Ok);
+  CHECK(tick(61000) == State::Awake);
+  status.state = moto::ble::ConnectionState::Closing;
+  CHECK(bridge.on_message(make_message(status, 4)) == moto::ble::AckStatus::Ok);
+  bridge.on_link_state(false);
+  CHECK(tick(62000) == State::Awake);
+  bridge.on_link_state(true);
+  status.state = moto::ble::ConnectionState::Starting;
+  status.session_id = 83;
+  CHECK(bridge.on_message(make_message(status, 5)) == moto::ble::AckStatus::Ok);
+  CHECK(bridge.voluntary_close());
+  CHECK(tick(92000) == State::Awake);
+  CHECK(tick(182000) == State::PowerOffAfterClosing);
 }
 
 void test_coffee_timeout_settings_require_handshake_and_survive_disconnect() {
@@ -650,6 +705,7 @@ int main() {
   test_waypoint_notice_deduplicates_and_clears_on_idle();
   test_diagnostic_control_is_opt_in_and_requires_link();
   test_power_monitor_tracks_arrival_and_phone_reconnection();
+  test_partial_reconnect_preserves_power_deadline();
   test_coffee_timeout_settings_require_handshake_and_survive_disconnect();
   test_ble_submission_never_waits_for_lvgl_and_retries_latest_state();
   test_phone_connection_lifecycle_reaches_the_ui();

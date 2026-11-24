@@ -427,6 +427,9 @@ void BleNavTransport::run_rx_worker() {
     if (epoch_gate.connected()) {
       watchdog_.note_valid_frame(monotonic_ms());
     }
+    // If disconnect/reconnect occurred between worker iterations, the
+    // new epoch still invalidates the previous phone Ready state.
+    note_link(false);
     note_link(epoch_gate.connected());
   };
   while (true) {
