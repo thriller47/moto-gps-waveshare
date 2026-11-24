@@ -452,13 +452,36 @@ gh run download ID_RUN -R thriller47/moto-gps-waveshare -n ESP32-Firmware -D C:\
 
 **Build Android locale (PowerShell):** in Android Studio aprire `C:\MotoGPS\moto-gps-waveshare\platforms\android` (non la root). Versioni di riferimento per `valhalla`: JDK/JBR 21, Android SDK Platform **37**, Android Gradle Plugin **9.1.1**, Gradle wrapper **9.3.1** e CMake 3.22.1. Android Studio deve supportare AGP 9.1.1 (almeno Panda 3 Patch 1); in CI rimane JDK 17. **Su `valhalla` il NDK richiesto è `29.0.14206865`** per il supporto alle pagine da 16 KB; il vecchio NDK 27 rimane solo nei checkout non aggiornati.
 
+### Aggiornare, testare, compilare e installare Android in un unico passaggio
+
+In Android Studio aprire **View → Tool Windows → Terminal** (scorciatoia **Alt+F12**). Se il prompt non inizia con `PS`, digitare `powershell`. Collegare il Samsung via USB e autorizzare il debug. Copiare l'intero blocco seguente in PowerShell Windows, non in WSL. Si può lasciare in esecuzione la rigenerazione MotoPack in WSL: utilizzare il checkout Windows separato.
+
+Il branch attivo al 24/11/2026 è `NewUI`; dopo il merge autorizzato sostituirlo con `valhalla`. Il blocco si interrompe in caso di errore Git, test/build o installazione, evitando di installare un APK precedente dopo una build fallita.
+
 ```powershell
-Set-Location "C:\MotoGPS\moto-gps-waveshare\platforms\android"
-.\gradlew.bat testDebugUnitTest assembleDebug
-$adb = "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe"
-& $adb devices
-& $adb -s R5CXA3SF4QT install -r ".\app\build\outputs\apk\debug\app-debug.apk"
+& {
+    $branch = "NewUI"
+    Set-Location "C:\MotoGPS\moto-gps-waveshare" -ErrorAction Stop
+    git switch $branch
+    if ($LASTEXITCODE -ne 0) { throw "Cambio branch fallito" }
+    git pull --ff-only origin $branch
+    if ($LASTEXITCODE -ne 0) { throw "Aggiornamento Git fallito" }
+    git log -1 --oneline
+
+    Set-Location "C:\MotoGPS\moto-gps-waveshare\platforms\android" -ErrorAction Stop
+    .\gradlew.bat testDebugUnitTest assembleDebug
+    if ($LASTEXITCODE -ne 0) { throw "Build fallita: APK non installato" }
+
+    $adb = "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe"
+    if (-not (Test-Path $adb)) { throw "ADB non trovato: verificare Android SDK" }
+    & $adb devices
+    if ($LASTEXITCODE -ne 0) { throw "Errore ADB" }
+    & $adb -s R5CXA3SF4QT install -r ".\app\build\outputs\apk\debug\app-debug.apk"
+    if ($LASTEXITCODE -ne 0) { throw "Installazione APK fallita" }
+}
 ```
+
+Risultati attesi: commit corretto in Git, `BUILD SUCCESSFUL` da Gradle e `Success` da ADB. Se Git segnala modifiche locali in conflitto, fermarsi senza forzare il checkout. Se Android Studio richiede la sincronizzazione dopo il pull, usare **File → Sync Project with Gradle Files**. Non serve eseguire `clean` di routine. La procedura consolidata non è stata ancora verificata sulla nuova revisione NewUI.
 
 **Installazione sul Samsung in uso (PowerShell):** il seriale ADB attuale è `R5CXA3SF4QT`. Il comando sopra è quello utilizzato dall’utente per aggiornare l’APK debug, dalla cartella `platforms/android`. La variabile `$adb` indica l’eseguibile ADB dell’Android SDK locale; se è già definita nella sessione PowerShell, non occorre ridefinirla. `-s` evita l’errore «more than one device/emulator» selezionando il telefono corretto; `-r` mantiene i dati dell’app quando firma e versionCode consentono l’aggiornamento. Controllare il seriale con `& $adb devices` se si cambia telefono. **Build Android e audit ELF 16 KiB:** confermati dall'utente il 22/11/2026 (sei librerie PASS, zero segmenti LOAD non validi); installazione e funzionamento su Samsung confermati dall'utente. I job native e Android della CI sono stati riferiti verdi dopo i fix del 22/11; il job ESP32 non è stato eseguito in questo ciclo. La verifica ZIP locale non è stata registrata separatamente.
 
