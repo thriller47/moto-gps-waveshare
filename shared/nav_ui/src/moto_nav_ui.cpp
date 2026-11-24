@@ -91,6 +91,16 @@ constexpr double px(double value) {
            static_cast<double>(kDesignWidth);
 }
 
+// Marker geometry is 75% of the original design, rounded once at the
+// physical display scale. Anchor the WHITE apex to the map projection origin
+// (NavPresenter kVehicleX / kVehicleY); the black outline extends above it.
+constexpr int marker_px(int design_units) {
+    return (design_units * 3 * MOTO_UI_CANVAS_WIDTH + 2 * kDesignWidth) /
+           (4 * kDesignWidth);
+}
+constexpr int kMarkerAnchorX = MOTO_UI_CANVAS_WIDTH / 2;
+constexpr int kMarkerAnchorY = px(196);
+
 struct MapPolyline {
     const lv_point_precise_t *points = nullptr;
     std::uint16_t count = 0;
@@ -282,21 +292,21 @@ void draw_vehicle_marker(lv_event_t *event) {
     lv_draw_triangle_dsc_init(&triangle);
     triangle.color = kBlack;
     triangle.opa = LV_OPA_COVER;
-    triangle.p[0] = {static_cast<lv_value_precise_t>(area.x1 + px(17)),
+    triangle.p[0] = {static_cast<lv_value_precise_t>(area.x1 + marker_px(17)),
                      static_cast<lv_value_precise_t>(area.y1)};
     triangle.p[1] = {static_cast<lv_value_precise_t>(area.x1),
-                     static_cast<lv_value_precise_t>(area.y1 + px(36))};
-    triangle.p[2] = {static_cast<lv_value_precise_t>(area.x1 + px(34)),
-                     static_cast<lv_value_precise_t>(area.y1 + px(36))};
+                     static_cast<lv_value_precise_t>(area.y1 + marker_px(36))};
+    triangle.p[2] = {static_cast<lv_value_precise_t>(area.x1 + marker_px(34)),
+                     static_cast<lv_value_precise_t>(area.y1 + marker_px(36))};
     lv_draw_triangle(layer, &triangle);
 
     triangle.color = kWhite;
-    triangle.p[0] = {static_cast<lv_value_precise_t>(area.x1 + px(17)),
-                     static_cast<lv_value_precise_t>(area.y1 + px(5))};
-    triangle.p[1] = {static_cast<lv_value_precise_t>(area.x1 + px(6)),
-                     static_cast<lv_value_precise_t>(area.y1 + px(30))};
-    triangle.p[2] = {static_cast<lv_value_precise_t>(area.x1 + px(28)),
-                     static_cast<lv_value_precise_t>(area.y1 + px(30))};
+    triangle.p[0] = {static_cast<lv_value_precise_t>(area.x1 + marker_px(17)),
+                     static_cast<lv_value_precise_t>(area.y1 + marker_px(5))};
+    triangle.p[1] = {static_cast<lv_value_precise_t>(area.x1 + marker_px(6)),
+                     static_cast<lv_value_precise_t>(area.y1 + marker_px(30))};
+    triangle.p[2] = {static_cast<lv_value_precise_t>(area.x1 + marker_px(28)),
+                     static_cast<lv_value_precise_t>(area.y1 + marker_px(30))};
     lv_draw_triangle(layer, &triangle);
 }
 
@@ -1815,8 +1825,9 @@ void create_navigation_page() {
     }
     ui.nav_marker = lv_obj_create(ui.nav_map);
     lv_obj_remove_style_all(ui.nav_marker);
-    lv_obj_set_size(ui.nav_marker, px(35), px(37));
-    lv_obj_set_pos(ui.nav_marker, px(163), px(177));
+    lv_obj_set_size(ui.nav_marker, marker_px(34) + 1, marker_px(36) + 1);
+    lv_obj_set_pos(ui.nav_marker, kMarkerAnchorX - marker_px(17),
+                   kMarkerAnchorY - marker_px(5));
     lv_obj_clear_flag(ui.nav_marker, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(ui.nav_marker, draw_vehicle_marker,
                         LV_EVENT_DRAW_MAIN_END, nullptr);
