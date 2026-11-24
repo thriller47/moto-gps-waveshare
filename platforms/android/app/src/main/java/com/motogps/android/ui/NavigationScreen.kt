@@ -905,8 +905,11 @@ fun NavigationScreen(
         mutableStateOf<RoadDnaRoadsideCandidate?>(null)
     }
     var selectedRoadDnaPoi by remember { mutableStateOf<RoadDnaOnlinePoi?>(null) }
-    // The profile is derived from route geometry; online heights are Android
-    // preview-only state, independent from Road DNA tourist/curve queries.
+    // Road DNA describes the selected route; the elevation request remains
+    // independent from tourist queries and is triggered only by its accordion.
+    var altitudeExpanded by remember(routeOptions.getOrNull(selectedRouteIndex), isNavigating, showRoadDnaDialog) {
+        mutableStateOf(false)
+    }
     val selectedTerrain = remember(routeOptions, selectedRouteIndex, previewElevation) {
         routeOptions.getOrNull(selectedRouteIndex)?.let { option ->
             val terrain = RoadDnaTerrainAnalysis.analyze(option.rawRouteJson)
@@ -1863,8 +1866,19 @@ fun NavigationScreen(
                         .heightIn(max = 430.dp).verticalScroll(roadDnaListScroll),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    if (selectedTerrain != null) {
+                    if (selectedTerrain != null && !isNavigating) {
                         RoadDnaTerrainPanel(selectedTerrain)
+                        RoadDnaElevationSection(
+                            elevation = selectedTerrain.elevation,
+                            loading = previewElevationLoading,
+                            expanded = altitudeExpanded,
+                            onToggle = {
+                                altitudeExpanded = !altitudeExpanded
+                                if (altitudeExpanded && selectedTerrain.elevation == null) {
+                                    onPreviewElevationRequest()
+                                }
+                            }
+                        )
                         HorizontalDivider(color = MotoChatColors.Outline)
                     }
                     if (roadDnaLoading) {
@@ -2905,9 +2919,6 @@ fun NavigationScreen(
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
             if (routePreview != null) {
                 val selectedRoute = routeOptions.getOrNull(selectedRouteIndex)
-                var altitudeExpanded by remember(selectedRoute, isNavigating) {
-                    mutableStateOf(false)
-                }
                 // Extract route vertices only when the selected route changes, not on every 5 Hz GPS tick.
                 val fallbackOrigin = if (selectedRoute == null) currentLocation else null
                 val geoPoints = remember(selectedRoute, routePreview, fallbackOrigin) {
@@ -3129,22 +3140,6 @@ fun NavigationScreen(
                                                 color = MotoChatColors.Green)
                                         }
                                     }
-                                }
-                            }
-                            if (!isNavigating && selectedRoute != null) {
-                                item(key = "preview-altitude") {
-                                    RoutePreviewElevationSection(
-                                        elevation = selectedTerrain?.elevation,
-                                        loading = previewElevationLoading,
-                                        expanded = altitudeExpanded,
-                                        onToggle = {
-                                            altitudeExpanded = !altitudeExpanded
-                                            if (altitudeExpanded &&
-                                                selectedTerrain?.elevation == null) {
-                                                onPreviewElevationRequest()
-                                            }
-                                        }
-                                    )
                                 }
                             }
                         }

@@ -22,7 +22,7 @@ import com.motogps.android.viewmodel.RoadDnaTerrain
 import java.util.Locale
 import kotlin.math.max
 
-/** Curve estimates for Road DNA; altitude is exclusive to the route-planning preview. */
+/** Curve estimates for the selected route in Road DNA. */
 @Composable
 internal fun RoadDnaTerrainPanel(terrain: RoadDnaTerrain) {
     Column(
@@ -63,11 +63,11 @@ private fun TerrainMetric(title: String, number: String, modifier: Modifier) {
 }
 
 /**
- * Route-planning-only altitude accordion. It lives inside the preview's
- * LazyColumn to keep the map and the Start Navigation button visible.
+ * On-demand altitude accordion inside the independently scrollable Road DNA
+ * dialog. The route-planning preview stays compact in both orientations.
  */
 @Composable
-internal fun RoutePreviewElevationSection(
+internal fun RoadDnaElevationSection(
     elevation: RoadDnaElevation?,
     loading: Boolean,
     expanded: Boolean,
@@ -75,7 +75,7 @@ internal fun RoutePreviewElevationSection(
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 5.dp),
+            .padding(vertical = 5.dp),
         shape = RoundedCornerShape(16.dp),
         color = MotoChatColors.SurfaceRaised,
         border = BorderStroke(1.dp, MotoChatColors.Outline)
