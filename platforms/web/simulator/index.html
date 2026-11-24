@@ -59,6 +59,16 @@ code{background:#0b151a;padding:2px 4px;border-radius:3px}a{color:#90d8ff}
 <h2>Tracciato GPS</h2>
 <p class="muted">Apri un replay <code>.jsonl</code>/<code>.json</code>; resta sul PC.</p>
 <input id="trace-file" type="file" accept=".json,.jsonl,application/json,application/x-ndjson">
+<label for="synthetic-scenario">Scenario sintetico</label>
+<select id="synthetic-scenario">
+<option value="roundabout">Rotatoria (originale)</option>
+<option value="normal">Guida normale</option>
+<option value="reroute">Deviazione e ricalcolo</option>
+<option value="tunnel">Galleria / gap GPS simulato</option>
+<option value="uturn">Strade parallele e inversione</option>
+<option value="long">Percorso lungo / finestre</option>
+<option value="reconnect">Perdita e ritorno link simulati</option>
+</select>
 <div class="toolbar"><button id="sample">Esempio sintetico</button><button id="snapshot">Salva PNG</button></div>
 <p id="status" role="status" aria-live="polite">Preparazione del riproduttore…</p>
 <div class="separator"><h2>Riproduzione</h2>
@@ -147,6 +157,7 @@ code{background:#0b151a;padding:2px 4px;border-radius:3px}a{color:#90d8ff}
 <script src="./ring_alignment.js"></script>
 <script src="./heading_diagnostics.js"></script>
 <script src="./heading_stability.js"></script>
+<script src="./synthetic_scenarios.js"></script>
 <script src="./player.js"></script>
 </body>
 </html>

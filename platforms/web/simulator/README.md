@@ -1,6 +1,10 @@
 # Simulatore Moto Chat GPS per Windows (anteprima 2D + WebAssembly LVGL)
 
 
+## Scenari sintetici di regressione (24 novembre 2026, NewUI)
+
+Scegliere dal menu Scenario sintetico e premere Esempio sintetico. Rimane la rotatoria originale; aggiunti guida normale, deviazione/ricambio token, gap GPS di 8 s, inversione tra strade parallele, percorso lungo con finestre BLE, perdita e ritorno link rappresentati da snapshot. Sono fixture visuali senza rete, non test live di Valhalla, watchdog GPS, radio BLE o IMU. I gap non emulano il watchdog Android; il cambio token è iniettato, non calcolato. Il menu non richiede una nuova compilazione WASM se è già presente il runtime. Test sorgente Node: `node --test platforms/web/simulator/synthetic_scenarios.test.cjs` (non eseguito).
+
 ## C2 — uscita di rotonda e sosta (19 novembre 2026)
 
 Nuova quarta modalità **C2 — Curva, uscita e arresto (solo WASM)**. Rimangono selezionabili A (originale), B (GPS OFF) e C (prima candidata). C2 riconosce le variazioni di heading su finestre >=100 ms con soglia diagnostica iniziale 6°/s; riduce l'avanzamento predetto durante la curva, mantiene una correzione progressivamente decrescente fino a 1 secondo dopo l'ultima variazione significativa, e a velocità <1,5 m/s ripristina l'origine al GPS dello snapshot e resetta lo stato per la ripartenza. Niente cambia sul firmware ESP32 né sulla fusione IMU. Nel CSV sono aggiunte `predicted_offset_c2_m`, `predicted_c2_along_heading_m` e `predicted_c2_lateral_heading_m`. Per confrontare il replay del 19/11 ricompilare Emscripten (`./scripts/build_web.sh`), fare Ctrl+F5, impostare heading Originale e velocità 1×. Verificare ingresso, uscita e fermi usando le quattro modalità.

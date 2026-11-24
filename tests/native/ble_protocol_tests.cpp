@@ -298,6 +298,25 @@ void test_uuid_contract() {
   CHECK((kDeviceToPhoneGattRequirements & GattEncryptedPermission) != 0U);
 }
 
+void test_validated_header_peek() {
+  Frame frame;
+  frame.type = MessageType::Heartbeat;
+  frame.flags = FrameStart | FrameEnd;
+  frame.sequence = 42;
+  frame.message_length = 3;
+  frame.payload = {1, 2, 3};
+  auto encoded = encode_frame(frame);
+  CHECK(encoded.ok());
+  if (!encoded.ok()) return;
+  const auto header = peek_frame_header(ByteView(encoded.value));
+  CHECK(header.ok());
+  CHECK(header.value.sequence == frame.sequence);
+  CHECK(header.value.type == frame.type);
+  CHECK(header.value.message_length == frame.message_length);
+  encoded.value[4] ^= 1U;
+  CHECK(peek_frame_header(ByteView(encoded.value)).error == Error::CrcMismatch);
+}
+
 void test_crc_and_sequence_primitives() {
   const std::string check = "123456789";
   CHECK(crc16_ccitt_false(ByteView(
@@ -755,6 +774,7 @@ int main(int argc, char** argv) {
 
   test_uuid_contract();
   test_crc_and_sequence_primitives();
+  test_validated_header_peek();
   test_all_message_round_trips();
   test_route_geometry_waypoint_extension();
   test_arrival_marker_roundtrip();

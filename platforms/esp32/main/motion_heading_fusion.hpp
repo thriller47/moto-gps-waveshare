@@ -120,7 +120,8 @@ class MotionHeadingFusion {
     // Attenuate only that opposing correction, preserving the adaptive
     // gain for aligned corrections and normal straight-line reacquisition.
     if (std::abs(filtered_rate_dps_) > 8.0F &&
-        error * filtered_rate_dps_ < 0.0F) {
+        error * filtered_rate_dps_ < 0.0F &&
+        std::abs(error) > std::max(10.0F, std::abs(filtered_rate_dps_) * 0.8F)) {
       const float turn_weight = std::clamp(
           (std::abs(filtered_rate_dps_) - 8.0F) / 24.0F, 0.0F, 1.0F);
       gain *= 1.0F - 0.8F * turn_weight;

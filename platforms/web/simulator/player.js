@@ -635,7 +635,11 @@
     if(frames.length)display(index);
   });
   ui.sample.addEventListener("click",()=>{
-    try{load(synthetic(),"Esempio sintetico");}
+    try {
+      const id=$("synthetic-scenario").value;
+      if(id==="roundabout") load(synthetic(),"Esempio sintetico");
+      else load(window.MotoSyntheticScenarios.create(id),window.MotoSyntheticScenarios.titles[id]);
+    }
     catch(error){status(error.message,true);}
   });
   ui.play.addEventListener("click",play);
