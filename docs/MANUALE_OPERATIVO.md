@@ -1,28 +1,60 @@
 # Moto Chat GPS — Manuale operativo
 
-**Aggiornato:** 22 novembre 2026 (pulizia e procedure per principianti; solo documentazione) · **Repository:** `thriller47/moto-gps-waveshare` · **Branch stabile:** `valhalla`.
+**Aggiornato:** 24 novembre 2026 · **Repository:** thriller47/moto-gps-waveshare · **Branch stabile:** valhalla · **Branch di lavoro:** NewUI.
 
-Queste sono le **procedure operative correnti**, per Waveshare ESP32-S3-Touch-AMOLED-1.75C e app Android. Le istruzioni distinguono **Windows PowerShell**, **CMD ESP-IDF** e **WSL Ubuntu-24.04**: i rispettivi comandi non sono intercambiabili. La porta USB `COM3` è un esempio da verificare sul PC.
+## Prima di cominciare — i tre comandi quotidiani
 
-**Dove cercare il resto:** [PROJECT_STATE.md](../PROJECT_STATE.md) è lo stato sintetico corrente; [ROADMAP.md](ROADMAP.md) distingue lavoro da testare da funzionalità già disponibili; la [cronologia storica completa](archive/PROJECT_STATE_PRE_CLEANUP_2026-11-19.md) conserva diagnosi e prove precedenti, e l'[archivio del vecchio manuale](archive/MANUALE_OPERATIVO_PRE_CLEANUP_2026-11-15.md) conserva le procedure superate. Il precedente MotoPack installato è stato collaudato; la rigenerazione integrale del nuovo MotoPack Road DNA v2 su tutti i dati Italia va distinta dall'importazione e dai test dell'APK già riusciti.
+Aprire **PowerShell di Windows** dal menu Start. Il prompt deve iniziare con `PS`. Non occorre aprire Android Studio, CMD ESP-IDF o Ubuntu per le operazioni automatiche.
 
-## Prima di cominciare — guida rapida per chi parte da zero
+| Comando | Cosa fa |
+| --- | --- |
+| `moto-android NewUI` | Aggiorna il checkout Windows, esegue test/build e installa l'APK sul Samsung. |
+| `moto-esp32 NewUI` | Attiva ESP-IDF, aggiorna, verifica sdkconfig, compila, flasha su COM3 e apre il monitor. |
+| `moto-motopack NewUI` | Aggiorna il checkout WSL, genera e verifica le mappe, copia il pacchetto in Windows. |
 
-**Che cosa stai facendo?** Il progetto ha **tre cose diverse**: (1) l'**app Android** sul telefono, (2) il **firmware ESP32** sul display Waveshare e (3) il **MotoPack** con le mappe offline. Aggiornare una non aggiorna automaticamente le altre. La maggior parte delle operazioni quotidiane non richiede di ricostruire il MotoPack.
+Sostituire NewUI con il branch desiderato, per esempio valhalla dopo l'integrazione. I launcher sono disponibili sul branch NewUI e vengono installati fuori dal checkout; il branch da compilare deve avere una configurazione compatibile. **I tre launcher non sono ancora collaudati end-to-end sul PC.** La build Android manuale e il nuovo layout Road DNA sono stati confermati dall'utente.
 
-**Quale terminale aprire?** In Windows, premere Start, digitare **PowerShell** e aprirlo per i comandi `powershell`. **CMD** è il Prompt dei comandi, usato dopo aver avviato l'ambiente ESP-IDF con `moto`. **Ubuntu WSL** è il terminale Linux per creare le mappe: aprirlo dal menu Start oppure con `wsl -d Ubuntu-24.04`. Non incollare comandi Linux in PowerShell o viceversa. Le righe nei riquadri di codice si copiano senza i delimitatori del riquadro.
+### Installazione iniziale o aggiornamento dei launcher
 
-**Prima volta su un PC nuovo:** installare Git for Windows; per Android installare Android Studio e i componenti SDK descritti nella sezione 3; per ESP32 installare ESP-IDF 5.5.6 (sezione 4); per le mappe installare WSL Ubuntu e `valhalla-env` (sezione 1.1). Non è necessario installare tutti gli strumenti per una sola operazione.
+Solo la prima volta o dopo modifiche agli script, da PowerShell Windows:
 
-**Per riprendere il lavoro sul PC già configurato:**
+~~~powershell
+& {
+    Set-Location "C:\MotoGPS\moto-gps-waveshare" -ErrorAction Stop
+    git switch NewUI
+    if ($LASTEXITCODE -ne 0) { throw "Cambio branch fallito" }
+    git pull --ff-only origin NewUI
+    if ($LASTEXITCODE -ne 0) { throw "Aggiornamento fallito" }
+    .\install-moto-commands.ps1
+}
+~~~
 
-1. Aprire PowerShell, aggiornare `valhalla` con i comandi della sezione 1 e controllare che `git status --short` sia vuoto. Se non lo è, **fermarsi** prima di sovrascrivere modifiche locali.
-2. Per compilare/installare l'app, seguire la sezione 3 e collegare il Samsung con cavo dati e **debug USB autorizzato** sul telefono.
-3. Per aggiornare il display ESP32, seguire le sezioni 4–5. **Non usare il comando ADB per l'ESP32**.
-4. Per rigenerare le mappe offline (operazione lunga e con molti GB temporanei), seguire le sezioni 1.1–2. Per importare un MotoPack già pronto, basta la parte finale della sezione 2.
-5. Per diagnosticare problemi, vedere le sezioni 6–8. Per la radio sperimentale, sezione 9.
+Chiudere e riaprire PowerShell. L'installer salva il profilo precedente, aggiorna il proprio blocco senza duplicarlo e conserva il comando moto. Copia i launcher in LOCALAPPDATA. Non modifica la policy di esecuzione; se bloccata, vedere §4.C.
 
-**Verifica prima di procedere:** il branch è `valhalla`, i file PBF originali sono al sicuro, il telefono o ESP32 è collegato al dispositivo giusto, e la finestra del terminale corrisponde alle istruzioni. Non usare `git reset --hard`, `git clean`, `idf.py erase-flash` o disinstallare Android per tentare di correggere errori.
+### Opzioni e precauzioni
+
+| Comando | Funzione |
+| --- | --- |
+| moto-android NewUI -BuildOnly | Test e build senza installare. |
+| moto-esp32 NewUI -BuildOnly | Build senza flash. |
+| moto-android NewUI -Serial SERIAL | Seleziona un altro telefono ADB. |
+| moto-esp32 NewUI -Port COM5 | Seleziona un'altra porta seriale. |
+| moto-motopack NewUI -Resume | Riprende senza aggiornare il checkout WSL. |
+| moto-motopack NewUI -CopyOnly | Verifica e copia il pacchetto già completato. |
+| moto-motopack NewUI -Threads 4 | Usa quattro thread invece di due. |
+
+Collegare il dispositivo corretto prima di installare/flashare; chiudere eventuali monitor seriali. Non avviare Android ed ESP32 contemporaneamente sullo stesso checkout. Non avviare un secondo MotoPack né aggiornare il checkout WSL durante la generazione. Il pacchetto finale viene copiato in C:\MotoGPS\MotoChatGPS-Italia.motopack dopo verifica e confronto dei byte; l'importazione sul telefono rimane manuale (§2). Conservare il vecchio pacchetto se serve un rollback.
+
+### Dove trovare le procedure di recupero
+
+- §1: repository, ambienti e preparazione WSL; §2: MotoPack, ripresa e importazione.
+- §3: Android, GitHub Actions, compilazione manuale e audit 16 KiB.
+- §4–5: ESP-IDF, configurazione, flash manuale.
+- §6–8: diagnostica, simulatore e GPS; §9: radio; §10: navigazione e tour; §11: riferimenti rapidi.
+
+Su PC nuovo installare prima Git, Android SDK/JDK, ESP-IDF o WSL secondo l'operazione. **CMD e WSL restano strumenti di recupero e diagnostica**, non il punto di partenza quotidiano. Se il prompt è CMD, digitare exit per tornare a PowerShell; non eseguire comandi PowerShell in CMD. Non forzare Git, cancellare i dati Android o eseguire erase-flash per risolvere errori di build.
+
+Stato e collaudi: [PROJECT_STATE.md](../PROJECT_STATE.md), [ROADMAP.md](ROADMAP.md). Per istruzioni precedenti consultare lo [snapshot del manuale prima di questa riorganizzazione](archive/MANUALE_OPERATIVO_PRE_AUTOMAZIONE_2026-11-24.md).
 
 ## 1. Repository e ambienti
 
@@ -186,11 +218,13 @@ Se la connessione tra telefono ed ESP32 si interrompe **involontariamente** (es.
 - Dopo **30 secondi senza connessione BLE** e dopo che c'è stata almeno una connessione: luminosità del CO5300 a zero (OLED nero), rendering IMU e campionamento software ridotti. **NimBLE resta attivo in advertising**, quindi Android può rilevare e riconnettere l'ESP. Non è deep sleep in questa fase; TE e controller display restano inizializzati per un risveglio rapido.
 - Se il BLE ritorna prima della scadenza: luminosità a 100, campionamento IMU regolare e ri-sincronizzazione navigazione dal telefono **senza riavviare la rotta**.
 - Se l'assenza BLE dura per il limite configurato, misurato **dall'inizio dell'assenza** (non da 30 secondi dopo), il dispositivo esegue lo **spegnimento AXP2101**, con fallback deep sleep come prima. Dopo lo spegnimento il BLE **non può riaccendere** il dispositivo: usare il pulsante fisico.
-- **Chiusura volontaria (NewUI, da collaudare):** Disconnetti o chiusura normale dell'app inviano `Closing` prima di interrompere BLE; ESP32 resta sveglio e si spegne dopo 120 s, salvo riconnessione. Se Android termina forzatamente il processo o il messaggio non arriva, resta la pausa caffè. Verificare con APK e firmware aggiornati: log Android `BLE_POWER_POLICY phase=voluntary_closing`, seriale ESP32 `Voluntary phone closing received`.
+- **Chiusura volontaria (NewUI, prova precedente positiva; correzione pausa successiva da collaudare):** Disconnetti o chiusura normale dell'app inviano `Closing` prima di interrompere BLE; ESP32 resta sveglio e si spegne dopo 120 s, salvo riconnessione. Se Android termina forzatamente il processo o il messaggio non arriva, resta la pausa caffè. Verificare con APK e firmware aggiornati: log Android `BLE_POWER_POLICY phase=voluntary_closing`, seriale ESP32 `Voluntary phone closing received`.
 - **Arrivo a destinazione:** conserva il precedente autospegnimento dopo **120 secondi** dall'arrivo, anche in caso di successiva disconnessione. Il pulsante PWR con pressione di **3 secondi** resta invariato.
 - Non viene inviato un comando ripetuto per avviare la radio. Un ESP32 con firmware precedente ignora il nuovo controllo opzionale e conserva il suo comportamento precedente.
 
 **Test consigliati:** aggiornare **sia APK sia firmware ESP32**, aprire la voce Pausa caffè e selezionare per esempio **1 minuto** per una prova rapida; con navigazione attiva allontanarsi, verificare schermo nero a ~30 s, rientrare prima di 1 min e verificare risveglio e rotta già pronta. Ripetere lasciando scadere 1 min e controllare lo spegnimento (senza aspettarsi risveglio BLE). Impostare 10/30 min per verificare la sincronizzazione configurazione. Riprovare anche arrivo a destinazione e pulsante manuale. Leggere log seriale ESP32 `COFFEE_PAUSE state=entered/resumed`, `Coffee pause auto-off timeout: N min`, `Power off requested: coffee pause timeout...` e diagnostica Android `BLE_POWER_POLICY`.
+
+**Correzione NewUI del 24/11:** un link fisico o Starting non azzera più la scadenza; serve Phone Ready valido. Closing sopravvive ai tentativi incompleti. La correzione è implementata ma non ancora collaudata su ESP32.
 
 **Nota consumi:** schermo nero e polling IMU più lento dovrebbero ridurre il consumo; **l'autonomia effettiva non è misurata** e va verificata con batteria/USB nelle diverse condizioni.
 
@@ -230,19 +264,9 @@ ls -lh /mnt/c/MotoGPS/PBF/italy-latest.osm.pbf /mnt/c/MotoGPS/PBF/italy.poly /mn
 
 Se `valhalla_build_elevation` non viene trovato, **fermarsi**: occorre rendere disponibile lo script di download dell'installazione Valhalla compatibile con `valhalla-env`; non modificare il PBF né cancellare il vecchio pacchetto per tentare di risolvere. Il downloader Tilezen richiede **internet e spazio aggiuntivo su disco**, perché scarica i DEM di Italia e zone limitrofe; la generazione e l'importazione dell'APK non sono state ancora verificate sul PC/telefono.
 
-**Comando breve da PowerShell Windows (dopo installazione §3):**
+**Procedura ordinaria:** usare moto-motopack NewUI da PowerShell (opzioni e installazione in apertura). Il launcher usa Ubuntu-24.04, valhalla-env e due thread per default, sceglie output v2/v3 dal generatore e verifica il risultato prima della copia Windows. Il lock protegge i launcher concorrenti; non garantisce la protezione da avvii manuali simultanei. Per recupero manuale usare le istruzioni seguenti, senza aggiornare il checkout durante la generazione.
 
-```powershell
-moto-motopack NewUI
-# Ripresa senza aggiornare il checkout WSL:
-moto-motopack NewUI -Resume
-# Solo verifica e copia del pacchetto gia' completato:
-moto-motopack NewUI -CopyOnly
-```
-
-Default Ubuntu-24.04, due thread (opzionale `-Threads 4`), ambiente ~/valhalla-env. Seleziona la destinazione v2/v3 secondo il generatore del branch. Non avviare durante una rigenerazione manuale in corso; lock tra launcher e controllo processi manuali sono protezioni aggiuntive, non una garanzia contro avvii manuali simultanei. Resume e CopyOnly richiedono checkout WSL originale e non fanno pull. A fine generazione verifica il pacchetto, copia in un file temporaneo Windows, confronta i byte e sostituisce `C:\MotoGPS\MotoChatGPS-Italia.motopack` solo dopo successo. Conserva il pacchetto WSL e non installa sul telefono. Il launcher e la copia automatica sono da collaudare su Windows.
-
-**Rigenerazione completa** (dopo un controllo dello spazio libero):
+**Alternativa manuale WSL — rigenerazione v3** (dopo un controllo dello spazio libero):
 
 ```bash
 bash scripts/offline_map/rebuild_motopack_wsl.sh --threads 2 --out "$HOME/motogps-build/ItaliaUnificata-RoadDNA-v3"
@@ -252,7 +276,7 @@ Il sistema mantiene i tasselli SRTMv3 nella cache persistente `~/motogps-build/D
 
 ```bash
 MOTOGPS_ELEVATION_CACHE="$HOME/motogps-build/DEM-Italia" \
-  bash scripts/offline_map/rebuild_motopack_wsl.sh --threads 2
+  bash scripts/offline_map/rebuild_motopack_wsl.sh --threads 2 --out "$HOME/motogps-build/ItaliaUnificata-RoadDNA-v3"
 ```
 
 Il nuovo componente è `elevation-italy.zip` all'interno di `MotoChatGPS-Italia.motopack`. La verifica Python controlla tipo, SHA-256, lunghezza e presenza minima dei tasselli. L'importatore Android verifica l'intero contenuto prima di installare e copia le quote in `Android/data/com.motogps.android/files/routing/elevation`. Valhalla riceve quel percorso nella configurazione locale. Il grafico delle quote compare **solo nella finestra Road DNA del percorso Android**, aprendo il pannello **Profilo altimetrico**. Se i campioni sono assenti, l'app espone uno stato chiaro e non inventa altitudini.
@@ -267,9 +291,11 @@ Il recupero online **richiede Internet** e che il server abbia DEM disponibili; 
 
 **Font del design Dark Touring:** Space Grotesk (titoli e etichette) e Manrope (testo) sono risorse incluse nell'APK `NewUI` e **non richiedono Internet**. I testi SIL Open Font License 1.1 sono nel repository in `docs/licenses/MANROPE_OFL.txt` e `docs/licenses/SPACE_GROTESK_OFL.txt`, con attribuzione nella schermata Informazioni. L'aspetto del font sul telefono resta da validare con la prima build autorizzata.
 
-**Attenzione:** le quote sono DEM, quindi indicative; tornanti e classificazione delle curve sono stimati geometricamente, non misure di aderenza o di velocità consigliata. Il codice è su `NewUI`, **senza build né prova end-to-end**: attendere l'ordine esplicito prima di avviare Gradle/GitHub Actions.
+**Attenzione:** le quote sono DEM, quindi indicative; tornanti e classificazione delle curve sono stimati geometricamente, non misure di aderenza o di velocità consigliata. Il nuovo layout Android è stato compilato e provato con esito positivo secondo l'utente; la generazione/importazione DEM offline resta da collaudare.
 
 
+
+### Alternativa manuale WSL — MotoPack v2 (branch valhalla)
 
 **Un unico comando in WSL** ricrea **MotoMap v4** (strade e copertura), **Photon SQLite v2 con POI OSM** (ricerca indirizzi, carburante, ristorazione e alloggi), **Tourist SQLite v1** (Road DNA turistico) e **Valhalla V5** (grafo moto dal PBF aggiornato), quindi assembla e verifica il pacchetto `MotoChatGPS-Italia.motopack`. Usa lo script `scripts/offline_map/rebuild_motopack_wsl.sh`, presente nel branch stabile `valhalla`.
 
@@ -293,7 +319,7 @@ bash scripts/offline_map/rebuild_motopack_wsl.sh --threads 2
 
 Se `ls` non trova lo script, aggiornare il branch come nella sezione 1. Per il builder servono `valhalla_build_config`, `valhalla_build_tiles`, `valhalla_build_extract`; verificare con `command -v`. **Non lanciare separatamente i tre convertitori**: lo script li esegue già. Il PC Ryzen ha usato normalmente **due thread**, per evitare di saturare RAM e swap.
 
-**Cartella di output predefinita:**
+**Cartella di output v2:**
 
 ```text
 /home/mod/motogps-build/ItaliaUnificata-RoadDNA-v2/
@@ -361,22 +387,22 @@ explorer.exe "$(wslpath -w "$HOME/motogps-build/ItaliaUnificata-RoadDNA-v2")"
 
 Anche `\\wsl$\Ubuntu-24.04\home\mod\motogps-build\ItaliaUnificata-RoadDNA-v2` è utilizzabile. Se la distribuzione cambia, verificare con `wsl -l -v` da PowerShell. Non spostare la build su `/mnt/c` durante la compilazione.
 
-**Copiare il pacchetto finale in Windows** (da WSL, una volta verificato). **Comando rapido da copiare e incollare:**
+**Copia finale in Windows:** il launcher la esegue automaticamente. Se il pacchetto è già pronto, usare moto-motopack NewUI -CopyOnly (per v2, il branch corrispondente) senza aggiornare il checkout WSL. Per recupero manuale, da WSL con valhalla-env attivo, scegliere v3 oppure v2 secondo il pacchetto effettivo:
 
-```bash
-cp ~/motogps-build/ItaliaUnificata-RoadDNA-v2/MotoChatGPS-Italia.motopack /mnt/c/MotoGPS/MotoChatGPS-Italia.motopack
-```
+~~~bash
+PACK="$HOME/motogps-build/ItaliaUnificata-RoadDNA-v3/MotoChatGPS-Italia.motopack"
+DEST=/mnt/c/MotoGPS/MotoChatGPS-Italia.motopack
+python3 scripts/offline_map/motopack.py verify "$PACK" &&
+  cp -- "$PACK" "$DEST.part" &&
+  cmp -- "$PACK" "$DEST.part" &&
+  mv -fT -- "$DEST.part" "$DEST"
+~~~
 
-Equivalente su due righe:
-
-```bash
-cp "$HOME/motogps-build/ItaliaUnificata-RoadDNA-v2/MotoChatGPS-Italia.motopack" \
-   /mnt/c/MotoGPS/MotoChatGPS-Italia.motopack
-```
+Non utilizzare un file .part in Android. Per una build v2 sostituire v3 con v2 nel percorso.
 
 In Windows sarà `C:\MotoGPS\MotoChatGPS-Italia.motopack`. Per aggiornare il telefono, copiare il file `.motopack` nella cartella **Download** del Samsung (per esempio collegando il telefono via USB, selezionando **Trasferimento file** e copiando il file con Esplora file). Poi interrompere la navigazione e aprire **Moto Chat GPS → Mappe offline → Importa MotoPack (.motopack)**, selezionando il file copiato. Non disinstallare l'app per importare le mappe; servono spazio e alimentazione sufficienti durante l'operazione.
 
-**Limite di atomicità:** Android verifica i tre hash prima dell'importazione, ma installa i tre componenti in fasi successive. Dopo l'import controllare separatamente MotoMap v4, Photon v2 e Valhalla V5 e tenere il vecchio pacchetto come backup.
+**Dopo l'import:** controllare separatamente MotoMap v4, Photon v2, Valhalla V5, Road DNA e (v3) DEM. Verifica integrità del pacchetto e installazione dei componenti sono operazioni distinte: conservare un backup valido.
 
 
 
@@ -449,43 +475,9 @@ Inserire **una delle parole o frasi riportate esattamente nella tabella** nel ca
 
 ## 3. GitHub Actions e Android
 
-### Automazione build Windows (NewUI, da collaudare)
+### Uso quotidiano
 
-Prima installazione degli script: dal checkout Windows eseguire `git switch NewUI` e `git pull --ff-only origin NewUI`. Non aggiornare il checkout WSL mentre genera il MotoPack. Gli script sono nella root Windows; per mantenere i comandi disponibili anche su altri branch usare l'installer qui sotto.
-
-**Installazione dei comandi brevi (una sola volta, PowerShell Windows):**
-
-```powershell
-Set-Location "C:\MotoGPS\moto-gps-waveshare"
-git switch NewUI
-git pull --ff-only origin NewUI
-if ($LASTEXITCODE -eq 0) { .\install-moto-commands.ps1 }
-```
-
-Chiudere e riaprire PowerShell. Da qualsiasi cartella, anche con Android Studio chiuso:
-
-```powershell
-moto-android NewUI
-moto-esp32 NewUI
-moto-motopack NewUI
-```
-
-Il primo usa JAVA_HOME valido oppure il JBR di Android Studio nella posizione standard. Il secondo attiva automaticamente ESP-IDF 5.5.6 tramite export.bat e lancia build/flash: non serve digitare moto. Percorsi ESP-IDF corrispondono all'installazione Windows documentata in §4; per installazioni diverse adattare il launcher. L'installer salva copie dei launcher in LOCALAPPDATA, così i comandi rimangono disponibili anche passando a branch precedenti; il branch deve comunque avere la configurazione di build compatibile. Rieseguire l'installer dopo aggiornamenti degli script. Il profilo PowerShell esistente viene salvato e aggiornato in un blocco dedicato, senza duplicare il blocco né rimuovere la funzione moto. Non cambia la policy di esecuzione; se bloccata vedere §4.C. I comandi brevi sono da collaudare sul PC.
-
-**Android — alternativa diretta in PowerShell Windows**, da qualsiasi cartella:
-
-```powershell
-& "C:\MotoGPS\moto-gps-waveshare\moto-android.ps1" NewUI
-```
-
-**ESP32 — CMD dopo il comando moto**, dalla cartella firmware:
-
-```cmd
-..\..\moto-esp32.cmd NewUI
-```
-
-Entrambi aggiornano il branch da origin senza merge divergenti, rifiutano modifiche locali tracciate e verificano che HEAD coincida con origin. Aggiornano anche i submodule. Android esegue test, build e installazione ADB sul Samsung; ESP32 verifica le impostazioni di telemetria in sdkconfig, salva un backup datato e modifica solo le voci richieste, riconfigura, verifica i valori, compila e avvia flash/monitor su COM3. Nessun fullclean o erase_flash automatico. In caso di errore non eseguono installazione/flash. Se si cambia dispositivo usare `-Serial` o `-Port`; per sola compilazione aggiungere `-BuildOnly`. Non eseguire entrambi contemporaneamente nello stesso checkout. Non aggirare la policy PowerShell se bloccata: vedere §4.C. Script non ancora provati su Windows; le procedure manuali restano disponibili.
-
+Usare i comandi brevi in apertura. Android usa JAVA_HOME valido o JBR nella posizione standard di Android Studio; non occorre avviare l'IDE. Gli script Windows rifiutano modifiche locali tracciate e revisioni divergenti, aggiornano i submodule e interrompono installazione/flash se la build fallisce. Per procedure manuali vedere sotto.
 
 [GitHub Actions — Project Build](https://github.com/thriller47/moto-gps-waveshare/actions/workflows/project-build.yml). I job `native`, `android` ed `esp32` sono selettivi; `skipped` non è equivalente a un test superato. Per avviare un solo job: pagina Project Build → **Run workflow** → branch `valhalla` → attivare solo la casella desiderata → **Run workflow**. **Non avviare workflow per questa revisione documentale.** Per il codice avviare **una sola CI consolidata alla fine**; una modifica al solo manuale non richiede build.
 
@@ -500,11 +492,11 @@ gh run download ID_RUN -R thriller47/moto-gps-waveshare -n ESP32-Firmware -D C:\
 
 **Prima installazione Android Studio (solo nuovo PC):** scaricare Android Studio dal sito ufficiale Android Developers, completare la procedura iniziale, aprire **SDK Manager** e installare **Android SDK Platform 37 (pacchetto 37.0)**, **Platform-Tools** (include `adb`), **Build-Tools** e **NDK (Side by side) 29.0.14206865**. Aprire come progetto **`platforms/android`**, attendere la sincronizzazione Gradle e autorizzare eventuali download. Se `gradlew.bat` non parte, verificare di essere nella cartella `platforms/android`. Per il debug USB: sul telefono attivare *Opzioni sviluppatore → Debug USB*, collegare un cavo dati e confermare la finestra di autorizzazione RSA; `& $adb devices` deve mostrare il seriale con stato `device`, non `unauthorized`. Se il seriale cambia, usare quello visualizzato invece dell'esempio.
 
-**Build Android locale (PowerShell):** in Android Studio aprire `C:\MotoGPS\moto-gps-waveshare\platforms\android` (non la root). Versioni di riferimento per `valhalla`: JDK/JBR 21, Android SDK Platform **37**, Android Gradle Plugin **9.1.1**, Gradle wrapper **9.3.1** e CMake 3.22.1. Android Studio deve supportare AGP 9.1.1 (almeno Panda 3 Patch 1); in CI rimane JDK 17. **Su `valhalla` il NDK richiesto è `29.0.14206865`** per il supporto alle pagine da 16 KB; il vecchio NDK 27 rimane solo nei checkout non aggiornati.
+**Build Android manuale di recupero (PowerShell):** se si usa Android Studio, aprire `C:\MotoGPS\moto-gps-waveshare\platforms\android` (non la root). Versioni di riferimento per `valhalla`: JDK/JBR 21, Android SDK Platform **37**, Android Gradle Plugin **9.1.1**, Gradle wrapper **9.3.1** e CMake 3.22.1. Android Studio deve supportare AGP 9.1.1 (almeno Panda 3 Patch 1); in CI rimane JDK 17. **Su `valhalla` il NDK richiesto è `29.0.14206865`** per il supporto alle pagine da 16 KB; il vecchio NDK 27 rimane solo nei checkout non aggiornati.
 
-### Aggiornare, testare, compilare e installare Android in un unico passaggio
+### Alternativa manuale — aggiornare, testare, compilare e installare Android
 
-In Android Studio aprire **View → Tool Windows → Terminal** (scorciatoia **Alt+F12**). Se il prompt non inizia con `PS`, digitare `powershell`. Collegare il Samsung via USB e autorizzare il debug. Copiare l'intero blocco seguente in PowerShell Windows, non in WSL. Si può lasciare in esecuzione la rigenerazione MotoPack in WSL: utilizzare il checkout Windows separato.
+Aprire PowerShell Windows; in alternativa usare il terminale PowerShell di Android Studio (Alt+F12). Collegare il Samsung via USB e autorizzare il debug. Copiare l'intero blocco seguente in PowerShell Windows, non in WSL. Si può lasciare in esecuzione la rigenerazione MotoPack in WSL: utilizzare il checkout Windows separato.
 
 Il branch attivo al 24/11/2026 è `NewUI`; dopo il merge autorizzato sostituirlo con `valhalla`. Il blocco si interrompe in caso di errore Git, test/build o installazione, evitando di installare un APK precedente dopo una build fallita.
 
@@ -660,7 +652,7 @@ Confermare con `S` quando richiesto. La policy `RemoteSigned` consente gli scrip
 
 Ora `moto` va digitato **in PowerShell** e apre CMD con IDF attivo nella cartella ESP32. Verificare con `idf.py --version`. L'attivazione dell'ambiente non equivale a un flash o a un test del dispositivo.
 
-### D. Compilazione e flash solo dopo l'attivazione
+### D. Compilazione e flash manuali di recupero
 
 Dopo `moto`, nella finestra CMD:
 
@@ -684,6 +676,14 @@ idf.py -p COM3 flash monitor
 
 **Nel firmware di riferimento sono abilitate le opzioni ESP32 CURVE_ZOOM, SUBPIXEL, MAP_DIRTY_TILES e PERF_TELEMETRY.** Anche le build CI di valhalla usano questi quattro flag e `sdkconfig.perf.defaults`. Per una build locale precedentemente configurata senza statistiche FreeRTOS, verificare le righe `CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS` in `platforms\\esp32\\sdkconfig`: i nuovi defaults non sovrascrivono un sdkconfig già esistente. Se la configurazione rimane precedente, rigenerarla con cura (salvando eventuali impostazioni personalizzate), senza cancellare partizioni flash, mappe o NVS. La telemetria periodica aiuta la diagnosi LVGL ma non è di per sé una garanzia di fluidità.
 
+**Recupero errore telemetria FreeRTOS / xCoreID:** verificare le quattro voci richieste in sdkconfig.perf.defaults. Da CMD ESP-IDF nella cartella firmware:
+
+~~~cmd
+findstr /B /C:"CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=" /C:"CONFIG_FREERTOS_RUN_TIME_STATS_USING_ESP_TIMER=" /C:"CONFIG_FREERTOS_RUN_TIME_COUNTER_TYPE_U64=" /C:"CONFIG_FREERTOS_VTASKLIST_INCLUDE_COREID=" sdkconfig
+~~~
+
+Devono essere tutte y. Il launcher tenta la migrazione mirata con backup datato; se fallisce usare menuconfig o confrontare il backup prima di rigenerare la configurazione. Non cancellare sdkconfig senza backup, non flashare dopo una build fallita.
+
 **Versioni da non confondere:** il PC Windows usa ESP-IDF **5.5.6**; la job ESP32 GitHub Actions del repository utilizza l'immagine **5.5.5**. Non modificare il progetto per far coincidere automaticamente i due ambienti.
 
 La riuscita del comando `moto` **non dimostra da sola** che compilazione, flash o prova su strada siano passati.
@@ -692,11 +692,9 @@ La riuscita del comando `moto` **non dimostra da sola** che compilazione, flash 
 
 **Test sperimentale predizione curva ESP32 (19/11/2026, branch di test):** l'opzione CMake `MOTO_ESP_TURN_ASSIST_EXPERIMENT` è **ON per default** dopo il collaudo e l'integrazione in `valhalla`. La versione precedente A resta ottenibile esplicitamente con `OFF`. Per provare l'assistenza hardware curva mantenendo inalterato Android e il filtro IMU, da **PowerShell con ESP-IDF già attivo** e cartella `platforms\\esp32` lanciare `idf.py -DMOTO_ESP_TURN_ASSIST_EXPERIMENT=ON -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.perf.defaults" build`, verificando che la configurazione CMake utilizzi realmente `ON`. Per tornare al firmware A, eseguire `idf.py -DMOTO_ESP_TURN_ASSIST_EXPERIMENT=OFF -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.perf.defaults" build` e flashare la build precedente o la nuova build OFF. Nella CI standard di `valhalla` il flag è ON; per il rollback usare `-DMOTO_ESP_TURN_ASSIST_EXPERIMENT=OFF`. Non fare flash prima che il build ON sia verde. La modifica non replica C2 identico: non ricevendo nuovi fix GPS ad ogni render, corregge solo con nuovi ancoraggi BLE reali e mantiene uno scostamento eventualmente residuo durante la sosta fino al successivo anchor. Raccogliere il log diagnostico completo nel giro di prova, e confrontare il comportamento rispetto al firmware A precedente.
 
-**Nota storica — firmware Turn Assist da GitHub (19/11/2026):** la run `Project Build` di questo branch produce il firmware ESP32 con `MOTO_ESP_TURN_ASSIST_EXPERIMENT=ON`, dopo controllo esplicito del flag. Aprire la run, confermare `esp32 = success`, scaricare l'artifact `ESP32-Firmware-TURN-ASSIST-ON` e controllare il file `TURN-ASSIST-ON.txt` (flag e commit); nello ZIP sono inclusi binario applicazione, bootloader e partizioni. Eseguire il flash seguendo la sezione 5. Conservare il firmware precedente OFF per ripristino. Dopo il merge la funzione è presente anche negli artifact standard di `valhalla`; l'APK non richiede ulteriori aggiornamenti rispetto alla versione già collaudata. Dopo prova rotonde/rettilinei/ricalcoli condividere la diagnostica completa.
+**Nota storica:** artifact Turn Assist del 19/11 e dettagli di confronto sono conservati nello [snapshot precedente](archive/MANUALE_OPERATIVO_PRE_AUTOMAZIONE_2026-11-24.md).
 
 **Salto tappa nei percorsi non circolari e marcatori ESP32 (integrati in `valhalla`):** nel percorso normale con almeno una tappa intermedia, una volta avviata la navigazione, Android mostra **Salta prossima tappa**. Confermare per chiedere a Valhalla una rotta verso le tappe restanti o direttamente la destinazione finale. La destinazione non si può saltare e, se il calcolo fallisce, il percorso rimane invariato. L'ESP32 mostra **cerchi gialli numerati 1–8** sulla linea verde, solo per le tappe intermedie ancora da visitare nella finestra visibile; un marker fuori mappa non viene visualizzato. Il marker della tappa raggiunta/saltata scompare dopo la prossima finestra BLE, e la bandiera di arrivo resta separata. **Per testare** installare APK e firmware entrambi del branch di prova, perché il suffisso BLE opzionale con coordinate delle tappe non è gestito dalla vecchia versione ESP32. Verificare con diagnostica completa: salto prima tappa, salto ultima tappa intermedia, ricalcolo, BLE e arrivo finale; test su strada da eseguire prima del merge.
-
-**Nota storica (precedente versione di test):** il doppio long-press sul segnalino 1 è stato sostituito dal pulsante fisso `>>` speculare al badge limite di velocità. I segnalini sulla mappa non sono più interattivi.
 
 **Pulsante fisso Salta tappa >> su ESP32 (integrato in `valhalla`):** in navigazione con almeno una tappa intermedia ancora da visitare appare un badge rotondo `>>` sul lato sinistro, **speculare e della stessa dimensione del badge limite velocità** sulla destra. Il pulsante è presente anche quando il numero della tappa è ancora fuori dalla mappa visibile; i marcatori sulla linea verde restano solo informativi. Primo tocco: `TOCCA ANCORA >>`; secondo tocco entro **5 secondi**: invio `SALTO TAPPA RICHIESTO`. Solo Android ricalcola con Valhalla e preserva la destinazione finale; il messaggio conferma la richiesta, non ancora il successo del ricalcolo. Per evitare interazioni accidentali, effettuare i primi test da fermi. Il pulsante sparisce automaticamente quando non rimangono tappe intermedie. Installare APK e firmware dello stesso commit, poiché usano il nuovo bit `NavigationHasPendingWaypoints` nei flag BLE. **Dopo la correzione layout del 19/11:** il bordo del badge è blu (`#2D8CF0`); la distanza alla prossima svolta è sempre centrata sotto la distanza all'arrivo, anche senza tappe, per evitare sovrapposizioni. La distanza all'arrivo e il badge limite velocità non sono stati spostati.
 
@@ -905,12 +903,12 @@ La prossima verifica consiste in **test nativi C++ con segnali sintetici coerent
 
 | Operazione frequente | Dove | Comando o percorso |
 | --- | --- | --- |
-| Aggiornare branch stabile | WSL | `git switch valhalla && git pull --ff-only origin valhalla` |
-| Ricostruire tutto il MotoPack | WSL | `bash scripts/offline_map/rebuild_motopack_wsl.sh --threads 2` |
-| Aprire risultati da Windows | Win + R | `\\wsl.localhost\Ubuntu-24.04\home\mod\motogps-build\ItaliaUnificata-RoadDNA-v2` |
-| Compilare ESP32 | CMD attivato con `moto` | `idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.perf.defaults" build` |
-| Flash sola app ESP32 | CMD/esptool | offset `0x20000` (non `0x10000`) |
-| Compilare Android | PowerShell | `.\gradlew.bat testDebugUnitTest assembleDebug` |
+| Aggiornare e compilare Android | PowerShell | `moto-android NewUI` |
+| Aggiornare e compilare ESP32 | PowerShell | `moto-esp32 NewUI` |
+| Rigenerare MotoPack | PowerShell | `moto-motopack NewUI` |
+| Copiare MotoPack pronto | PowerShell | `moto-motopack NewUI -CopyOnly` |
+| Pacchetto Windows | Esplora file | `C:\MotoGPS\MotoChatGPS-Italia.motopack` |
+| Flash sola app ESP32 (recupero) | CMD/esptool | offset `0x20000` (non `0x10000`) |
 | Ricompilare simulatore | WSL + emsdk | `./scripts/build_web.sh` |
 | Avviare / riavviare server | WSL | `python3 -m http.server 4173 --directory .` (fermare il precedente con Ctrl+C) |
 | Avviare diagnostica unificata | Android | Altre opzioni → Diagnostica e replay GPS → BASE/DEBUG → Avvia diagnostica completa |
