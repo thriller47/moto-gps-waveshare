@@ -271,10 +271,14 @@ void test_frames_are_deterministic() {
   CHECK(first.bytes == second.bytes);
 
   // Navigation-only UI ignores requests for removed pages.
-  moto_nav_ui_set_page(MOTO_UI_PAGE_SPEED);
-  CHECK(moto_nav_ui_get_page() == MOTO_UI_PAGE_NAVIGATION);
-  const Frame restored = capture();
-  CHECK(restored.hash == first.hash);
+  for (auto page : {MOTO_UI_PAGE_SPEED, MOTO_UI_PAGE_COMPASS, MOTO_UI_PAGE_MUSIC}) {
+    moto_nav_ui_set_page(page);
+    CHECK(moto_nav_ui_get_page() == MOTO_UI_PAGE_NAVIGATION);
+    CHECK(capture().hash == first.hash);
+    state.page = page;
+    moto_nav_ui_set_state(&state);
+    CHECK(capture().hash == first.hash);
+  }
 }
 
 void test_clearing_geometry_leaves_no_residue() {
@@ -580,7 +584,7 @@ void test_phone_lifecycle_renders_deterministically() {
 }
 
 void test_removed_music_page_ignores_disconnect_media_state() {
-  // SIGNAL only constructs the navigation page. The disconnection path used
+  // The UI only constructs the navigation page. The disconnection path used
   // to call lv_label_set_text on absent music labels from moto_ui_render.
   moto_nav_ui_set_page(MOTO_UI_PAGE_NAVIGATION);
   moto_nav_ui_set_phone_connection(MOTO_UI_PHONE_OFFLINE);

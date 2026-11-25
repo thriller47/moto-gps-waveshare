@@ -182,6 +182,7 @@ void moto_nav_ui_set_phone_connection(
 /** Local ESP32 battery level, not phone battery; -1 means unavailable. */
 void moto_nav_ui_set_battery(int percentage, uint8_t charging);
 void moto_nav_ui_set_reduce_motion(uint8_t reduce_motion);
+/** Legacy page/media ABI: navigation is the only page; setters below are no-ops. */
 void moto_nav_ui_set_page(moto_ui_page_t page);
 moto_ui_page_t moto_nav_ui_get_page(void);
 void moto_nav_ui_set_page_change_callback(

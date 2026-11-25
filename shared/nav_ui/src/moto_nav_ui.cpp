@@ -48,10 +48,7 @@ constexpr lv_color_t kSkipBlue = LV_COLOR_MAKE(0x2D, 0x8C, 0xF0);
 // Acid green for connection/ready lifecycle only; navigation colors unchanged.
 constexpr lv_color_t kConnectionAcidGreen = LV_COLOR_MAKE(0x32, 0x99, 0x6D); // Muted splash green for connection UI.
 constexpr double kPi = 3.14159265358979323846;
-constexpr int kCompassTickCount = 24;
-constexpr int kSpeedTickCount = 18;
 constexpr int kDesignWidth = 360;
-constexpr std::uint32_t kPageDotsVisibleMs = 5'000;
 // Keep the BLE road-scene limit; unlike the former 40-widget layer, one
 // draw object handles all 24 polylines without joining disconnected streets.
 constexpr std::uint16_t MOTO_UI_ROAD_LINE_WIDGET_LIMIT = MOTO_UI_ROAD_POLYLINE_CAPACITY;
@@ -112,11 +109,7 @@ struct MapPolyline {
 
 struct Ui {
     lv_obj_t *screen = nullptr;
-    lv_obj_t *pages[MOTO_UI_PAGE_COUNT]{};
-    lv_obj_t *page_dots[MOTO_UI_PAGE_COUNT]{};
-    lv_timer_t *page_dots_timer = nullptr;
-    moto_ui_page_t page = MOTO_UI_PAGE_NAVIGATION;
-    bool page_dots_visible = true;
+    lv_obj_t *nav_page = nullptr;
 
     lv_obj_t *nav_map = nullptr;
     lv_obj_t *nav_roads_layer = nullptr;
@@ -173,10 +166,7 @@ struct Ui {
     std::uint32_t skip_last_request_ms = 0;
     lv_obj_t *nav_progress = nullptr;
 
-    // A full-screen empty-state surface replaces the old tiny
-    // WAITING FOR PHONE / WAITING FOR ROUTE caption. It is kept inside the
-    // navigation page so the speed and compass tools remain independently
-    // usable while the phone is disconnected.
+    // A full-screen empty-state surface inside the single navigation page.
     lv_obj_t *nav_lifecycle = nullptr;
     lv_obj_t *nav_lifecycle_symbol = nullptr;
     lv_obj_t *nav_lifecycle_title = nullptr;
@@ -192,34 +182,6 @@ struct Ui {
     bool navigation_has_guidance = false;
     bool navigation_route_request_in_flight = false;
 
-    lv_obj_t *speed_arc = nullptr;
-    lv_obj_t *speed_value = nullptr;
-    lv_obj_t *speed_ticks[kSpeedTickCount]{};
-    lv_point_precise_t speed_tick_points[kSpeedTickCount][2]{};
-
-    lv_obj_t *compass_heading = nullptr;
-    lv_obj_t *compass_cardinal = nullptr;
-    lv_obj_t *compass_speed = nullptr;
-    lv_obj_t *compass_ticks[kCompassTickCount]{};
-    lv_point_precise_t compass_tick_points[kCompassTickCount][2]{};
-    lv_obj_t *compass_letters[4]{};
-
-    lv_obj_t *music_source = nullptr;
-    lv_obj_t *music_title = nullptr;
-    lv_obj_t *music_artist = nullptr;
-    lv_obj_t *music_disc = nullptr;
-    lv_obj_t *music_buttons[4]{};
-    lv_obj_t *music_button_labels[4]{};
-    moto_music_state_t music{};
-    char music_source_text[32]{};
-    char music_title_text[64]{};
-    char music_artist_text[48]{};
-
-    moto_music_command_callback_t music_callback = nullptr;
-    void *music_callback_context = nullptr;
-    moto_page_change_callback_t page_callback = nullptr;
-    void *page_callback_context = nullptr;
-    bool music_page_enabled = true;
     bool reduce_motion = false;
 
 } ui;
@@ -231,14 +193,11 @@ void reset_ui_state() {
     // `ui = {}` materializes the complete aggregate as a temporary.  The
     // offline map buffers make Ui about 15 KiB, so that temporary can consume
     // nearly the whole ESP-IDF main-task stack before LVGL is called.  Clear
-    // the retained instance in place and restore the two non-zero defaults.
+    // the retained instance in place and restore the non-zero defaults.
     std::memset(&ui, 0, sizeof(ui));
-    ui.page = MOTO_UI_PAGE_NAVIGATION;
-    ui.page_dots_visible = true;
     ui.phone_connection = MOTO_UI_PHONE_OFFLINE;
     ui.lifecycle_visual = LifecycleVisual::Hidden;
     ui.lifecycle_target = LifecycleVisual::Hidden;
-    ui.music_page_enabled = true;
     // Force the first geometry payload to bind every mutable LVGL line even
     // when its protocol revision happens to start at zero.
     ui.nav_route_generation = ~std::uint32_t{0};
@@ -264,13 +223,6 @@ lv_obj_t *make_label(lv_obj_t *parent, const lv_font_t *font,
     return label;
 }
 
-void copy_text(char *destination, std::size_t capacity, const char *source,
-               const char *fallback) {
-    if(capacity == 0) return;
-    const char *value = source != nullptr && source[0] != '\0' ? source : fallback;
-    std::snprintf(destination, capacity, "%s", value != nullptr ? value : "");
-}
-
 lv_color_t traffic_color(moto_traffic_t traffic) {
     switch(traffic) {
         case MOTO_TRAFFIC_CLEAR: return kIce;
@@ -279,11 +231,6 @@ lv_color_t traffic_color(moto_traffic_t traffic) {
         case MOTO_TRAFFIC_SEVERE: return kRed;
         default: return kQuiet;
     }
-}
-
-const char *cardinal_name(std::uint16_t heading) {
-    static const char *names[] = {"N", "NE", "E", "SE", "S", "SW", "W", "NW"};
-    return names[((heading + 22U) / 45U) % 8U];
 }
 
 void draw_vehicle_marker(lv_event_t *event) {
@@ -312,103 +259,6 @@ void draw_vehicle_marker(lv_event_t *event) {
     triangle.p[2] = {static_cast<lv_value_precise_t>(area.x1 + marker_px(28)),
                      static_cast<lv_value_precise_t>(area.y1 + marker_px(30))};
     lv_draw_triangle(layer, &triangle);
-}
-
-void update_page_dots() {
-    for(int i = 0; i < MOTO_UI_PAGE_COUNT; ++i) {
-        const bool active = i == static_cast<int>(ui.page);
-        lv_obj_set_size(ui.page_dots[i], px(active ? 16 : 5), px(5));
-        lv_obj_set_style_radius(ui.page_dots[i], px(3), 0);
-        lv_obj_set_style_bg_color(ui.page_dots[i], active ? kWhite : kGraphite, 0);
-        lv_obj_set_x(ui.page_dots[i], px(145 + i * 22 - (active ? 5 : 0)));
-        const bool available = i != MOTO_UI_PAGE_MUSIC || ui.music_page_enabled;
-        if(ui.page_dots_visible && available) {
-            lv_obj_remove_flag(ui.page_dots[i], LV_OBJ_FLAG_HIDDEN);
-        } else {
-            lv_obj_add_flag(ui.page_dots[i], LV_OBJ_FLAG_HIDDEN);
-        }
-    }
-}
-
-void hide_page_dots(lv_timer_t *) {
-    ui.page_dots_visible = false;
-    update_page_dots();
-    if(ui.page_dots_timer != nullptr) lv_timer_pause(ui.page_dots_timer);
-}
-
-void reveal_page_dots() {
-    if(ui.screen == nullptr || ui.page_dots[0] == nullptr) return;
-    ui.page_dots_visible = true;
-    update_page_dots();
-    if(ui.page_dots_timer != nullptr) {
-        lv_timer_set_period(ui.page_dots_timer, kPageDotsVisibleMs);
-        lv_timer_reset(ui.page_dots_timer);
-        lv_timer_resume(ui.page_dots_timer);
-    }
-}
-
-void interaction_event(lv_event_t *) {
-    reveal_page_dots();
-}
-
-void install_interaction_wake(lv_obj_t *object) {
-    if(object == nullptr) return;
-    lv_obj_add_event_cb(object, interaction_event, LV_EVENT_PRESSED, nullptr);
-    const std::uint32_t child_count = lv_obj_get_child_count(object);
-    for(std::uint32_t index = 0; index < child_count; ++index) {
-        install_interaction_wake(lv_obj_get_child(object,
-                                                  static_cast<int32_t>(index)));
-    }
-}
-
-void show_page(moto_ui_page_t page, bool reveal_on_same_page = false) {
-    page = MOTO_UI_PAGE_NAVIGATION;
-    const bool changed = page != ui.page;
-    ui.page = page;
-    for(int i = 0; i < MOTO_UI_PAGE_COUNT; ++i) {
-        if(i == static_cast<int>(page)) {
-            lv_obj_remove_flag(ui.pages[i], LV_OBJ_FLAG_HIDDEN);
-        } else {
-            lv_obj_add_flag(ui.pages[i], LV_OBJ_FLAG_HIDDEN);
-        }
-    }
-    if (ui.nav_map != nullptr) {
-        if (page == MOTO_UI_PAGE_NAVIGATION) {
-            lv_obj_remove_flag(ui.nav_map, LV_OBJ_FLAG_HIDDEN);
-        } else {
-            lv_obj_add_flag(ui.nav_map, LV_OBJ_FLAG_HIDDEN);
-        }
-    }
-    // Navigation state arrives continuously. Only a real page transition or
-    // user action may restart the five-second affordance timer.
-    (void)changed;
-    (void)reveal_on_same_page;
-}
-
-void gesture_event(lv_event_t *) {
-    lv_indev_t *indev = lv_indev_active();
-    if(indev == nullptr) return;
-    const lv_dir_t direction = lv_indev_get_gesture_dir(indev);
-    int next = static_cast<int>(ui.page);
-    if(direction == LV_DIR_LEFT) {
-        next = (next + 1) % MOTO_UI_PAGE_COUNT;
-    } else if(direction == LV_DIR_RIGHT) {
-        next = (next + MOTO_UI_PAGE_COUNT - 1) % MOTO_UI_PAGE_COUNT;
-    } else {
-        return;
-    }
-    if(!ui.music_page_enabled && next == MOTO_UI_PAGE_MUSIC) {
-        next = direction == LV_DIR_LEFT ? MOTO_UI_PAGE_NAVIGATION
-                                        : MOTO_UI_PAGE_COMPASS;
-    }
-    const auto requested = static_cast<moto_ui_page_t>(next);
-    if(ui.page_callback != nullptr) {
-        ui.page_callback(requested, ui.page_callback_context);
-    } else {
-        show_page(requested, true);
-    }
-    reveal_page_dots();
-    lv_indev_wait_release(indev);
 }
 
 void draw_map_line(lv_layer_t *layer, const lv_draw_line_dsc_t &line) {
@@ -822,7 +672,7 @@ struct MapMotionDirtyTiles {
 #endif
 
 void route_motion_tick(lv_timer_t *) {
-    if(ui.page != MOTO_UI_PAGE_NAVIGATION) return;
+    if(ui.nav_page == nullptr) return;
     if(ui.nav_route_target_count < 2 || ui.nav_route_point_count < 2) return;
     // This timer is independent of both the browser's RAF and LVGL's display
     // refresh timer. Its original 25 ms cadence aliases against 60 Hz RAF,
@@ -1691,111 +1541,11 @@ void update_navigation(const moto_ui_state_t *state) {
     }
 }
 
-void update_speedometer(const moto_ui_state_t *state) {
-    char value[8];
-    std::snprintf(value, sizeof(value), "%u",
-                  static_cast<unsigned>(state->speed_kph));
-    lv_label_set_text(ui.speed_value, value);
-    lv_obj_align(ui.speed_value, LV_ALIGN_CENTER, 0, px(-10));
-    lv_arc_set_value(ui.speed_arc, std::min<int>(160, state->speed_kph));
-    for(int i = 0; i < kSpeedTickCount; ++i) {
-        const bool active = state->speed_kph >= static_cast<unsigned>(i * 10);
-        lv_obj_set_style_line_color(ui.speed_ticks[i], active ? kWhite : kGraphite, 0);
-    }
-}
-
-void update_compass(const moto_ui_state_t *state) {
-    char heading[12];
-    std::snprintf(heading, sizeof(heading), "%03u",
-                  static_cast<unsigned>(state->heading_deg));
-    lv_label_set_text(ui.compass_heading, heading);
-    lv_label_set_text(ui.compass_cardinal, cardinal_name(state->heading_deg));
-    char speed[20];
-    std::snprintf(speed, sizeof(speed), "%u km/h",
-                  static_cast<unsigned>(state->speed_kph));
-    lv_label_set_text(ui.compass_speed, speed);
-
-    const double heading_rad = state->heading_deg * kPi / 180.0;
-    for(int i = 0; i < kCompassTickCount; ++i) {
-        const double angle = i * 15.0 * kPi / 180.0 - heading_rad;
-        const double inner = px(i % 3 == 0 ? 138.0 : 145.0);
-        ui.compass_tick_points[i][0] = {
-            static_cast<lv_value_precise_t>(px(180.0) + std::sin(angle) * px(154.0)),
-            static_cast<lv_value_precise_t>(px(180.0) - std::cos(angle) * px(154.0)),
-        };
-        ui.compass_tick_points[i][1] = {
-            static_cast<lv_value_precise_t>(px(180.0) + std::sin(angle) * inner),
-            static_cast<lv_value_precise_t>(px(180.0) - std::cos(angle) * inner),
-        };
-        lv_line_set_points_mutable(ui.compass_ticks[i],
-                                   ui.compass_tick_points[i], 2);
-        lv_obj_set_style_line_color(ui.compass_ticks[i], i == 0 ? kAmber : kQuiet, 0);
-    }
-
-    static const double bearings[4] = {0.0, 90.0, 180.0, 270.0};
-    static const char *letters[4] = {"N", "E", "S", "W"};
-    for(int i = 0; i < 4; ++i) {
-        const double angle = bearings[i] * kPi / 180.0 - heading_rad;
-        const int x = static_cast<int>(px(180.0) + std::sin(angle) * px(112.0));
-        const int y = static_cast<int>(px(180.0) - std::cos(angle) * px(112.0));
-        lv_label_set_text(ui.compass_letters[i], letters[i]);
-        lv_obj_set_pos(ui.compass_letters[i], x - px(14), y - px(10));
-        lv_obj_set_style_text_color(ui.compass_letters[i], i == 0 ? kAmber : kQuiet, 0);
-    }
-}
-
-void update_music_view() {
-    lv_label_set_text(ui.music_source, ui.music.connected ? ui.music_source_text : "PHONE NOT CONNECTED");
-    lv_label_set_text(ui.music_title, ui.music_title_text);
-    lv_label_set_text(ui.music_artist, ui.music_artist_text);
-    lv_label_set_text(ui.music_button_labels[1], ui.music.playing ? "II" : ">");
-    lv_label_set_text(ui.music_button_labels[3], ui.music.liked ? "SENT" : "LIKE");
-    if(ui.music.like_available) {
-        lv_obj_remove_flag(ui.music_buttons[3], LV_OBJ_FLAG_HIDDEN);
-    } else {
-        lv_obj_add_flag(ui.music_buttons[3], LV_OBJ_FLAG_HIDDEN);
-    }
-    lv_obj_set_style_border_color(ui.music_disc,
-                                  ui.music.playing ? kIce : kGraphite, 0);
-}
-
-void music_button_event(lv_event_t *event) {
-    const auto command = static_cast<moto_music_command_t>(
-        reinterpret_cast<std::intptr_t>(lv_event_get_user_data(event)));
-    if(command == MOTO_MUSIC_TOGGLE_PLAYBACK) {
-        ui.music.playing = ui.music.playing == 0;
-    } else if(command == MOTO_MUSIC_LIKE && ui.music.like_available) {
-        ui.music.liked = 1;
-    }
-    update_music_view();
-    if(ui.music_callback != nullptr) ui.music_callback(command, ui.music_callback_context);
-}
-
-void create_page_dots() {
-    for(int i = 0; i < MOTO_UI_PAGE_COUNT; ++i) {
-        ui.page_dots[i] = lv_obj_create(ui.screen);
-        lv_obj_remove_style_all(ui.page_dots[i]);
-        lv_obj_set_size(ui.page_dots[i], px(5), px(5));
-        lv_obj_set_y(ui.page_dots[i], px(337));
-        lv_obj_set_style_bg_opa(ui.page_dots[i], LV_OPA_COVER, 0);
-        lv_obj_set_style_radius(ui.page_dots[i], px(3), 0);
-        lv_obj_clear_flag(ui.page_dots[i], LV_OBJ_FLAG_CLICKABLE);
-    }
-    ui.page_dots_timer = lv_timer_create(hide_page_dots,
-                                         kPageDotsVisibleMs, nullptr);
-    update_page_dots();
-    reveal_page_dots();
-}
-
 void create_navigation_page() {
-    lv_obj_t *page = ui.pages[MOTO_UI_PAGE_NAVIGATION];
+    lv_obj_t *page = ui.nav_page;
     ui.nav_map = make_layer(page);
-    // The map is the topmost hit target across most of the navigation page.
-    // Forward swipe gestures to the page/screen. Local demo mode has been removed;
-    // bound to a long press: a glove, mount or palm must never replace active
-    // phone guidance with the built-in fixture while riding.
+    // Preserve normal touch propagation for navigation controls.
     lv_obj_add_flag(ui.nav_map, LV_OBJ_FLAG_EVENT_BUBBLE);
-    lv_obj_add_flag(ui.nav_map, LV_OBJ_FLAG_GESTURE_BUBBLE);
     lv_obj_set_height(ui.nav_map, px(232));
 
     // All gray streets share one draw object. Per-class styles are applied
@@ -1955,7 +1705,6 @@ void create_navigation_page() {
     lv_obj_set_style_bg_color(ui.nav_lifecycle, kBlack, 0);
     lv_obj_set_style_bg_opa(ui.nav_lifecycle, LV_OPA_COVER, 0);
     lv_obj_add_flag(ui.nav_lifecycle, LV_OBJ_FLAG_EVENT_BUBBLE);
-    lv_obj_add_flag(ui.nav_lifecycle, LV_OBJ_FLAG_GESTURE_BUBBLE);
 
     ui.nav_lifecycle_kicker = make_label(
         ui.nav_lifecycle, &lv_font_montserrat_16, kQuiet,
@@ -2003,163 +1752,6 @@ void create_navigation_page() {
     lv_obj_add_flag(ui.nav_battery, LV_OBJ_FLAG_HIDDEN);
 }
 
-void create_speed_page() {
-    lv_obj_t *page = ui.pages[MOTO_UI_PAGE_SPEED];
-    lv_obj_t *title = make_label(page, &lv_font_montserrat_16, kQuiet, "SPEED");
-    lv_obj_set_style_text_letter_space(title, px(4), 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, px(48));
-
-    ui.speed_arc = lv_arc_create(page);
-    lv_obj_set_size(ui.speed_arc, px(312), px(312));
-    lv_obj_center(ui.speed_arc);
-    lv_arc_set_rotation(ui.speed_arc, 138);
-    lv_arc_set_bg_angles(ui.speed_arc, 0, 264);
-    lv_arc_set_range(ui.speed_arc, 0, 160);
-    lv_obj_remove_style(ui.speed_arc, nullptr, LV_PART_KNOB);
-    lv_obj_clear_flag(ui.speed_arc, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_arc_width(ui.speed_arc, px(5), LV_PART_MAIN);
-    lv_obj_set_style_arc_color(ui.speed_arc, kGraphite, LV_PART_MAIN);
-    lv_obj_set_style_arc_width(ui.speed_arc, px(7), LV_PART_INDICATOR);
-    lv_obj_set_style_arc_color(ui.speed_arc, kIce, LV_PART_INDICATOR);
-
-    for(int i = 0; i < kSpeedTickCount; ++i) {
-        const double angle = (138.0 + i * (264.0 / (kSpeedTickCount - 1))) * kPi / 180.0;
-        const double inner = px(i % 2 == 0 ? 132.0 : 136.0);
-        ui.speed_tick_points[i][0] = {
-            static_cast<lv_value_precise_t>(px(180.0) + std::cos(angle) * px(142.0)),
-            static_cast<lv_value_precise_t>(px(180.0) + std::sin(angle) * px(142.0)),
-        };
-        ui.speed_tick_points[i][1] = {
-            static_cast<lv_value_precise_t>(px(180.0) + std::cos(angle) * inner),
-            static_cast<lv_value_precise_t>(px(180.0) + std::sin(angle) * inner),
-        };
-        ui.speed_ticks[i] = lv_line_create(page);
-        lv_obj_set_size(ui.speed_ticks[i], MOTO_UI_CANVAS_WIDTH,
-                        MOTO_UI_CANVAS_HEIGHT);
-        lv_line_set_points_mutable(ui.speed_ticks[i], ui.speed_tick_points[i], 2);
-        lv_obj_set_style_line_width(ui.speed_ticks[i], px(i % 2 == 0 ? 3 : 2), 0);
-        lv_obj_set_style_line_color(ui.speed_ticks[i], kGraphite, 0);
-    }
-    ui.speed_value = make_label(page, &lv_font_montserrat_48, kWhite, "72");
-    lv_obj_align(ui.speed_value, LV_ALIGN_CENTER, 0, px(-10));
-    lv_obj_t *unit = make_label(page, &lv_font_montserrat_20, kQuiet, "km/h");
-    lv_obj_set_style_text_letter_space(unit, px(2), 0);
-    lv_obj_align(unit, LV_ALIGN_CENTER, 0, px(45));
-    lv_obj_t *caption = make_label(page, &lv_font_montserrat_16, kQuiet, "LIVE SPEED");
-    lv_obj_set_style_text_letter_space(caption, px(2), 0);
-    lv_obj_align(caption, LV_ALIGN_BOTTOM_MID, 0, px(-49));
-}
-
-void create_compass_page() {
-    lv_obj_t *page = ui.pages[MOTO_UI_PAGE_COMPASS];
-    for(int i = 0; i < kCompassTickCount; ++i) {
-        ui.compass_ticks[i] = lv_line_create(page);
-        lv_obj_set_size(ui.compass_ticks[i], MOTO_UI_CANVAS_WIDTH,
-                        MOTO_UI_CANVAS_HEIGHT);
-        lv_obj_set_style_line_width(ui.compass_ticks[i], px(i % 3 == 0 ? 3 : 2), 0);
-        lv_obj_set_style_line_color(ui.compass_ticks[i], kQuiet, 0);
-    }
-    for(int i = 0; i < 4; ++i) {
-        ui.compass_letters[i] = make_label(page, &lv_font_montserrat_16, kQuiet, "N");
-        lv_obj_set_size(ui.compass_letters[i], px(28), px(22));
-        lv_obj_set_style_text_align(ui.compass_letters[i], LV_TEXT_ALIGN_CENTER, 0);
-    }
-    lv_obj_t *index = lv_obj_create(page);
-    lv_obj_remove_style_all(index);
-    lv_obj_set_size(index, px(9), px(9));
-    lv_obj_set_pos(index, px(176), px(18));
-    lv_obj_set_style_bg_color(index, kRed, 0);
-    lv_obj_set_style_bg_opa(index, LV_OPA_COVER, 0);
-    lv_obj_set_style_transform_rotation(index, 450, 0);
-
-    ui.compass_heading = make_label(page, &lv_font_montserrat_48, kAmber, "359");
-    lv_obj_align(ui.compass_heading, LV_ALIGN_CENTER, 0, px(-37));
-    ui.compass_cardinal = make_label(page, &lv_font_montserrat_20, kAmber, "N");
-    lv_obj_align(ui.compass_cardinal, LV_ALIGN_CENTER, 0, px(10));
-    ui.compass_speed = make_label(page, &lv_font_montserrat_20, kWhite, "72 km/h");
-    lv_obj_set_style_text_letter_space(ui.compass_speed, px(1), 0);
-    lv_obj_align(ui.compass_speed, LV_ALIGN_CENTER, 0, px(57));
-}
-
-void create_music_page() {
-    lv_obj_t *page = ui.pages[MOTO_UI_PAGE_MUSIC];
-    ui.music_source = make_label(page, &lv_font_montserrat_16, kQuiet, "APPLE MUSIC");
-    lv_obj_set_style_text_letter_space(ui.music_source, px(2), 0);
-    lv_obj_align(ui.music_source, LV_ALIGN_TOP_MID, 0, px(37));
-
-    ui.music_disc = lv_obj_create(page);
-    lv_obj_set_size(ui.music_disc, px(104), px(104));
-    lv_obj_align(ui.music_disc, LV_ALIGN_TOP_MID, 0, px(71));
-    lv_obj_set_style_radius(ui.music_disc, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(ui.music_disc, kGraphite, 0);
-    lv_obj_set_style_bg_opa(ui.music_disc, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(ui.music_disc, px(5), 0);
-    lv_obj_set_style_border_color(ui.music_disc, kIce, 0);
-    lv_obj_set_style_pad_all(ui.music_disc, 0, 0);
-    lv_obj_t *core = lv_obj_create(ui.music_disc);
-    lv_obj_set_size(core, px(30), px(30));
-    lv_obj_center(core);
-    lv_obj_set_style_radius(core, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(core, kBlack, 0);
-    lv_obj_set_style_bg_opa(core, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(core, 0, 0);
-
-    ui.music_title = make_label(page, &lv_font_montserrat_20, kWhite, "NIGHT RIDE");
-    lv_obj_set_width(ui.music_title, px(260));
-    lv_obj_set_style_text_align(ui.music_title, LV_TEXT_ALIGN_CENTER, 0);
-    lv_label_set_long_mode(ui.music_title, LV_LABEL_LONG_DOT);
-    lv_obj_align(ui.music_title, LV_ALIGN_TOP_MID, 0, px(190));
-    ui.music_artist = make_label(page, &lv_font_montserrat_16, kQuiet, "PHONE NOW PLAYING");
-    lv_obj_set_width(ui.music_artist, px(260));
-    lv_obj_set_style_text_align(ui.music_artist, LV_TEXT_ALIGN_CENTER, 0);
-    lv_label_set_long_mode(ui.music_artist, LV_LABEL_LONG_DOT);
-    lv_obj_align(ui.music_artist, LV_ALIGN_TOP_MID, 0, px(216));
-
-    static const char *labels[4] = {"<<", ">", ">>", "LIKE"};
-    static const int positions[4][3] = {
-        {72, 254, 54}, {153, 247, 62}, {234, 254, 54}, {147, 312, 66},
-    };
-    for(int i = 0; i < 4; ++i) {
-        ui.music_buttons[i] = lv_button_create(page);
-        lv_obj_set_size(ui.music_buttons[i], px(positions[i][2]),
-                        px(i == 3 ? 28 : positions[i][2]));
-        lv_obj_set_pos(ui.music_buttons[i], px(positions[i][0]),
-                       px(positions[i][1]));
-        lv_obj_set_style_radius(ui.music_buttons[i], LV_RADIUS_CIRCLE, 0);
-        lv_obj_set_style_bg_color(ui.music_buttons[i], i == 1 ? kWhite : kGraphite, 0);
-        lv_obj_set_style_bg_opa(ui.music_buttons[i], LV_OPA_COVER, 0);
-        lv_obj_set_style_shadow_width(ui.music_buttons[i], 0, 0);
-        lv_obj_set_style_border_width(ui.music_buttons[i], 0, 0);
-        // Pin the pressed appearance to the idle appearance. The LVGL default
-        // theme darkens and grows pressed buttons (recolor 35% + 3 px grow);
-        // on the ESP32 PPA render path that pre-composited recolor painted as
-        // a hard-edged yellow-green block over the round button. Identical
-        // pressed styles remove the visual state difference by construction.
-        lv_obj_set_style_bg_color(ui.music_buttons[i], i == 1 ? kWhite : kGraphite,
-                                  LV_STATE_PRESSED);
-        lv_obj_set_style_bg_opa(ui.music_buttons[i], LV_OPA_COVER,
-                                LV_STATE_PRESSED);
-        lv_obj_set_style_radius(ui.music_buttons[i], LV_RADIUS_CIRCLE,
-                                LV_STATE_PRESSED);
-        lv_obj_set_style_shadow_width(ui.music_buttons[i], 0, LV_STATE_PRESSED);
-        lv_obj_set_style_border_width(ui.music_buttons[i], 0, LV_STATE_PRESSED);
-        lv_obj_set_style_recolor_opa(ui.music_buttons[i], LV_OPA_TRANSP,
-                                     LV_STATE_PRESSED);
-        lv_obj_set_style_transform_width(ui.music_buttons[i], 0,
-                                         LV_STATE_PRESSED);
-        lv_obj_set_style_transform_height(ui.music_buttons[i], 0,
-                                          LV_STATE_PRESSED);
-        lv_obj_add_flag(ui.music_buttons[i], LV_OBJ_FLAG_GESTURE_BUBBLE);
-        lv_obj_add_event_cb(
-            ui.music_buttons[i], music_button_event, LV_EVENT_CLICKED,
-            reinterpret_cast<void *>(static_cast<std::intptr_t>(i)));
-        ui.music_button_labels[i] = make_label(
-            ui.music_buttons[i], i == 3 ? &lv_font_montserrat_16 : &lv_font_montserrat_20,
-            i == 1 ? kBlack : kWhite, labels[i]);
-        lv_obj_center(ui.music_button_labels[i]);
-    }
-}
-
 void set_boot_content_opacity(void *object, int32_t opacity) {
     lv_obj_set_style_opa(static_cast<lv_obj_t *>(object), opacity, 0);
 }
@@ -2170,10 +1762,6 @@ extern "C" void moto_nav_ui_show_boot_screen(void) {
     /* This entry point is also used while the full UI is live. Delete every
        timer that retains widget pointers before reset_ui_state() and
        lv_obj_clean() invalidate the tree. */
-    if(ui.page_dots_timer != nullptr) {
-        lv_timer_delete(ui.page_dots_timer);
-        ui.page_dots_timer = nullptr;
-    }
     if(ui.nav_route_motion_timer != nullptr) {
         lv_timer_delete(ui.nav_route_motion_timer);
         ui.nav_route_motion_timer = nullptr;
@@ -2290,10 +1878,6 @@ extern "C" void moto_nav_ui_show_boot_screen(void) {
 
 extern "C" void moto_nav_ui_show_power_off_screen(void) {
     if(ui.screen == nullptr) return;
-    if(ui.page_dots_timer != nullptr) {
-        lv_timer_delete(ui.page_dots_timer);
-        ui.page_dots_timer = nullptr;
-    }
     if(ui.nav_route_motion_timer != nullptr) {
         lv_timer_delete(ui.nav_route_motion_timer);
         ui.nav_route_motion_timer = nullptr;
@@ -2307,6 +1891,7 @@ extern "C" void moto_nav_ui_show_power_off_screen(void) {
         ui.nav_success_timer = nullptr;
     }
 
+    ui.nav_page = nullptr;
     lv_obj_clean(ui.screen);
     lv_obj_set_style_bg_color(ui.screen, LV_COLOR_MAKE(0x00, 0x00, 0x00), 0);
     lv_obj_set_style_bg_opa(ui.screen, LV_OPA_COVER, 0);
@@ -2335,16 +1920,8 @@ extern "C" void moto_nav_ui_create(void) {
     lv_obj_set_style_bg_color(ui.screen, kBlack, 0);
     lv_obj_set_style_bg_opa(ui.screen, LV_OPA_COVER, 0);
 
-    for(int i = 0; i < MOTO_UI_PAGE_COUNT; ++i) {
-        ui.pages[i] = make_layer(ui.screen);
-        lv_obj_add_flag(ui.pages[i], LV_OBJ_FLAG_GESTURE_BUBBLE);
-    }
+    ui.nav_page = make_layer(ui.screen);
     create_navigation_page();
-    // Press events are delivered to the topmost object under the finger, not
-    // necessarily to its page. Register once across the finished tree so any
-    // touch reliably wakes the dots, including the map and music controls.
-
-
 
     moto_ui_state_t initial{};
     initial.mode = MOTO_UI_ACQUIRING_FIX;
@@ -2352,22 +1929,11 @@ extern "C" void moto_nav_ui_create(void) {
     initial.maneuver = MOTO_MANEUVER_STRAIGHT;
     initial.traffic = MOTO_TRAFFIC_UNKNOWN;
     moto_nav_ui_set_state(&initial);
-    show_page(MOTO_UI_PAGE_NAVIGATION, true);
 }
 
 extern "C" void moto_nav_ui_set_state(const moto_ui_state_t *state) {
-    if(state == nullptr || ui.screen == nullptr) return;
-    show_page(MOTO_UI_PAGE_NAVIGATION);
-    // Hidden pages do not need to be invalidated. Page changes immediately
-    // apply a fresh snapshot through PhoneNavBridge, so this keeps every page
-    // correct while avoiding three full page redraws per navigation update.
-    switch(ui.page) {
-        case MOTO_UI_PAGE_NAVIGATION: update_navigation(state); break;
-        case MOTO_UI_PAGE_SPEED: update_speedometer(state); break;
-        case MOTO_UI_PAGE_COMPASS: update_compass(state); break;
-        case MOTO_UI_PAGE_MUSIC:
-        case MOTO_UI_PAGE_COUNT: break;
-    }
+    if(state == nullptr || ui.nav_page == nullptr) return;
+    update_navigation(state);
 }
 
 extern "C" void moto_nav_ui_show_waypoint_reached(uint8_t index, uint8_t total) {
@@ -2399,17 +1965,12 @@ extern "C" void moto_nav_ui_clear_waypoint_reached(void) {
 }
 
 extern "C" void moto_nav_ui_set_motion_state(const moto_ui_state_t *state) {
-    if(state == nullptr || ui.screen == nullptr || state->page != ui.page) return;
-    // QMI8658 samples arrive at high frequency. Only the route polyline or
-    // compass rose actually changes with yaw; labels, arcs and hidden pages
-    // remain untouched so LVGL submits a small, bounded dirty region.
-    if(ui.page == MOTO_UI_PAGE_NAVIGATION) {
-        update_road_geometry(state);
-        update_route_geometry(state);
-        update_waypoint_markers(state);
-    } else if(ui.page == MOTO_UI_PAGE_COMPASS) {
-        update_compass(state);
-    }
+    if(state == nullptr || ui.nav_page == nullptr ||
+       state->page != MOTO_UI_PAGE_NAVIGATION) return;
+    // High-rate QMI8658/GPS motion only updates the map geometry.
+    update_road_geometry(state);
+    update_route_geometry(state);
+    update_waypoint_markers(state);
 }
 
 extern "C" void moto_nav_ui_set_phone_connection(
@@ -2467,56 +2028,18 @@ extern "C" void moto_nav_ui_set_reduce_motion(uint8_t reduce_motion) {
     refresh_lifecycle();
 }
 
-extern "C" void moto_nav_ui_set_page(moto_ui_page_t page) {
-    if(ui.screen != nullptr) show_page(page, true);
-}
-
+// Legacy ABI retained for the BLE bridge, native tests and WASM callers.
+// There are no alternate pages or phone-media widgets to update.
+extern "C" void moto_nav_ui_set_page(moto_ui_page_t) {}
 extern "C" moto_ui_page_t moto_nav_ui_get_page(void) {
-    return ui.page;
+    return MOTO_UI_PAGE_NAVIGATION;
 }
-
 extern "C" void moto_nav_ui_set_page_change_callback(
-    moto_page_change_callback_t callback, void *context) {
-    ui.page_callback = callback;
-    ui.page_callback_context = context;
-}
-
-extern "C" void moto_nav_ui_set_music_state(const moto_music_state_t *state) {
-    if(state == nullptr || ui.screen == nullptr) return;
-    // SIGNAL only creates the navigation page. A BLE media update (including
-    // the disconnect reset) must not pass null, uncreated LVGL labels to
-    // lv_label_set_text(): doing so stalls moto_ui_render until task WDT fires.
-    if(ui.music_source == nullptr || ui.music_title == nullptr ||
-       ui.music_artist == nullptr || ui.music_disc == nullptr ||
-       ui.music_button_labels[1] == nullptr ||
-       ui.music_button_labels[3] == nullptr ||
-       ui.music_buttons[3] == nullptr) return;
-    ui.music = *state;
-    copy_text(ui.music_source_text, sizeof(ui.music_source_text),
-              state->source_name, "PHONE MEDIA");
-    copy_text(ui.music_title_text, sizeof(ui.music_title_text),
-              state->track_title, "--");
-    copy_text(ui.music_artist_text, sizeof(ui.music_artist_text),
-              state->artist_name, "--");
-    ui.music.source_name = ui.music_source_text;
-    ui.music.track_title = ui.music_title_text;
-    ui.music.artist_name = ui.music_artist_text;
-    update_music_view();
-}
-
-extern "C" void moto_nav_ui_set_music_page_enabled(uint8_t enabled) {
-    if(ui.screen == nullptr) return;
-    ui.music_page_enabled = enabled != 0;
-    if(!ui.music_page_enabled && ui.page == MOTO_UI_PAGE_MUSIC) {
-        show_page(MOTO_UI_PAGE_NAVIGATION, true);
-    }
-}
-
+    moto_page_change_callback_t, void *) {}
+extern "C" void moto_nav_ui_set_music_state(const moto_music_state_t *) {}
+extern "C" void moto_nav_ui_set_music_page_enabled(uint8_t) {}
 extern "C" void moto_nav_ui_set_music_command_callback(
-    moto_music_command_callback_t callback, void *context) {
-    ui.music_callback = callback;
-    ui.music_callback_context = context;
-}
+    moto_music_command_callback_t, void *) {}
 
 extern "C" void moto_nav_ui_take_perf_stats(moto_nav_ui_perf_stats_t *out) {
     if(out == nullptr) return;
