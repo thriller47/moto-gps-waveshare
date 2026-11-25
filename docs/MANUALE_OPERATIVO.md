@@ -235,6 +235,10 @@ Se la connessione tra telefono ed ESP32 si interrompe **involontariamente** (es.
 
 **Nota consumi:** schermo nero e polling IMU più lento dovrebbero ridurre il consumo; **l'autonomia effettiva non è misurata** e va verificata con batteria/USB nelle diverse condizioni.
 
+### Road DNA Explorer (sperimentale, NewUI)
+
+Con il MotoPack già installato, aprire **Crea tour**, lasciare attivo **Explorer**, scegliere 30–300 km, direzione N/E/S/O e profilo Curve, Panorami o Touring. Aggiungere eventuali tappe obbligatorie nell'ordine desiderato. Toccare **Genera itinerari**: vengono calcolati fino a otto candidati sul grafo locale, senza inviare richieste online. Nell'anteprima scegliere una delle massimo tre varianti distinte per vedere il percorso e le sue tappe; MotoScore, curve, tornanti e ripetizioni sono stime, dislivello e luoghi possono essere non disponibili. La distanza è indicativa; verificare sempre il giro reale. Con più tappe obbligatorie può risultare una sola variante. È possibile salvare o avviare il tour selezionato; l'avvio ricalcola con le tappe scelte dalla posizione corrente. Disattivare Explorer per usare il normale tour singolo anche online. Non serve rigenerare il MotoPack o aggiornare ESP32 per questa funzione. Prima prova: `moto-android NewUI`, poi modalità aereo con GPS e grafo locale disponibile. Funzione non ancora collaudata.
+
 ## 1.2. Road DNA online — chiavi Geoapify e OpenTripMap
 
 **Non serve alcuna chiave per la navigazione o per Road DNA offline.** Le funzioni online sono integrate in `valhalla`; il funzionamento dei singoli provider e la completezza delle schede dipendono dalle credenziali, dalla rete e dai dati disponibili.

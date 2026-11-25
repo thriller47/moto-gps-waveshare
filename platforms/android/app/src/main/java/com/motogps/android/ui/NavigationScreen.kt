@@ -61,6 +61,7 @@ import com.motogps.android.viewmodel.PlaceSearchResult
 import com.motogps.android.viewmodel.SavedCircularTour
 import com.motogps.android.viewmodel.TourSession
 import com.motogps.android.viewmodel.RouteOption
+import com.motogps.android.viewmodel.ExplorerProfile
 import com.motogps.android.viewmodel.RoadDnaSummary
 import com.motogps.android.viewmodel.RoadDnaElevation
 import com.motogps.android.viewmodel.RoadDnaTerrainAnalysis
@@ -760,6 +761,7 @@ fun OfflineMapsDialog(
 fun NavigationScreen(
     onSearch: (String) -> Unit,
     onCircularTour: (Int, Int) -> Unit = { _, _ -> },
+    onRoadDnaExplorer: (Int, Int, ExplorerProfile) -> Unit = { _, _, _ -> },
     onConnectRequest: () -> Unit,
     connectionState: String,
     coffeeTimeoutMinutes: Int = 10,
@@ -2061,6 +2063,8 @@ fun NavigationScreen(
     var showCircularTourDialog by remember { mutableStateOf(false) }
     var circularDistanceKm by remember { mutableFloatStateOf(100f) }
     var circularOrientation by remember { mutableIntStateOf(0) }
+    var explorerEnabled by remember { mutableStateOf(true) }
+    var explorerProfile by remember { mutableStateOf(ExplorerProfile.CURVES) }
     var showSaveCircularDialog by remember { mutableStateOf(false) }
     var savedTourName by remember { mutableStateOf("") }
     var showSavedToursDialog by remember { mutableStateOf(false) }
@@ -2200,7 +2204,7 @@ fun NavigationScreen(
             shape = RoundedCornerShape(24.dp),
             tonalElevation = 0.dp,
             onDismissRequest = { showCircularTourDialog = false },
-            title = { Text("Tour circolare con tappe") },
+            title = { Text(if (explorerEnabled) "Road DNA Explorer" else "Tour circolare con tappe") },
             text = {
                 Column(
                     modifier = Modifier.heightIn(max = 520.dp)
@@ -2265,6 +2269,22 @@ fun NavigationScreen(
                                     )
                                 )
                             }
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = explorerEnabled, onCheckedChange = { explorerEnabled = it })
+                        Text("Explorer · fino a 3 itinerari offline")
+                    }
+                    if (explorerEnabled) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            ExplorerProfile.entries.forEach { profile ->
+                                FilterChip(selected = explorerProfile == profile,
+                                    onClick = { explorerProfile = profile },
+                                    label = { Text(profile.label) })
+                            }
+                        }
+                        Text("Curve, distanza, dislivello e luoghi vicini: valori indicativi. " +
+                            "Richiede Valhalla offline; con più tappe obbligatorie può risultare un solo giro.",
+                            style = MaterialTheme.typography.bodySmall)
                     }
                     Text("Luoghi da visitare (${circularMandatoryStops.size}/8)",
                         style = MaterialTheme.typography.titleSmall)
@@ -2363,10 +2383,11 @@ fun NavigationScreen(
             confirmButton = {
                 Button(onClick = {
                     showCircularTourDialog = false
-                    onCircularTour(circularDistanceKm.roundToInt(), circularOrientation)
+                    if (explorerEnabled) onRoadDnaExplorer(circularDistanceKm.roundToInt(), circularOrientation, explorerProfile)
+                    else onCircularTour(circularDistanceKm.roundToInt(), circularOrientation)
                 }, enabled = !isNavigating && !isLoading,
                     modifier = Modifier.heightIn(min = 52.dp)) {
-                    Text("Calcola tour circolare",
+                    Text(if (explorerEnabled) "Genera itinerari" else "Calcola tour circolare",
                         style = MaterialTheme.typography.labelMedium)
                 }
             },
@@ -2939,7 +2960,7 @@ fun NavigationScreen(
                     RouteMapView(
                         nightMode = nightMapEnabled,
                         geoPoints = geoPoints,
-                        routeFitKey = selectedRoute?.rawRouteJson?.optString("route_id")
+                        routeFitKey = selectedRoute?.let { it.id + ":" + it.rawRouteJson.optString("route_id") }
                             ?: "preview-without-route",
                         currentLocation = currentLocation,
                         destinationLocation = Pair(routePreview.latitude, routePreview.longitude),
@@ -2993,6 +3014,7 @@ fun NavigationScreen(
                                 savedTourName = ""
                                 showSaveCircularDialog = true
                             },
+                            enabled = !isLoading && selectedRoute != null,
                             modifier = Modifier.fillMaxWidth()
                                 .padding(horizontal = 16.dp, vertical = 4.dp)
                         ) {
@@ -3132,7 +3154,19 @@ fun NavigationScreen(
                                                 style = MaterialTheme.typography.labelMedium,
                                                 color = MotoChatColors.TextMuted)
                                         }
-                                        if (isSelected && selectedTerrain != null) {
+                                        val metrics = option.explorerMetrics
+                                        if (metrics != null) {
+                                            Text("MotoScore indicativo: ${metrics.score}/100",
+                                                style = MaterialTheme.typography.titleSmall,
+                                                color = MotoChatColors.Green)
+                                            Text("${metrics.curves} curve · ${metrics.hairpins} tornanti stimati" +
+                                                " · ripetizioni ~${metrics.repeatedPercent}%",
+                                                style = MaterialTheme.typography.bodySmall)
+                                            Text("Dislivello: " + (metrics.ascentMeters?.let { "+$it m" } ?: "n.d.") +
+                                                " · Luoghi vicini: " + (metrics.touristPlaces?.toString() ?: "n.d."),
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MotoChatColors.TextMuted)
+                                        } else if (isSelected && selectedTerrain != null) {
                                             Text("Road DNA · " + selectedTerrain.curves.index +
                                                 " · " + selectedTerrain.curves.total +
                                                 " curve stimate",
@@ -3165,7 +3199,8 @@ fun NavigationScreen(
                                 }
                             }
                             OutlinedButton(onClick = { onRouteSelected(routePreview) }) {
-                                Text("Riprova calcolo percorso")
+                                Text(if (routePreviewError?.startsWith("Explorer:") == true)
+                                    "Calcola tour singolo (anche online)" else "Riprova calcolo percorso")
                             }
                         }
                     }

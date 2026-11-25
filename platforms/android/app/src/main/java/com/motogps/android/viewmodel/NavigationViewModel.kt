@@ -43,6 +43,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -72,7 +75,9 @@ data class RouteOption(
     val distanceMeters: Long,
     val durationSeconds: Long,
     val steps: List<String>,
-    val rawRouteJson: JSONObject
+    val rawRouteJson: JSONObject,
+    val explorerStops: List<PlaceSearchResult>? = null,
+    val explorerMetrics: ExplorerMetrics? = null
 )
 
 class NavigationViewModel(internal val bleManager: MotoBLEManager, private val appContext: Context? = null) : ViewModel() {
@@ -1217,6 +1222,122 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         }
     }
 
+    /** Bounded, offline-only multi-loop search. Ordinary routing is unchanged. */
+    fun previewRoadDnaExplorer(distanceKm: Int, orientationDegrees: Int, profile: ExplorerProfile) {
+        if (_isNavigating.value || _isLoading.value || _isDownloadingMap.value) return
+        val context = appContext ?: navigationMapsContext
+        if (context == null || !OfflineValhallaRouter.hasTiles(context)) {
+            _errorMessage.value = "Explorer richiede Valhalla offline. Installa il MotoPack."
+            return
+        }
+        if (!hasFirstFix) {
+            _errorMessage.value = "Attendi un fix GPS valido per Explorer"
+            return
+        }
+        val (lat, lon) = currentLocation.value
+        val mandatory = _circularMandatoryStops.value.toList()
+        if (CircularTourPlanner.straightLineMinimumKm(lat, lon,
+                mandatory.map { it.latitude to it.longitude }) > distanceKm) {
+            _errorMessage.value = "Le tappe obbligatorie superano la distanza richiesta già in linea d'aria."
+            return
+        }
+        val plans = try {
+            RoadDnaExplorer.stopPlans(lat, lon, distanceKm, orientationDegrees, mandatory)
+        } catch (e: IllegalArgumentException) {
+            _errorMessage.value = "Parametri Explorer non validi: ${e.message}"
+            return
+        }
+        val start = PlaceSearchResult("Ritorno al punto di partenza", "", "Tour circolare", lat, lon)
+        val preferences = _routePreferences.value.copy(
+            style = if (profile == ExplorerProfile.PANORAMA) RouteStyle.PANORAMIC else RouteStyle.TOURING,
+            curveLevel = if (profile == ExplorerProfile.CURVES) 3 else 1)
+        invalidateRoadDna()
+        resetRoutePreviewElevation()
+        routePreviewJob?.cancel()
+        resumeOriginSession = null
+        previewOriginOverride = lat to lon
+        circularRequestedKm = distanceKm
+        circularOrientationDegrees = orientationDegrees
+        _routePreferences.value = preferences
+        _routeWaypoints.value = plans.firstOrNull().orEmpty()
+        _routePreview.value = start
+        _routeOptions.value = emptyList()
+        _selectedRouteIndex.value = 0
+        _routingSource.value = null
+        _routePreviewError.value = null
+        _errorMessage.value = null
+        _isLoading.value = true
+        routePreviewJob = viewModelScope.launch {
+            try {
+                val options = withContext(Dispatchers.IO) {
+                    val candidates = mutableListOf<Pair<RouteOption, RoadDnaExplorer.Footprint>>()
+                    for ((index, stops) in plans.withIndex()) {
+                        currentCoroutineContext().ensureActive()
+                        val option = try {
+                            val response = OfflineValhallaRouter.route(context, lat, lon, lat, lon,
+                                preferences = preferences, waypoints = stops.map { it.latitude to it.longitude })
+                                ?: continue
+                            val route = response.getJSONObject("route")
+                            val distance = route.getLong("total_distance_m")
+                            val duration = route.getLong("estimated_duration_s")
+                            if (distance <= 0 || duration <= 0) continue
+                            val maneuvers = route.optJSONArray("maneuvers")
+                            val steps = (0 until (maneuvers?.length() ?: 0)).mapNotNull {
+                                maneuvers?.optJSONObject(it)?.optString("instruction")?.takeIf { s -> s.isNotBlank() }
+                            }
+                            RouteOption("explorer-$index", "Explorer", distance, duration, steps, route, stops)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            Log.w("NavigationVM", "Explorer candidate $index unavailable", e)
+                            continue
+                        }
+                        val shape = RoadDnaAnalysis.geometry(option.rawRouteJson)
+                        if (shape.size < 2) continue
+                        val footprint = RoadDnaExplorer.footprint(shape, lat to lon)
+                        candidates.add(option.copy(explorerMetrics = RoadDnaExplorer.metrics(
+                            option, distanceKm, profile, footprint)) to footprint)
+                    }
+                    val shortlist = mutableListOf<Pair<RouteOption, RoadDnaExplorer.Footprint>>()
+                    val near = candidates.filter {
+                        kotlin.math.abs(it.first.distanceMeters / 1000.0 - distanceKm) <= distanceKm * 0.25
+                    }.ifEmpty { candidates }
+                    for (candidate in near.sortedByDescending { it.first.explorerMetrics?.score ?: 0 }) {
+                        if (shortlist.none { RoadDnaExplorer.similarity(it.second, candidate.second) >= 0.80 })
+                            shortlist.add(candidate)
+                        if (shortlist.size >= RoadDnaExplorer.FINALISTS) break
+                    }
+                    shortlist.map { (option, footprint) ->
+                        currentCoroutineContext().ensureActive()
+                        val tourism = try {
+                            RoadDnaExplorer.touristCount(RoadDnaAnalysis.analyze(context, option), profile)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            Log.w("NavigationVM", "Explorer tourist index unavailable", e)
+                            null
+                        }
+                        option.copy(explorerMetrics = RoadDnaExplorer.metrics(
+                            option, distanceKm, profile, footprint, tourism))
+                    }.sortedByDescending { it.explorerMetrics?.score ?: 0 }.take(3)
+                        .mapIndexed { index, option -> option.copy(name = "Explorer ${profile.label} · ${index + 1}") }
+                }
+                if (options.isEmpty()) throw IllegalStateException("Nessun anello trovato nel grafo locale")
+                _routeWaypoints.value = options.first().explorerStops.orEmpty()
+                _routeOptions.value = options
+                _routingSource.value = "Explorer offline"
+                DiagnosticLog.event("ROAD_DNA_EXPLORER", "plans=${plans.size} results=${options.size}")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _routePreviewError.value = "Explorer: ${e.message ?: "calcolo non riuscito"}"
+                _errorMessage.value = _routePreviewError.value
+            } finally {
+                if (isActive) _isLoading.value = false
+            }
+        }
+    }
+
     fun previewRoute(place: PlaceSearchResult) {
         invalidateRoadDna()
         if (place.requiresRoadAccess) {
@@ -1261,6 +1382,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         if (index in _routeOptions.value.indices && index != _selectedRouteIndex.value) {
             invalidateRoadDna()
             resetRoutePreviewElevation()
+            if (_isLoading.value || _isNavigating.value || _isDownloadingMap.value) return
+            _routeOptions.value[index].explorerStops?.let { _routeWaypoints.value = it.toList() }
             _selectedRouteIndex.value = index
         }
     }
@@ -1271,6 +1394,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         resumeOriginSession = null
         _hasArrived.value = false
         arrivalDetector.reset()
+        if (routePreviewJob?.isActive == true) _isLoading.value = false
         routePreviewJob?.cancel()
         waypointSearchJob?.cancel()
         previewOriginOverride = null

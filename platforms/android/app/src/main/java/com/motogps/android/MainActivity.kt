@@ -375,6 +375,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     onCircularTour = { distanceKm, orientation ->
                         viewModel.previewCircularTour(distanceKm, orientation)
                     },
+                    onRoadDnaExplorer = { distanceKm, orientation, profile ->
+                        viewModel.previewRoadDnaExplorer(distanceKm, orientation, profile)
+                    },
                     onConnectRequest = {
                         checkPermissionsAndScan(forceScan = true)
                     },
