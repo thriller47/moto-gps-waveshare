@@ -33,6 +33,28 @@ int failures = 0;
     }                                                                      \
   } while (false)
 
+void test_route_start_visual_trim() {
+  using moto_nav_route_sampling::trim_start;
+  struct Point { float x; float y; };
+  const Point straight[]{{233, 254}, {233, 200}};
+  const auto a = trim_start(straight, 2, 7.0F);
+  CHECK(a.next_index == 1 && a.x == 233 && a.y == 247);
+
+  // Duplicate points and a bend: consume 3 px then 4 px, never invent
+  // a diagonal or extend past the final destination.
+  const Point bend[]{{0, 0}, {0, 0}, {0, -3}, {10, -3}, {10, -20}};
+  const auto b = trim_start(bend, 5, 7.0F);
+  CHECK(b.next_index == 3 && b.x == 4 && b.y == -3);
+  const auto boundary = trim_start(bend, 5, 3.0F);
+  CHECK(boundary.next_index == 3 && boundary.x == 0 && boundary.y == -3);
+
+  const Point short_route[]{{0, 0}, {0, -7}};
+  const auto c = trim_start(short_route, 2, 7.0F);
+  CHECK(c.next_index == 1 && c.x == 0 && c.y == 0);
+  const auto unchanged = trim_start(straight, 2, 0.0F);
+  CHECK(unchanged.next_index == 1 && unchanged.x == 233 && unchanged.y == 254);
+}
+
 void test_gray_road_simplification_preserves_junctions() {
   // Long straight street becomes one segment in screen coordinates.
   lv_point_precise_t straight[12]{};
@@ -989,6 +1011,7 @@ int main(int argc, char **argv) {
       [](std::uint8_t byte) { return byte == 0x00; });
   CHECK(all_black);
 
+  test_route_start_visual_trim();
   test_gray_road_simplification_preserves_junctions();
   test_segment_clip_conserves_endpoints_and_caps();
   test_motion_render_pacing_policy();

@@ -12,6 +12,39 @@
 // line before interpolating, so no false diagonal is ever invented.
 namespace moto_nav_route_sampling {
 
+// Screen-space start of a visually shortened route. The remaining vertices
+// stay untouched, including the destination. If the whole route is shorter
+// than the trim, keep it rather than hiding the last approach.
+struct TrimmedStart {
+    std::uint16_t next_index;
+    float x;
+    float y;
+};
+
+template <typename Point>
+inline TrimmedStart trim_start(const Point *points, std::uint16_t count,
+                               float distance_px) {
+    if(points == nullptr || count == 0) return {0, 0.0F, 0.0F};
+    const TrimmedStart original{1, static_cast<float>(points[0].x),
+                                  static_cast<float>(points[0].y)};
+    if(count < 2 || !(distance_px > 0.0F)) return original;
+    float remaining = distance_px;
+    for(std::uint16_t i = 1; i < count; ++i) {
+        const float ax = static_cast<float>(points[i - 1].x);
+        const float ay = static_cast<float>(points[i - 1].y);
+        const float dx = static_cast<float>(points[i].x) - ax;
+        const float dy = static_cast<float>(points[i].y) - ay;
+        const float length = std::sqrt(dx * dx + dy * dy);
+        if(length <= 0.0F) continue;
+        if(remaining < length) {
+            const float fraction = remaining / length;
+            return {i, ax + fraction * dx, ay + fraction * dy};
+        }
+        remaining -= length;
+    }
+    return original;
+}
+
 inline void align_by_arc_fraction(
     const float *current_x, const float *current_y, std::uint8_t current_count,
     const float *target_x, const float *target_y, std::uint8_t target_count,

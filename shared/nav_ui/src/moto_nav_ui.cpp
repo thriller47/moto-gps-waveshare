@@ -101,6 +101,9 @@ constexpr int marker_px(int design_units) {
 constexpr int kMarkerAnchorX = MOTO_UI_CANVAS_WIDTH / 2;
 constexpr int kMarkerAnchorY = px(196);
 constexpr int kMarkerBaseOffsetY = marker_px(36);
+// Physical screen pixels, independent of map zoom. The base-anchored
+// vehicle marker exposes the rounded route cap behind it.
+constexpr float kRouteStartTrimPx = 7.0F;
 
 struct MapPolyline {
     const lv_point_precise_t *points = nullptr;
@@ -479,8 +482,24 @@ void draw_map_polyline(lv_event_t *event) {
     lv_draw_line_dsc_init(&line);
     line.base.layer = layer;
     lv_obj_init_draw_line_dsc(object, LV_PART_MAIN, &line);
-    for(std::uint16_t index = 1; index < polyline->count; ++index) {
+    // Only the two selected-route strokes share this visual trim. Keep the
+    // original projected/interpolated points for motion and invalidation.
+    const bool selected_route =
+        object == ui.nav_route || object == ui.nav_route_shadow;
+    const auto start = moto_nav_route_sampling::trim_start(
+        polyline->points, polyline->count,
+        selected_route ? kRouteStartTrimPx : 0.0F);
+    for(std::uint16_t index = start.next_index; index < polyline->count; ++index) {
         line.p1 = polyline->points[index - 1];
+        if(index == start.next_index && selected_route) {
+            if constexpr(std::is_integral_v<lv_value_precise_t>) {
+                line.p1.x = static_cast<lv_value_precise_t>(std::lround(start.x));
+                line.p1.y = static_cast<lv_value_precise_t>(std::lround(start.y));
+            } else {
+                line.p1.x = static_cast<lv_value_precise_t>(start.x);
+                line.p1.y = static_cast<lv_value_precise_t>(start.y);
+            }
+        }
         line.p2 = polyline->points[index];
         line.p1.x += object_area.x1;
         line.p2.x += object_area.x1;
@@ -861,10 +880,13 @@ void route_motion_tick(lv_timer_t *) {
         }
     }
     if(route_moved) {
-        // The 13px shadow is wider than the green route stroke.
+        // Bound the untrimmed swept segments, including the shadow cap
+        // and the maximum displacement of its trimmed start.
+        const int padding = std::max(px(13),
+            (px(13) + 1) / 2 + static_cast<int>(std::ceil(kRouteStartTrimPx)) + 2);
         dirty.mark_polyline(ui.nav_route_points, ui.nav_route_x,
                             ui.nav_route_y, 0, ui.nav_route_point_count,
-                            px(13), map_width, map_height);
+                            padding, map_width, map_height);
     }
 #endif
     bool pixels_changed = false;
