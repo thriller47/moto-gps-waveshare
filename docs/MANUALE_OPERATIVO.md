@@ -1,6 +1,6 @@
 # Moto Chat GPS — Manuale operativo
 
-**Aggiornato:** 24 novembre 2026 · **Repository:** thriller47/moto-gps-waveshare · **Branch stabile:** valhalla · **Branch di lavoro:** NewUI.
+**Aggiornato:** 25 novembre 2026 · **Repository:** thriller47/moto-gps-waveshare · **Branch stabile:** valhalla · **Branch di lavoro:** NewUI.
 
 ## Prima di cominciare — i quattro comandi quotidiani
 
@@ -14,6 +14,26 @@ Aprire **PowerShell di Windows** dal menu Start. Il prompt deve iniziare con `PS
 | `moto-simulator NewUI` | Aggiorna WSL, compila WASM, avvia il server locale e apre il browser. |
 
 Sostituire NewUI con il branch desiderato, per esempio valhalla dopo l'integrazione. I launcher sono disponibili sul branch NewUI e vengono installati fuori dal checkout; il branch da compilare deve avere una configurazione compatibile. **Collaudi riferiti dall'utente:** launcher ESP32 COM4 funzionante, MotoPack v3 generato manualmente e copiato con CopyOnly, import e quote offline funzionanti, simulatore avviato con apertura browser. Restano da verificare la nuova gestione Ctrl+C e gli altri percorsi automatici non ancora provati. La build Android manuale e il nuovo layout Road DNA sono stati confermati dall'utente.
+
+### PC pulito — clonare il repository da zero (Windows)
+
+1. Installare **Git for Windows** da https://git-scm.com/download/win (oppure usare da PowerShell `winget install --id Git.Git -e`). Chiudere e riaprire PowerShell; verificare che `git --version` funzioni.
+2. Per scaricare il progetto, eseguire questi comandi da **PowerShell Windows**. La cartella di destinazione non deve già contenere un repository:
+
+~~~powershell
+New-Item -ItemType Directory -Force "C:\MotoGPS" | Out-Null
+Set-Location "C:\MotoGPS"
+git clone --recurse-submodules --branch NewUI https://github.com/thriller47/moto-gps-waveshare.git
+Set-Location "C:\MotoGPS\moto-gps-waveshare"
+git branch --show-current
+git submodule status --recursive
+.\install-moto-commands.ps1
+~~~
+
+Se un comando Git fallisce, fermarsi prima di eseguire i successivi. Se GitHub chiede l'accesso, autenticarsi con il proprio account autorizzato tramite Git Credential Manager, senza inserire token nei comandi o nel manuale. Per clonare la versione stabile sostituire `--branch NewUI` con `--branch valhalla`; per installare i launcher serve un branch che contenga `install-moto-commands.ps1`. Non usare `main`, che non esiste. Se il repository esiste già, non clonarlo una seconda volta: aggiornarlo come nel paragrafo seguente.
+
+3. Chiudere e riaprire PowerShell. Installare le toolchain necessarie: Android Studio/SDK per Android (§3), ESP-IDF 5.5.6 per ESP32 (§4–5), WSL Ubuntu 24.04 per MotoPack e simulatore (§1.1, §6–8). Il clone non installa le toolchain né scarica i dati cartografici, che vanno predisposti separatamente.
+4. Per MotoPack o simulatore serve anche il **clone Linux separato** indicato in §1.1.B. Non compilare direttamente dal checkout Windows montato in WSL.
 
 ### Installazione iniziale o aggiornamento dei launcher
 
@@ -130,6 +150,21 @@ sudo apt install -y \
 
 `zstd` serve per leggere `photon-italy.jsonl.zst` e comprimere `valhalla_tiles.tar.zst`. Il compilatore e gli header Python servono come fallback se qualche pacchetto Python non dispone di una wheel precompilata. Il progetto usa inoltre `python3`, `bash`, `git` e gli eseguibili Valhalla. **Non** installare pacchetti Python nel Python di sistema con `sudo pip` o `--break-system-packages`.
 
+### B.1 Clonare il repository in Ubuntu WSL (solo al primo utilizzo)
+
+Dopo aver installato Git con il passaggio B, aprire il terminale **Ubuntu-24.04**, non PowerShell. Il clone Linux è indipendente da quello Windows ed è necessario per MotoPack e simulatore:
+
+```bash
+mkdir -p ~/MotoGPS
+cd ~/MotoGPS
+git clone --recurse-submodules --branch NewUI https://github.com/thriller47/moto-gps-waveshare.git
+cd ~/MotoGPS/moto-gps-waveshare
+git branch --show-current
+git submodule status --recursive
+```
+
+Per la versione stabile usare `--branch valhalla`. Se la directory esiste già, non clonare di nuovo e non cancellarla: verificare `git status --short`, aggiornare con fetch/pull fast-forward sul branch desiderato. Se GitHub richiede autenticazione, configurare un accesso autorizzato anche in WSL (le credenziali Windows non sono necessariamente disponibili). Il progetto resta nel filesystem Linux, non in /mnt/c. Copiare i tre sorgenti cartografici in C:\MotoGPS\PBF (vedere §2), raggiungibili come /mnt/c/MotoGPS/PBF.
+
 ### C. Creare l'ambiente Python dedicato
 
 Eseguire **solo se `~/valhalla-env` non esiste già**:
@@ -143,10 +178,10 @@ else
 fi
 source "$HOME/valhalla-env/bin/activate"
 python -m pip install --upgrade pip wheel
-python -m pip install "pyvalhalla==3.9.1" osmium shapely
+python -m pip install "pyvalhalla==3.9.3" osmium shapely
 ```
 
-`pyvalhalla==3.9.1` è la **versione utilizzata dal progetto** per generare Valhalla V5; non aggiornarla automaticamente a versioni più recenti senza verificare compatibilità e formato dei grafi. Il pacchetto PyPI `osmium` fornisce le API Python di **pyosmium** (`import osmium`), mentre `shapely` serve al convertitore MotoMap. Con il Python standard di Ubuntu 24.04 (normalmente 3.12) sono disponibili pacchetti wheel Linux per queste dipendenze; se un'installazione prova a compilare codice nativo, leggere l'errore prima di cambiare versione Python o toolchain.
+Per **NewUI / MotoPack v4** usare `pyvalhalla==3.9.3` (grafo V6). Per il precedente branch stabile `valhalla` / MotoPack v2 usare invece `pyvalhalla==3.9.1` (grafo V5) finché non viene integrata v4. Non cambiare versione durante una generazione o una ripresa. L'aggiornamento di un ambiente già esistente è descritto in §2. Il pacchetto PyPI `osmium` fornisce le API Python di **pyosmium** (`import osmium`), mentre `shapely` serve al convertitore MotoMap. Con il Python standard di Ubuntu 24.04 (normalmente 3.12) sono disponibili pacchetti wheel Linux per queste dipendenze; se un'installazione prova a compilare codice nativo, leggere l'errore prima di cambiare versione Python o toolchain.
 
 ### D. Riattivare e verificare l'ambiente ogni volta
 
@@ -159,7 +194,7 @@ python3 -m pip show pyvalhalla osmium shapely
 python3 -c "import osmium, shapely, valhalla; print('Valhalla / osmium / Shapely: import OK')"
 ```
 
-Verificare che `which python3` punti a `~/valhalla-env/bin/python3` e che `pip show pyvalhalla` riporti **3.9.1**. Per gli strumenti effettivamente utilizzati dagli script di costruzione:
+Verificare che `which python3` punti a `~/valhalla-env/bin/python3` e che `pip show pyvalhalla` riporti **3.9.3 per NewUI/v4**, oppure **3.9.1 per valhalla/v2**. Per gli strumenti effettivamente utilizzati dagli script di costruzione:
 
 ```bash
 for tool in valhalla_build_config valhalla_build_tiles \
@@ -179,7 +214,7 @@ python -m pip install osmium shapely
 python3 -c "import osmium, shapely; print('POI: dipendenze OK')"
 ```
 
-Non reinstallare pyvalhalla né cancellare `valhalla-env` se la build V5 precedente funziona.
+Non cancellare `valhalla-env`: per passare alla v4 basta aggiornare il pacchetto Python come in §2, a generazione ferma.
 
 ### E. Preparare il repository e verificare gli input
 
@@ -241,7 +276,7 @@ Con il MotoPack già installato, aprire **Crea tour**, lasciare attivo **Explore
 
 ### DNA stradale Italia — indice sperimentale separato (NewUI)
 
-Non rigenerare il MotoPack. In Ubuntu WSL, nella copia Git già configurata:
+**Procedura separata per sperimentazione o recupero:** MotoPack v4 contiene già questo indice e lo installa automaticamente. Per generare soltanto l'indice senza ricostruire il pacchetto, in Ubuntu WSL, nella copia Git già configurata:
 
 ```bash
 cd ~/MotoGPS/moto-gps-waveshare
@@ -259,7 +294,7 @@ cp ~/motogps-build/RoadDNA-Italia/road-dna-italy.sqlite /mnt/c/MotoGPS/road-dna-
 
 Se disponibile, aggiungere al comando Python **--elevation /percorso/esatto/elevation-italy.zip** prima di avviarlo (usa il DEM già generato, non lo scarica). Senza DEM l'indice funziona con rilievo non disponibile. Il generatore rifiuta di sovrascrivere un indice esistente: usare un altro nome o spostare il precedente dopo averlo salvato. Non modifica PBF, DEM o MotoPack. Usare lo stesso PBF del grafo installato per ridurre incongruenze.
 
-Da PowerShell: `moto-android NewUI`. Copiare il file SQLite nella cartella Download del telefono (USB/MTP), aprire **Mappe offline → Opzioni avanzate → Importa DNA stradale SQLite** e selezionarlo. In **Crea tour**, con Explorer attivo e senza tappe obbligatorie, si può attivare/disattivare **DNA stradale · giri mirati**. Gli otto candidati originali rimangono disponibili; fino a quattro aggiuntivi mirano a tratti indicizzati, le schede selezionate di questo tipo hanno il suffisso Mirato. La geometria e il percorso sono comunque calcolati da Valhalla. Con tappe obbligatorie il generatore resta quello precedente. Non occorre flash ESP32. Verificare tempi, dimensione SQLite e risultato sulla mappa; funzione non ancora collaudata. Dati OSM © OpenStreetMap contributors, ODbL.
+Da PowerShell: `moto-android NewUI`. Copiare il file SQLite nella cartella Download del telefono (USB/MTP), aprire **Mappe offline → Opzioni avanzate → Importa DNA stradale SQLite** e selezionarlo. In **Crea tour**, con Explorer attivo e senza tappe obbligatorie, si può attivare/disattivare **DNA stradale · giri mirati**. Gli otto candidati originali rimangono disponibili; fino a quattro aggiuntivi mirano a tratti indicizzati, le schede selezionate di questo tipo hanno il suffisso Mirato. La geometria e il percorso sono comunque calcolati da Valhalla. Con tappe obbligatorie il generatore resta quello precedente. Non occorre flash ESP32. Collaudo utente dell'indice separato: 301.929 tratti, 39,2 MiB; proposte mirate simili alle tradizionali. La versione con costing motorcycle nativo e MotoPack v4 resta da collaudare. Dati OSM © OpenStreetMap contributors, ODbL.
 
 ## 1.2. Road DNA online — chiavi Geoapify e OpenTripMap
 
@@ -280,25 +315,56 @@ Da PowerShell: `moto-android NewUI`. Copiare il file SQLite nella cartella Downl
 
 Il nuovo pacchetto v4 aggiunge l'indice DNA stradale al MotoPack v3 e ricrea il grafo V6 con pyvalhalla 3.9.3. Valhalla Mobile 0.6.6 resta sul motore 3.9.2; compatibilità di lettura e risultati sul telefono da verificare. Il nuovo importatore accetta v4; non è necessario disinstallare Android, cancellare mappe o flashare ESP32. I profili Touring/Panoramico usano costing motorcycle; il livello curve 0–3 vale 0.5/0.6/0.8/1.0, Panoramico 0.8, uso trails 0, exclude_unpaved true. Le preferenze vengono applicate anche a tappe e ricalcoli. Rapido, breve e secondarie mantengono auto. Il server online potrebbe non supportare la preferenza curve.
 
-**Sul Ryzen, Ubuntu WSL** (non durante una generazione in corso):
+**Procedura ordinaria — PowerShell Windows.** Dopo il primo clone e la preparazione WSL (§1.1), non occorre eseguire manualmente tutti i convertitori. Per la prima v4, a generazione ferma, aggiornare i launcher come in apertura e aggiornare una sola volta l'ambiente Python da Ubuntu:
 
-```bash
+~~~bash
+source ~/valhalla-env/bin/activate
+python -m pip install --upgrade "pyvalhalla==3.9.3"
+python -m pip show pyvalhalla
+~~~
+
+Controllare che i tre sorgenti siano in C:\MotoGPS\PBF: italy-latest.osm.pbf, italy.poly (corrispondente all'estratto), photon-italy.jsonl.zst. Il launcher non scarica questi file e non installa automaticamente pyvalhalla. Dopo aver riaperto PowerShell:
+
+~~~powershell
+moto-motopack NewUI
+~~~
+
+Due thread per default; sul Ryzen si può provare `moto-motopack NewUI -Threads 4` se la RAM disponibile lo consente. Il launcher aggiornato rileva v4, aggiorna il checkout WSL, genera e verifica il pacchetto, quindi lo copia in C:\MotoGPS\MotoChatGPS-Italia.motopack. La cartella WSL finale è ~/motogps-build/ItaliaUnificata-RoadDNA-v4. Riutilizza la cache DEM e ricrea gli indici dal PBF; non sovrascrive i sorgenti. Verificare spazio libero anche per staging e vecchia build.
+
+**Se una generazione è in corso, non aggiornare il checkout WSL, i launcher in esecuzione o l'ambiente Python, e non avviare una seconda generazione.** La generazione manuale v4 avviata dall'utente il 25/11 va lasciata terminare; aggiornare i launcher solo dopo. Per riprendere una generazione avviata col launcher mantenere lo stesso checkout e ambiente:
+
+~~~powershell
+moto-motopack NewUI -Resume
+~~~
+
+Per verificare e copiare un pacchetto v4 già completato (anche manualmente nella cartella standard), usare il launcher aggiornato senza modificare il checkout WSL:
+
+~~~powershell
+moto-motopack NewUI -CopyOnly
+~~~
+
+**Recupero manuale — Ubuntu WSL** (solo se il launcher non è disponibile). Non usare questi comandi durante una generazione in corso:
+
+~~~bash
 cd ~/MotoGPS/moto-gps-waveshare
 git fetch origin
 git switch NewUI
 git pull --ff-only origin NewUI
 source ~/valhalla-env/bin/activate
-python -m pip install --upgrade "pyvalhalla==3.9.3"
 python -m pip show pyvalhalla
-bash scripts/offline_map/rebuild_motopack_wsl.sh --threads 2 --out "$HOME/motogps-build/ItaliaUnificata-RoadDNA-v4"
-cp "$HOME/motogps-build/ItaliaUnificata-RoadDNA-v4/MotoChatGPS-Italia.motopack" /mnt/c/MotoGPS/MotoChatGPS-Italia.motopack
-```
+df -h ~ /mnt/c
+bash scripts/offline_map/rebuild_motopack_wsl.sh \
+  --threads 2 \
+  --out "$HOME/motogps-build/ItaliaUnificata-RoadDNA-v4"
+~~~
 
-Il builder riutilizza la cache DEM e ricrea gli indici dal PBF. Per ripresa usare lo stesso comando con --resume, senza aggiornare branch o ambiente. Per usare moto-motopack NewUI occorre reinstallare i launcher aggiornati dal repo Windows, come in apertura. Aggiornare Android con moto-android NewUI, poi importare v4 in Mappe offline. Il pack precedente su WSL rimane separato. Prova necessaria: percorsi locali Touring con 0 e 3 curve, Panoramico, Explorer con tappe, ricalcolo, itinerario lungo e controllo sterrati noti. Costing motorcycle è ancora beta; non garantire che strade o accessi OSM siano aggiornati.
+Se interrotta, ripetere solo il comando bash con lo stesso output, thread e ambiente, aggiungendo --resume, senza fare un nuovo pull. Per la copia finale verificata vedere più sotto. Un vecchio staging v2/v3 non va riusato per v4.
 
-### Nuovo MotoPack v3 con quote DEM (branch `NewUI`, 23/11/2026 — **sperimentale, non ancora collaudato**)
+**Installazione Android:** in PowerShell eseguire `moto-android NewUI`. Copiare il pacchetto in Download sul telefono, fermare la navigazione e importare da Mappe offline → Importa MotoPack (.motopack). Controllare tutti e sei i componenti, incluso DNA stradale; non occorre importarlo separatamente. Nessun flash ESP32 necessario. Prova necessaria: Touring curve 0 e 3, Panoramico, Explorer con tappe, ricalcolo, itinerario lungo e controllo sterrati noti. Costing motorcycle ancora beta; dati OSM non certificano accessi o superficie. La compatibilità del grafo 3.9.3 con il motore Android 3.9.2 e il launcher v4 non sono ancora collaudati.
 
-Questa estensione **non è ancora parte del branch stabile `valhalla`**. In `NewUI` il pacchetto unificato diventa **MotoPack v3**: MotoMap v4, Photon v2, Tourist/Road DNA v1, grafo Valhalla V5 e archivio DEM Skadi. **Un MotoPack v2 precedente non è accettato dal nuovo importatore v3**; l'utente ha autorizzato questa incompatibilità per poter ripartire con dati aggiornati. Il firmware ESP32 e il protocollo BLE non cambiano.
+### Storico — MotoPack v3 con quote DEM (revisione NewUI del 23/11/2026; superato da v4)
+
+**Solo riferimento storico:** questi comandi appartengono alla precedente revisione v3, non al NewUI attuale. La generazione e l'importazione DEM v3 sono state confermate dall'utente. All'epoca, il pacchetto unificato era **MotoPack v3**: MotoMap v4, Photon v2, Tourist/Road DNA v1, grafo Valhalla V5 e archivio DEM Skadi. **Un MotoPack v2 precedente non è accettato dal nuovo importatore v3**; l'utente ha autorizzato questa incompatibilità per poter ripartire con dati aggiornati. Il firmware ESP32 e il protocollo BLE non cambiano.
 
 **Prima di lanciare la rigenerazione**, in **WSL Ubuntu** (non PowerShell) controllare che il progetto sia davvero sul branch di prova e che siano disponibili gli strumenti:
 
@@ -317,7 +383,7 @@ ls -lh /mnt/c/MotoGPS/PBF/italy-latest.osm.pbf /mnt/c/MotoGPS/PBF/italy.poly /mn
 
 Se `valhalla_build_elevation` non viene trovato, **fermarsi**: occorre rendere disponibile lo script di download dell'installazione Valhalla compatibile con `valhalla-env`; non modificare il PBF né cancellare il vecchio pacchetto per tentare di risolvere. Il downloader Tilezen richiede **internet e spazio aggiuntivo su disco**, perché scarica i DEM di Italia e zone limitrofe; la generazione e l'importazione dell'APK non sono state ancora verificate sul PC/telefono.
 
-**Procedura ordinaria:** usare moto-motopack NewUI da PowerShell (opzioni e installazione in apertura). Il launcher usa Ubuntu-24.04, valhalla-env e due thread per default, sceglie output v2/v3 dal generatore e verifica il risultato prima della copia Windows. Il lock protegge i launcher concorrenti; non garantisce la protezione da avvii manuali simultanei. Per recupero manuale usare le istruzioni seguenti, senza aggiornare il checkout durante la generazione.
+**Procedura ordinaria:** usare moto-motopack NewUI da PowerShell (opzioni e installazione in apertura). Il launcher usa Ubuntu-24.04, valhalla-env e due thread per default, sceglie output v2/v3 dal generatore nelle revisioni precedenti (v4 nel NewUI attuale) e verifica il risultato prima della copia Windows. Il lock protegge i launcher concorrenti; non garantisce la protezione da avvii manuali simultanei. Per recupero manuale usare le istruzioni seguenti, senza aggiornare il checkout durante la generazione.
 
 **Alternativa manuale WSL — rigenerazione v3** (dopo un controllo dello spazio libero):
 
@@ -348,7 +414,7 @@ Il recupero online **richiede Internet** e che il server abbia DEM disponibili; 
 
 
 
-### Alternativa manuale WSL — MotoPack v2 (branch valhalla)
+### Alternativa manuale WSL — MotoPack v2 (solo branch valhalla precedente all'integrazione v4)
 
 **Un unico comando in WSL** ricrea **MotoMap v4** (strade e copertura), **Photon SQLite v2 con POI OSM** (ricerca indirizzi, carburante, ristorazione e alloggi), **Tourist SQLite v1** (Road DNA turistico) e **Valhalla V5** (grafo moto dal PBF aggiornato), quindi assembla e verifica il pacchetto `MotoChatGPS-Italia.motopack`. Usa lo script `scripts/offline_map/rebuild_motopack_wsl.sh`, presente nel branch stabile `valhalla`.
 
@@ -394,7 +460,7 @@ python3 scripts/offline_map/motopack.py verify \
 ls -lh "$HOME/motogps-build/ItaliaUnificata-RoadDNA-v2/"
 ```
 
-### Ripresa dopo un errore durante Road DNA (21/11/2026)
+### Ripresa dopo un errore durante Road DNA (storico v2, 21/11/2026)
 
 Se il terminale si arresta con `relation_missing_member_way` dopo avere risolto milioni di nodi, alcune relation OSM hanno membri assenti dall'estratto PBF. Il generatore aggiornato **salta solo quelle relazioni**, non pubblica un poligono incompleto e registra `relation_coverage=partial`, `relation_missing_member_way` e i primi ID saltati nella tabella `tourist_metadata`. Controllare poi laghi e aree protette sui percorsi di interesse; non dichiarare copertura turistica assoluta.
 
@@ -440,10 +506,10 @@ explorer.exe "$(wslpath -w "$HOME/motogps-build/ItaliaUnificata-RoadDNA-v2")"
 
 Anche `\\wsl$\Ubuntu-24.04\home\mod\motogps-build\ItaliaUnificata-RoadDNA-v2` è utilizzabile. Se la distribuzione cambia, verificare con `wsl -l -v` da PowerShell. Non spostare la build su `/mnt/c` durante la compilazione.
 
-**Copia finale in Windows:** il launcher la esegue automaticamente. Se il pacchetto è già pronto, usare moto-motopack NewUI -CopyOnly (per v2, il branch corrispondente) senza aggiornare il checkout WSL. Per recupero manuale, da WSL con valhalla-env attivo, scegliere v3 oppure v2 secondo il pacchetto effettivo:
+**Copia finale in Windows:** il launcher la esegue automaticamente. Se il pacchetto è già pronto, usare `moto-motopack NewUI -CopyOnly` con il launcher aggiornato, senza aggiornare il checkout WSL. Per recupero manuale, da WSL con valhalla-env attivo e revisione corrispondente al pacchetto:
 
 ~~~bash
-PACK="$HOME/motogps-build/ItaliaUnificata-RoadDNA-v3/MotoChatGPS-Italia.motopack"
+PACK="$HOME/motogps-build/ItaliaUnificata-RoadDNA-v4/MotoChatGPS-Italia.motopack"
 DEST=/mnt/c/MotoGPS/MotoChatGPS-Italia.motopack
 python3 scripts/offline_map/motopack.py verify "$PACK" &&
   cp -- "$PACK" "$DEST.part" &&
@@ -451,11 +517,11 @@ python3 scripts/offline_map/motopack.py verify "$PACK" &&
   mv -fT -- "$DEST.part" "$DEST"
 ~~~
 
-Non utilizzare un file .part in Android. Per una build v2 sostituire v3 con v2 nel percorso.
+Non utilizzare un file .part in Android. Per una build storica v2/v3 usare il percorso e il verificatore del branch/revisione corrispondente, non quello attuale v4.
 
 In Windows sarà `C:\MotoGPS\MotoChatGPS-Italia.motopack`. Per aggiornare il telefono, copiare il file `.motopack` nella cartella **Download** del Samsung (per esempio collegando il telefono via USB, selezionando **Trasferimento file** e copiando il file con Esplora file). Poi interrompere la navigazione e aprire **Moto Chat GPS → Mappe offline → Importa MotoPack (.motopack)**, selezionando il file copiato. Non disinstallare l'app per importare le mappe; servono spazio e alimentazione sufficienti durante l'operazione.
 
-**Dopo l'import:** controllare separatamente MotoMap v4, Photon v2, Valhalla V5, Road DNA e (v3) DEM. Verifica integrità del pacchetto e installazione dei componenti sono operazioni distinte: conservare un backup valido.
+**Dopo l'import v4:** controllare separatamente MotoMap v4, Photon v2, Valhalla V6, DNA turistico, DNA stradale e DEM. Verifica integrità del pacchetto e installazione dei componenti sono operazioni distinte: conservare un backup valido.
 
 
 
