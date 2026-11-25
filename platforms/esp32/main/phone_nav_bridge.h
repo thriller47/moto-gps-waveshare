@@ -77,15 +77,12 @@ class PhoneNavBridge {
         points{};
   };
 
-  static void page_changed(moto_ui_page_t page, void* context);
-  static void music_command(moto_music_command_t command, void* context);
   static void waypoint_skip_command(void* context);
 
   void consume_navigation(const moto::ble::NavigationSnapshot& input);
   moto::ble::AckStatus consume_geometry(
       const moto::ble::RouteGeometry& input);
   void consume_traffic(const moto::ble::TrafficDeviation& input);
-  void consume_media(const moto::ble::MediaState& input);
   moto::ble::AckStatus consume_map_scene(const moto::ble::MapScene& input);
   // Requires state_mutex_. This helper never calls LVGL or the BLE sender.
   void apply_geometry_locked(moto::nav::NavSnapshot& target);
@@ -98,8 +95,6 @@ class PhoneNavBridge {
   static void render_task(void* context);
   void run_renderer();
 #endif
-  void send_page_command(moto_ui_page_t page);
-  void send_music_command(moto_music_command_t command);
   void send_device_command(moto::ble::DeviceCommand command);
 
   moto::nav::NavPresenter& presenter_;
@@ -132,10 +127,6 @@ class PhoneNavBridge {
   std::atomic<bool> power_voluntary_close_{false};
   std::atomic<std::uint8_t> coffee_timeout_minutes_{10};
   moto_ui_phone_connection_t ui_phone_connection_ = MOTO_UI_PHONE_OFFLINE;
-  moto::ble::MediaState media_state_{};
-  moto::ble::MediaState render_media_state_{};
-  bool music_page_enabled_ = false;
-  bool render_music_page_enabled_ = false;
   moto_ui_phone_connection_t render_phone_connection_ =
       MOTO_UI_PHONE_OFFLINE;
   // BLE instruction control marker, copied to the single LVGL render task.
@@ -149,7 +140,6 @@ class PhoneNavBridge {
   enum RenderFlag : std::uint32_t {
     RenderNavigation = 1U << 0U,
     RenderMotion = 1U << 1U,
-    RenderMedia = 1U << 2U,
   };
   std::atomic<std::uint32_t> pending_render_flags_{0};
 #ifdef ESP_PLATFORM

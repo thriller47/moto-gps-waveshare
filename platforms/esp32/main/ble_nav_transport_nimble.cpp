@@ -692,9 +692,7 @@ bool BleNavTransport::send_connection_status(
   status.capabilities = moto::ble::CapabilityNavigation |
                         moto::ble::CapabilityRouteGeometry |
                         moto::ble::CapabilityTraffic |
-                        moto::ble::CapabilityMediaState |
                         moto::ble::CapabilityTouchCommands |
-                        moto::ble::CapabilityMusicCommands |
                         moto::ble::CapabilityCommandAck |
                         moto::ble::CapabilityMapScene |
                         moto::ble::CapabilityDiagnosticsRam;

@@ -60,33 +60,6 @@ moto::nav::NetworkState map_network(moto::ble::NetworkState state) {
   return Out::Offline;
 }
 
-moto::nav::DisplayPage map_page(moto::ble::DisplayPage page) {
-  using In = moto::ble::DisplayPage;
-  using Out = moto::nav::DisplayPage;
-  switch (page) {
-    case In::Navigation: return Out::Navigation;
-    case In::Speed: return Out::Speed;
-    case In::Compass: return Out::Compass;
-    case In::Music: return Out::Music;
-  }
-  return Out::Navigation;
-}
-
-moto::ble::DisplayPage map_page(moto_ui_page_t page) {
-  switch (page) {
-    case MOTO_UI_PAGE_SPEED: return moto::ble::DisplayPage::Speed;
-    case MOTO_UI_PAGE_COMPASS: return moto::ble::DisplayPage::Compass;
-    case MOTO_UI_PAGE_MUSIC: return moto::ble::DisplayPage::Music;
-    case MOTO_UI_PAGE_NAVIGATION:
-    case MOTO_UI_PAGE_COUNT:
-    default: return moto::ble::DisplayPage::Navigation;
-  }
-}
-
-moto::nav::DisplayPage map_nav_page(moto_ui_page_t page) {
-  return map_page(map_page(page));
-}
-
 moto::nav::ManeuverType map_maneuver(moto::ble::Maneuver maneuver) {
   using In = moto::ble::Maneuver;
   using Out = moto::nav::ManeuverType;
@@ -141,8 +114,6 @@ void PhoneNavBridge::set_sender(SendCallback callback,
 }
 
 void PhoneNavBridge::install_ui_callbacks() {
-  moto_nav_ui_set_page_change_callback(page_changed, this);
-  moto_nav_ui_set_music_command_callback(music_command, this);
   moto_nav_ui_set_waypoint_skip_callback(waypoint_skip_command, this);
 }
 
@@ -251,18 +222,12 @@ void PhoneNavBridge::on_link_state(bool active) {
       last_phone_anchor_ms_ = 0;
       last_anchored_phone_heading_deg_ = -1.0F;
       last_motion_present_ms_ = 0;
-      music_page_enabled_ = false;
-      media_state_ = {};
-      media_state_.source_name = "Android";
-      media_state_.track_title = "In Attesa...";
     }
   }
 #ifdef ESP_PLATFORM
   moto_diag_event(MotoDiagEvent::Link, active ? 1 : 0);
 #endif
-  // Disconnect only needs to update the navigation lifecycle. The legacy
-  // music page is no longer created in SIGNAL; scheduling its media redraw
-  // used to dereference missing LVGL labels and trigger task WDT on CPU0.
+  // Disconnect only updates the navigation lifecycle.
   request_render(RenderNavigation);
 }
 
@@ -279,8 +244,7 @@ void PhoneNavBridge::on_imu_sample(float heading_rate_dps,
     // cadence; requests still coalesce if one physical refresh runs long.
     if (sample_ms >= last_motion_present_ms_ &&
         sample_ms - last_motion_present_ms_ >= 25 &&
-        (snapshot_.has_route_view ||
-         snapshot_.display_page == moto::nav::DisplayPage::Compass)) {
+        snapshot_.has_route_view) {
       // Preserve the 25 ms phase. Setting this to sample_ms quantizes every
       // interval to four 8 ms samples (32 ms), silently reducing 40 to 31 Hz.
       last_motion_present_ms_ +=
@@ -362,11 +326,6 @@ moto::ble::AckStatus PhoneNavBridge::on_message(
               value.maximum_version < moto::ble::kProtocolVersion) {
             return moto::ble::AckStatus::Unsupported;
           }
-          const std::uint32_t required_media =
-              moto::ble::CapabilityMediaState |
-              moto::ble::CapabilityMusicCommands;
-          const bool media = value.state == moto::ble::ConnectionState::Ready &&
-              (value.capabilities & required_media) == required_media;
           {
             const std::lock_guard<std::mutex> lock(state_mutex_);
             if (!link_active_ || value.session_id == 0)
@@ -386,7 +345,6 @@ moto::ble::AckStatus PhoneNavBridge::on_message(
               power_connected_.store(false, std::memory_order_release);
             }
             phone_session_id_ = value.session_id;
-            music_page_enabled_ = media;
             switch (value.state) {
               case moto::ble::ConnectionState::Ready:
                 ui_phone_connection_ = MOTO_UI_PHONE_ONLINE;
@@ -441,7 +399,8 @@ moto::ble::AckStatus PhoneNavBridge::on_message(
             std::is_same_v<T, moto::ble::TrafficDeviation>) {
           consume_traffic(value);
         } else if constexpr (std::is_same_v<T, moto::ble::MediaState>) {
-          consume_media(value);
+          // Old phones may still send media; acknowledge without retaining or rendering.
+          return moto::ble::AckStatus::Ok;
         } else if constexpr (std::is_same_v<T, moto::ble::MapScene>) {
           return consume_map_scene(value);
         } else if constexpr (std::is_same_v<T, moto::ble::Ack>) {
@@ -518,7 +477,8 @@ void PhoneNavBridge::consume_navigation(
     power_arrived_.store(input.state == moto::ble::NavigationState::Arrived,
                          std::memory_order_relaxed);
     phone_snapshot.network = map_network(input.network);
-    phone_snapshot.display_page = map_page(input.display_page);
+    // Legacy wire page values must not select a removed display page.
+    phone_snapshot.display_page = moto::nav::DisplayPage::Navigation;
     phone_snapshot.has_destination = has_flag(
         input.flags, moto::ble::NavigationHasDestination);
     phone_snapshot.has_pending_waypoints = has_flag(
@@ -748,14 +708,6 @@ void PhoneNavBridge::consume_traffic(
   present_navigation();
 }
 
-void PhoneNavBridge::consume_media(const moto::ble::MediaState& input) {
-  {
-    const std::lock_guard<std::mutex> lock(state_mutex_);
-    media_state_ = input;
-  }
-  request_render(RenderMedia);
-}
-
 moto::ble::AckStatus PhoneNavBridge::consume_map_scene(
     const moto::ble::MapScene& input) {
   std::size_t road_point_count = 0;
@@ -882,7 +834,6 @@ void PhoneNavBridge::render_pending() {
 
   const bool navigation = (requested & RenderNavigation) != 0U;
   const bool motion = !navigation && (requested & RenderMotion) != 0U;
-  const bool media = (requested & RenderMedia) != 0U;
 #if defined(ESP_PLATFORM) && (defined(MOTO_ESP_CURVE_ZOOM_EXPERIMENT) || defined(MOTO_ESP_SUBPIXEL_EXPERIMENT))
   // Experiment-only serial telemetry, once per five seconds, no persistent
   // diagnostics or extra work in NimBLE/IMU callbacks.
@@ -924,16 +875,12 @@ void PhoneNavBridge::render_pending() {
     }
     if (navigation) {
       render_phone_connection_ = ui_phone_connection_;
-      render_music_page_enabled_ = music_page_enabled_;
       render_waypoint_index_ = waypoint_pending_index_;
       render_waypoint_total_ = waypoint_pending_total_;
       render_waypoint_clear_ = waypoint_clear_pending_;
       waypoint_pending_index_ = 0;
       waypoint_pending_total_ = 0;
       waypoint_clear_pending_ = false;
-    }
-    if (media) {
-      render_media_state_ = media_state_;
     }
   }
 
@@ -1025,8 +972,6 @@ void PhoneNavBridge::render_pending() {
 #endif
   if (navigation) {
     moto_nav_ui_set_phone_connection(render_phone_connection_);
-    moto_nav_ui_set_music_page_enabled(
-        render_music_page_enabled_ ? 1U : 0U);
     presenter_.apply_to_lvgl();
     if (render_waypoint_clear_) moto_nav_ui_clear_waypoint_reached();
     if (render_waypoint_index_ > 0)
@@ -1034,21 +979,6 @@ void PhoneNavBridge::render_pending() {
                                        render_waypoint_total_);
   } else if (motion) {
     moto_nav_ui_set_motion_state(&presenter_.ui_state());
-  }
-  if (media) {
-    moto_music_state_t state{};
-    state.source_name = render_media_state_.source_name.c_str();
-    state.track_title = render_media_state_.track_title.c_str();
-    state.artist_name = render_media_state_.artist_name.c_str();
-    state.connected =
-        (render_media_state_.flags & moto::ble::MediaConnected) != 0U;
-    state.playing =
-        (render_media_state_.flags & moto::ble::MediaPlaying) != 0U;
-    state.like_available =
-        (render_media_state_.flags & moto::ble::MediaLikeAvailable) != 0U;
-    state.liked =
-        (render_media_state_.flags & moto::ble::MediaLiked) != 0U;
-    moto_nav_ui_set_music_state(&state);
   }
 #ifdef ESP_PLATFORM
   if (trace_render) {
@@ -1148,21 +1078,6 @@ void PhoneNavBridge::run_renderer() {
 }
 #endif
 
-void PhoneNavBridge::page_changed(moto_ui_page_t page, void* context) {
-  auto* self = static_cast<PhoneNavBridge*>(context);
-  {
-    const std::lock_guard<std::mutex> lock(self->state_mutex_);
-    self->snapshot_.display_page = map_nav_page(page);
-  }
-  self->present_navigation();
-  self->send_page_command(page);
-}
-
-void PhoneNavBridge::music_command(moto_music_command_t command,
-                                   void* context) {
-  static_cast<PhoneNavBridge*>(context)->send_music_command(command);
-}
-
 // Only Android owns the route plan; ESP32 may request a guarded skip.
 void PhoneNavBridge::waypoint_skip_command(void* context) {
   auto* self = static_cast<PhoneNavBridge*>(context);
@@ -1177,33 +1092,6 @@ void PhoneNavBridge::waypoint_skip_command(void* context) {
   command.kind = moto::ble::DeviceCommandKind::SkipNextWaypoint;
   command.page = moto::ble::DisplayPage::Navigation;
   self->send_device_command(command);
-}
-
-void PhoneNavBridge::send_page_command(moto_ui_page_t page) {
-  moto::ble::DeviceCommand command;
-  command.kind = moto::ble::DeviceCommandKind::PageSelected;
-  command.page = map_page(page);
-  send_device_command(command);
-}
-
-void PhoneNavBridge::send_music_command(moto_music_command_t command) {
-  moto::ble::DeviceCommand output;
-  switch (command) {
-    case MOTO_MUSIC_PREVIOUS:
-      output.kind = moto::ble::DeviceCommandKind::MusicPrevious;
-      break;
-    case MOTO_MUSIC_TOGGLE_PLAYBACK:
-      output.kind = moto::ble::DeviceCommandKind::MusicTogglePlayback;
-      break;
-    case MOTO_MUSIC_NEXT:
-      output.kind = moto::ble::DeviceCommandKind::MusicNext;
-      break;
-    case MOTO_MUSIC_LIKE:
-      output.kind = moto::ble::DeviceCommandKind::MusicLike;
-      break;
-  }
-  output.page = moto::ble::DisplayPage::Music;
-  send_device_command(output);
 }
 
 void PhoneNavBridge::send_device_command(moto::ble::DeviceCommand command) {

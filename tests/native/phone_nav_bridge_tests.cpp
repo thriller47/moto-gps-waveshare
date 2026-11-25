@@ -66,15 +66,15 @@ bool reentrant_sender(const moto::ble::Message& message,
   return true;
 }
 
-struct MusicSenderContext {
+struct CommandSenderContext {
   std::vector<moto::ble::DeviceCommand> commands;
   std::vector<std::uint8_t> flags;
 };
 
-bool record_music_sender(const moto::ble::Message& message,
+bool record_command_sender(const moto::ble::Message& message,
                          std::uint8_t flags,
                          void* context) {
-  auto* sender = static_cast<MusicSenderContext*>(context);
+  auto* sender = static_cast<CommandSenderContext*>(context);
   const auto* command = std::get_if<moto::ble::DeviceCommand>(&message);
   if (command == nullptr) return false;
   sender->commands.push_back(*command);
@@ -90,9 +90,14 @@ void test_sender_is_called_without_bridge_state_lock() {
   bridge.install_ui_callbacks();
   bridge.on_link_state(true);
 
-  moto::test::emit_page_change(MOTO_UI_PAGE_SPEED);
+  moto::ble::NavigationSnapshot nav;
+  nav.state = moto::ble::NavigationState::Navigating;
+  nav.flags = moto::ble::NavigationHasDestination |
+              moto::ble::NavigationHasPendingWaypoints;
+  CHECK(bridge.on_message(make_message(nav, 1)) == moto::ble::AckStatus::Ok);
+  moto::test::emit_waypoint_skip();
   CHECK(sender.calls == 1);
-  CHECK(sender.last_page == moto::ble::DisplayPage::Speed);
+  CHECK(sender.last_page == moto::ble::DisplayPage::Navigation);
 }
 
 void test_power_monitor_tracks_arrival_and_phone_reconnection() {
@@ -273,8 +278,7 @@ void test_navigation_and_touch_updates_are_serialized() {
       std::this_thread::yield();
     }
     for (int index = 0; index < kIterations; ++index) {
-      moto::test::emit_page_change(
-          index % 2 == 0 ? MOTO_UI_PAGE_SPEED : MOTO_UI_PAGE_COMPASS);
+      moto::test::emit_waypoint_skip();
     }
   });
 
@@ -394,8 +398,8 @@ void test_waypoint_skip_command_requires_active_stop() {
   moto::test::reset_phone_nav_bridge_probe();
   moto::nav::NavPresenter presenter;
   PhoneNavBridge bridge(presenter);
-  MusicSenderContext sender;
-  bridge.set_sender(record_music_sender, &sender);
+  CommandSenderContext sender;
+  bridge.set_sender(record_command_sender, &sender);
   bridge.install_ui_callbacks();
   bridge.on_link_state(true);
   // No navigation or visible stop: do not emit a command.
@@ -431,12 +435,12 @@ void test_waypoint_skip_command_requires_active_stop() {
   CHECK(sender.commands.size() == 1);
 }
 
-void test_music_capability_state_and_touch_commands() {
+void test_retired_media_and_page_commands_are_ignored() {
   moto::test::reset_phone_nav_bridge_probe();
   moto::nav::NavPresenter presenter;
   PhoneNavBridge bridge(presenter);
-  MusicSenderContext sender;
-  bridge.set_sender(record_music_sender, &sender);
+  CommandSenderContext sender;
+  bridge.set_sender(record_command_sender, &sender);
   bridge.install_ui_callbacks();
   bridge.on_link_state(true);
 
@@ -457,7 +461,9 @@ void test_music_capability_state_and_touch_commands() {
   CHECK(bridge.on_message(make_message(ready, 21)) ==
         moto::ble::AckStatus::Ok);
   pump(bridge);
-  CHECK(moto::test::phone_nav_bridge_music_page_enabled());
+  CHECK(!moto::test::phone_nav_bridge_music_page_enabled());
+  const int before_media = moto::test::phone_nav_bridge_apply_count();
+  const int before_lock = moto::test::phone_nav_bridge_board_lock_count();
 
   moto::ble::MediaState media;
   media.flags = moto::ble::MediaConnected |
@@ -472,31 +478,17 @@ void test_music_capability_state_and_touch_commands() {
   CHECK(bridge.on_message(make_message(media, 22)) ==
         moto::ble::AckStatus::Ok);
   pump(bridge);
-  CHECK(moto::test::phone_nav_bridge_media_connected());
-  CHECK(moto::test::phone_nav_bridge_media_playing());
-  CHECK(moto::test::phone_nav_bridge_media_like_available());
-  CHECK(moto::test::phone_nav_bridge_media_source() == "APPLE MUSIC");
-  CHECK(moto::test::phone_nav_bridge_media_title() == "夜间骑行");
-  CHECK(moto::test::phone_nav_bridge_media_artist() == "MOTO GPS");
-
+  CHECK(!moto::test::phone_nav_bridge_media_connected());
+  CHECK(moto::test::phone_nav_bridge_media_title().empty());
+  CHECK(moto::test::phone_nav_bridge_apply_count() == before_media);
+  CHECK(moto::test::phone_nav_bridge_board_lock_count() == before_lock);
   moto::test::emit_music_command(MOTO_MUSIC_PREVIOUS);
   moto::test::emit_music_command(MOTO_MUSIC_TOGGLE_PLAYBACK);
   moto::test::emit_music_command(MOTO_MUSIC_NEXT);
   moto::test::emit_music_command(MOTO_MUSIC_LIKE);
-  CHECK(sender.commands.size() == 4);
-  const moto::ble::DeviceCommandKind expected[] = {
-      moto::ble::DeviceCommandKind::MusicPrevious,
-      moto::ble::DeviceCommandKind::MusicTogglePlayback,
-      moto::ble::DeviceCommandKind::MusicNext,
-      moto::ble::DeviceCommandKind::MusicLike,
-  };
-  for (std::size_t index = 0; index < sender.commands.size(); ++index) {
-    CHECK(sender.commands[index].kind == expected[index]);
-    CHECK(sender.commands[index].page == moto::ble::DisplayPage::Music);
-    CHECK(sender.commands[index].command_id == index + 1);
-    CHECK((sender.flags[index] & moto::ble::AckRequested) != 0U);
-    CHECK((sender.flags[index] & moto::ble::Urgent) != 0U);
-  }
+  moto::test::emit_page_change(MOTO_UI_PAGE_SPEED);
+  CHECK(sender.commands.empty());
+  CHECK(bridge.phone_connected());
 }
 
 void test_legacy_demo_route_token_does_not_inject_fake_roads() {
@@ -630,9 +622,19 @@ void test_imu_presentation_preserves_40hz_phase_and_stale_course_is_ignored() {
   bridge.on_imu_sample(0.0F, 1);
   moto::ble::NavigationSnapshot navigation;
   navigation.state = moto::ble::NavigationState::Navigating;
-  navigation.display_page = moto::ble::DisplayPage::Compass;
+  navigation.display_page = moto::ble::DisplayPage::Compass; // legacy wire value
   navigation.flags = moto::ble::NavigationHasFix |
+                     moto::ble::NavigationHasRouteView |
                      moto::ble::NavigationHasNextManeuver;
+  navigation.route_token = 77;
+  navigation.route_generation = 1;
+  moto::ble::RouteGeometry geometry;
+  geometry.route_token = 77;
+  geometry.route_generation = 1;
+  geometry.total_point_count = 2;
+  geometry.view_origin = {45'000'000, 9'000'000};
+  geometry.points = {geometry.view_origin, {45'000'000, 9'001'000}};
+  CHECK(bridge.on_message(make_message(geometry, 10)) == moto::ble::AckStatus::Ok);
   navigation.maneuver = moto::ble::Maneuver::Left;
   navigation.distance_to_maneuver_m = 140;
   navigation.heading_cdeg = 9'000;
@@ -710,7 +712,7 @@ int main() {
   test_ble_submission_never_waits_for_lvgl_and_retries_latest_state();
   test_phone_connection_lifecycle_reaches_the_ui();
   test_waypoint_skip_command_requires_active_stop();
-  test_music_capability_state_and_touch_commands();
+  test_retired_media_and_page_commands_are_ignored();
   test_legacy_demo_route_token_does_not_inject_fake_roads();
   test_map_scene_atomically_replaces_roads_at_capacity();
   test_imu_presentation_preserves_40hz_phase_and_stale_course_is_ignored();
