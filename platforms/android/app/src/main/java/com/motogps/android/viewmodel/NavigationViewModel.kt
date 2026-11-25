@@ -918,9 +918,12 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     val isDownloadingMap: StateFlow<Boolean> = _isDownloadingMap
 
     private var mapDownloadJob: Job? = null
+    private var standaloneComponentImport = false
+    private val _elevationInstalledBytes = MutableStateFlow(0L)
+    val elevationInstalledBytes: StateFlow<Long> = _elevationInstalledBytes
     private val _photonInstalledBytes = MutableStateFlow(0L)
     val photonInstalledBytes: StateFlow<Long> = _photonInstalledBytes
-    private val _roadIndexBytes = MutableStateFlow(appContext?.let { RoadDnaRoadIndex.file(it).length() } ?: 0L)
+    private val _roadIndexBytes = MutableStateFlow(0L)
     val roadIndexBytes: StateFlow<Long> = _roadIndexBytes
     private val _roadDnaInstalledBytes = MutableStateFlow(0L)
     val roadDnaInstalledBytes: StateFlow<Long> = _roadDnaInstalledBytes
@@ -2334,7 +2337,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     }
 
     fun importPhotonIndex(context: Context, uri: Uri) {
-        if (_photonImporting.value || _isNavigating.value) return
+        if (componentImportBlocked()) return
         viewModelScope.launch {
             _photonImporting.value = true
             _photonStatus.value = "Importazione Photon offline..."
@@ -2368,7 +2371,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     }
 
     fun importValhallaGraph(context: Context, uri: Uri) {
-        if (_valhallaImporting.value || _isNavigating.value) return
+        if (componentImportBlocked()) return
         val appContext = context.applicationContext
         valhallaCancel.set(false)
         valhallaJob = viewModelScope.launch {
@@ -2414,6 +2417,11 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     }
 
     fun cancelMapDownload() {
+        if (standaloneComponentImport) {
+            _downloadStatus.value = "Annullamento importazione..."
+            mapDownloadJob?.cancel()
+            return
+        }
         mapDownloadJob?.cancel()
         mapDownloadJob = null
         _isDownloadingMap.value = false
@@ -2426,6 +2434,54 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         if (existing != null) return existing
         return HybridMapRepository(context.applicationContext).also { cachedMapRepo = it }
     }
+
+    private fun componentImportBlocked(): Boolean =
+        _isNavigating.value || _isLoading.value || _isDownloadingMap.value ||
+            _photonImporting.value || _valhallaImporting.value || mapDownloadJob?.isActive == true
+
+    private fun importStandaloneComponent(context: Context, label: String,
+        install: (Context, () -> Boolean) -> Unit) {
+        if (componentImportBlocked()) {
+            _errorMessage.value = "Arrestare navigazione, calcolo e altre importazioni"
+            return
+        }
+        standaloneComponentImport = true
+        _isDownloadingMap.value = true
+        _downloadProgress.value = 0f
+        _downloadStatus.value = "Importazione $label..."
+        mapDownloadJob = viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    val job = currentCoroutineContext()[Job]
+                    install(context.applicationContext) { job?.isActive == false }
+                }
+                invalidateRoadDna()
+                _downloadProgress.value = 1f
+                _downloadStatus.value = "$label installato"
+            } catch (e: CancellationException) {
+                _downloadStatus.value = "Importazione $label annullata"
+                throw e
+            } catch (e: Exception) {
+                _downloadStatus.value = "Importazione $label fallita: ${e.message}"
+                _errorMessage.value = _downloadStatus.value
+            } finally {
+                refreshSavedMaps(context)
+                standaloneComponentImport = false
+                _isDownloadingMap.value = false
+                mapDownloadJob = null
+            }
+        }
+    }
+
+    fun importElevation(context: Context, uri: Uri) =
+        importStandaloneComponent(context, "DEM") { app, cancelled ->
+            com.motogps.android.routing.ValhallaElevationImporter.install(app, uri, cancelled)
+        }
+
+    fun importTouristIndex(context: Context, uri: Uri) =
+        importStandaloneComponent(context, "DNA turistico") { app, cancelled ->
+            OfflineTouristPlaceSearch.install(app, uri, cancelled)
+        }
 
     fun importRoadDnaIndex(context: Context, uri: Uri) {
         if (_isNavigating.value || _isLoading.value || _isDownloadingMap.value ||
@@ -2514,7 +2570,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     }
 
     fun importOsmRoadPack(context: Context, uri: Uri) {
-        if (_isNavigating.value || _isDownloadingMap.value) {
+        if (componentImportBlocked()) {
             _errorMessage.value = if (_isNavigating.value) "Termina la navigazione prima di importare mappe"
                 else "Un download mappe è già in corso"
             return
@@ -2559,12 +2615,16 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                     .let { if (it.isFile) it.length() else 0L }
                 val roadDna = OfflineTouristPlaceSearch.file(app)
                     .let { if (it.isFile) it.length() else 0L }
+                val roads = RoadDnaRoadIndex.file(app).let { if (it.isFile) it.length() else 0L }
+                val dem = com.motogps.android.routing.ValhallaElevationImporter.installedBytes(app)
                 val list = getOrCreateRepo(app).listSavedMaps()
-                listOf(photon, valhalla, roadDna) to list
+                listOf(photon, valhalla, roadDna, roads, dem) to list
             }
             _photonInstalledBytes.value = snapshot.first[0]
             _valhallaInstalledBytes.value = snapshot.first[1]
             _roadDnaInstalledBytes.value = snapshot.first[2]
+            _roadIndexBytes.value = snapshot.first[3]
+            _elevationInstalledBytes.value = snapshot.first[4]
             _savedMaps.value = snapshot.second
         }
     }

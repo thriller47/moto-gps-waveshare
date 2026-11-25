@@ -66,7 +66,7 @@ internal object OfflineTouristPlaceSearch {
     }
 
     /** Atomic within this component; caller verifies MotoPack SHA first. */
-    fun install(context: Context, uri: Uri) {
+    fun install(context: Context, uri: Uri, cancelled: () -> Boolean = { false }) {
         val target = file(context)
         val folder = target.parentFile ?: throw IOException("Road DNA: cartella non valida")
         if (!folder.exists() && !folder.mkdirs())
@@ -83,6 +83,7 @@ internal object OfflineTouristPlaceSearch {
                 pending.outputStream().buffered().use { output ->
                     val bytes = ByteArray(128 * 1024)
                     while (true) {
+                        if (cancelled()) throw java.util.concurrent.CancellationException("Import DNA turistico annullato")
                         val n = input.read(bytes)
                         if (n < 0) break
                         total += n
@@ -95,6 +96,7 @@ internal object OfflineTouristPlaceSearch {
             SQLiteDatabase.openDatabase(
                 pending.absolutePath, null, SQLiteDatabase.OPEN_READONLY
             ).use { checkDatabase(it) }
+            if (cancelled()) throw java.util.concurrent.CancellationException("Import DNA turistico annullato")
             if (backup.exists() && !backup.delete())
                 throw IOException("Road DNA: vecchio backup occupato")
             if (target.exists() && !target.renameTo(backup))

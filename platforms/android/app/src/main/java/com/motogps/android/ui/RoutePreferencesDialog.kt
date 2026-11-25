@@ -32,6 +32,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -58,7 +59,7 @@ fun RoutePreferencesDialog(
         sheetState = sheetState,
         containerColor = MotoChatColors.Surface,
         contentColor = MotoChatColors.Text,
-        scrimColor = MotoChatColors.Scrim.copy(alpha = 0.85f),
+        scrimColor = Color.Transparent,
         shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
         dragHandle = {
             BottomSheetDefaults.DragHandle(color = MotoChatColors.Outline)
@@ -140,8 +141,8 @@ fun RoutePreferencesDialog(
                             steps = 2
                         )
                         Text(
-                            "Valuta fino a due alternative con più curve, senza deviazioni " +
-                                "eccessive. Non misura i panorami.",
+                            "Privilegia le strade ricche di curve direttamente durante " +
+                                "il calcolo del percorso. Non valuta i panorami.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MotoChatColors.TextMuted
                         )
@@ -150,9 +151,8 @@ fun RoutePreferencesDialog(
             }
             if (preferences.style == RouteStyle.PANORAMIC) {
                 Text(
-                    "Favorisce strade secondarie e alternative con curve moderate. " +
-                        "Non misura i panorami reali; con tappe Valhalla mantiene " +
-                        "il profilo stradale ma non propone alternative.",
+                    "Favorisce strade secondarie e curve direttamente nel calcolo, " +
+                        "anche con tappe intermedie. Non valuta i panorami.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MotoChatColors.TextMuted
                 )

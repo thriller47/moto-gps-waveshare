@@ -1,6 +1,7 @@
 package com.motogps.android.routing
 
 import android.content.Context
+import android.net.Uri
 import com.motogps.android.routing.OfflineValhallaRouter
 import java.io.File
 import java.io.IOException
@@ -16,7 +17,26 @@ internal object ValhallaElevationImporter {
     private const val MAX_TILE_BYTES = 32L * 1024 * 1024
     private const val MAX_DATA_BYTES = 3L * 1024 * 1024 * 1024
 
-    fun install(context: Context, archive: File, cancelled: () -> Boolean = { false }) {
+    fun installedBytes(context: Context): Long {
+        val active = File(OfflineValhallaRouter.tileFile(context).parentFile, "elevation")
+        if (!active.isDirectory ||
+            !File(active, "N45/N45E009.hgt.gz").isFile ||
+            !File(active, "N40/N40E014.hgt.gz").isFile) return 0L
+        val tiles = active.walkTopDown().filter { it.isFile &&
+            tilePath.matches(it.relativeTo(active).invariantSeparatorsPath) }.toList()
+        return if (tiles.size >= 50) tiles.sumOf { it.length() } else 0L
+    }
+
+    fun install(context: Context, archive: File, cancelled: () -> Boolean = { false }) =
+        archive.inputStream().use { installStream(context, it, cancelled) }
+
+    fun install(context: Context, uri: Uri, cancelled: () -> Boolean = { false }) {
+        val stream = context.contentResolver.openInputStream(uri)
+            ?: throw IOException("Impossibile leggere il pacchetto DEM")
+        stream.use { installStream(context, it, cancelled) }
+    }
+
+    private fun installStream(context: Context, input: InputStream, cancelled: () -> Boolean) {
         val parent = OfflineValhallaRouter.tileFile(context).parentFile
             ?: throw IOException("Cartella routing assente")
         if (!parent.isDirectory && !parent.mkdirs())
@@ -33,7 +53,7 @@ internal object ValhallaElevationImporter {
             var total = 0L
             val seen = HashSet<String>()
             val buffer = ByteArray(128 * 1024)
-            ZipInputStream(archive.inputStream().buffered()).use { zip ->
+            ZipInputStream(input.buffered()).use { zip ->
                 while (true) {
                     if (cancelled()) throw java.util.concurrent.CancellationException("Import DEM annullato")
                     val entry = zip.nextEntry ?: break
@@ -59,6 +79,10 @@ internal object ValhallaElevationImporter {
                         }
                     }
                     if (entryBytes < 100) throw IOException("Tile DEM vuota: " + name)
+                    output.inputStream().use { tile ->
+                        if (tile.read() != 0x1f || tile.read() != 0x8b)
+                            throw IOException("Tile DEM non gzip: $name")
+                    }
                     zip.closeEntry()
                 }
             }
@@ -66,6 +90,7 @@ internal object ValhallaElevationImporter {
                 !seen.contains("N45/N45E009.hgt.gz") ||
                 !seen.contains("N40/N40E014.hgt.gz"))
                 throw IOException("Pacchetto DEM Italia incompleto o copertura insufficiente")
+            if (cancelled()) throw java.util.concurrent.CancellationException("Import DEM annullato")
             // The native actor scans the elevation directory at construction.
             OfflineValhallaRouter.close()
             if (active.exists() && !active.renameTo(backup))

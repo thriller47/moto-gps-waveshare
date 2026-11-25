@@ -186,6 +186,18 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         }
     }
 
+    private val importElevationLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) viewModel.importElevation(this, uri)
+    }
+
+    private val importTouristLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) viewModel.importTouristIndex(this, uri)
+    }
+
     private val importRoadIndexLauncher = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -347,6 +359,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             val photonInstalledBytes = viewModel.photonInstalledBytes.collectAsState().value
             val roadDnaInstalledBytes = viewModel.roadDnaInstalledBytes.collectAsState().value
             val roadIndexBytes = viewModel.roadIndexBytes.collectAsState().value
+            val elevationInstalledBytes = viewModel.elevationInstalledBytes.collectAsState().value
             val photonImporting = viewModel.photonImporting.collectAsState().value
             val photonStatus = viewModel.photonStatus.collectAsState().value
             val valhallaInstalledBytes = viewModel.valhallaInstalledBytes.collectAsState().value
@@ -520,6 +533,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     roadDnaInstalledBytes = roadDnaInstalledBytes,
                     roadIndexBytes = roadIndexBytes,
                     onImportRoadIndex = { importRoadIndexLauncher.launch(arrayOf("*/*")) },
+                    elevationInstalledBytes = elevationInstalledBytes,
+                    onImportElevation = { importElevationLauncher.launch(arrayOf("application/zip", "*/*")) },
+                    onImportTourist = { importTouristLauncher.launch(arrayOf("*/*")) },
                     photonImporting = photonImporting,
                     photonStatus = photonStatus,
                     onImportPhoton = {

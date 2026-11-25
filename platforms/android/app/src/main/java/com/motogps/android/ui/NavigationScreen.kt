@@ -577,6 +577,9 @@ fun OfflineMapsDialog(
     roadDnaInstalledBytes: Long = 0L,
     roadIndexBytes: Long = 0L,
     onImportRoadIndex: () -> Unit = {},
+    elevationInstalledBytes: Long = 0L,
+    onImportElevation: () -> Unit = {},
+    onImportTourist: () -> Unit = {},
     photonImporting: Boolean,
     photonStatus: String?,
     onImportPhoton: () -> Unit,
@@ -598,6 +601,16 @@ fun OfflineMapsDialog(
     onDismiss: () -> Unit
 ) {
     var showAdvancedImports by remember { mutableStateOf(false) }
+    val canManage = !isDownloadingMap && !photonImporting && !valhallaImporting && !isNavigating
+    val motoMapBytes = savedMaps.filter { it.isPackage }.sumOf { it.sizeBytes }
+    val components = listOf(
+        Triple("MotoMap", "Strade e contesto offline", motoMapBytes),
+        Triple("Valhalla", "Grafo di routing", valhallaInstalledBytes),
+        Triple("Photon", "Indirizzi e servizi", photonInstalledBytes),
+        Triple("DEM", "Quote e profilo altimetrico", elevationInstalledBytes),
+        Triple("DNA turistico", "Luoghi da scoprire", roadDnaInstalledBytes),
+        Triple("DNA stradale", "Tratti curvi per Explorer", roadIndexBytes)
+    )
     AlertDialog(
         modifier = Modifier.fillMaxWidth(0.94f),
         properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -622,25 +635,30 @@ fun OfflineMapsDialog(
                         modifier = Modifier.fillMaxWidth().padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Text("MOTOPACK V3 · ITALIA", style = MaterialTheme.typography.labelSmall,
+                        Text("MOTOPACK V4 · ITALIA", style = MaterialTheme.typography.labelSmall,
                             color = MotoChatColors.Green)
-                        Text("MotoPack v4: MotoMap, Valhalla, DEM, Photon, DNA turistico e stradale.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("MotoMap: " + if (savedMaps.isNotEmpty()) "installata" else "assente",
-                            style = MaterialTheme.typography.labelMedium)
-                        Text("Valhalla: " + if (valhallaInstalledBytes > 0L) "installato" else "assente",
-                            style = MaterialTheme.typography.labelMedium)
-                        Text("Photon: " + if (photonInstalledBytes > 0L) "installato" else "assente",
-                            style = MaterialTheme.typography.labelMedium)
-                        Text("Road DNA: " + if (roadDnaInstalledBytes > 0L)
-                            "installato (" + String.format("%.1f MiB",
-                                roadDnaInstalledBytes / 1048576.0) + ")" else "assente",
-                            style = MaterialTheme.typography.labelMedium)
+                        Text("${components.count { it.third > 0L }}/6 componenti presenti",
+                            style = MaterialTheme.typography.titleSmall)
+                        components.forEach { (name, description, bytes) ->
+                            Row(Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(name, style = MaterialTheme.typography.labelMedium)
+                                    Text(description, style = MaterialTheme.typography.bodySmall,
+                                        color = MotoChatColors.TextMuted)
+                                }
+                                Text(if (bytes > 0L) String.format("%.1f MiB", bytes / 1048576.0) else "Assente",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (bytes > 0L) MotoChatColors.Green else MotoChatColors.Warning)
+                            }
+                        }
+                        Text("I componenti possono essere aggiornati anche singolarmente.",
+                            style = MaterialTheme.typography.bodySmall, color = MotoChatColors.TextMuted)
                         Button(
                             onClick = onImportUnifiedPack,
                             modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
-                            enabled = !isDownloadingMap && !photonImporting && !valhallaImporting && !isNavigating
+                            enabled = canManage
                         ) {
                             Text("Importa MotoPack (.motopack)")
                         }
@@ -664,67 +682,50 @@ fun OfflineMapsDialog(
                         else "Opzioni avanzate · componenti separati")
                 }
                 if (showAdvancedImports) {
-                    Text("DNA stradale sperimentale: " + if (roadIndexBytes > 0)
-                        String.format("%.1f MiB", roadIndexBytes / 1048576.0) else "assente",
-                        style = MaterialTheme.typography.bodySmall)
-                    OutlinedButton(onClick = onImportRoadIndex,
-                        enabled = !isDownloadingMap && !photonImporting && !valhallaImporting && !isNavigating,
-                        modifier = Modifier.fillMaxWidth()) { Text("Importa DNA stradale SQLite") }
-                    OutlinedButton(onClick = onImportOsmPack,
-                        enabled = !isDownloadingMap && !valhallaImporting && !isNavigating,
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-                        Text("Importa solo MotoMap ZIP")
-                    }
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    border = BorderStroke(1.dp, MotoChatColors.Outline),
-                    colors = CardDefaults.cardColors(containerColor = MotoChatColors.SurfaceRaised)
-                ) {
-                    Column(
-                        modifier = Modifier.fillMaxWidth().padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text("Ricerca indirizzi offline — Photon",
-                            style = MaterialTheme.typography.titleMedium)
-                        Text(
-                            if (photonInstalledBytes > 0L)
-                                "Indice installato: " +
-                                    String.format("%.1f MiB", photonInstalledBytes / 1048576.0)
-                            else "Importa il file photon-italy.sqlite preparato sul PC.",
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                        if (!photonStatus.isNullOrBlank())
-                            Text(photonStatus, style = MaterialTheme.typography.bodySmall)
-                        Text("Dati © OpenStreetMap contributors — ODbL 1.0",
-                            style = MaterialTheme.typography.labelSmall)
-                        FilledTonalButton(
-                            onClick = onImportPhoton,
-                            modifier = Modifier.fillMaxWidth(),
-                            enabled = !isNavigating && !photonImporting
-                        ) {
-                            Text(if (photonImporting) "Importazione in corso..."
-                                 else "Importa indice Photon SQLite")
+                    Text("Importazioni individuali", style = MaterialTheme.typography.titleSmall)
+                    val imports = listOf(
+                        Triple("MotoMap", "italy-v4.motomap.zip", onImportOsmPack),
+                        Triple("Valhalla", "valhalla_tiles.tar / .tar.zst", onImportValhalla),
+                        Triple("Photon", "photon-italy-v2.sqlite", onImportPhoton),
+                        Triple("DEM", "elevation-italy.zip", onImportElevation),
+                        Triple("DNA turistico", "tourist-italy-v1.sqlite", onImportTourist),
+                        Triple("DNA stradale", "road-dna-italy.sqlite", onImportRoadIndex)
+                    )
+                    imports.forEach { (name, filename, action) ->
+                        OutlinedButton(onClick = action, enabled = canManage,
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                            Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                                Text("Importa $name")
+                                Text(filename, style = MaterialTheme.typography.labelSmall)
+                            }
                         }
+                    }
+                    if (photonImporting || valhallaImporting) {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    }
+                    if (!photonStatus.isNullOrBlank())
+                        Text(photonStatus, style = MaterialTheme.typography.bodySmall)
+                    if (!valhallaStatus.isNullOrBlank())
+                        Text(valhallaStatus, style = MaterialTheme.typography.bodySmall)
+                    if (valhallaImporting && !isDownloadingMap) {
+                        OutlinedButton(onClick = onCancelValhalla, modifier = Modifier.fillMaxWidth()) {
+                            Text("Annulla importazione Valhalla")
+                        }
+                    }
+                    if (photonInstalledBytes > 0L || valhallaInstalledBytes > 0L) {
+                        HorizontalDivider()
+                        Text("Rimozione componenti", style = MaterialTheme.typography.titleSmall)
                         if (photonInstalledBytes > 0L) {
-                            OutlinedButton(
-                                onClick = onDeletePhoton,
-                                modifier = Modifier.fillMaxWidth(),
-                                enabled = !isNavigating && !photonImporting
-                            ) { Text("Elimina indice Photon") }
+                            OutlinedButton(onClick = onDeletePhoton, enabled = canManage,
+                                modifier = Modifier.fillMaxWidth()) { Text("Elimina indice Photon") }
+                        }
+                        if (valhallaInstalledBytes > 0L) {
+                            OutlinedButton(onClick = onDeleteValhalla, enabled = canManage,
+                                modifier = Modifier.fillMaxWidth()) { Text("Rimuovi grafo Valhalla") }
                         }
                     }
-                }
-
-                ValhallaRoutingSection(
-                    installedBytes = valhallaInstalledBytes,
-                    isImporting = valhallaImporting,
-                    status = valhallaStatus,
-                    isNavigating = isNavigating,
-                    onImport = onImportValhalla,
-                    onCancelImport = onCancelValhalla,
-                    onDelete = onDeleteValhalla
-                )
+                    Text("Dati © OpenStreetMap contributors — ODbL 1.0",
+                        style = MaterialTheme.typography.labelSmall)
 
                 if (savedMaps.isNotEmpty()) {
                     Text("Mappe stradali salvate", style = MaterialTheme.typography.titleSmall)
@@ -746,7 +747,7 @@ fun OfflineMapsDialog(
                             }
                             IconButton(
                                 onClick = { onDeleteMap(mapInfo.fileName) },
-                                enabled = !isNavigating && !isDownloadingMap && !valhallaImporting
+                                enabled = canManage
                             ) {
                                 Icon(Icons.Default.Delete, contentDescription = "Elimina mappa")
                             }
@@ -848,6 +849,9 @@ fun NavigationScreen(
     roadDnaInstalledBytes: Long = 0L,
     roadIndexBytes: Long = 0L,
     onImportRoadIndex: () -> Unit = {},
+    elevationInstalledBytes: Long = 0L,
+    onImportElevation: () -> Unit = {},
+    onImportTourist: () -> Unit = {},
     photonImporting: Boolean = false,
     photonStatus: String? = null,
     onImportPhoton: () -> Unit = {},
@@ -2814,6 +2818,9 @@ fun NavigationScreen(
             roadDnaInstalledBytes = roadDnaInstalledBytes,
             roadIndexBytes = roadIndexBytes,
             onImportRoadIndex = onImportRoadIndex,
+            elevationInstalledBytes = elevationInstalledBytes,
+            onImportElevation = onImportElevation,
+            onImportTourist = onImportTourist,
             photonImporting = photonImporting,
             photonStatus = photonStatus,
             onImportPhoton = onImportPhoton,
