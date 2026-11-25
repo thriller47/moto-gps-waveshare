@@ -37,7 +37,9 @@ source "$HOME/valhalla-env/bin/activate"
 builder=scripts/offline_map/rebuild_motopack_wsl.sh
 verifier=scripts/offline_map/motopack.py
 [[ -f "$builder" && -f "$verifier" ]]
-if grep -q 'elevation-italy.zip' "$builder"; then
+if grep -q 'road-dna-italy.sqlite' "$builder"; then
+    version=v4
+elif grep -q 'elevation-italy.zip' "$builder"; then
     version=v3
 else
     version=v2

@@ -29,10 +29,11 @@ class ValhallaWaypointsTest {
             45.5, 9.0, 46.1, 9.6, preferences = prefs, waypoints = stops)
         assertFalse(multi.has("alternates"))
         assertTrue(multi.getJSONObject("costing_options")
-            .getJSONObject("auto").getBoolean("exclude_unpaved"))
+            .getJSONObject("motorcycle").getBoolean("exclude_unpaved"))
         val direct = OnlineValhallaRouter.request(
             45.5, 9.0, 46.1, 9.6, preferences = prefs)
-        assertEquals(2, direct.getInt("alternates"))
+        assertFalse(direct.has("alternates"))
+        assertEquals("motorcycle", direct.getString("costing"))
     }
 
     @Test fun reroutingKeepsPendingStopsAndGpsHeading() {

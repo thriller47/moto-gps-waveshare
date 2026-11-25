@@ -2493,11 +2493,12 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                 }
                 _roadDnaInstalledBytes.value =
                     OfflineTouristPlaceSearch.file(context.applicationContext).length()
+                _roadIndexBytes.value = RoadDnaRoadIndex.file(context.applicationContext).length()
                 invalidateRoadDna()
                 _valhallaStatus.value = "Grafo Valhalla installato dal pacchetto unificato"
                 _photonStatus.value = "Indice Photon installato dal pacchetto unificato"
                 _downloadProgress.value = 1f
-                _downloadStatus.value = "MotoMap, Photon, Road DNA e Valhalla installati"
+                _downloadStatus.value = "MotoMap, Photon, DNA turistico e stradale, DEM e Valhalla installati"
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

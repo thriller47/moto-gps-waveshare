@@ -82,7 +82,7 @@ internal object OnlineValhallaRouter {
                 sb.toString()
             }
             return ValhallaRouteAdapter.toMotoRoute(
-                RouteCurvatureSelector.select(JSONObject(body), preferences),
+                JSONObject(body),
                 fromLat, fromLon, toLat, toLon, "valhalla-online")
         } finally {
             conn.disconnect()

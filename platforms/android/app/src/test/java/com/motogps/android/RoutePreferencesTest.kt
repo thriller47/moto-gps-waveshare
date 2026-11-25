@@ -31,13 +31,26 @@ class RoutePreferencesTest {
         )
         val request = OnlineValhallaRouter.request(
             45.5, 9.0, 44.5, 10.0, preferences = settings)
-        assertEquals("auto", request.getString("costing"))
-        assertEquals(2, request.getInt("alternates"))
-        val auto = request.getJSONObject("costing_options").getJSONObject("auto")
+        assertEquals("motorcycle", request.getString("costing"))
+        assertFalse(request.has("alternates"))
+        val auto = request.getJSONObject("costing_options").getJSONObject("motorcycle")
+        assertEquals(0.8, auto.getDouble("use_curvature"), 0.0001)
         assertEquals(0.15, auto.getDouble("use_highways"), 0.0001)
-        assertEquals(0.0, auto.getDouble("use_tracks"), 0.0)
+        assertEquals(0.0, auto.getDouble("use_trails"), 0.0)
         assertTrue(auto.getBoolean("exclude_unpaved"))
         assertEquals(0.0, auto.getDouble("use_tolls"), 0.0)
+    }
+
+    @Test fun nativeCurvatureLevelsAndRerouteUseMotorcycle() {
+        for ((level, expected) in listOf(0.5, 0.6, 0.8, 1.0).withIndex()) {
+            val json = OnlineValhallaRouter.request(45.1, 7.1, 45.2, 7.2,
+                rerouting = true, gpsBearing = 90f,
+                preferences = RoutePreferences(RouteStyle.TOURING, curveLevel = level))
+            assertEquals("motorcycle", json.getString("costing"))
+            assertEquals(expected, json.getJSONObject("costing_options")
+                .getJSONObject("motorcycle").getDouble("use_curvature"), 0.001)
+            assertFalse(json.has("alternates"))
+        }
     }
 
     @Test fun noExtraAlternatesOutsideTouringOrWhenCurvesDisabled() {

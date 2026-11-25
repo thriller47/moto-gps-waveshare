@@ -45,6 +45,13 @@ class MotoPackTests(unittest.TestCase):
                 geometry_type TEXT,location_quality TEXT)""")
             tourist.execute("INSERT INTO tourist_poi VALUES ('n',1,'belvedere','Belvedere',7,45,7,45,7,45,'point','exact')")
             tourist.execute("CREATE INDEX tourist_category_lat_lon ON tourist_poi(category,lat,lon)")
+        self.road_index = self.directory / "road-dna-italy.sqlite"
+        from road_dna_to_sqlite import SCHEMA
+        with sqlite3.connect(self.road_index) as db:
+            db.executescript(SCHEMA)
+            db.executemany("INSERT INTO metadata VALUES (?,?)", [("schema","road-dna-roads-v1"),("rows","1")])
+            db.execute("INSERT INTO roads VALUES (1,123,0,'Test','secondary','asphalt',45,7,45,7,45.01,7.01,1000,4,1,NULL,.8,900,140)")
+            db.execute("CREATE INDEX roads_cell ON roads(cell_lat,cell_lon)")
         self.dem = self.directory / "elevation-italy.zip"
         with zipfile.ZipFile(self.dem, "w") as archive:
             sample = gzip.compress(b"0123456789" * 80)
@@ -62,13 +69,15 @@ class MotoPackTests(unittest.TestCase):
         args.photon = str(self.db)
         args.tourist = str(self.tourist)
         args.elevation = str(self.dem)
+        args.road_index = str(self.road_index)
         args.output = str(self.out)
         mp.build(args)
 
     def test_roundtrip(self):
         self.build()
         result = mp.verify(self.out)
-        self.assertEqual(result["version"], 3)
+        self.assertEqual(result["version"], 4)
+        self.assertEqual(result["components"]["road_index"]["bytes"], self.road_index.stat().st_size)
         self.assertEqual(result["components"]["elevation"]["bytes"], self.dem.stat().st_size)
         self.assertEqual(result["components"]["tourist"]["bytes"], self.tourist.stat().st_size)
         self.assertEqual(result["components"]["photon"]["bytes"], self.db.stat().st_size)
@@ -100,7 +109,7 @@ class MotoPackTests(unittest.TestCase):
         with zipfile.ZipFile(self.roads, "w") as z:
             z.writestr("motomap_v4.json", json.dumps({"format":"motomap","version":3}))
         with self.assertRaisesRegex(ValueError, "MotoMap v4"):
-            mp.validate_inputs({"motomap":self.roads,"valhalla":self.graph,"photon":self.db,"tourist":self.tourist,"elevation":self.dem})
+            mp.validate_inputs({"motomap":self.roads,"valhalla":self.graph,"photon":self.db,"tourist":self.tourist,"elevation":self.dem,"road_index":self.road_index})
 
     def test_refuse_overwrite(self):
         self.build()

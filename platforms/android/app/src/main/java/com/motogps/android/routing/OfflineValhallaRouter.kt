@@ -70,7 +70,7 @@ internal object OfflineValhallaRouter {
         ValhallaRouteLocations.suppressUnsupportedAlternates(preferences.applyTo(request))
         val raw = requireNotNull(engine).routeRaw(request.toString())
         return ValhallaRouteAdapter.toMotoRoute(
-            RouteCurvatureSelector.select(JSONObject(raw), preferences),
+            JSONObject(raw),
             originLat, originLon, destinationLat, destinationLon)
     }
 

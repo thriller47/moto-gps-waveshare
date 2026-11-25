@@ -26,7 +26,8 @@ internal object UnifiedOfflineMapImporter {
         "valhalla" to "valhalla/valhalla_tiles.tar.zst",
         "photon" to "photon/photon-italy-v2.sqlite",
         "tourist" to "road-dna/tourist-italy-v1.sqlite",
-        "elevation" to "elevation/elevation-italy.zip"
+        "elevation" to "elevation/elevation-italy.zip",
+        "road_index" to "road-dna/road-dna-italy.sqlite"
     )
 
     /** Preserve native extensions: Valhalla's importer uses .tar.zst to select Zstd. */
@@ -100,7 +101,7 @@ internal object UnifiedOfflineMapImporter {
             if (seen != names.values.toSet() + MANIFEST)
                 throw IOException("Pacchetto incompleto")
             val root = JSONObject(manifestText ?: throw IOException("Manifest assente"))
-            if (root.optString("format") != FORMAT || root.optInt("version") != 3 ||
+            if (root.optString("format") != FORMAT || root.optInt("version") != 4 ||
                 root.optString("region") != "IT") throw IOException("Versione del pacchetto non supportata")
             val components = root.getJSONObject("components")
             if (components.length() != names.size) throw IOException("Manifest non coerente")
@@ -134,7 +135,12 @@ internal object UnifiedOfflineMapImporter {
             ValhallaElevationImporter.install(context, staged.getValue("elevation"), cancelled)
             progress("Installazione Road DNA...")
             OfflineTouristPlaceSearch.install(context, Uri.fromFile(staged.getValue("tourist")))
-            progress("MotoPack v3 installato (MotoMap, Photon, Valhalla, DEM, Road DNA)")
+            if (cancelled()) throw java.util.concurrent.CancellationException("Importazione annullata")
+            progress("Installazione DNA stradale...")
+            RoadDnaRoadIndex.install(context, Uri.fromFile(staged.getValue("road_index")), cancelled) { copied ->
+                progress("DNA stradale: ${copied / 1048576L} MiB")
+            }
+            progress("MotoPack v4 installato (MotoMap, Photon, Valhalla, DEM, Road DNA turistico e stradale)")
         } finally {
             staged.values.forEach { it.delete() }
             if (dir.exists() && dir.listFiles().isNullOrEmpty()) dir.delete()

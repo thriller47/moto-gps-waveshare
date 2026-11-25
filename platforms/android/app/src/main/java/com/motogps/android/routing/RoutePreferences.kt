@@ -19,11 +19,23 @@ data class RoutePreferences(
     val useCurvyAlternates: Boolean
         get() = (style == RouteStyle.TOURING && curveLevel > 0) || style == RouteStyle.PANORAMIC
 
-    /** Keep the normal requests light; only Touring with curve preference asks
-     * for alternative paths, without extra HTTP requests or routing jobs. */
-    fun requestAlternates(): Int = if (useCurvyAlternates) 2 else 0
+    val motorcycle: Boolean
+        get() = style == RouteStyle.TOURING || style == RouteStyle.PANORAMIC
+
+    // Native costing searches the graph itself, including on multi-stop routes.
+    // No geometry-based alternative selection in the production routers.
+    fun requestAlternates(): Int = 0
+
+    val nativeCurvature: Double
+        get() = when (style) {
+            RouteStyle.PANORAMIC -> 0.8
+            RouteStyle.TOURING -> listOf(0.5, 0.6, 0.8, 1.0)[curveLevel]
+            else -> 0.5
+        }
 
     fun applyTo(request: JSONObject): JSONObject {
+        val costing = if (motorcycle) "motorcycle" else "auto"
+        request.put("costing", costing)
         val auto = JSONObject()
         when (style) {
             RouteStyle.FASTEST -> Unit
@@ -33,10 +45,10 @@ data class RoutePreferences(
                 auto.put("use_tracks", 0.0)
             }
             RouteStyle.TOURING, RouteStyle.PANORAMIC -> {
-                // Touring stays on auto costing, already verified on the
-                // imported Italian tiles. No dependence on motorcycle BETA.
-                auto.put("use_highways", if (style == RouteStyle.PANORAMIC) 0.05 else 0.15)
-                auto.put("use_tracks", 0.0)
+                // Valhalla >=3.9.2 supports curvature at edge-cost level.
+                auto.put("use_curvature", nativeCurvature)
+                auto.put("use_trails", 0.0)
+                auto.put("use_highways", if (style == RouteStyle.PANORAMIC) 0.05 else if (curveLevel == 3) 0.0 else 0.15)
                 auto.put("exclude_unpaved", true)
                 if (style == RouteStyle.PANORAMIC) {
                     auto.put("use_tolls", 0.0)
@@ -50,8 +62,8 @@ data class RoutePreferences(
             if (avoidFerries) auto.put("use_ferry", 0.0)
         }
         if (auto.length() > 0)
-            request.put("costing_options", JSONObject().put("auto", auto))
-        if (requestAlternates() > 0) request.put("alternates", requestAlternates())
+            request.put("costing_options", JSONObject().put(costing, auto))
+        request.remove("alternates")
         return request
     }
 }

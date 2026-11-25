@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build and verify Moto Chat GPS unified offline bundles (Python 3 stdlib).
 
-python3 scripts/offline_map/motopack.py build --motomap italy-v4.motomap.zip --valhalla valhalla_tiles.tar.zst --photon photon-italy-v2.sqlite --tourist tourist-italy-v1.sqlite --elevation elevation-italy.zip -o italy.motopack
+python3 scripts/offline_map/motopack.py build --motomap italy-v4.motomap.zip --valhalla valhalla_tiles.tar.zst --photon photon-italy-v2.sqlite --tourist tourist-italy-v1.sqlite --elevation elevation-italy.zip --road_index road-dna-italy.sqlite -o italy.motopack
 python3 scripts/offline_map/motopack.py verify italy.motopack
 """
 import argparse
@@ -19,6 +19,7 @@ NAMES = {
     "photon": "photon/photon-italy-v2.sqlite",
     "tourist": "road-dna/tourist-italy-v1.sqlite",
     "elevation": "elevation/elevation-italy.zip",
+    "road_index": "road-dna/road-dna-italy.sqlite",
 }
 CHUNK = 1024 * 1024
 
@@ -78,6 +79,16 @@ def validate_inputs(paths):
             raise ValueError("Road DNA tourist spatial index missing")
         if db.execute("PRAGMA integrity_check").fetchone() != ("ok",):
             raise ValueError("Road DNA tourist SQLite integrity check failed")
+    with sqlite3.connect(paths["road_index"].resolve().as_uri() + "?mode=ro", uri=True) as db:
+        metadata = dict(db.execute("SELECT key,value FROM metadata"))
+        count = db.execute("SELECT COUNT(*) FROM roads").fetchone()[0]
+        if metadata.get("schema") != "road-dna-roads-v1" or count < 1 or metadata.get("rows") != str(count):
+            raise ValueError("Invalid Road DNA road index")
+        db.execute("SELECT osm_way,part,name,highway,surface,lat,lon,a_lat,a_lon,b_lat,b_lon,length_m,bends,hairpins,relief_m,curve_score,cell_lat,cell_lon FROM roads LIMIT 1").fetchone()
+        if not db.execute("SELECT 1 FROM sqlite_master WHERE type='index' AND name='roads_cell'").fetchone():
+            raise ValueError("Road DNA road spatial index missing")
+        if db.execute("PRAGMA quick_check").fetchone() != ("ok",):
+            raise ValueError("Road DNA road SQLite integrity failure")
     with zipfile.ZipFile(paths["elevation"]) as dem:
         names = [name for name in dem.namelist() if not name.endswith("/")]
         pattern = re.compile(r"[NS][0-9]{2}/[NS][0-9]{2}[EW][0-9]{3}\.hgt\.gz")
@@ -107,7 +118,7 @@ def verify(filename):
             raise ValueError("Invalid manifest length")
         manifest = json.loads(archive.read("manifest.json"))
         if (manifest.get("format"), manifest.get("version"), manifest.get("region")) != (
-            FORMAT, 3, "IT"
+            FORMAT, 4, "IT"
         ):
             raise ValueError("Unsupported bundle format")
         components = manifest.get("components")
@@ -145,7 +156,7 @@ def build(args):
     pending = output.with_name(output.name + ".part")
     if pending.exists():
         raise FileExistsError(pending)
-    manifest = {"format": FORMAT, "version": 3, "region": "IT",
+    manifest = {"format": FORMAT, "version": 4, "region": "IT",
                 "attribution": "OpenStreetMap contributors (ODbL); Valhalla; Photon",
                 "components": {}}
     try:
@@ -187,7 +198,7 @@ def main():
         build(args)
     else:
         verify(args.file)
-        print("OK: MotoPack v3 / MotoMap v4 + Valhalla V5 + DEM + Photon v2 + Road DNA v1")
+        print("OK: MotoPack v4 / MotoMap v4 + Valhalla + DEM + Photon v2 + Road DNA tourist and roads")
 
 if __name__ == "__main__":
     main()

@@ -624,7 +624,7 @@ fun OfflineMapsDialog(
                     ) {
                         Text("MOTOPACK V3 · ITALIA", style = MaterialTheme.typography.labelSmall,
                             color = MotoChatColors.Green)
-                        Text("MotoPack v3: MotoMap, Valhalla, quote DEM, Photon e Road DNA.",
+                        Text("MotoPack v4: MotoMap, Valhalla, DEM, Photon, DNA turistico e stradale.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text("MotoMap: " + if (savedMaps.isNotEmpty()) "installata" else "assente",
@@ -1919,7 +1919,7 @@ fun NavigationScreen(
                         }
                         if (!roadDnaSummary.indexAvailable) {
                             Text("Indice turistico Road DNA non installato. " +
-                                "Importa il MotoPack v3 con Road DNA e quote DEM.")
+                                "Importa il MotoPack v4 con Road DNA e quote DEM.")
                         } else {
                             // Counts remain available for diagnostics, but the
                             // user-facing dialog opens directly on curated POIs.

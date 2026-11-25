@@ -276,6 +276,26 @@ Da PowerShell: `moto-android NewUI`. Copiare il file SQLite nella cartella Downl
 
 ## 2. Rigenerazione completa MotoPack — procedura consigliata
 
+### MotoPack v4 e routing motorcycle nativo (NewUI, 25/11/2026)
+
+Il nuovo pacchetto v4 aggiunge l'indice DNA stradale al MotoPack v3 e ricrea il grafo V6 con pyvalhalla 3.9.3. Valhalla Mobile 0.6.6 resta sul motore 3.9.2; compatibilità di lettura e risultati sul telefono da verificare. Il nuovo importatore accetta v4; non è necessario disinstallare Android, cancellare mappe o flashare ESP32. I profili Touring/Panoramico usano costing motorcycle; il livello curve 0–3 vale 0.5/0.6/0.8/1.0, Panoramico 0.8, uso trails 0, exclude_unpaved true. Le preferenze vengono applicate anche a tappe e ricalcoli. Rapido, breve e secondarie mantengono auto. Il server online potrebbe non supportare la preferenza curve.
+
+**Sul Ryzen, Ubuntu WSL** (non durante una generazione in corso):
+
+```bash
+cd ~/MotoGPS/moto-gps-waveshare
+git fetch origin
+git switch NewUI
+git pull --ff-only origin NewUI
+source ~/valhalla-env/bin/activate
+python -m pip install --upgrade "pyvalhalla==3.9.3"
+python -m pip show pyvalhalla
+bash scripts/offline_map/rebuild_motopack_wsl.sh --threads 2 --out "$HOME/motogps-build/ItaliaUnificata-RoadDNA-v4"
+cp "$HOME/motogps-build/ItaliaUnificata-RoadDNA-v4/MotoChatGPS-Italia.motopack" /mnt/c/MotoGPS/MotoChatGPS-Italia.motopack
+```
+
+Il builder riutilizza la cache DEM e ricrea gli indici dal PBF. Per ripresa usare lo stesso comando con --resume, senza aggiornare branch o ambiente. Per usare moto-motopack NewUI occorre reinstallare i launcher aggiornati dal repo Windows, come in apertura. Aggiornare Android con moto-android NewUI, poi importare v4 in Mappe offline. Il pack precedente su WSL rimane separato. Prova necessaria: percorsi locali Touring con 0 e 3 curve, Panoramico, Explorer con tappe, ricalcolo, itinerario lungo e controllo sterrati noti. Costing motorcycle è ancora beta; non garantire che strade o accessi OSM siano aggiornati.
+
 ### Nuovo MotoPack v3 con quote DEM (branch `NewUI`, 23/11/2026 — **sperimentale, non ancora collaudato**)
 
 Questa estensione **non è ancora parte del branch stabile `valhalla`**. In `NewUI` il pacchetto unificato diventa **MotoPack v3**: MotoMap v4, Photon v2, Tourist/Road DNA v1, grafo Valhalla V5 e archivio DEM Skadi. **Un MotoPack v2 precedente non è accettato dal nuovo importatore v3**; l'utente ha autorizzato questa incompatibilità per poter ripartire con dati aggiornati. Il firmware ESP32 e il protocollo BLE non cambiano.

@@ -7,16 +7,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PanoramicRoutePreferencesTest {
-    @Test fun panoramicUsesExistingAutoCostingAndMediumCurves() {
+    @Test fun panoramicUsesNativeMotorcycleCurvature() {
         val prefs = RoutePreferences(style = RouteStyle.PANORAMIC)
         assertTrue(prefs.useCurvyAlternates)
-        assertEquals(2, prefs.requestAlternates())
+        assertEquals(0, prefs.requestAlternates())
         val request = prefs.applyTo(JSONObject().put("costing", "auto"))
-        val auto = request.getJSONObject("costing_options").getJSONObject("auto")
+        val auto = request.getJSONObject("costing_options").getJSONObject("motorcycle")
+        assertEquals("motorcycle", request.getString("costing"))
+        assertEquals(0.8, auto.getDouble("use_curvature"), 0.001)
         assertEquals(0.05, auto.getDouble("use_highways"), 0.001)
         assertEquals(0.0, auto.getDouble("use_tolls"), 0.001)
         assertTrue(auto.getBoolean("exclude_unpaved"))
-        assertEquals(2, request.getInt("alternates"))
+        assertFalse(request.has("alternates"))
     }
 
     @Test fun panoramicWithStopsKeepsRoadPreferencesButDisablesUnsupportedAlternates() {
@@ -28,7 +30,7 @@ class PanoramicRoutePreferencesTest {
         ValhallaRouteLocations.suppressUnsupportedAlternates(request)
         assertFalse(request.has("alternates"))
         assertTrue(request.getJSONObject("costing_options")
-            .getJSONObject("auto").getBoolean("exclude_unpaved"))
+            .getJSONObject("motorcycle").getBoolean("exclude_unpaved"))
         assertEquals(4, request.getJSONArray("locations").length())
     }
 
