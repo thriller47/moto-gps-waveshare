@@ -92,14 +92,15 @@ constexpr double px(double value) {
 }
 
 // Marker geometry is 75% of the original design, rounded once at the
-// physical display scale. Anchor the WHITE apex to the map projection origin
-// (NavPresenter kVehicleX / kVehicleY); the black outline extends above it.
+// physical display scale. Experimental: anchor the bottom edge of the BLACK
+// outline to the map projection origin (NavPresenter kVehicleX / kVehicleY).
 constexpr int marker_px(int design_units) {
     return (design_units * 3 * MOTO_UI_CANVAS_WIDTH + 2 * kDesignWidth) /
            (4 * kDesignWidth);
 }
 constexpr int kMarkerAnchorX = MOTO_UI_CANVAS_WIDTH / 2;
 constexpr int kMarkerAnchorY = px(196);
+constexpr int kMarkerBaseOffsetY = marker_px(36);
 
 struct MapPolyline {
     const lv_point_precise_t *points = nullptr;
@@ -1827,7 +1828,7 @@ void create_navigation_page() {
     lv_obj_remove_style_all(ui.nav_marker);
     lv_obj_set_size(ui.nav_marker, marker_px(34) + 1, marker_px(36) + 1);
     lv_obj_set_pos(ui.nav_marker, kMarkerAnchorX - marker_px(17),
-                   kMarkerAnchorY - marker_px(5));
+                   kMarkerAnchorY - kMarkerBaseOffsetY);
     lv_obj_clear_flag(ui.nav_marker, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(ui.nav_marker, draw_vehicle_marker,
                         LV_EVENT_DRAW_MAIN_END, nullptr);
