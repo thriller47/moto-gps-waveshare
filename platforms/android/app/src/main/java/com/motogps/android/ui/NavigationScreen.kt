@@ -575,6 +575,8 @@ fun OfflineMapsDialog(
     savedMaps: List<SavedMapInfo>,
     photonInstalledBytes: Long,
     roadDnaInstalledBytes: Long = 0L,
+    roadIndexBytes: Long = 0L,
+    onImportRoadIndex: () -> Unit = {},
     photonImporting: Boolean,
     photonStatus: String?,
     onImportPhoton: () -> Unit,
@@ -662,6 +664,12 @@ fun OfflineMapsDialog(
                         else "Opzioni avanzate · componenti separati")
                 }
                 if (showAdvancedImports) {
+                    Text("DNA stradale sperimentale: " + if (roadIndexBytes > 0)
+                        String.format("%.1f MiB", roadIndexBytes / 1048576.0) else "assente",
+                        style = MaterialTheme.typography.bodySmall)
+                    OutlinedButton(onClick = onImportRoadIndex,
+                        enabled = !isDownloadingMap && !photonImporting && !valhallaImporting && !isNavigating,
+                        modifier = Modifier.fillMaxWidth()) { Text("Importa DNA stradale SQLite") }
                     OutlinedButton(onClick = onImportOsmPack,
                         enabled = !isDownloadingMap && !valhallaImporting && !isNavigating,
                         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
@@ -761,7 +769,7 @@ fun OfflineMapsDialog(
 fun NavigationScreen(
     onSearch: (String) -> Unit,
     onCircularTour: (Int, Int) -> Unit = { _, _ -> },
-    onRoadDnaExplorer: (Int, Int, ExplorerProfile) -> Unit = { _, _, _ -> },
+    onRoadDnaExplorer: (Int, Int, ExplorerProfile, Boolean) -> Unit = { _, _, _, _ -> },
     onConnectRequest: () -> Unit,
     connectionState: String,
     coffeeTimeoutMinutes: Int = 10,
@@ -838,6 +846,8 @@ fun NavigationScreen(
     savedMaps: List<SavedMapInfo> = emptyList(),
     photonInstalledBytes: Long = 0L,
     roadDnaInstalledBytes: Long = 0L,
+    roadIndexBytes: Long = 0L,
+    onImportRoadIndex: () -> Unit = {},
     photonImporting: Boolean = false,
     photonStatus: String? = null,
     onImportPhoton: () -> Unit = {},
@@ -2065,6 +2075,7 @@ fun NavigationScreen(
     var circularOrientation by remember { mutableIntStateOf(0) }
     var explorerEnabled by remember { mutableStateOf(true) }
     var explorerProfile by remember { mutableStateOf(ExplorerProfile.CURVES) }
+    var useRoadIndex by remember(roadIndexBytes) { mutableStateOf(roadIndexBytes > 0) }
     var showSaveCircularDialog by remember { mutableStateOf(false) }
     var savedTourName by remember { mutableStateOf("") }
     var showSavedToursDialog by remember { mutableStateOf(false) }
@@ -2282,6 +2293,12 @@ fun NavigationScreen(
                                     label = { Text(profile.label) })
                             }
                         }
+                        if (roadIndexBytes > 0 && circularMandatoryStops.isEmpty()) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(checked = useRoadIndex, onCheckedChange = { useRoadIndex = it })
+                                Text("DNA stradale · giri mirati")
+                            }
+                        }
                         Text("Curve, distanza, dislivello e luoghi vicini: valori indicativi. " +
                             "Richiede Valhalla offline; con più tappe obbligatorie può risultare un solo giro.",
                             style = MaterialTheme.typography.bodySmall)
@@ -2383,7 +2400,7 @@ fun NavigationScreen(
             confirmButton = {
                 Button(onClick = {
                     showCircularTourDialog = false
-                    if (explorerEnabled) onRoadDnaExplorer(circularDistanceKm.roundToInt(), circularOrientation, explorerProfile)
+                    if (explorerEnabled) onRoadDnaExplorer(circularDistanceKm.roundToInt(), circularOrientation, explorerProfile, useRoadIndex && roadIndexBytes > 0)
                     else onCircularTour(circularDistanceKm.roundToInt(), circularOrientation)
                 }, enabled = !isNavigating && !isLoading,
                     modifier = Modifier.heightIn(min = 52.dp)) {
@@ -2795,6 +2812,8 @@ fun NavigationScreen(
             savedMaps = savedMaps,
             photonInstalledBytes = photonInstalledBytes,
             roadDnaInstalledBytes = roadDnaInstalledBytes,
+            roadIndexBytes = roadIndexBytes,
+            onImportRoadIndex = onImportRoadIndex,
             photonImporting = photonImporting,
             photonStatus = photonStatus,
             onImportPhoton = onImportPhoton,

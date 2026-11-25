@@ -186,6 +186,12 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         }
     }
 
+    private val importRoadIndexLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) viewModel.importRoadDnaIndex(this, uri)
+    }
+
     private val importUnifiedPackLauncher = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -340,6 +346,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             val isDownloadingMap = viewModel.isDownloadingMap.collectAsState().value
             val photonInstalledBytes = viewModel.photonInstalledBytes.collectAsState().value
             val roadDnaInstalledBytes = viewModel.roadDnaInstalledBytes.collectAsState().value
+            val roadIndexBytes = viewModel.roadIndexBytes.collectAsState().value
             val photonImporting = viewModel.photonImporting.collectAsState().value
             val photonStatus = viewModel.photonStatus.collectAsState().value
             val valhallaInstalledBytes = viewModel.valhallaInstalledBytes.collectAsState().value
@@ -375,8 +382,8 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     onCircularTour = { distanceKm, orientation ->
                         viewModel.previewCircularTour(distanceKm, orientation)
                     },
-                    onRoadDnaExplorer = { distanceKm, orientation, profile ->
-                        viewModel.previewRoadDnaExplorer(distanceKm, orientation, profile)
+                    onRoadDnaExplorer = { distanceKm, orientation, profile, useIndex ->
+                        viewModel.previewRoadDnaExplorer(distanceKm, orientation, profile, useIndex)
                     },
                     onConnectRequest = {
                         checkPermissionsAndScan(forceScan = true)
@@ -511,6 +518,8 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     isDownloadingMap = isDownloadingMap,
                     photonInstalledBytes = photonInstalledBytes,
                     roadDnaInstalledBytes = roadDnaInstalledBytes,
+                    roadIndexBytes = roadIndexBytes,
+                    onImportRoadIndex = { importRoadIndexLauncher.launch(arrayOf("*/*")) },
                     photonImporting = photonImporting,
                     photonStatus = photonStatus,
                     onImportPhoton = {

@@ -239,6 +239,28 @@ Se la connessione tra telefono ed ESP32 si interrompe **involontariamente** (es.
 
 Con il MotoPack già installato, aprire **Crea tour**, lasciare attivo **Explorer**, scegliere 30–300 km, direzione N/E/S/O e profilo Curve, Panorami o Touring. Aggiungere eventuali tappe obbligatorie nell'ordine desiderato. Toccare **Genera itinerari**: vengono calcolati fino a otto candidati sul grafo locale, senza inviare richieste online. Nell'anteprima scegliere una delle massimo tre varianti distinte per vedere il percorso e le sue tappe; MotoScore, curve, tornanti e ripetizioni sono stime, dislivello e luoghi possono essere non disponibili. La distanza è indicativa; verificare sempre il giro reale. Con più tappe obbligatorie può risultare una sola variante. È possibile salvare o avviare il tour selezionato; l'avvio ricalcola con le tappe scelte dalla posizione corrente. Disattivare Explorer per usare il normale tour singolo anche online. Non serve rigenerare il MotoPack o aggiornare ESP32 per questa funzione. Prima prova: `moto-android NewUI`, poi modalità aereo con GPS e grafo locale disponibile. Funzione non ancora collaudata.
 
+### DNA stradale Italia — indice sperimentale separato (NewUI)
+
+Non rigenerare il MotoPack. In Ubuntu WSL, nella copia Git già configurata:
+
+```bash
+cd ~/MotoGPS/moto-gps-waveshare
+git fetch origin
+git switch NewUI
+git pull --ff-only origin NewUI
+source ~/valhalla-env/bin/activate
+python3 -m pip install osmium
+mkdir -p ~/motogps-build/RoadDNA-Italia
+python3 scripts/offline_map/road_dna_to_sqlite.py \
+  /mnt/c/MotoGPS/PBF/italy-latest.osm.pbf \
+  --output ~/motogps-build/RoadDNA-Italia/road-dna-italy.sqlite
+cp ~/motogps-build/RoadDNA-Italia/road-dna-italy.sqlite /mnt/c/MotoGPS/road-dna-italy.sqlite
+```
+
+Se disponibile, aggiungere al comando Python **--elevation /percorso/esatto/elevation-italy.zip** prima di avviarlo (usa il DEM già generato, non lo scarica). Senza DEM l'indice funziona con rilievo non disponibile. Il generatore rifiuta di sovrascrivere un indice esistente: usare un altro nome o spostare il precedente dopo averlo salvato. Non modifica PBF, DEM o MotoPack. Usare lo stesso PBF del grafo installato per ridurre incongruenze.
+
+Da PowerShell: `moto-android NewUI`. Copiare il file SQLite nella cartella Download del telefono (USB/MTP), aprire **Mappe offline → Opzioni avanzate → Importa DNA stradale SQLite** e selezionarlo. In **Crea tour**, con Explorer attivo e senza tappe obbligatorie, si può attivare/disattivare **DNA stradale · giri mirati**. Gli otto candidati originali rimangono disponibili; fino a quattro aggiuntivi mirano a tratti indicizzati, le schede selezionate di questo tipo hanno il suffisso Mirato. La geometria e il percorso sono comunque calcolati da Valhalla. Con tappe obbligatorie il generatore resta quello precedente. Non occorre flash ESP32. Verificare tempi, dimensione SQLite e risultato sulla mappa; funzione non ancora collaudata. Dati OSM © OpenStreetMap contributors, ODbL.
+
 ## 1.2. Road DNA online — chiavi Geoapify e OpenTripMap
 
 **Non serve alcuna chiave per la navigazione o per Road DNA offline.** Le funzioni online sono integrate in `valhalla`; il funzionamento dei singoli provider e la completezza delle schede dipendono dalle credenziali, dalla rete e dai dati disponibili.

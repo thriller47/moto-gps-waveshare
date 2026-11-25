@@ -920,6 +920,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     private var mapDownloadJob: Job? = null
     private val _photonInstalledBytes = MutableStateFlow(0L)
     val photonInstalledBytes: StateFlow<Long> = _photonInstalledBytes
+    private val _roadIndexBytes = MutableStateFlow(appContext?.let { RoadDnaRoadIndex.file(it).length() } ?: 0L)
+    val roadIndexBytes: StateFlow<Long> = _roadIndexBytes
     private val _roadDnaInstalledBytes = MutableStateFlow(0L)
     val roadDnaInstalledBytes: StateFlow<Long> = _roadDnaInstalledBytes
     private val _photonImporting = MutableStateFlow(false)
@@ -1223,7 +1225,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     }
 
     /** Bounded, offline-only multi-loop search. Ordinary routing is unchanged. */
-    fun previewRoadDnaExplorer(distanceKm: Int, orientationDegrees: Int, profile: ExplorerProfile) {
+    fun previewRoadDnaExplorer(distanceKm: Int, orientationDegrees: Int, profile: ExplorerProfile, useRoadIndex: Boolean = false) {
         if (_isNavigating.value || _isLoading.value || _isDownloadingMap.value) return
         val context = appContext ?: navigationMapsContext
         if (context == null || !OfflineValhallaRouter.hasTiles(context)) {
@@ -1271,7 +1273,15 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
             try {
                 val options = withContext(Dispatchers.IO) {
                     val candidates = mutableListOf<Pair<RouteOption, RoadDnaExplorer.Footprint>>()
-                    for ((index, stops) in plans.withIndex()) {
+                    val targeted = if (useRoadIndex && mandatory.isEmpty()) try {
+                        RoadDnaRoadIndex.targeted(context, lat to lon, distanceKm, profile, plans)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Log.w("NavigationVM", "Road DNA road index unavailable; baseline retained", e)
+                        emptyList()
+                    } else emptyList()
+                    for ((index, stops) in (plans + targeted).withIndex()) {
                         currentCoroutineContext().ensureActive()
                         val option = try {
                             val response = OfflineValhallaRouter.route(context, lat, lon, lat, lon,
@@ -1293,7 +1303,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                             continue
                         }
                         val shape = RoadDnaAnalysis.geometry(option.rawRouteJson)
-                        if (shape.size < 2) continue
+                        if (shape.size < 2 || !RoadDnaRoadIndex.anchorsReached(stops, shape)) continue
                         val footprint = RoadDnaExplorer.footprint(shape, lat to lon)
                         candidates.add(option.copy(explorerMetrics = RoadDnaExplorer.metrics(
                             option, distanceKm, profile, footprint)) to footprint)
@@ -1320,7 +1330,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                         option.copy(explorerMetrics = RoadDnaExplorer.metrics(
                             option, distanceKm, profile, footprint, tourism))
                     }.sortedByDescending { it.explorerMetrics?.score ?: 0 }.take(3)
-                        .mapIndexed { index, option -> option.copy(name = "Explorer ${profile.label} · ${index + 1}") }
+                        .mapIndexed { index, option -> option.copy(name = "Explorer ${profile.label} · ${index + 1}" +
+                            if (option.explorerStops.orEmpty().any { it.displayArea == "DNA stradale" }) " · Mirato" else "") }
                 }
                 if (options.isEmpty()) throw IllegalStateException("Nessun anello trovato nel grafo locale")
                 _routeWaypoints.value = options.first().explorerStops.orEmpty()
@@ -2414,6 +2425,36 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         val existing = cachedMapRepo
         if (existing != null) return existing
         return HybridMapRepository(context.applicationContext).also { cachedMapRepo = it }
+    }
+
+    fun importRoadDnaIndex(context: Context, uri: Uri) {
+        if (_isNavigating.value || _isLoading.value || _isDownloadingMap.value ||
+            _photonImporting.value || _valhallaImporting.value) return
+        _isDownloadingMap.value = true
+        _downloadProgress.value = 0f
+        _downloadStatus.value = "Importazione DNA stradale..."
+        mapDownloadJob = viewModelScope.launch {
+            try {
+                val bytes = withContext(Dispatchers.IO) {
+                    val job = currentCoroutineContext()[Job]
+                    RoadDnaRoadIndex.install(context.applicationContext, uri,
+                        { job?.isActive == false }) { copied ->
+                        _downloadStatus.value = "DNA stradale: ${copied / 1048576} MiB"
+                    }
+                }
+                _roadIndexBytes.value = bytes
+                _downloadProgress.value = 1f
+                _downloadStatus.value = "DNA stradale installato"
+            } catch (e: CancellationException) {
+                _downloadStatus.value = "Importazione DNA stradale annullata"
+                throw e
+            } catch (e: Exception) {
+                _downloadStatus.value = "DNA stradale: ${e.message}"
+                _errorMessage.value = _downloadStatus.value
+            } finally {
+                _isDownloadingMap.value = false
+            }
+        }
     }
 
     fun importUnifiedOfflinePack(context: Context, uri: Uri) {
