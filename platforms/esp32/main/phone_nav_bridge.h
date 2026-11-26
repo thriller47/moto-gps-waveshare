@@ -83,6 +83,7 @@ class PhoneNavBridge {
   moto::ble::AckStatus consume_geometry(
       const moto::ble::RouteGeometry& input);
   void consume_traffic(const moto::ble::TrafficDeviation& input);
+  moto::ble::AckStatus consume_speed_alert(const moto::ble::SpeedAlert& input);
   moto::ble::AckStatus consume_map_scene(const moto::ble::MapScene& input);
   // Requires state_mutex_. This helper never calls LVGL or the BLE sender.
   void apply_geometry_locked(moto::nav::NavSnapshot& target);
@@ -119,6 +120,7 @@ class PhoneNavBridge {
   // state, and release this mutex before calling LVGL or the BLE sender.
   mutable std::mutex state_mutex_;
   std::uint32_t phone_session_id_ = 0;
+  std::uint64_t speed_alert_received_ms_ = 0;
   std::uint16_t next_command_id_ = 1;
   bool link_active_ = false;
   std::atomic<bool> power_ever_connected_{false};

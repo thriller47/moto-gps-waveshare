@@ -478,6 +478,16 @@ Error validate(const MapScene& value) {
   return Error::None;
 }
 
+Error validate(const SpeedAlert& value) {
+  if (value.session_id == 0 || value.valid > 1) return Error::OutOfRange;
+  if (!value.valid) {
+    return value.distance_m == 0 && value.point == GeoPointE6{}
+        ? Error::None : Error::OutOfRange;
+  }
+  return value.route_token != 0 && value.route_generation != 0 &&
+         value.distance_m <= 550 && valid_geo_point(value.point)
+      ? Error::None : Error::OutOfRange;
+}
 Error validate(const PowerPolicy& value) {
   return value.coffee_timeout_minutes >= 1 && value.coffee_timeout_minutes <= 30
              ? Error::None : Error::OutOfRange;
@@ -516,6 +526,14 @@ BytesResult encode_payload(const T& value) {
     writer.u32(value.session_id);
     writer.u16(value.max_frame_size);
     writer.u16(value.heartbeat_interval_ms);
+  } else if constexpr (std::is_same_v<T, SpeedAlert>) {
+    writer.u32(value.session_id);
+    writer.u32(value.route_token);
+    writer.u32(value.route_generation);
+    writer.u8(value.valid);
+    writer.u16(value.distance_m);
+    writer.s32(value.point.latitude_e6);
+    writer.s32(value.point.longitude_e6);
   } else if constexpr (std::is_same_v<T, PowerPolicy>) {
     writer.u8(value.coffee_timeout_minutes);
   } else if constexpr (std::is_same_v<T, Heartbeat>) {
@@ -933,6 +951,21 @@ MessageResult decode_map_scene(ByteView payload) {
       }
       reader.require_end();
     }
+  }
+  return decoded_result(std::move(value), reader);
+}
+
+MessageResult decode_speed_alert(ByteView payload) {
+  Reader reader(payload);
+  SpeedAlert value;
+  if (begin_payload(reader)) {
+    value.session_id = reader.u32();
+    value.route_token = reader.u32();
+    value.route_generation = reader.u32();
+    value.valid = reader.u8();
+    value.distance_m = reader.u16();
+    value.point = {reader.s32(), reader.s32()};
+    reader.require_end();
   }
   return decoded_result(std::move(value), reader);
 }
@@ -1575,6 +1608,8 @@ MessageType message_type(const Message& message) noexcept {
           return MessageType::MapScene;
         } else if constexpr (std::is_same_v<T, DiagnosticControl>) {
           return MessageType::DiagnosticControl;
+        } else if constexpr (std::is_same_v<T, SpeedAlert>) {
+          return MessageType::SpeedAlert;
         } else if constexpr (std::is_same_v<T, PowerPolicy>) {
           return MessageType::PowerPolicy;
         } else if constexpr (std::is_same_v<T, DiagnosticBatch>) {
@@ -1613,6 +1648,8 @@ MessageResult decode_message(MessageType type, ByteView payload) {
       return decode_diagnostic_batch(payload);
     case MessageType::PowerPolicy:
       return decode_power_policy(payload);
+    case MessageType::SpeedAlert:
+      return decode_speed_alert(payload);
   }
   return {{}, Error::UnknownMessageType, 0};
 }

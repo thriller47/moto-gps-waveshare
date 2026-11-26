@@ -139,6 +139,10 @@ typedef struct {
     uint8_t waypoint_marker_count;
     moto_ui_point_t waypoint_markers[MOTO_UI_WAYPOINT_MARKER_CAPACITY];
     uint8_t waypoint_marker_indices[MOTO_UI_WAYPOINT_MARKER_CAPACITY];
+    uint8_t has_speed_alert;
+    uint8_t has_speed_alert_marker;
+    uint16_t speed_alert_distance_m;
+    moto_ui_point_t speed_alert_marker;
     uint8_t road_point_count;
     moto_ui_point_t road_points[MOTO_UI_ROAD_POINT_CAPACITY];
 #if defined(__EMSCRIPTEN__) || defined(MOTO_ESP_SUBPIXEL_EXPERIMENT)

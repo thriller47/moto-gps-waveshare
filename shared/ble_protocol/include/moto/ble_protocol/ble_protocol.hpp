@@ -124,6 +124,7 @@ enum class MessageType : std::uint8_t {
   DiagnosticBatch = 0x22,
   // Optional app setting. Older firmware ignores this new message type.
   PowerPolicy = 0x23,
+  SpeedAlert = 0x15,
 };
 
 enum FrameFlag : std::uint8_t {
@@ -292,6 +293,7 @@ enum Capability : std::uint32_t {
   CapabilityCommandAck = 1U << 6U,
   CapabilityMapScene = 1U << 7U,
   CapabilityDiagnosticsRam = 1U << 8U,
+  CapabilitySpeedAlert = 1U << 9U,
 };
 
 struct ConnectionStatus {
@@ -441,6 +443,21 @@ struct WaypointMarker {
   GeoPointE6 point;
   bool operator==(const WaypointMarker& rhs) const noexcept {
     return index == rhs.index && point == rhs.point;
+  }
+};
+
+// Optional, replaceable next potential fixed-camera location.
+struct SpeedAlert {
+  std::uint32_t session_id = 0;
+  std::uint32_t route_token = 0;
+  std::uint32_t route_generation = 0;
+  std::uint8_t valid = 0;
+  std::uint16_t distance_m = 0;
+  GeoPointE6 point;
+  bool operator==(const SpeedAlert& rhs) const noexcept {
+    return session_id == rhs.session_id && route_token == rhs.route_token &&
+           route_generation == rhs.route_generation && valid == rhs.valid &&
+           distance_m == rhs.distance_m && point == rhs.point;
   }
 };
 
@@ -630,7 +647,8 @@ using Message = std::variant<ConnectionStatus,
                              DeviceCommand,
                              DiagnosticControl,
                              DiagnosticBatch,
-                             PowerPolicy>;
+                             PowerPolicy,
+                             SpeedAlert>;
 
 using MessageResult = Result<Message>;
 

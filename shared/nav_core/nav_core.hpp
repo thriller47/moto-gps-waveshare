@@ -78,6 +78,9 @@ struct NavSnapshot {
   std::array<Gcj02Point, kWaypointMarkerCapacity> waypoint_markers{};
   std::array<std::uint8_t, kWaypointMarkerCapacity> waypoint_marker_indices{};
   std::uint8_t waypoint_marker_count = 0;
+  bool has_speed_alert = false;
+  Gcj02Point speed_alert_point;
+  std::uint16_t speed_alert_distance_m = 0;
 
   // Optional, bounded street context for a GTA-style heading-up minimap.
   // Points stay in provider coordinates; NavPresenter applies the exact same

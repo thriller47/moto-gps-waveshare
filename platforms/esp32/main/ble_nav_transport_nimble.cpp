@@ -695,7 +695,8 @@ bool BleNavTransport::send_connection_status(
                         moto::ble::CapabilityTouchCommands |
                         moto::ble::CapabilityCommandAck |
                         moto::ble::CapabilityMapScene |
-                        moto::ble::CapabilityDiagnosticsRam;
+                        moto::ble::CapabilityDiagnosticsRam |
+                        moto::ble::CapabilitySpeedAlert;
   status.session_id = session_id;
   status.max_frame_size =
       static_cast<std::uint16_t>(negotiated_frame_size());

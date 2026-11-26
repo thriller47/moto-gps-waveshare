@@ -145,6 +145,7 @@ struct Ui {
     lv_timer_t *nav_route_motion_timer = nullptr;
     lv_obj_t *nav_marker = nullptr;
     lv_obj_t *nav_waypoint_markers[MOTO_UI_WAYPOINT_MARKER_CAPACITY]{};
+    lv_obj_t *nav_speed_alert_marker = nullptr;
     moto_waypoint_skip_callback_t waypoint_skip_callback = nullptr;
     void *waypoint_skip_context = nullptr;
     std::uint32_t waypoint_skip_confirm_ms = 0;
@@ -905,6 +906,23 @@ void update_waypoint_markers(const moto_ui_state_t *state) {
     }
 }
 
+void update_speed_alert_marker(const moto_ui_state_t *state) {
+    lv_obj_t *marker = ui.nav_speed_alert_marker;
+    if(marker == nullptr) return;
+    const int x = state->speed_alert_marker.x;
+    const int y = state->speed_alert_marker.y;
+    const bool visible = state->has_speed_alert_marker != 0 &&
+        state->route_point_count >= 2 && x >= px(14) &&
+        x < MOTO_UI_CANVAS_WIDTH-px(14) &&
+        y >= px(14) && y < px(232)-px(14);
+    if(!visible) {
+        lv_obj_add_flag(marker, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    lv_obj_remove_flag(marker, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_pos(marker,x-px(14),y-px(14));
+}
+
 void update_route_geometry(const moto_ui_state_t *state) {
     const std::uint8_t count = std::min<std::uint8_t>(
         state->route_point_count, MOTO_UI_ROUTE_POINT_CAPACITY);
@@ -1452,6 +1470,7 @@ void update_navigation(const moto_ui_state_t *state) {
     update_road_geometry(state);
     update_route_geometry(state);
     update_waypoint_markers(state);
+    update_speed_alert_marker(state);
     update_nav_status(state);
     update_skip_button(state);
 
@@ -1478,7 +1497,9 @@ void update_navigation(const moto_ui_state_t *state) {
                               (has_guidance || state->has_destination != 0);
     // 0 m means the maneuver has been reached: keep it hidden while
     // Valhalla releases the maneuver after the junction or roundabout.
-    if(arrival || pending_turn) {
+    const bool speed_alert = !arrival && !pending_turn &&
+        state->has_speed_alert != 0 && state->mode != MOTO_UI_REROUTING;
+    if(arrival || pending_turn || speed_alert) {
         lv_obj_remove_flag(ui.nav_turn_distance, LV_OBJ_FLAG_HIDDEN);
     } else {
         lv_obj_add_flag(ui.nav_turn_distance, LV_OBJ_FLAG_HIDDEN);
@@ -1493,10 +1514,15 @@ void update_navigation(const moto_ui_state_t *state) {
     char next_turn[32];
     if(arrival) {
         std::snprintf(next_turn, sizeof(next_turn), "ARRIVO");
+    } else if(speed_alert) {
+        std::snprintf(next_turn,sizeof(next_turn),LV_SYMBOL_VIDEO " %u m",
+                      static_cast<unsigned>(state->speed_alert_distance_m));
     } else {
         std::snprintf(next_turn, sizeof(next_turn), "%u m",
                       static_cast<unsigned>(state->distance_to_maneuver_m));
     }
+    lv_obj_set_width(ui.nav_turn_distance,px(speed_alert ? 156 : 110));
+    lv_obj_set_style_text_color(ui.nav_turn_distance,speed_alert ? kAmber : kWhite,0);
     lv_label_set_text(ui.nav_turn_distance, next_turn);
 
     refresh_lifecycle();
@@ -1596,6 +1622,16 @@ void create_navigation_page() {
         lv_obj_clear_flag(marker, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_flag(marker, LV_OBJ_FLAG_HIDDEN);
     }
+    ui.nav_speed_alert_marker = make_label(ui.nav_map,&lv_font_montserrat_16,kBlack,LV_SYMBOL_VIDEO);
+    lv_obj_set_size(ui.nav_speed_alert_marker,px(28),px(28));
+    lv_obj_set_style_text_align(ui.nav_speed_alert_marker,LV_TEXT_ALIGN_CENTER,0);
+    lv_obj_set_style_bg_color(ui.nav_speed_alert_marker,kAmber,0);
+    lv_obj_set_style_bg_opa(ui.nav_speed_alert_marker,LV_OPA_COVER,0);
+    lv_obj_set_style_radius(ui.nav_speed_alert_marker,LV_RADIUS_CIRCLE,0);
+    lv_obj_set_style_border_color(ui.nav_speed_alert_marker,kGraphite,0);
+    lv_obj_set_style_border_width(ui.nav_speed_alert_marker,px(2),0);
+    lv_obj_clear_flag(ui.nav_speed_alert_marker,LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(ui.nav_speed_alert_marker,LV_OBJ_FLAG_HIDDEN);
     ui.nav_marker = lv_obj_create(ui.nav_map);
     lv_obj_remove_style_all(ui.nav_marker);
     lv_obj_set_size(ui.nav_marker, marker_px(34) + 1, marker_px(36) + 1);
@@ -1971,6 +2007,7 @@ extern "C" void moto_nav_ui_set_motion_state(const moto_ui_state_t *state) {
     update_road_geometry(state);
     update_route_geometry(state);
     update_waypoint_markers(state);
+    update_speed_alert_marker(state);
 }
 
 extern "C" void moto_nav_ui_set_phone_connection(

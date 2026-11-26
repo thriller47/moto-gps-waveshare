@@ -418,6 +418,37 @@ void project_waypoint_markers(const NavSnapshot& snapshot,
   }
 }
 
+void project_speed_alert(const NavSnapshot& snapshot,
+                         const MapTransform& transform,
+                         moto_ui_state_t& output) {
+  output.has_speed_alert = 0;
+  output.has_speed_alert_marker = 0;
+  if (!snapshot.has_speed_alert || snapshot.state != NavState::Navigating ||
+      !snapshot.has_usable_fix || snapshot.gnss_stale || snapshot.off_route ||
+      snapshot.route_request_in_flight || output.route_point_count < 2) return;
+  output.has_speed_alert = 1;
+  output.speed_alert_distance_m = snapshot.speed_alert_distance_m;
+  const auto p = project_map_point_precise(snapshot.speed_alert_point,transform);
+  if (!std::isfinite(p.x) || !std::isfinite(p.y)) return;
+  float best = 6.0F;
+  for (std::size_t i = 1; i < output.route_point_count; ++i) {
+    const auto a = output.route_points[i-1];
+    const auto b = output.route_points[i];
+    const float dx = static_cast<float>(b.x-a.x);
+    const float dy = static_cast<float>(b.y-a.y);
+    const float sq = dx*dx+dy*dy;
+    if (sq < 1.0F) continue;
+    const float t = std::clamp(((p.x-a.x)*dx+(p.y-a.y)*dy)/sq,0.0F,1.0F);
+    const float x = a.x+t*dx, y = a.y+t*dy;
+    const float d = std::hypot(p.x-x,p.y-y);
+    if (d <= best) {
+      best = d;
+      output.speed_alert_marker = round_projected_map_point({x,y});
+      output.has_speed_alert_marker = 1;
+    }
+  }
+}
+
 void project_road_context(const NavSnapshot& snapshot,
                           const MapTransform& transform,
                           moto_ui_state_t& output) {
@@ -690,6 +721,7 @@ void NavPresenter::update(const NavSnapshot& snapshot) {
   const MapTransform transform = map_transform(snapshot, applied_zoom_factor_);
   project_route_view(snapshot, transform, ui_state_);
   project_waypoint_markers(snapshot, transform, ui_state_);
+  project_speed_alert(snapshot, transform, ui_state_);
   project_road_context(snapshot, transform, ui_state_);
   ui_state_.road_name = road_name_.empty() ? nullptr : road_name_.c_str();
   ui_state_.next_road_name =

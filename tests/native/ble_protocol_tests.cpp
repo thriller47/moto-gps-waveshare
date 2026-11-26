@@ -678,6 +678,38 @@ void test_coffee_power_policy_optional_message() {
         Error::TruncatedPayload);
 }
 
+void test_speed_alert_optional_message() {
+  SpeedAlert alert;
+  alert.session_id = 123;
+  alert.route_token = 456;
+  alert.route_generation = 1;
+  alert.valid = 1;
+  alert.distance_m = 550;
+  alert.point = {45000000,7000000};
+  const auto encoded = encode_message(Message{alert});
+  CHECK(encoded.ok());
+  CHECK(message_type(Message{alert}) == MessageType::SpeedAlert);
+  if (encoded.ok()) {
+    CHECK(encoded.value.size() == 24U);
+    const auto decoded = decode_message(MessageType::SpeedAlert,ByteView(encoded.value));
+    CHECK(decoded.ok());
+    if (decoded.ok()) CHECK(std::get<SpeedAlert>(decoded.value) == alert);
+  }
+  alert.distance_m = 551;
+  CHECK(encode_message(Message{alert}).error == Error::OutOfRange);
+  alert = {};
+  alert.session_id = 123;
+  const auto clear = encode_message(Message{alert});
+  CHECK(clear.ok());
+  if (clear.ok()) {
+    const auto decoded = decode_message(MessageType::SpeedAlert,ByteView(clear.value));
+    CHECK(decoded.ok());
+    if (decoded.ok()) CHECK(std::get<SpeedAlert>(decoded.value) == alert);
+  }
+  const Bytes truncated = {kPayloadRevision};
+  CHECK(decode_message(MessageType::SpeedAlert,ByteView(truncated)).error == Error::TruncatedPayload);
+}
+
 void test_skip_next_waypoint_device_command() {
   DeviceCommand command;
   command.kind = DeviceCommandKind::SkipNextWaypoint;
@@ -789,6 +821,7 @@ int main(int argc, char** argv) {
   test_optional_diagnostics_extension();
   test_link_watchdog();
   test_coffee_power_policy_optional_message();
+  test_speed_alert_optional_message();
 
   if (failures != 0) {
     std::cerr << failures << " BLE protocol checks failed\n";

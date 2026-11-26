@@ -187,6 +187,8 @@ void PhoneNavBridge::on_link_state(bool active) {
       phone_snapshot.network = moto::nav::NetworkState::Connecting;
     } else {
       phone_session_id_ = 0;
+      phone_snapshot.has_speed_alert = false;
+      speed_alert_received_ms_ = 0;
       waypoint_seen_index_ = 0;
       waypoint_pending_index_ = 0;
       waypoint_pending_total_ = 0;
@@ -344,6 +346,10 @@ moto::ble::AckStatus PhoneNavBridge::on_message(
               // Starting/Degraded cannot cancel an existing loss deadline.
               power_connected_.store(false, std::memory_order_release);
             }
+            if (phone_session_id_ != value.session_id || value.state != moto::ble::ConnectionState::Ready) {
+              snapshot_.has_speed_alert = false;
+              speed_alert_received_ms_ = 0;
+            }
             phone_session_id_ = value.session_id;
             switch (value.state) {
               case moto::ble::ConnectionState::Ready:
@@ -370,14 +376,17 @@ moto::ble::AckStatus PhoneNavBridge::on_message(
           ESP_LOGI(kTag, "Coffee pause auto-off timeout: %u min",
                    static_cast<unsigned>(value.coffee_timeout_minutes));
         } else if constexpr (std::is_same_v<T, moto::ble::Heartbeat>) {
-          std::uint32_t phone_session_id = 0;
+          bool expired = false;
           {
             const std::lock_guard<std::mutex> lock(state_mutex_);
-            phone_session_id = phone_session_id_;
+            if (phone_session_id_ != 0 && value.session_id != phone_session_id_)
+              return moto::ble::AckStatus::InvalidState;
+            if (snapshot_.has_speed_alert && monotonic_ms() - speed_alert_received_ms_ >= 2500U) {
+              snapshot_.has_speed_alert = false;
+              expired = true;
+            }
           }
-          if (phone_session_id != 0 && value.session_id != phone_session_id) {
-            return moto::ble::AckStatus::InvalidState;
-          }
+          if (expired) present_navigation();
         } else if constexpr (std::is_same_v<T, moto::ble::DiagnosticControl>) {
           // Only the connected phone can request capture. OFF is always safe.
           {
@@ -395,6 +404,8 @@ moto::ble::AckStatus PhoneNavBridge::on_message(
           consume_navigation(value);
         } else if constexpr (std::is_same_v<T, moto::ble::RouteGeometry>) {
           return consume_geometry(value);
+        } else if constexpr (std::is_same_v<T, moto::ble::SpeedAlert>) {
+          return consume_speed_alert(value);
         } else if constexpr (
             std::is_same_v<T, moto::ble::TrafficDeviation>) {
           consume_traffic(value);
@@ -520,6 +531,13 @@ void PhoneNavBridge::consume_navigation(
         phone_snapshot.route_generation == input.route_generation;
     phone_snapshot.route_id = route_id;
     phone_snapshot.route_generation = input.route_generation;
+    if (!same_route_as_previous || input.state != moto::ble::NavigationState::Navigating ||
+        !phone_snapshot.has_usable_fix || phone_snapshot.gnss_stale ||
+        phone_snapshot.off_route || phone_snapshot.route_request_in_flight ||
+        monotonic_ms() - speed_alert_received_ms_ >= 2500U) {
+      phone_snapshot.has_speed_alert = false;
+      speed_alert_received_ms_ = 0;
+    }
 
     // Phone-supplied MotoMap context is authoritative. Before the first
     // MapScene revision no gray-road context may be fabricated locally.
@@ -680,6 +698,36 @@ moto::ble::AckStatus PhoneNavBridge::consume_geometry(
   return moto::ble::AckStatus::Ok;
 }
 
+moto::ble::AckStatus PhoneNavBridge::consume_speed_alert(
+    const moto::ble::SpeedAlert& input) {
+  {
+    const std::lock_guard<std::mutex> lock(state_mutex_);
+    if (!link_active_ || phone_session_id_ == 0 || input.session_id != phone_session_id_)
+      return moto::ble::AckStatus::InvalidState;
+    auto& target = phone_snapshot_locked();
+    if (!input.valid) {
+      target.has_speed_alert = false;
+      speed_alert_received_ms_ = 0;
+    } else {
+      char expected[20]{};
+      std::snprintf(expected,sizeof(expected),"ble-%08lx",
+                    static_cast<unsigned long>(input.route_token));
+      if (target.route_id != expected || target.route_generation != input.route_generation ||
+          target.state != moto::nav::NavState::Navigating || !target.has_usable_fix ||
+          target.gnss_stale || target.off_route || target.route_request_in_flight)
+        return moto::ble::AckStatus::InvalidState;
+      target.has_speed_alert = true;
+      target.speed_alert_distance_m = input.distance_m;
+      target.speed_alert_point = {
+          static_cast<double>(input.point.latitude_e6)/1'000'000.0,
+          static_cast<double>(input.point.longitude_e6)/1'000'000.0};
+      speed_alert_received_ms_ = monotonic_ms();
+    }
+  }
+  present_navigation();
+  return moto::ble::AckStatus::Ok;
+}
+
 void PhoneNavBridge::consume_traffic(
     const moto::ble::TrafficDeviation& input) {
   {
@@ -699,10 +747,14 @@ void PhoneNavBridge::consume_traffic(
     phone_snapshot.off_route = (input.flags & moto::ble::OffRoute) != 0U;
     if ((input.flags & moto::ble::Rerouting) != 0U) {
       phone_snapshot.state = moto::nav::NavState::Rerouting;
+      phone_snapshot.has_speed_alert = false;
+      speed_alert_received_ms_ = 0;
     }
     if ((input.flags & moto::ble::RouteInvalidated) != 0U) {
       geometry_ = {};
       phone_snapshot.has_route_view = false;
+      phone_snapshot.has_speed_alert = false;
+      speed_alert_received_ms_ = 0;
     }
   }
   present_navigation();
