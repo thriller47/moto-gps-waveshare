@@ -12,6 +12,37 @@ import kotlinx.coroutines.CancellationException
 internal object SpeedPackIndex {
     fun file(context: Context) = File(context.filesDir, "speedpack/speedpack-italy.sqlite")
 
+    /** Only selected non-grade road candidates; not a verified road identity. */
+    fun roadEvidence(context: Context, cancelled: () -> Unit): List<SpeedPackRouteMatcher.Evidence> {
+        val target = file(context)
+        if (!target.isFile) return emptyList()
+        val result = mutableListOf<SpeedPackRouteMatcher.Evidence>()
+        SQLiteDatabase.openDatabase(target.path, null, SQLiteDatabase.OPEN_READONLY).use { db ->
+            db.rawQuery("""
+                SELECT a.source,a.record_id,e.osm_way,e.road_lat,e.road_lon,e.bearing,e.oneway,
+                    CASE WHEN a.source='osm' AND c.osm_way=e.osm_way
+                         AND c.confidence='medium' THEN c.direction ELSE NULL END
+                FROM road_assessment a
+                JOIN road_evidence e ON e.source=a.source AND e.record_id=a.record_id
+                    AND e.osm_way=a.candidate_way
+                LEFT JOIN cameras c ON a.source='osm' AND CAST(c.osm_node AS TEXT)=a.record_id
+                WHERE a.road_state IN ('single_way_candidate','shared_node_candidate','continuity_candidate')
+                    AND e.grade=0 AND e.offset_m<=15 AND a.direction_state!='legacy_conflict'
+                LIMIT 100001
+            """.trimIndent(), null).use { c ->
+                while (c.moveToNext()) {
+                    cancelled()
+                    require(result.size < 100000) { "Troppi candidati SpeedPack" }
+                    result.add(SpeedPackRouteMatcher.Evidence(c.getString(0), c.getString(1),
+                        c.getLong(2), SpeedPackRouteMatcher.Point(c.getDouble(3),c.getDouble(4)),
+                        c.getDouble(5), if (c.isNull(6)) null else c.getString(6),
+                        if (c.isNull(7)) null else c.getString(7)))
+                }
+            }
+        }
+        return result
+    }
+
     fun install(context: Context, uri: Uri, cancelled: () -> Boolean) {
         val target = file(context)
         target.parentFile?.mkdirs()

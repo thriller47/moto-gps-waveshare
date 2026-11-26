@@ -578,6 +578,9 @@ fun OfflineMapsDialog(
     roadIndexBytes: Long = 0L,
     onImportRoadIndex: () -> Unit = {},
     speedPackBytes: Long = 0L,
+    speedPackDiagnostic: Boolean = false,
+    speedPackDiagnosticStatus: String = "Analisi disattivata",
+    onSpeedPackDiagnosticChange: (Boolean) -> Unit = {},
     onImportSpeedPack: () -> Unit = {},
     elevationInstalledBytes: Long = 0L,
     onImportElevation: () -> Unit = {},
@@ -689,6 +692,13 @@ fun OfflineMapsDialog(
                             else "Non installato", style = MaterialTheme.typography.titleSmall)
                         Text("Archivio sperimentale indipendente dal MotoPack. Avvisi non ancora attivi.",
                             style = MaterialTheme.typography.bodySmall, color = MotoChatColors.TextMuted)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(checked = speedPackDiagnostic,
+                                onCheckedChange = onSpeedPackDiagnosticChange,
+                                enabled = speedPackBytes > 0L || speedPackDiagnostic)
+                            Text("Analisi sperimentale (senza avvisi)")
+                        }
+                        Text(speedPackDiagnosticStatus, style = MaterialTheme.typography.bodySmall)
                         OutlinedButton(onClick = onImportSpeedPack, enabled = canManage,
                             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
                             Text("Importa SpeedPack (.sqlite)")
@@ -872,6 +882,9 @@ fun NavigationScreen(
     roadIndexBytes: Long = 0L,
     onImportRoadIndex: () -> Unit = {},
     speedPackBytes: Long = 0L,
+    speedPackDiagnostic: Boolean = false,
+    speedPackDiagnosticStatus: String = "Analisi disattivata",
+    onSpeedPackDiagnosticChange: (Boolean) -> Unit = {},
     onImportSpeedPack: () -> Unit = {},
     elevationInstalledBytes: Long = 0L,
     onImportElevation: () -> Unit = {},
@@ -2841,6 +2854,9 @@ fun NavigationScreen(
             photonInstalledBytes = photonInstalledBytes,
             roadDnaInstalledBytes = roadDnaInstalledBytes,
             speedPackBytes = speedPackBytes,
+            speedPackDiagnostic = speedPackDiagnostic,
+            speedPackDiagnosticStatus = speedPackDiagnosticStatus,
+            onSpeedPackDiagnosticChange = onSpeedPackDiagnosticChange,
             onImportSpeedPack = onImportSpeedPack,
             roadIndexBytes = roadIndexBytes,
             onImportRoadIndex = onImportRoadIndex,

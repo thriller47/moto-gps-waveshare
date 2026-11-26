@@ -274,6 +274,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         }
 
         viewModel.loadRoutePreferences(this)
+        viewModel.loadSpeedPackDiagnostic(this)
         viewModel.loadSavedCircularTours(this)
         viewModel.loadTourSession(this)
 
@@ -365,6 +366,8 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             val photonInstalledBytes = viewModel.photonInstalledBytes.collectAsState().value
             val roadDnaInstalledBytes = viewModel.roadDnaInstalledBytes.collectAsState().value
             val speedPackBytes = viewModel.speedPackBytes.collectAsState().value
+            val speedPackDiagnostic = viewModel.speedPackDiagnostic.collectAsState().value
+            val speedPackDiagnosticStatus = viewModel.speedPackDiagnosticStatus.collectAsState().value
             val roadIndexBytes = viewModel.roadIndexBytes.collectAsState().value
             val elevationInstalledBytes = viewModel.elevationInstalledBytes.collectAsState().value
             val photonImporting = viewModel.photonImporting.collectAsState().value
@@ -539,6 +542,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     photonInstalledBytes = photonInstalledBytes,
                     roadDnaInstalledBytes = roadDnaInstalledBytes,
                     speedPackBytes = speedPackBytes,
+                    speedPackDiagnostic = speedPackDiagnostic,
+                    speedPackDiagnosticStatus = speedPackDiagnosticStatus,
+                    onSpeedPackDiagnosticChange = { viewModel.setSpeedPackDiagnostic(this@MainActivity, it) },
                     onImportSpeedPack = { importSpeedPackLauncher.launch(arrayOf("*/*")) },
                     roadIndexBytes = roadIndexBytes,
                     onImportRoadIndex = { importRoadIndexLauncher.launch(arrayOf("*/*")) },

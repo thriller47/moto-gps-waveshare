@@ -48,3 +48,6 @@ parallela, sovrapposta, incrocio, rotta ad anello e ricalcolo; direzione
 sconosciuta; disattivazione immediata e riconnessione; compatibilità con
 firmware/app precedenti, marker e priorità manovra nel simulatore,
 performance/heap ESP32, verifica su strada in condizioni lecite.
+
+## Implementazione diagnostica iniziale (26/11)
+L'adapter Valhalla attuale converte la shape senza way ID. Implementato matcher geometrico locale, massimo 8 m e 20 gradi, segmenti fino a 250 m, vincoli direzionali conservativi, solo indizi di strada selezionata e non grade. Toggle separato, default off; log conteggi senza coordinate. Non è un sistema di avvisi: non stabilisce identità di way, non deduplica sorgenti, non applica ancora norme nazionali. Occorre un'associazione verificabile Valhalla/OSM prima del trasporto BLE.

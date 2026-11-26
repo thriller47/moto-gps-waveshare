@@ -1149,3 +1149,7 @@ Il generatore non sovrascrive output esistenti, conserva V3 e produce un riepilo
 #### Importazione Android SpeedPack (sperimentale)
 
 Copiare `speedpack-italy-v1.sqlite` sul telefono. In Mappe offline, scheda separata SPEEDPACK · ITALIA, premere Importa SpeedPack (.sqlite), selezionare il file e attendere lo stato Installato. Non importare durante navigazione o altre importazioni. Il MotoPack non viene sostituito; il contatore resta 6 componenti. L'importazione verifica formato e integrità e sostituisce atomicamente il precedente indice. Gli avvisi non sono ancora attivi. Procedura da collaudare dopo la build consolidata.
+
+#### Analisi diagnostica SpeedPack
+
+Con SpeedPack installato, in Mappe offline attivare Analisi sperimentale (senza avvisi). La preferenza è persistente e inizialmente disattivata. Avviare un itinerario Valhalla: l'analisi asincrona esamina la geometria completa e registra SPEEDPACK_MATCH con conteggi candidati, anche dopo ricalcolo o skip. Riaprire Mappe offline per leggere il riepilogo quando disponibile. Le corrispondenze sono indizi geometrici, non conferme della strada, e non sono deduplicate fra sorgenti. Nessuna trasmissione BLE, nessuna modifica ESP32, nessun avviso reale. Soglie sperimentali, test ancora da eseguire.

@@ -923,6 +923,67 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     val elevationInstalledBytes: StateFlow<Long> = _elevationInstalledBytes
     private val _photonInstalledBytes = MutableStateFlow(0L)
     val photonInstalledBytes: StateFlow<Long> = _photonInstalledBytes
+    private val _speedPackDiagnostic = MutableStateFlow(false)
+    val speedPackDiagnostic: StateFlow<Boolean> = _speedPackDiagnostic
+    private val _speedPackDiagnosticStatus = MutableStateFlow("Analisi disattivata")
+    val speedPackDiagnosticStatus: StateFlow<String> = _speedPackDiagnosticStatus
+    private var speedPackAnalysisJob: Job? = null
+    private var speedPackMatches = emptyList<SpeedPackRouteMatcher.Match>()
+    private var speedPackAnalysisSerial = 0L
+
+    fun loadSpeedPackDiagnostic(context: Context) {
+        _speedPackDiagnostic.value = context.applicationContext.getSharedPreferences(
+            "moto_speedpack", Context.MODE_PRIVATE).getBoolean("diagnostic", false)
+        _speedPackDiagnosticStatus.value = if (_speedPackDiagnostic.value)
+            "In attesa di un percorso" else "Analisi disattivata"
+    }
+
+    fun setSpeedPackDiagnostic(context: Context, enabled: Boolean) {
+        _speedPackDiagnostic.value = enabled
+        context.applicationContext.getSharedPreferences("moto_speedpack", Context.MODE_PRIVATE)
+            .edit().putBoolean("diagnostic", enabled).apply()
+        analyseSpeedPackRoute(if (enabled && _isNavigating.value && !_hasArrived.value)
+            currentGeometry else null)
+    }
+
+    private fun analyseSpeedPackRoute(geometry: MotoBLERouteGeometry?) {
+        val serial = ++speedPackAnalysisSerial
+        speedPackAnalysisJob?.cancel()
+        speedPackMatches = emptyList()
+        _speedPackDiagnosticStatus.value = if (_speedPackDiagnostic.value)
+            "In attesa di un percorso" else "Analisi disattivata"
+        if (!_speedPackDiagnostic.value || geometry == null || geometry.points.size < 2) return
+        val app = appContext ?: navigationMapsContext ?: return
+        _speedPackDiagnosticStatus.value = "Analisi geometrica in corso"
+        speedPackAnalysisJob = viewModelScope.launch {
+            try {
+                val matches = withContext(Dispatchers.IO) {
+                    val job = currentCoroutineContext()[Job]
+                    val check: () -> Unit = { job?.ensureActive() }
+                    val evidence = SpeedPackIndex.roadEvidence(app, check)
+                    val route = geometry.points.map {
+                        SpeedPackRouteMatcher.Point(it.latitudeE6 / 1e6, it.longitudeE6 / 1e6)
+                    }
+                    SpeedPackRouteMatcher.match(route, evidence, check)
+                }
+                if (serial != speedPackAnalysisSerial || !_speedPackDiagnostic.value ||
+                    !_isNavigating.value || _hasArrived.value || currentGeometry !== geometry) return@launch
+                speedPackMatches = matches
+                _speedPackDiagnosticStatus.value = "${matches.size} passaggi candidati (non verificati)"
+                DiagnosticLog.event("SPEEDPACK_MATCH", "candidate_passages=${matches.size} " +
+                    "osm=${matches.count { it.evidence.source == "osm" }} " +
+                    "mapatlas=${matches.count { it.evidence.source == "mapatlas" }}")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (serial == speedPackAnalysisSerial) {
+                    _speedPackDiagnosticStatus.value = "Analisi SpeedPack non disponibile"
+                    DiagnosticLog.event("SPEEDPACK_ERROR", e.javaClass.simpleName)
+                }
+            }
+        }
+    }
+
     private val _speedPackBytes = MutableStateFlow(0L)
     val speedPackBytes: StateFlow<Long> = _speedPackBytes
     private val _roadIndexBytes = MutableStateFlow(0L)
@@ -1503,6 +1564,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                         "points=${geometry?.points?.size ?: 0} provider=${lastRoutingProvider.orEmpty()}")
                 routeDistanceGuard.reset()
                 routeProgressMatcher.reset(geometry?.points.orEmpty())
+                analyseSpeedPackRoute(geometry)
                 routeProgressStallPolicy.onRouteChanged()
                 val (startLat, startLon) = currentLocation.value
                 currentSnapshot = updateManeuverAndDistance(startLat, startLon)
@@ -1699,6 +1761,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                 turnPlan = guidance
                 routeDistanceGuard.reset()
                 routeProgressMatcher.reset(geometry?.points.orEmpty())
+                analyseSpeedPackRoute(geometry)
                 routeProgressStallPolicy.onRouteChanged()
                 offRouteFixCount = 0
                 offRouteFirstFixMs = 0L
@@ -1754,6 +1817,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         _routingSource.value = null
         currentSnapshot = null
         currentGeometry = null
+        analyseSpeedPackRoute(null)
         turnPlan = ValhallaTurnGuidance.Plan(0.0, emptyList())
         routeDistanceGuard.reset()
         routeProgressMatcher.reset()
@@ -2762,6 +2826,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                     "success provider=${lastRoutingProvider.orEmpty()} route_m=${snapshot.totalDistanceM}")
                 routeDistanceGuard.reset()
                 routeProgressMatcher.reset(geometry?.points.orEmpty())
+                analyseSpeedPackRoute(geometry)
                 routeProgressStallPolicy.onRouteChanged()
                 // The IO reroute may have taken seconds. Never initialise a
                 // new geometry using the old trigger fix.
