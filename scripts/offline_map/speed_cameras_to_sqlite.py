@@ -8,6 +8,7 @@ from pathlib import Path
 import sqlite3
 import osmium
 from speed_camera_geometry import Geometry, resolve_geometry
+from speed_camera_candidates import candidate_rows, duplicate_pairs
 
 ROAD_TYPES = set("motorway trunk primary secondary tertiary unclassified residential living_street motorway_link trunk_link primary_link secondary_link tertiary_link service".split())
 
@@ -133,6 +134,16 @@ def build(pbf, output):
                     maxspeed INTEGER, raw_tags TEXT NOT NULL, relation_ids TEXT NOT NULL,
                     road_lat REAL, road_lon REAL, road_bearing REAL, offset_m REAL);
                 CREATE INDEX cameras_location ON cameras(lat,lon);
+                CREATE TABLE road_candidates(
+                    osm_node INTEGER NOT NULL, osm_way INTEGER NOT NULL,
+                    road_lat REAL NOT NULL, road_lon REAL NOT NULL,
+                    road_bearing REAL NOT NULL, offset_m REAL NOT NULL,
+                    oneway TEXT, grade_separated INTEGER NOT NULL,
+                    shared_node INTEGER NOT NULL, direction_state TEXT NOT NULL,
+                    direction TEXT, PRIMARY KEY(osm_node,osm_way));
+                CREATE INDEX candidates_way ON road_candidates(osm_way);
+                CREATE TABLE duplicate_hints(a INTEGER NOT NULL,b INTEGER NOT NULL,
+                    distance_m REAL NOT NULL, PRIMARY KEY(a,b));
                 CREATE TABLE average_speed_candidates(osm_relation INTEGER PRIMARY KEY,
                     raw_tags TEXT NOT NULL, members TEXT NOT NULL);
             """)
@@ -148,13 +159,24 @@ def build(pbf, output):
                 db.execute("INSERT INTO cameras VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                            (ref, lat, lon, way, direction, confidence, reason, limit,
                             json.dumps(tags), json.dumps([r[0] for r in relations]), *projection))
+                rows = list(candidate_rows(ref, tags, candidate, roads.matches[ref],
+                                           way, direction, confidence, reason))
+                db.executemany("INSERT INTO road_candidates VALUES (?,?,?,?,?,?,?,?,?,?,?)", rows)
+                stats["candidate_rows"] += len(rows)
+                if rows:
+                    stats["nodes_with_candidates"] += 1
+                if any(row[9] == "unknown" for row in rows):
+                    stats["nodes_with_unknown_direction"] += 1
                 stats[confidence] += 1
                 stats[reason] += 1
+            for pair in duplicate_pairs(nodes.nodes):
+                db.execute("INSERT INTO duplicate_hints VALUES (?,?,?)", pair)
+                stats["duplicate_hints"] += 1
             for ref, (_, tags, members) in rel.average.items():
                 db.execute("INSERT INTO average_speed_candidates VALUES (?,?,?)",
                            (ref, json.dumps(tags), json.dumps(members)))
             db.executemany("INSERT INTO metadata VALUES (?,?)", [
-                ("schema", "speed-cameras-experimental-v2"), ("source", pbf.name),
+                ("schema", "speed-cameras-experimental-v3"), ("source", pbf.name),
                 ("license", "OpenStreetMap contributors, ODbL"),
                 ("rows", str(len(nodes.nodes)))])
             if db.execute("PRAGMA quick_check").fetchone()[0] != "ok":

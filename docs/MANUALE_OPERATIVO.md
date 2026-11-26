@@ -1108,3 +1108,13 @@ python3 scripts/offline_map/speed_cameras_to_sqlite.py /mnt/c/MotoGPS/PBF/italy-
 ```
 
 V2 aggiunge proiezione geometrica entro 30 m, indice locale e indice coordinate osmium flex_mem (RAM maggiore); associazione media geometrica solo senso unico entro 15 m, margine 12 m sul secondo candidato, senza indizi di separazione verticale o tag direzione non interpretati. Soglie sperimentali. Relazioni multi-way e dedup geografico non implementati. Inviare riepilogo e database. V1 conservata.
+
+### Autovelox V3 sperimentale
+
+Da WSL con valhalla-env attivo e NewUI aggiornato:
+
+```bash
+python3 scripts/offline_map/speed_cameras_to_sqlite.py /mnt/c/MotoGPS/PBF/italy-latest.osm.pbf --output /mnt/c/MotoGPS/speed-cameras-italy-v3.sqlite
+```
+
+Conserva tutte le way candidate entro 30 m, proiezione, bearing, senso unico, separazione verticale, nodo condiviso e stato direzione distinto. Indizi duplicati entro 8 m senza fusione. Classificazione V2 invariata; nessun avviso automatico per candidati incerti. Relazioni multi-way e matching Valhalla ancora da implementare. Test sintetici: `python3 scripts/offline_map/test_speed_camera_candidates.py`. Inviare SQLite e riepilogo.
