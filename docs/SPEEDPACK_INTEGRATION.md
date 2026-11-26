@@ -54,3 +54,6 @@ L'adapter Valhalla attuale converte la shape senza way ID. Implementato matcher 
 
 ## Riscontro way ID offline sperimentale
 Valhalla Mobile 0.6.6 espone traceAttributesRaw. Implementato riscontro diagnostico edge_walk su finestre di massimo 8 segmenti/400 m, massimo 16 richieste per itinerario, actor esistente e stesso costing. La shape restituita deve corrispondere punto per punto (1e-6 gradi); gli span edge devono coprire i segmenti senza conflitto. Confronto way ID nel segmento candidato, non semplice appartenenza a un insieme. Se fallisce, resta non verificato; non effettuare map_snap. Rischio nativo da validare sul telefono; non eseguire trace dell'intero itinerario, nessun invio BLE. Way coincidente non dimostra lo stato della postazione e non è ancora sufficiente per un avviso.
+
+## Anteprima Road DNA
+Motore diagnostico condiviso con navigazione; stato per record/passaggio, sorgente e coordinate originali, limite dichiarato e chainage. Scheda e mappa separate dai POI turistici, toggle comune default off, filtri per stato, cap 250 marker per filtro. Cambi rotta/disattivazione invalidano la preview. Nessuna fusione né conferma di attività; nessun invio al firmware in questa fase. Collaudare way e geometrie su percorsi noti prima del trasporto.

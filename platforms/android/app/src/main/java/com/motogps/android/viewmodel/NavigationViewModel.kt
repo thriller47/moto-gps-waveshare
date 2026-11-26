@@ -875,6 +875,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     }
 
     private fun invalidateRoadDna() {
+        clearSpeedPackPreview()
         clearRoadDnaZone()
         clearRoadDnaAreaAccesses()
         roadDnaOnlineRequestId++
@@ -929,6 +930,56 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     val speedPackDiagnosticStatus: StateFlow<String> = _speedPackDiagnosticStatus
     private var speedPackAnalysisJob: Job? = null
     private var speedPackMatches = emptyList<SpeedPackRouteMatcher.Match>()
+    private val _speedPackPreview = MutableStateFlow(SpeedPackPreviewState())
+    val speedPackPreview: StateFlow<SpeedPackPreviewState> = _speedPackPreview
+    private var speedPackPreviewJob: Job? = null
+    private var speedPackPreviewSerial = 0L
+
+    private fun clearSpeedPackPreview() {
+        ++speedPackPreviewSerial
+        speedPackPreviewJob?.cancel()
+        speedPackPreviewJob = null
+        _speedPackPreview.value = SpeedPackPreviewState()
+    }
+
+    fun analyzeSelectedSpeedPack() {
+        clearSpeedPackPreview()
+        if (!_speedPackDiagnostic.value || _isNavigating.value || _isLoading.value ||
+            _isDownloadingMap.value || _valhallaImporting.value || _photonImporting.value) return
+        val option = _routeOptions.value.getOrNull(_selectedRouteIndex.value) ?: return
+        val app = appContext ?: navigationMapsContext ?: return
+        val serial = speedPackPreviewSerial
+        val preferences = _routePreferences.value
+        val provider = option.rawRouteJson.optString("provider", "")
+        _speedPackPreview.value = SpeedPackPreviewState(loading = true)
+        speedPackPreviewJob = viewModelScope.launch {
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    val route = RoadDnaAnalysis.geometry(option.rawRouteJson).map {
+                        SpeedPackRouteMatcher.Point(it.first,it.second)
+                    }
+                    SpeedPackRouteAnalysis.analyze(app,route,provider,preferences)
+                }
+                if (serial != speedPackPreviewSerial || !_speedPackDiagnostic.value ||
+                    _isNavigating.value || _routeOptions.value.getOrNull(_selectedRouteIndex.value) !== option) return@launch
+                val report = result.preview(option.id, provider == "valhalla-local")
+                _speedPackPreview.value = SpeedPackPreviewState(report = report)
+                DiagnosticLog.event("SPEEDPACK_PREVIEW", "candidate_passages=${report.markers.size} " +
+                    "way_confirmed=${report.coincident} way_different=${report.different} " +
+                    "way_unverified=${report.unverified} trace_requests=${report.traceRequests}")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (serial == speedPackPreviewSerial) {
+                    _speedPackPreview.value = SpeedPackPreviewState(error = "Analisi SpeedPack non disponibile")
+                    DiagnosticLog.event("SPEEDPACK_PREVIEW_ERROR", e.javaClass.simpleName)
+                }
+            } finally {
+                if (serial == speedPackPreviewSerial && _speedPackPreview.value.loading)
+                    _speedPackPreview.value = SpeedPackPreviewState()
+            }
+        }
+    }
     private var speedPackAnalysisSerial = 0L
 
     fun loadSpeedPackDiagnostic(context: Context) {
@@ -940,6 +991,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
 
     fun setSpeedPackDiagnostic(context: Context, enabled: Boolean) {
         _speedPackDiagnostic.value = enabled
+        if (!enabled) clearSpeedPackPreview()
         context.applicationContext.getSharedPreferences("moto_speedpack", Context.MODE_PRIVATE)
             .edit().putBoolean("diagnostic", enabled).apply()
         analyseSpeedPackRoute(if (enabled && _isNavigating.value && !_hasArrived.value)
@@ -959,22 +1011,14 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         val preferences = _routePreferences.value
         speedPackAnalysisJob = viewModelScope.launch {
             try {
-                val (matches, wayCheck) = withContext(Dispatchers.IO) {
-                    val job = currentCoroutineContext()[Job]
-                    val check: () -> Unit = { job?.ensureActive() }
-                    val evidence = SpeedPackIndex.roadEvidence(app, check)
+                val result = withContext(Dispatchers.IO) {
                     val route = geometry.points.map {
                         SpeedPackRouteMatcher.Point(it.latitudeE6 / 1e6, it.longitudeE6 / 1e6)
                     }
-                    val candidates = SpeedPackRouteMatcher.match(route, evidence, check)
-                    val verification = if (provider == "valhalla-local") {
-                        SpeedPackWayVerifier.verify(route,candidates,check) { points ->
-                            OfflineValhallaRouter.traceWayAttributes(app,
-                                points.map { it.lat to it.lon }, preferences)
-                        }
-                    } else SpeedPackWayVerifier.Result(0,0,candidates.size,0)
-                    candidates to verification
+                    SpeedPackRouteAnalysis.analyze(app,route,provider,preferences)
                 }
+                val matches = result.matches
+                val wayCheck = result.verification
                 if (serial != speedPackAnalysisSerial || !_speedPackDiagnostic.value ||
                     !_isNavigating.value || _hasArrived.value || currentGeometry !== geometry) return@launch
                 speedPackMatches = matches
@@ -1517,6 +1561,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         }
         if (_isLoading.value || _isNavigating.value) return
 
+        clearSpeedPackPreview()
         resetRoutePreviewElevation()
         _routePreviewError.value = null
         _hasArrived.value = false

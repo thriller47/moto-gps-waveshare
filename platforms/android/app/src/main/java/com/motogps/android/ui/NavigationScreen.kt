@@ -62,6 +62,9 @@ import com.motogps.android.viewmodel.SavedCircularTour
 import com.motogps.android.viewmodel.TourSession
 import com.motogps.android.viewmodel.RouteOption
 import com.motogps.android.viewmodel.ExplorerProfile
+import com.motogps.android.viewmodel.SpeedPackPreviewMarker
+import com.motogps.android.viewmodel.SpeedPackPreviewState
+import com.motogps.android.viewmodel.SpeedPackWayStatus
 import com.motogps.android.viewmodel.RoadDnaSummary
 import com.motogps.android.viewmodel.RoadDnaElevation
 import com.motogps.android.viewmodel.RoadDnaTerrainAnalysis
@@ -90,6 +93,29 @@ import org.osmdroid.views.overlay.Polyline
 // Numbered stop markers are drawn separately from the route geometry.
 // They do not affect Valhalla waypoints or the ESP32 BLE payload.
 private val waypointIconCache = HashMap<Int, Bitmap>()
+private val speedPackIconCache = HashMap<SpeedPackWayStatus, Bitmap>()
+
+private fun speedPackMarkerIcon(map: MapView, status: SpeedPackWayStatus): BitmapDrawable {
+    val bitmap = speedPackIconCache.getOrPut(status) {
+        val bmp = Bitmap.createBitmap(48, 48, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        paint.color = when (status) {
+            SpeedPackWayStatus.COINCIDENT -> Color.rgb(255,182,50)
+            SpeedPackWayStatus.DIFFERENT -> Color.rgb(204,105,105)
+            SpeedPackWayStatus.UNVERIFIED -> Color.rgb(148,155,164)
+        }
+        canvas.drawCircle(24f,24f,21f,paint)
+        paint.color = Color.rgb(22,25,27)
+        paint.style = Paint.Style.FILL
+        canvas.drawRoundRect(11f,17f,37f,33f,3f,3f,paint)
+        canvas.drawRect(17f,13f,25f,18f,paint)
+        paint.color = Color.WHITE
+        canvas.drawCircle(24f,25f,5f,paint)
+        bmp
+    }
+    return BitmapDrawable(map.resources,bitmap)
+}
 
 private fun waypointMarkerIcon(map: MapView, number: Int): BitmapDrawable {
     val bitmap = waypointIconCache.getOrPut(number) {
@@ -191,7 +217,8 @@ fun RouteMapView(
     onOnlineSuggestionClick: ((RoadDnaOnlinePoi) -> Unit)? = null,
     onMapReady: ((MapView) -> Unit)? = null,
     zoneFocus: RoadDnaZoneFocus? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    speedPackMarkers: List<SpeedPackPreviewMarker> = emptyList()
 ) {
     // Route-fitting is deliberately one-shot per route ID, not per recomposition.\n    // The AndroidView.update callback runs on unrelated Compose changes (GPS,
     // dialog state, theme). Fit the whole route only when its identity changes.
@@ -343,6 +370,21 @@ fun RouteMapView(
                             onOnlineSuggestionClick?.invoke(poi)
                             true
                         }
+                    })
+                }
+            }
+            // Diagnostic locations only; never become selectable waypoints.
+            speedPackMarkers.take(250).forEach { record ->
+                if (record.latitude in -90.0..90.0 && record.longitude in -180.0..180.0) {
+                    mapView.overlays.add(Marker(mapView).apply {
+                        position = GeoPoint(record.latitude,record.longitude)
+                        title = "Autovelox · " + record.status.label
+                        snippet = record.source + " · " + record.recordId +
+                            " · way " + record.way +
+                            " · km " + String.format(java.util.Locale.ITALY,"%.1f",record.chainageMeters/1000.0) +
+                            (record.limitKph?.let { " · limite fonte " + it + " km/h" } ?: "")
+                        icon = speedPackMarkerIcon(mapView,record.status)
+                        setAnchor(Marker.ANCHOR_CENTER,Marker.ANCHOR_CENTER)
                     })
                 }
             }
@@ -884,6 +926,8 @@ fun NavigationScreen(
     speedPackBytes: Long = 0L,
     speedPackDiagnostic: Boolean = false,
     speedPackDiagnosticStatus: String = "Analisi disattivata",
+    speedPackPreview: SpeedPackPreviewState = SpeedPackPreviewState(),
+    onSpeedPackPreviewAnalyze: () -> Unit = {},
     onSpeedPackDiagnosticChange: (Boolean) -> Unit = {},
     onImportSpeedPack: () -> Unit = {},
     elevationInstalledBytes: Long = 0L,
@@ -925,6 +969,8 @@ fun NavigationScreen(
     var selectedRoadDnaCategory by remember { mutableStateOf("consigliati") }
     var offlineRoadDnaCategory by remember { mutableStateOf("consigliati") }
     var showRoadDnaMap by remember { mutableStateOf(false) }
+    var showSpeedPackMap by remember { mutableStateOf(false) }
+    var speedPackMapFilter by remember { mutableStateOf<SpeedPackWayStatus?>(null) }
     var showOnlineSuggestionsMap by remember { mutableStateOf(false) }
     var showRoadDnaSearchParams by remember { mutableStateOf(false) }
     var showRoadDnaCenterPicker by remember { mutableStateOf(false) }
@@ -1903,7 +1949,62 @@ fun NavigationScreen(
             }
         )
     }
-    if (showRoadDnaDialog && !showRoadDnaResults &&
+    val speedPackSelectedOption = routeOptions.getOrNull(selectedRouteIndex)
+    val speedPackReport = speedPackPreview.report?.takeIf { it.routeId == speedPackSelectedOption?.id }
+    LaunchedEffect(showRoadDnaDialog, speedPackDiagnostic, speedPackBytes,
+        speedPackSelectedOption?.id, isNavigating, isLoading) {
+        if (showRoadDnaDialog && speedPackDiagnostic && speedPackBytes > 0L &&
+            speedPackSelectedOption != null && !isNavigating && !isLoading &&
+            speedPackReport == null && !speedPackPreview.loading) {
+            onSpeedPackPreviewAnalyze()
+        }
+        if (!speedPackDiagnostic || speedPackSelectedOption == null || isNavigating)
+            showSpeedPackMap = false
+    }
+    if (showSpeedPackMap && speedPackDiagnostic && speedPackReport != null &&
+        speedPackSelectedOption != null && !isNavigating) {
+        val filtered = speedPackReport.markers.filter {
+            speedPackMapFilter == null || it.status == speedPackMapFilter
+        }
+        Dialog(onDismissRequest = { showSpeedPackMap = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)) {
+            Surface(modifier = Modifier.fillMaxWidth(0.95f).fillMaxHeight(0.88f),
+                shape = RoundedCornerShape(24.dp), color = MotoChatColors.Surface) {
+                Column(Modifier.fillMaxSize().padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Road DNA · Controlli di velocità", style = MaterialTheme.typography.titleMedium)
+                    Text("Posizioni originali delle fonti · solo diagnostica", style = MaterialTheme.typography.bodySmall)
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        FilterChip(selected = speedPackMapFilter == null,
+                            onClick = { speedPackMapFilter = null }, label = { Text("Tutti") })
+                        SpeedPackWayStatus.entries.forEach { status ->
+                            FilterChip(selected = speedPackMapFilter == status,
+                                onClick = { speedPackMapFilter = status },
+                                label = { Text(status.label) })
+                        }
+                    }
+                    Text("${minOf(filtered.size,250)} di ${filtered.size} record/passaggi · tocca un marcatore",
+                        style = MaterialTheme.typography.bodySmall)
+                    RouteMapView(
+                        geoPoints = extractGeoPoints(speedPackSelectedOption,currentLocation,routePreview),
+                        routeFitKey = "speedpack:" + speedPackSelectedOption.id,
+                        nightMode = true,
+                        speedPackMarkers = filtered,
+                        modifier = Modifier.fillMaxWidth().weight(1f)
+                    )
+                    Text("Ambra: way coincidente · rosso: diversa · grigio: non verificata. " +
+                        "OSM e MapAtlas possono rappresentare la stessa postazione.",
+                        style = MaterialTheme.typography.labelSmall)
+                    Text("Dati © OpenStreetMap contributors · ODbL; MapAtlas / MapMetrics · CC BY 4.0 (snapshot 2024).",
+                        style = MaterialTheme.typography.labelSmall)
+                    OutlinedButton(onClick = { showSpeedPackMap = false },
+                        modifier = Modifier.fillMaxWidth()) { Text("Chiudi mappa") }
+                }
+            }
+        }
+    }
+    if (showRoadDnaDialog && !showRoadDnaResults && !showSpeedPackMap &&
         selectedRoadDnaPoi == null && !showOnlineSuggestionsMap) {
         AlertDialog(
             modifier = Modifier.fillMaxWidth(0.94f),
@@ -1932,6 +2033,50 @@ fun NavigationScreen(
                                 }
                             }
                         )
+                        HorizontalDivider(color = MotoChatColors.Outline)
+                    }
+                    if (!isNavigating && speedPackSelectedOption != null) {
+                        Text("Controlli di velocità", style = MaterialTheme.typography.titleMedium)
+                        if (speedPackBytes <= 0L) {
+                            Text("SpeedPack non installato. Importalo in Mappe offline.")
+                        } else {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(checked = speedPackDiagnostic,
+                                    onCheckedChange = onSpeedPackDiagnosticChange)
+                                Text("Analisi sperimentale (senza avvisi)")
+                            }
+                            if (speedPackDiagnostic) {
+                                when {
+                                    speedPackPreview.loading -> {
+                                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                                        Text("Analisi SpeedPack in corso…")
+                                    }
+                                    speedPackPreview.error != null -> Text(speedPackPreview.error,
+                                        color = MaterialTheme.colorScheme.error)
+                                    speedPackReport != null -> {
+                                        Text("${speedPackReport.markers.size} record/passaggi candidati")
+                                        Text("Way coincidenti: ${speedPackReport.coincident} · diverse: ${speedPackReport.different} · non verificate: ${speedPackReport.unverified}",
+                                            style = MaterialTheme.typography.bodySmall)
+                                        if (speedPackReport.markers.isNotEmpty()) {
+                                            OutlinedButton(onClick = {
+                                                speedPackMapFilter = null
+                                                showSpeedPackMap = true
+                                            }, modifier = Modifier.fillMaxWidth()) {
+                                                Text("Mostra controlli sulla mappa")
+                                            }
+                                        } else Text("Nessuna corrispondenza con i criteri attuali.")
+                                        if (!speedPackReport.offline)
+                                            Text("Percorso online: confronto geometrico soltanto.",
+                                                style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
+                                OutlinedButton(onClick = onSpeedPackPreviewAnalyze,
+                                    enabled = !speedPackPreview.loading && !isLoading,
+                                    modifier = Modifier.fillMaxWidth()) { Text("Ricalcola analisi SpeedPack") }
+                                Text("Non certifica attività, direzione o limite. I candidati ambigui e i Tutor non sono ancora inclusi; nessun avviso di guida.",
+                                    style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
                         HorizontalDivider(color = MotoChatColors.Outline)
                     }
                     if (roadDnaLoading) {

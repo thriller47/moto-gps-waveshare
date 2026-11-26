@@ -21,12 +21,15 @@ internal object SpeedPackIndex {
             db.rawQuery("""
                 SELECT a.source,a.record_id,e.osm_way,e.road_lat,e.road_lon,e.bearing,e.oneway,
                     CASE WHEN a.source='osm' AND c.osm_way=e.osm_way
-                         AND c.confidence='medium' THEN c.direction ELSE NULL END
+                         AND c.confidence='medium' THEN c.direction ELSE NULL END,
+                    COALESCE(c.lat,m.lat),COALESCE(c.lon,m.lon),COALESCE(c.maxspeed,m.limit_kph)
                 FROM road_assessment a
                 JOIN road_evidence e ON e.source=a.source AND e.record_id=a.record_id
                     AND e.osm_way=a.candidate_way
                 LEFT JOIN cameras c ON a.source='osm' AND CAST(c.osm_node AS TEXT)=a.record_id
-                WHERE a.road_state IN ('single_way_candidate','shared_node_candidate','continuity_candidate')
+                LEFT JOIN mapatlas_records m ON a.source='mapatlas' AND m.ref=a.record_id AND m.class='spot'
+                WHERE (c.osm_node IS NOT NULL OR m.ref IS NOT NULL)
+                    AND a.road_state IN ('single_way_candidate','shared_node_candidate','continuity_candidate')
                     AND e.grade=0 AND e.offset_m<=15 AND a.direction_state!='legacy_conflict'
                 LIMIT 100001
             """.trimIndent(), null).use { c ->
@@ -36,7 +39,9 @@ internal object SpeedPackIndex {
                     result.add(SpeedPackRouteMatcher.Evidence(c.getString(0), c.getString(1),
                         c.getLong(2), SpeedPackRouteMatcher.Point(c.getDouble(3),c.getDouble(4)),
                         c.getDouble(5), if (c.isNull(6)) null else c.getString(6),
-                        if (c.isNull(7)) null else c.getString(7)))
+                        if (c.isNull(7)) null else c.getString(7),
+                        SpeedPackRouteMatcher.Point(c.getDouble(8),c.getDouble(9)),
+                        if (c.isNull(10)) null else c.getInt(10)))
                 }
             }
         }

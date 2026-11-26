@@ -8,7 +8,8 @@ import kotlin.math.*
 /** Exact shape equality + segment-local way identity; diagnostic, not activation. */
 internal object SpeedPackWayVerifier {
     data class Result(val confirmed: Int, val differentWay: Int, val unverified: Int,
-                      val requests: Int)
+                      val requests: Int,
+                      val status: Map<SpeedPackRouteMatcher.Match, SpeedPackWayStatus> = emptyMap())
 
     /** Fail closed if returned shape differs from the original route vertices,
      * or an edge span is missing/contradictory. Do not compare only a set of IDs.
@@ -48,6 +49,7 @@ internal object SpeedPackWayVerifier {
         var confirmed = 0
         var different = 0
         var requests = 0
+        val status = mutableMapOf<SpeedPackRouteMatcher.Match, SpeedPackWayStatus>()
         for ((start, candidates) in matches.groupBy { it.segmentIndex / 8 * 8 }.toSortedMap()) {
             checkCancelled()
             if (requests >= 16) break
@@ -67,9 +69,15 @@ internal object SpeedPackWayVerifier {
             if (ways == null) continue
             for (candidate in candidates) {
                 val way = ways.getOrNull(candidate.segmentIndex-start) ?: continue
-                if (way == candidate.evidence.way) confirmed++ else different++
+                if (way == candidate.evidence.way) {
+                    confirmed++
+                    status[candidate] = SpeedPackWayStatus.COINCIDENT
+                } else {
+                    different++
+                    status[candidate] = SpeedPackWayStatus.DIFFERENT
+                }
             }
         }
-        return Result(confirmed,different,matches.size-confirmed-different,requests)
+        return Result(confirmed,different,matches.size-confirmed-different,requests,status)
     }
 }

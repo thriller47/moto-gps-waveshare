@@ -7,7 +7,9 @@ internal object SpeedPackRouteMatcher {
     data class Point(val lat: Double, val lon: Double)
     data class Evidence(val source: String, val id: String, val way: Long,
                         val point: Point, val bearing: Double, val oneway: String?,
-                        val relativeDirection: String? = null)
+                        val relativeDirection: String? = null,
+                        val originalPoint: Point = point,
+                        val limitKph: Int? = null)
     data class Match(val evidence: Evidence, val chainage: Double, val crossTrack: Double,
                      val segmentIndex: Int)
     private const val CELL = .002
