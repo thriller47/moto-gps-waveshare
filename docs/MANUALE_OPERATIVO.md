@@ -1118,3 +1118,30 @@ python3 scripts/offline_map/speed_cameras_to_sqlite.py /mnt/c/MotoGPS/PBF/italy-
 ```
 
 Conserva tutte le way candidate entro 30 m, proiezione, bearing, senso unico, separazione verticale, nodo condiviso e stato direzione distinto. Indizi duplicati entro 8 m senza fusione. Classificazione V2 invariata; nessun avviso automatico per candidati incerti. Relazioni multi-way e matching Valhalla ancora da implementare. Test sintetici: `python3 scripts/offline_map/test_speed_camera_candidates.py`. Inviare SQLite e riepilogo.
+
+
+### SpeedPack sperimentale V1 (Italia, indipendente dal MotoPack)
+
+Solo generazione e analisi dati, non importabile in Android per ora.
+Usare **lo stesso PBF** impiegato per V3 (il nome è verificato, V3 non contiene
+un hash originario). Copiare il GeoJSON italiano MapAtlas in C:\MotoGPS\PBF\IT.geojson.
+Non includere dati esterni nel repository; verificare condizioni di riutilizzo
+prima di distribuire il pack. Fonte dichiarata nel GeoJSON: CC BY 4.0,
+MapAtlas https://mapatlas.eu, snapshot 2024-05-21. OSM ODbL.
+
+Da WSL, con V3 già disponibile:
+
+```bash
+cd ~/MotoGPS/moto-gps-waveshare
+git switch NewUI
+git pull --ff-only origin NewUI
+source ~/valhalla-env/bin/activate
+python3 -m unittest discover -s scripts/offline_map -p 'test_speedpack_to_sqlite.py'
+python3 scripts/offline_map/speedpack_to_sqlite.py \
+  /mnt/c/MotoGPS/PBF/italy-latest.osm.pbf \
+  --osm-v3 /mnt/c/MotoGPS/speed-cameras-italy-v3.sqlite \
+  --mapatlas /mnt/c/MotoGPS/PBF/IT.geojson \
+  --output /mnt/c/MotoGPS/speedpack-italy-v1.sqlite
+```
+
+Il generatore non sovrascrive output esistenti, conserva V3 e produce un riepilogo JSON. Gli indizi di continuità e vicinanza non sono associazioni confermate; nessuna direzione dedotta da facingDeg, nessuna fusione automatica. Per una nuova prova scegliere un nome output diverso. I record signal/corridor restano archiviati, non trattati come autovelox puntuali. Non rigenerare il MotoPack. Procedura sperimentale, da validare sul PBF completo.
