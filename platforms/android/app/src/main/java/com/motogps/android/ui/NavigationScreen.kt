@@ -104,6 +104,7 @@ private fun speedPackMarkerIcon(map: MapView, status: SpeedPackWayStatus): Bitma
             SpeedPackWayStatus.COINCIDENT -> Color.rgb(255,182,50)
             SpeedPackWayStatus.DIFFERENT -> Color.rgb(204,105,105)
             SpeedPackWayStatus.UNVERIFIED -> Color.rgb(148,155,164)
+            SpeedPackWayStatus.NEARBY_ONLY -> Color.rgb(91,165,226)
         }
         canvas.drawCircle(24f,24f,21f,paint)
         paint.color = Color.rgb(22,25,27)
@@ -380,7 +381,7 @@ fun RouteMapView(
                         position = GeoPoint(record.latitude,record.longitude)
                         title = "Autovelox · " + record.status.label
                         snippet = record.source + " · " + record.recordId +
-                            " · way " + record.way +
+                            (if (record.way > 0) " · way " + record.way else " · senza associazione") +
                             " · km " + String.format(java.util.Locale.ITALY,"%.1f",record.chainageMeters/1000.0) +
                             (record.limitKph?.let { " · limite fonte " + it + " km/h" } ?: "")
                         icon = speedPackMarkerIcon(mapView,record.status)
@@ -1993,7 +1994,7 @@ fun NavigationScreen(
                         speedPackMarkers = filtered,
                         modifier = Modifier.fillMaxWidth().weight(1f)
                     )
-                    Text("Ambra: way coincidente · rosso: diversa · grigio: non verificata. " +
+                    Text("Ambra: way coincidente · rosso: diversa · grigio: non verificata · blu: solo vicinanza entro 50 m. " +
                         "OSM e MapAtlas possono rappresentare la stessa postazione.",
                         style = MaterialTheme.typography.labelSmall)
                     Text("Dati © OpenStreetMap contributors · ODbL; MapAtlas / MapMetrics · CC BY 4.0 (snapshot 2024).",
@@ -2054,7 +2055,7 @@ fun NavigationScreen(
                                     speedPackPreview.error != null -> Text(speedPackPreview.error,
                                         color = MaterialTheme.colorScheme.error)
                                     speedPackReport != null -> {
-                                        Text("${speedPackReport.markers.size} record/passaggi candidati")
+                                        Text("${speedPackReport.markers.size - speedPackReport.nearbyOnly} record/passaggi candidati · ${speedPackReport.nearbyOnly} solo vicinanza")
                                         Text("Way coincidenti: ${speedPackReport.coincident} · diverse: ${speedPackReport.different} · non verificate: ${speedPackReport.unverified}",
                                             style = MaterialTheme.typography.bodySmall)
                                         if (speedPackReport.markers.isNotEmpty()) {
@@ -2064,7 +2065,7 @@ fun NavigationScreen(
                                             }, modifier = Modifier.fillMaxWidth()) {
                                                 Text("Mostra controlli sulla mappa")
                                             }
-                                        } else Text("Nessuna corrispondenza con i criteri attuali.")
+                                        } else Text("Nessun record individuato con i criteri attuali, nemmeno entro 50 m.")
                                         if (!speedPackReport.offline)
                                             Text("Percorso online: confronto geometrico soltanto.",
                                                 style = MaterialTheme.typography.bodySmall)
@@ -2073,7 +2074,7 @@ fun NavigationScreen(
                                 OutlinedButton(onClick = onSpeedPackPreviewAnalyze,
                                     enabled = !speedPackPreview.loading && !isLoading,
                                     modifier = Modifier.fillMaxWidth()) { Text("Ricalcola analisi SpeedPack") }
-                                Text("Non certifica attività, direzione o limite. I candidati ambigui e i Tutor non sono ancora inclusi; nessun avviso di guida.",
+                                Text("I marker blu sono record esclusi dal filtro stradale, non avvisi. Nessuna certificazione di attività, direzione o limite; Tutor esclusi.",
                                     style = MaterialTheme.typography.bodySmall)
                             }
                         }

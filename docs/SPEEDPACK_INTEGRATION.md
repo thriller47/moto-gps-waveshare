@@ -57,3 +57,6 @@ Valhalla Mobile 0.6.6 espone traceAttributesRaw. Implementato riscontro diagnost
 
 ## Anteprima Road DNA
 Motore diagnostico condiviso con navigazione; stato per record/passaggio, sorgente e coordinate originali, limite dichiarato e chainage. Scheda e mappa separate dai POI turistici, toggle comune default off, filtri per stato, cap 250 marker per filtro. Cambi rotta/disattivazione invalidano la preview. Nessuna fusione né conferma di attività; nessun invio al firmware in questa fase. Collaudare way e geometrie su percorsi noti prima del trasporto.
+
+## Diagnostica copertura
+Anteprima soltanto: query di tutti gli spot originali OSM/MapAtlas, corridoio 50 m e marker blu per passaggi non rappresentati dal matcher selettivo (stessa fonte/ID entro 100 m di chainage). Sottodivisione spaziale dei segmenti lunghi senza modificare la shape. Nessun fallback nel motore di navigazione e nessuna promozione di vicinanza a identità stradale. Serve a distinguere copertura e filtri; non garantisce assenza di falsi positivi o negativi.

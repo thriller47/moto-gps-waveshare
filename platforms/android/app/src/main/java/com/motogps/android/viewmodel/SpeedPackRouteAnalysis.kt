@@ -10,7 +10,8 @@ import kotlinx.coroutines.ensureActive
 enum class SpeedPackWayStatus(val label: String) {
     COINCIDENT("Way coincidente"),
     DIFFERENT("Way diversa"),
-    UNVERIFIED("Way non verificata")
+    UNVERIFIED("Way non verificata"),
+    NEARBY_ONLY("Solo vicinanza (esclusa)")
 }
 
 /** A record/pass, not necessarily a distinct physical device. */
@@ -29,6 +30,7 @@ data class SpeedPackPreviewReport(
     val coincident get() = markers.count { it.status == SpeedPackWayStatus.COINCIDENT }
     val different get() = markers.count { it.status == SpeedPackWayStatus.DIFFERENT }
     val unverified get() = markers.count { it.status == SpeedPackWayStatus.UNVERIFIED }
+    val nearbyOnly get() = markers.count { it.status == SpeedPackWayStatus.NEARBY_ONLY }
 }
 
 data class SpeedPackPreviewState(
@@ -40,7 +42,8 @@ data class SpeedPackPreviewState(
 /** Shared engine for preview and active-route diagnostics. No network calls. */
 internal object SpeedPackRouteAnalysis {
     data class Result(val matches: List<SpeedPackRouteMatcher.Match>,
-                      val verification: SpeedPackWayVerifier.Result) {
+                      val verification: SpeedPackWayVerifier.Result,
+                      val nearbyOnly: List<SpeedPackRouteMatcher.Match> = emptyList()) {
         fun preview(routeId: String, offline: Boolean) = SpeedPackPreviewReport(
             routeId, matches.map { m ->
                 val e = m.evidence
@@ -48,11 +51,17 @@ internal object SpeedPackRouteAnalysis {
                     e.originalPoint.lon, e.point.lat, e.point.lon, m.chainage,
                     m.crossTrack, verification.status[m] ?: SpeedPackWayStatus.UNVERIFIED,
                     e.limitKph)
+            } + nearbyOnly.map { m ->
+                val e = m.evidence
+                SpeedPackPreviewMarker(e.source, e.id, 0L, e.originalPoint.lat,
+                    e.originalPoint.lon, e.originalPoint.lat, e.originalPoint.lon,
+                    m.chainage,m.crossTrack,SpeedPackWayStatus.NEARBY_ONLY,e.limitKph)
             }, verification.requests, offline)
     }
 
     suspend fun analyze(context: Context, route: List<SpeedPackRouteMatcher.Point>,
-                        provider: String?, preferences: RoutePreferences): Result {
+                        provider: String?, preferences: RoutePreferences,
+                        includeRawPreview: Boolean = false): Result {
         require(SpeedPackIndex.file(context).isFile) { "SpeedPack non installato" }
         require(route.size >= 2) { "Geometria Valhalla assente" }
         val job = currentCoroutineContext()[Job]
@@ -65,6 +74,12 @@ internal object SpeedPackRouteAnalysis {
                     points.map { it.lat to it.lon }, preferences)
             }
         } else SpeedPackWayVerifier.Result(0,0,candidates.size,0)
-        return Result(candidates,verification)
+        val nearbyOnly = if (includeRawPreview) {
+            val strictByRecord = candidates.groupBy { it.evidence.source to it.evidence.id }
+            SpeedPackRouteMatcher.nearby(route,SpeedPackIndex.rawSpots(context,check),check)
+                .filter { raw -> strictByRecord[raw.evidence.source to raw.evidence.id].orEmpty()
+                    .none { kotlin.math.abs(it.chainage-raw.chainage) <= 100.0 } }
+        } else emptyList()
+        return Result(candidates,verification,nearbyOnly)
     }
 }

@@ -48,6 +48,30 @@ internal object SpeedPackIndex {
         return result
     }
 
+    /** Unfiltered spot coordinates, exclusively for preview diagnostics. */
+    fun rawSpots(context: Context, cancelled: () -> Unit): List<SpeedPackRouteMatcher.Evidence> {
+        val target = file(context)
+        if (!target.isFile) return emptyList()
+        val result = mutableListOf<SpeedPackRouteMatcher.Evidence>()
+        SQLiteDatabase.openDatabase(target.path, null, SQLiteDatabase.OPEN_READONLY).use { db ->
+            db.rawQuery("""
+                SELECT 'osm',CAST(osm_node AS TEXT),lat,lon,maxspeed FROM cameras
+                UNION ALL
+                SELECT 'mapatlas',ref,lat,lon,limit_kph FROM mapatlas_records WHERE class='spot'
+                LIMIT 100001
+            """.trimIndent(), null).use { c ->
+                while (c.moveToNext()) {
+                    cancelled()
+                    require(result.size < 100000) { "Troppi record SpeedPack" }
+                    val point = SpeedPackRouteMatcher.Point(c.getDouble(2),c.getDouble(3))
+                    result.add(SpeedPackRouteMatcher.Evidence(c.getString(0),c.getString(1),0L,
+                        point,0.0,null,limitKph = if (c.isNull(4)) null else c.getInt(4)))
+                }
+            }
+        }
+        return result
+    }
+
     fun install(context: Context, uri: Uri, cancelled: () -> Boolean) {
         val target = file(context)
         target.parentFile?.mkdirs()

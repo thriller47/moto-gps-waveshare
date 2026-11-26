@@ -82,6 +82,60 @@ internal object SpeedPackRouteMatcher {
         return matches.values.flatten().sortedBy { it.chainage }
     }
 
+    /** Preview-only raw proximity, never a road match. */
+    fun nearby(route: List<Point>, spots: List<Evidence>,
+               checkCancelled: () -> Unit = {}): List<Match> {
+        if (route.size < 2 || route.any { !valid(it) }) return emptyList()
+        val radius = 50.0
+        val grid = spots.filter { valid(it.originalPoint) }.groupBy { cell(it.originalPoint) }
+        val matches = mutableMapOf<Pair<String,String>, MutableList<Match>>()
+        var chainage = 0.0
+        for (i in 0 until route.lastIndex) {
+            checkCancelled()
+            val a = route[i]
+            val b = route[i+1]
+            val sx = 111195.0 * cos(Math.toRadians((a.lat+b.lat)/2))
+            val dx = (b.lon-a.lon)*sx
+            val dy = (b.lat-a.lat)*111195.0
+            val length = hypot(dx,dy)
+            if (length < .1) continue
+            if (length <= 50_000.0 && sx > 1000) {
+                val parts = ceil(length/250.0).toInt().coerceAtLeast(1)
+                val seen = HashSet<Pair<String,String>>()
+                for (part in 0 until parts) {
+                    checkCancelled()
+                    val t0 = part.toDouble()/parts
+                    val t1 = (part+1).toDouble()/parts
+                    val lat0 = a.lat+(b.lat-a.lat)*t0
+                    val lat1 = a.lat+(b.lat-a.lat)*t1
+                    val lon0 = a.lon+(b.lon-a.lon)*t0
+                    val lon1 = a.lon+(b.lon-a.lon)*t1
+                    val lo = cell(Point(min(lat0,lat1)-radius/111195.0,min(lon0,lon1)-radius/sx))
+                    val hi = cell(Point(max(lat0,lat1)+radius/111195.0,max(lon0,lon1)+radius/sx))
+                    for (y in lo.first..hi.first) for (x in lo.second..hi.second) {
+                        for (e in grid[y to x].orEmpty()) {
+                            val key = e.source to e.id
+                            if (!seen.add(key)) continue
+                            val ex = (e.originalPoint.lon-a.lon)*sx
+                            val ey = (e.originalPoint.lat-a.lat)*111195.0
+                            val t = ((ex*dx+ey*dy)/(length*length)).coerceIn(0.0,1.0)
+                            val cross = hypot(ex-t*dx,ey-t*dy)
+                            if (cross > radius) continue
+                            val m = Match(e,chainage+t*length,cross,i)
+                            val list = matches.getOrPut(key) { mutableListOf() }
+                            val last = list.lastOrNull()
+                            if (last != null && abs(last.chainage-m.chainage) <= 100.0) {
+                                if (cross < last.crossTrack) list[list.lastIndex] = m
+                            } else list.add(m)
+                        }
+                    }
+                }
+            }
+            chainage += length
+        }
+        return matches.values.flatten().sortedBy { it.chainage }
+    }
+
     fun next(matches: List<Match>, progress: Double?, horizon: Double = 550.0): Match? {
         if (progress == null || !progress.isFinite() || progress < 0 || horizon <= 0) return null
         return matches.firstOrNull { it.chainage-progress in 0.0..horizon }

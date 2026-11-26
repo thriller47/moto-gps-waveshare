@@ -30,6 +30,17 @@ class SpeedPackRouteMatcherTest {
     @Test fun repeatedPassages() {
         assertEquals(2,match(evidence(),listOf(a,b,a)).size)
     }
+    @Test fun rawPreviewIncludesLongSegmentAndIgnoresDirection() {
+        val end = SpeedPackRouteMatcher.Point(45.0,7.01)
+        val raw = evidence(lat=45.0002,bearing=0.0,oneway="yes")
+        assertTrue(SpeedPackRouteMatcher.match(listOf(a,end),listOf(raw)).isEmpty())
+        val nearby = SpeedPackRouteMatcher.nearby(listOf(a,end),listOf(raw))
+        assertEquals(1,nearby.size)
+        assertTrue(nearby.single().crossTrack in 20.0..24.0)
+        assertTrue(SpeedPackRouteMatcher.nearby(listOf(a,end),
+            listOf(evidence(lat=45.001))).isEmpty())
+    }
+
     @Test fun nextIsAheadOnly() {
         val m = match(evidence())
         assertNotNull(SpeedPackRouteMatcher.next(m,0.0))

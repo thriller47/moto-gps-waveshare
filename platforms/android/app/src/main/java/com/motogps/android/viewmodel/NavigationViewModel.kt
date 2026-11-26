@@ -958,7 +958,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                     val route = RoadDnaAnalysis.geometry(option.rawRouteJson).map {
                         SpeedPackRouteMatcher.Point(it.first,it.second)
                     }
-                    SpeedPackRouteAnalysis.analyze(app,route,provider,preferences)
+                    SpeedPackRouteAnalysis.analyze(app,route,provider,preferences, includeRawPreview = true)
                 }
                 if (serial != speedPackPreviewSerial || !_speedPackDiagnostic.value ||
                     _isNavigating.value || _routeOptions.value.getOrNull(_selectedRouteIndex.value) !== option) return@launch
@@ -966,7 +966,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                 _speedPackPreview.value = SpeedPackPreviewState(report = report)
                 DiagnosticLog.event("SPEEDPACK_PREVIEW", "candidate_passages=${report.markers.size} " +
                     "way_confirmed=${report.coincident} way_different=${report.different} " +
-                    "way_unverified=${report.unverified} trace_requests=${report.traceRequests}")
+                    "way_unverified=${report.unverified} nearby_only=${report.nearbyOnly} trace_requests=${report.traceRequests}")
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
