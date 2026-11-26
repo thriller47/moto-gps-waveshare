@@ -78,22 +78,46 @@ function Resolve-MotoAndroidSdk {
     return $sdk
 }
 
-try {
-    # Prefer the installed Android Studio JBR (21); allow an explicit JAVA_HOME.
-    $jbr = Join-Path $env:ProgramFiles 'Android\Android Studio\jbr'
-    if (-not $env:JAVA_HOME -or -not (Test-Path (Join-Path $env:JAVA_HOME 'bin\java.exe'))) {
-        if (Test-Path (Join-Path $jbr 'bin\java.exe')) {
-            $env:JAVA_HOME = $jbr
-        } elseif (-not (Get-Command java.exe -ErrorAction SilentlyContinue)) {
-            throw 'Java not found. Set JAVA_HOME to a compatible JDK (21 recommended).'
-        } else {
-            Remove-Item Env:JAVA_HOME -ErrorAction SilentlyContinue
+function Resolve-MotoJava {
+    # Pin the local build to JDK 21: current Mockito/Byte Buddy cannot use Java 25.
+    $candidates = @($env:JAVA_HOME, (Join-Path $env:ProgramFiles 'Android\Android Studio\jbr'))
+    $roots = @(
+        (Join-Path $env:ProgramFiles 'Eclipse Adoptium'),
+        (Join-Path $env:ProgramFiles 'Microsoft'),
+        (Join-Path $env:ProgramFiles 'Java'),
+        (Join-Path $env:USERPROFILE '.jdks')
+    )
+    foreach ($root in $roots) {
+        if (Test-Path -LiteralPath $root -PathType Container) {
+            $candidates += @(Get-ChildItem -LiteralPath $root -Directory | Sort-Object Name -Descending | ForEach-Object { $_.FullName })
         }
     }
+    foreach ($command in @(Get-Command java.exe -All -ErrorAction SilentlyContinue)) {
+        if ($command.Source) { $candidates += (Split-Path (Split-Path $command.Source -Parent) -Parent) }
+    }
+    foreach ($candidate in ($candidates | Where-Object { $_ } | Select-Object -Unique)) {
+        $java = Join-Path $candidate 'bin\java.exe'
+        $javac = Join-Path $candidate 'bin\javac.exe'
+        $release = Join-Path $candidate 'release'
+        if (-not (Test-Path -LiteralPath $java -PathType Leaf) -or
+            -not (Test-Path -LiteralPath $javac -PathType Leaf) -or
+            -not (Test-Path -LiteralPath $release -PathType Leaf)) { continue }
+        $version = Get-Content -LiteralPath $release | Where-Object { $_ -match '^JAVA_VERSION="21(?:[.+-]|")' } | Select-Object -First 1
+        if (-not $version) { continue }
+        $jdk = (Resolve-Path -LiteralPath $candidate).Path
+        $env:JAVA_HOME = $jdk
+        Write-Host "Java: $version ($jdk)"
+        return $jdk
+    }
+    throw 'JDK 21 not found. Install it with: winget install --id EclipseAdoptium.Temurin.21.JDK -e ; then reopen PowerShell or set JAVA_HOME to your JDK 21 directory.'
+}
+
+try {
+    $jdk = Resolve-MotoJava
     Update-MotoRepository $Branch $PSScriptRoot
     Set-Location platforms/android
     $sdk = Resolve-MotoAndroidSdk
-    Invoke-Checked '.\gradlew.bat' @('testDebugUnitTest','assembleDebug')
+    Invoke-Checked '.\gradlew.bat' @("-Dorg.gradle.java.home=$jdk",'testDebugUnitTest','assembleDebug')
     if (-not $BuildOnly) {
         $adb = Join-Path $sdk 'platform-tools\adb.exe'
         if (-not (Test-Path -LiteralPath $adb)) { throw 'ADB not found. Install Android SDK Platform-Tools in Android Studio SDK Manager.' }

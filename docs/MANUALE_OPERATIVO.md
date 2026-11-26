@@ -611,6 +611,16 @@ gh run download ID_RUN -R thriller47/moto-gps-waveshare -n ESP32-Firmware -D C:\
 
 **Prima installazione Android Studio (solo nuovo PC):** scaricare Android Studio dal sito ufficiale Android Developers, completare la procedura iniziale, aprire **SDK Manager** e installare **Android SDK Platform 37 (pacchetto 37.0)**, **Platform-Tools** (include `adb`), **Build-Tools** e **NDK (Side by side) 29.0.14206865**. Aprire come progetto **`platforms/android`**, attendere la sincronizzazione Gradle e autorizzare eventuali download. Se `gradlew.bat` non parte, verificare di essere nella cartella `platforms/android`. Per il debug USB: sul telefono attivare *Opzioni sviluppatore → Debug USB*, collegare un cavo dati e confermare la finestra di autorizzazione RSA; `& $adb devices` deve mostrare il seriale con stato `device`, non `unauthorized`. Se il seriale cambia, usare quello visualizzato invece dell'esempio.
 
+### Java 21 per la build locale (anche con Android Studio recente)
+
+Il launcher richiede un JDK 21 completo (java.exe, javac.exe e versione nel file release). Cerca JAVA_HOME, JBR di Android Studio, directory standard Eclipse Adoptium/Microsoft/Java, .jdks dell'utente e Java nel PATH. Salta le versioni incompatibili e imposta JAVA_HOME per la sessione, passando anche org.gradle.java.home a Gradle. Non modifica il JBR di Android Studio o le variabili permanenti. Se manca JDK 21:
+
+```powershell
+winget install --id EclipseAdoptium.Temurin.21.JDK -e
+```
+
+Riaprire PowerShell e rilanciare moto-android NewUI (o il branch attivo). Per un JDK in posizione non standard impostare JAVA_HOME al suo percorso. Per la build manuale o Android Studio selezionare JDK 21 anche come Gradle JDK; verificare con gradlew.bat --version. Sul PC officina il 26/11 Java 25.0.4 ha causato 20 errori Mockito su 347 test: Byte Buddy supportava al massimo Java 22. L'utente ha confermato di aver risolto passando a JDK 21. Non disabilitare i test o usare il flag sperimentale Byte Buddy per aggirare il problema. La CI mantiene JDK 17.
+
 ### Errore SDK location not found su PC nuovo
 
 Il launcher aggiornato individua l'SDK prima di Gradle: usa sdk.dir valido in local.properties, poi ANDROID_HOME, ANDROID_SDK_ROOT e infine la cartella standard dell'utente. Imposta entrambe le variabili nella sessione del launcher e usa lo stesso SDK per ADB. Non sovrascrive local.properties né modifica permanentemente le variabili Windows. Se sdk.dir è presente ma non valido, correggerlo esplicitamente; non viene ignorato.
