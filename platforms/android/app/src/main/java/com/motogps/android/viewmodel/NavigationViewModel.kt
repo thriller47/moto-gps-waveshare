@@ -923,6 +923,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     val elevationInstalledBytes: StateFlow<Long> = _elevationInstalledBytes
     private val _photonInstalledBytes = MutableStateFlow(0L)
     val photonInstalledBytes: StateFlow<Long> = _photonInstalledBytes
+    private val _speedPackBytes = MutableStateFlow(0L)
+    val speedPackBytes: StateFlow<Long> = _speedPackBytes
     private val _roadIndexBytes = MutableStateFlow(0L)
     val roadIndexBytes: StateFlow<Long> = _roadIndexBytes
     private val _roadDnaInstalledBytes = MutableStateFlow(0L)
@@ -2483,6 +2485,11 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
             OfflineTouristPlaceSearch.install(app, uri, cancelled)
         }
 
+    fun importSpeedPack(context: Context, uri: Uri) =
+        importStandaloneComponent(context, "SpeedPack") { app, cancelled ->
+            SpeedPackIndex.install(app, uri, cancelled)
+        }
+
     fun importRoadDnaIndex(context: Context, uri: Uri) {
         if (_isNavigating.value || _isLoading.value || _isDownloadingMap.value ||
             _photonImporting.value || _valhallaImporting.value) return
@@ -2618,13 +2625,15 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                 val roads = RoadDnaRoadIndex.file(app).let { if (it.isFile) it.length() else 0L }
                 val dem = com.motogps.android.routing.ValhallaElevationImporter.installedBytes(app)
                 val list = getOrCreateRepo(app).listSavedMaps()
-                listOf(photon, valhalla, roadDna, roads, dem) to list
+                val speedPack = SpeedPackIndex.file(app).let { if (it.isFile) it.length() else 0L }
+                listOf(photon, valhalla, roadDna, roads, dem, speedPack) to list
             }
             _photonInstalledBytes.value = snapshot.first[0]
             _valhallaInstalledBytes.value = snapshot.first[1]
             _roadDnaInstalledBytes.value = snapshot.first[2]
             _roadIndexBytes.value = snapshot.first[3]
             _elevationInstalledBytes.value = snapshot.first[4]
+            _speedPackBytes.value = snapshot.first[5]
             _savedMaps.value = snapshot.second
         }
     }

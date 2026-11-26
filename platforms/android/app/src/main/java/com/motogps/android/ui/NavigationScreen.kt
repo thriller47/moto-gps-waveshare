@@ -577,6 +577,8 @@ fun OfflineMapsDialog(
     roadDnaInstalledBytes: Long = 0L,
     roadIndexBytes: Long = 0L,
     onImportRoadIndex: () -> Unit = {},
+    speedPackBytes: Long = 0L,
+    onImportSpeedPack: () -> Unit = {},
     elevationInstalledBytes: Long = 0L,
     onImportElevation: () -> Unit = {},
     onImportTourist: () -> Unit = {},
@@ -670,6 +672,26 @@ fun OfflineMapsDialog(
                             )
                         } else if (!downloadStatus.isNullOrBlank()) {
                             Text(downloadStatus, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MotoChatColors.SurfaceRaised)
+                ) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("SPEEDPACK · ITALIA", style = MaterialTheme.typography.labelSmall,
+                            color = MotoChatColors.Green)
+                        Text(if (speedPackBytes > 0L)
+                            String.format("Installato · %.1f MiB", speedPackBytes / 1048576.0)
+                            else "Non installato", style = MaterialTheme.typography.titleSmall)
+                        Text("Archivio sperimentale indipendente dal MotoPack. Avvisi non ancora attivi.",
+                            style = MaterialTheme.typography.bodySmall, color = MotoChatColors.TextMuted)
+                        OutlinedButton(onClick = onImportSpeedPack, enabled = canManage,
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                            Text("Importa SpeedPack (.sqlite)")
                         }
                     }
                 }
@@ -849,6 +871,8 @@ fun NavigationScreen(
     roadDnaInstalledBytes: Long = 0L,
     roadIndexBytes: Long = 0L,
     onImportRoadIndex: () -> Unit = {},
+    speedPackBytes: Long = 0L,
+    onImportSpeedPack: () -> Unit = {},
     elevationInstalledBytes: Long = 0L,
     onImportElevation: () -> Unit = {},
     onImportTourist: () -> Unit = {},
@@ -2816,6 +2840,8 @@ fun NavigationScreen(
             savedMaps = savedMaps,
             photonInstalledBytes = photonInstalledBytes,
             roadDnaInstalledBytes = roadDnaInstalledBytes,
+            speedPackBytes = speedPackBytes,
+            onImportSpeedPack = onImportSpeedPack,
             roadIndexBytes = roadIndexBytes,
             onImportRoadIndex = onImportRoadIndex,
             elevationInstalledBytes = elevationInstalledBytes,

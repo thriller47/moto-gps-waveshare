@@ -198,6 +198,12 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         if (uri != null) viewModel.importTouristIndex(this, uri)
     }
 
+    private val importSpeedPackLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) viewModel.importSpeedPack(this, uri)
+    }
+
     private val importRoadIndexLauncher = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -358,6 +364,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             val isDownloadingMap = viewModel.isDownloadingMap.collectAsState().value
             val photonInstalledBytes = viewModel.photonInstalledBytes.collectAsState().value
             val roadDnaInstalledBytes = viewModel.roadDnaInstalledBytes.collectAsState().value
+            val speedPackBytes = viewModel.speedPackBytes.collectAsState().value
             val roadIndexBytes = viewModel.roadIndexBytes.collectAsState().value
             val elevationInstalledBytes = viewModel.elevationInstalledBytes.collectAsState().value
             val photonImporting = viewModel.photonImporting.collectAsState().value
@@ -531,6 +538,8 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     isDownloadingMap = isDownloadingMap,
                     photonInstalledBytes = photonInstalledBytes,
                     roadDnaInstalledBytes = roadDnaInstalledBytes,
+                    speedPackBytes = speedPackBytes,
+                    onImportSpeedPack = { importSpeedPackLauncher.launch(arrayOf("*/*")) },
                     roadIndexBytes = roadIndexBytes,
                     onImportRoadIndex = { importRoadIndexLauncher.launch(arrayOf("*/*")) },
                     elevationInstalledBytes = elevationInstalledBytes,
