@@ -74,6 +74,28 @@ internal object OfflineValhallaRouter {
             originLat, originLon, destinationLat, destinationLon)
     }
 
+    /** Diagnostic only: reuse the already loaded graph, never rematch via map_snap. */
+    @Synchronized
+    fun traceWayAttributes(context: Context, points: List<Pair<Double, Double>>,
+                           preferences: RoutePreferences): JSONObject? {
+        if (points.size !in 2..9) return null
+        val tiles = tileFile(context)
+        val actor = engine ?: return null
+        if (!tiles.isFile || tiles.absolutePath != loadedTilePath ||
+            tiles.length() != loadedTileLength || tiles.lastModified() != loadedTileLastModified) return null
+        val shape = JSONArray()
+        points.forEach { (lat, lon) ->
+            shape.put(JSONObject().put("lat",lat).put("lon",lon))
+        }
+        val request = JSONObject().put("shape",shape)
+            .put("shape_match","edge_walk")
+            .put("filters",JSONObject().put("action","include")
+                .put("attributes",JSONArray(listOf("shape","edge.way_id",
+                    "edge.begin_shape_index","edge.end_shape_index"))))
+        preferences.applyTo(request)
+        return JSONObject(actor.traceAttributesRaw(request.toString()))
+    }
+
     @Synchronized
     fun close() {
         engine?.close()

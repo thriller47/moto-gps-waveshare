@@ -8,7 +8,8 @@ internal object SpeedPackRouteMatcher {
     data class Evidence(val source: String, val id: String, val way: Long,
                         val point: Point, val bearing: Double, val oneway: String?,
                         val relativeDirection: String? = null)
-    data class Match(val evidence: Evidence, val chainage: Double, val crossTrack: Double)
+    data class Match(val evidence: Evidence, val chainage: Double, val crossTrack: Double,
+                     val segmentIndex: Int)
     private const val CELL = .002
     private const val MAX_CROSS = 8.0
     private const val MAX_SEGMENT = 250.0
@@ -64,7 +65,7 @@ internal object SpeedPackRouteMatcher {
                         val t = ((ex*dx+ey*dy)/(length*length)).coerceIn(0.0,1.0)
                         val cross = hypot(ex-t*dx,ey-t*dy)
                         if (cross > MAX_CROSS) continue
-                        val m = Match(e,chainage+t*length,cross)
+                        val m = Match(e,chainage+t*length,cross,i)
                         val list = matches.getOrPut(e.source to e.id) { mutableListOf() }
                         val last = list.lastOrNull()
                         // Adjacent segments near a vertex are the same passage.

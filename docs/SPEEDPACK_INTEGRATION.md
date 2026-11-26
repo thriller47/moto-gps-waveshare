@@ -51,3 +51,6 @@ performance/heap ESP32, verifica su strada in condizioni lecite.
 
 ## Implementazione diagnostica iniziale (26/11)
 L'adapter Valhalla attuale converte la shape senza way ID. Implementato matcher geometrico locale, massimo 8 m e 20 gradi, segmenti fino a 250 m, vincoli direzionali conservativi, solo indizi di strada selezionata e non grade. Toggle separato, default off; log conteggi senza coordinate. Non è un sistema di avvisi: non stabilisce identità di way, non deduplica sorgenti, non applica ancora norme nazionali. Occorre un'associazione verificabile Valhalla/OSM prima del trasporto BLE.
+
+## Riscontro way ID offline sperimentale
+Valhalla Mobile 0.6.6 espone traceAttributesRaw. Implementato riscontro diagnostico edge_walk su finestre di massimo 8 segmenti/400 m, massimo 16 richieste per itinerario, actor esistente e stesso costing. La shape restituita deve corrispondere punto per punto (1e-6 gradi); gli span edge devono coprire i segmenti senza conflitto. Confronto way ID nel segmento candidato, non semplice appartenenza a un insieme. Se fallisce, resta non verificato; non effettuare map_snap. Rischio nativo da validare sul telefono; non eseguire trace dell'intero itinerario, nessun invio BLE. Way coincidente non dimostra lo stato della postazione e non è ancora sufficiente per un avviso.

@@ -955,24 +955,37 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         if (!_speedPackDiagnostic.value || geometry == null || geometry.points.size < 2) return
         val app = appContext ?: navigationMapsContext ?: return
         _speedPackDiagnosticStatus.value = "Analisi geometrica in corso"
+        val provider = lastRoutingProvider
+        val preferences = _routePreferences.value
         speedPackAnalysisJob = viewModelScope.launch {
             try {
-                val matches = withContext(Dispatchers.IO) {
+                val (matches, wayCheck) = withContext(Dispatchers.IO) {
                     val job = currentCoroutineContext()[Job]
                     val check: () -> Unit = { job?.ensureActive() }
                     val evidence = SpeedPackIndex.roadEvidence(app, check)
                     val route = geometry.points.map {
                         SpeedPackRouteMatcher.Point(it.latitudeE6 / 1e6, it.longitudeE6 / 1e6)
                     }
-                    SpeedPackRouteMatcher.match(route, evidence, check)
+                    val candidates = SpeedPackRouteMatcher.match(route, evidence, check)
+                    val verification = if (provider == "valhalla-local") {
+                        SpeedPackWayVerifier.verify(route,candidates,check) { points ->
+                            OfflineValhallaRouter.traceWayAttributes(app,
+                                points.map { it.lat to it.lon }, preferences)
+                        }
+                    } else SpeedPackWayVerifier.Result(0,0,candidates.size,0)
+                    candidates to verification
                 }
                 if (serial != speedPackAnalysisSerial || !_speedPackDiagnostic.value ||
                     !_isNavigating.value || _hasArrived.value || currentGeometry !== geometry) return@launch
                 speedPackMatches = matches
-                _speedPackDiagnosticStatus.value = "${matches.size} passaggi candidati (non verificati)"
+                _speedPackDiagnosticStatus.value = "${matches.size} passaggi candidati · " +
+                    "way coincidenti ${wayCheck.confirmed}, diverse ${wayCheck.differentWay}, " +
+                    "non verificate ${wayCheck.unverified}"
                 DiagnosticLog.event("SPEEDPACK_MATCH", "candidate_passages=${matches.size} " +
                     "osm=${matches.count { it.evidence.source == "osm" }} " +
-                    "mapatlas=${matches.count { it.evidence.source == "mapatlas" }}")
+                    "mapatlas=${matches.count { it.evidence.source == "mapatlas" }} " +
+                    "way_confirmed=${wayCheck.confirmed} way_different=${wayCheck.differentWay} " +
+                    "way_unverified=${wayCheck.unverified} trace_requests=${wayCheck.requests}")
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -2050,6 +2063,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                     activeWaypoints.size - nextWaypointIndex,
                     SystemClock.elapsedRealtime())) {
                 _hasArrived.value = true
+                analyseSpeedPackRoute(null)
                 offRouteFixCount = 0
                 rerouteJob?.cancel()
                 rerouteJob = null
