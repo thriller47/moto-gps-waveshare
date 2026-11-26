@@ -12,6 +12,13 @@ data class GeoPointE6(
 
 data class MotoBLEWaypointMarker(val index: Int, val point: GeoPointE6)
 
+data class MotoBLESpeedAlert(
+    val routeToken: Long,
+    val routeGeneration: Long,
+    val distanceM: Int = 0,
+    val point: GeoPointE6? = null
+)
+
 data class MotoBLERouteGeometry(
     val coordinateSystem: Int = 2, // GCJ-02
     val routeToken: Long,
@@ -70,6 +77,8 @@ class MotoBLEProtocolCodec {
         const val MSG_TRAFFIC_DEVIATION: Byte = 0x12
         const val MSG_MEDIA_STATE: Byte = 0x13
         const val MSG_MAP_SCENE: Byte = 0x14
+        const val MSG_SPEED_ALERT: Byte = 0x15
+        const val CAPABILITY_SPEED_ALERT: Long = 512L
         const val MSG_DEVICE_COMMAND: Byte = 0x20
         const val MSG_DIAGNOSTIC_CONTROL: Byte = 0x21
         const val MSG_DIAGNOSTIC_BATCH: Byte = 0x22
@@ -228,6 +237,29 @@ class MotoBLEProtocolCodec {
         val storage = instances[ptr] ?: return emptyArray()
         val payload = buildRouteGeometryPayload(geometry) ?: return emptyArray()
         return fragmentMessage(storage, MSG_ROUTE_GEOMETRY, payload, ackRequested = false, urgent = false)
+    }
+
+    fun nativeEncodeSpeedAlert(ptr: Long, session: Long, alert: MotoBLESpeedAlert): Array<ByteArray> {
+        val storage = instances[ptr] ?: return emptyArray()
+        if (session !in 1L..0xffffffffL || alert.routeToken !in 0L..0xffffffffL ||
+            alert.routeGeneration !in 0L..0xffffffffL) return emptyArray()
+        val p = alert.point
+        if (p != null && (alert.routeToken == 0L || alert.routeGeneration == 0L ||
+                alert.distanceM !in 0..550 ||
+                p.latitudeE6 !in -90000000..90000000 ||
+                p.longitudeE6 !in -180000000..180000000)) return emptyArray()
+        if (p == null && alert.distanceM != 0) return emptyArray()
+        val writer = Writer()
+        writer.writeU8(PAYLOAD_REVISION.toInt())
+        writer.writeU32(session)
+        writer.writeU32(alert.routeToken)
+        writer.writeU32(alert.routeGeneration)
+        writer.writeU8(if (p != null) 1 else 0)
+        writer.writeU16(alert.distanceM)
+        writer.writeS32(p?.latitudeE6 ?: 0)
+        writer.writeS32(p?.longitudeE6 ?: 0)
+        return fragmentMessage(storage,MSG_SPEED_ALERT,writer.toByteArray(),
+            ackRequested = false, urgent = false)
     }
 
     fun nativeEncodeMapScene(ptr: Long, scene: MotoBLEMapScene): Array<ByteArray> {

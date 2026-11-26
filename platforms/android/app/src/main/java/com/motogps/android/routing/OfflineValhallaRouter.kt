@@ -91,7 +91,7 @@ internal object OfflineValhallaRouter {
             .put("shape_match","edge_walk")
             .put("filters",JSONObject().put("action","include")
                 .put("attributes",JSONArray(listOf("shape","edge.way_id",
-                    "edge.begin_shape_index","edge.end_shape_index"))))
+                    "edge.begin_shape_index","edge.end_shape_index","admin.country_code","node.admin_index"))))
         preferences.applyTo(request)
         return JSONObject(actor.traceAttributesRaw(request.toString()))
     }

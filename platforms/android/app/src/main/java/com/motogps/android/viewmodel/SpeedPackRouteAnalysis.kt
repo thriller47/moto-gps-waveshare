@@ -29,7 +29,8 @@ data class SpeedPackPreviewReport(
     val routeId: String, val markers: List<SpeedPackPreviewMarker>,
     val traceRequests: Int, val offline: Boolean,
     val rawScanned: Int = 0, val rawWithinCorridor: Int = 0,
-    val alertCount: Int = 0, val mergedPairs: Int = 0
+    val alertCount: Int = 0, val mergedPairs: Int = 0,
+    val italyVerifiedAlerts: Int = 0
 ) {
     val coincident get() = markers.count { it.status == SpeedPackWayStatus.COINCIDENT }
     val different get() = markers.count { it.status == SpeedPackWayStatus.DIFFERENT }
@@ -50,7 +51,8 @@ internal object SpeedPackRouteAnalysis {
                       val nearbyOnly: List<SpeedPackRouteMatcher.Match> = emptyList(),
                       val rawNearby: List<SpeedPackRouteMatcher.Match> = emptyList(),
                       val rawScanned: Int = 0,
-                      val alerts: List<SpeedPackAlertSelection.Alert> = emptyList()) {
+                      val alerts: List<SpeedPackAlertSelection.Alert> = emptyList(),
+                      val deviceAlerts: List<SpeedPackAlertSelection.Alert> = emptyList()) {
         fun preview(routeId: String, offline: Boolean): SpeedPackPreviewReport {
             val byRecord = matches.groupBy { it.evidence.source to it.evidence.id }
             val markers = rawNearby.map { raw ->
@@ -82,7 +84,7 @@ internal object SpeedPackRouteAnalysis {
                     raw.evidence.limitKph,raw.crossTrack,details)
             }
             return SpeedPackPreviewReport(routeId,markers,verification.requests,
-                offline,rawScanned,rawNearby.size,alerts.size,alerts.count { it.sources.size > 1 })
+                offline,rawScanned,rawNearby.size,alerts.size,alerts.count { it.sources.size > 1 },deviceAlerts.size)
         }
     }
 
@@ -114,6 +116,8 @@ internal object SpeedPackRouteAnalysis {
         val nearbyOnly = rawNearby.filter { (it.evidence.source to it.evidence.id) !in strictRecords }
         val hints = if (verification.confirmed > 0) SpeedPackIndex.duplicateHints(context,check) else emptySet()
         val alerts = SpeedPackAlertSelection.select(candidates,verification.status,hints)
-        return Result(candidates,verification,nearbyOnly,rawNearby,rawSpots.size,alerts)
+        val deviceAlerts = SpeedPackAlertSelection.select(candidates,
+            verification.status.filterKeys { it in verification.italian },hints)
+        return Result(candidates,verification,nearbyOnly,rawNearby,rawSpots.size,alerts,deviceAlerts)
     }
 }

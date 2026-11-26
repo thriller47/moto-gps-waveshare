@@ -25,6 +25,7 @@ import com.motogps.android.jni.MotoBLEMapScene
 import com.motogps.android.jni.MotoBLENavigationSnapshot
 import com.motogps.android.jni.MotoBLEProtocolCodec
 import com.motogps.android.jni.MotoBLERouteGeometry
+import com.motogps.android.jni.MotoBLESpeedAlert
 import java.util.ArrayDeque
 import java.util.UUID
 import java.util.concurrent.Executors
@@ -69,7 +70,8 @@ class MotoBLEManager(private val context: Context) {
     }
 
     @Volatile private var handshakeState = HandshakeState.IDLE
-    private var currentSessionId: Long = 0L
+    @Volatile private var currentSessionId: Long = 0L
+    @Volatile private var deviceCapabilities: Long = 0L
 
     @Volatile private var isScanning = false
     // The user's Connect action opts into recovery until explicit Disconnect/close.
@@ -232,6 +234,17 @@ class MotoBLEManager(private val context: Context) {
             val frames = bleCodec.nativeEncodeRouteGeometry(codecPtr, geometry)
             enqueueLatestFramesTask(frames, MotoBLEProtocolCodec.MSG_ROUTE_GEOMETRY)
         }
+    }
+
+    /** Latest-only extension, never sent to older firmware. */
+    fun sendSpeedAlert(alert: MotoBLESpeedAlert): Boolean {
+        if (bluetoothGatt == null || handshakeState != HandshakeState.COMPLETED ||
+            codecPtr == 0L ||
+            (deviceCapabilities and MotoBLEProtocolCodec.CAPABILITY_SPEED_ALERT) == 0L) return false
+        val frames = bleCodec.nativeEncodeSpeedAlert(codecPtr,currentSessionId,alert)
+        if (frames.isEmpty()) return false
+        enqueueLatestFramesTask(frames,MotoBLEProtocolCodec.MSG_SPEED_ALERT)
+        return true
     }
 
     fun sendMapScene(scene: MotoBLEMapScene) {
@@ -581,6 +594,7 @@ class MotoBLEManager(private val context: Context) {
 
     private fun startHandshakeAndHeartbeat() {
         if (handshakeState == HandshakeState.IDLE) {
+            deviceCapabilities = 0L
             currentSessionId = (System.currentTimeMillis() % 0x7FFFFFFF).coerceAtLeast(1)
             handshakeState = HandshakeState.STARTING_SENT
             if (codecPtr != 0L) {
@@ -651,6 +665,7 @@ class MotoBLEManager(private val context: Context) {
                     val frames = bleCodec.nativeEncodePhoneReady(codecPtr, currentSessionId)
                     enqueueSendFramesTask(frames)
                 } else if (handshakeState == HandshakeState.READY_SENT) {
+                    deviceCapabilities = status.capabilities
                     handshakeState = HandshakeState.COMPLETED
                     lastReadyDevice = bluetoothGatt?.device
                     sendCoffeeTimeoutPolicy()
@@ -842,6 +857,7 @@ class MotoBLEManager(private val context: Context) {
         readCharacteristic = null
         connectedDevice = null
         currentSessionId = 0L
+        deviceCapabilities = 0L
         handshakeState = HandshakeState.IDLE
         cccdWritePending = false
         cccdRetryCount = 0

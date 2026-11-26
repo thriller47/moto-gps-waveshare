@@ -36,6 +36,15 @@ class SpeedPackWayVerifierTest {
         assertEquals(1,result.requests)
     }
 
+    @Test fun italianAdminRequiredForDevice() {
+        val response = response(edge(11,0,2))
+        assertFalse(SpeedPackWayVerifier.italianWindow(response))
+        response.put("admins",JSONArray().put(JSONObject().put("country_code","IT")))
+        assertTrue(SpeedPackWayVerifier.italianWindow(response))
+        response.getJSONArray("admins").put(JSONObject().put("country_code","FR"))
+        assertFalse(SpeedPackWayVerifier.italianWindow(response))
+    }
+
     @Test fun changedShapeRejected() {
         assertNull(SpeedPackWayVerifier.segmentWays(listOf(a,b,SpeedPackRouteMatcher.Point(0.0,.0003)),
             response(edge(11,0,2))))

@@ -9,7 +9,8 @@ import kotlin.math.*
 internal object SpeedPackWayVerifier {
     data class Result(val confirmed: Int, val differentWay: Int, val unverified: Int,
                       val requests: Int,
-                      val status: Map<SpeedPackRouteMatcher.Match, SpeedPackWayStatus> = emptyMap())
+                      val status: Map<SpeedPackRouteMatcher.Match, SpeedPackWayStatus> = emptyMap(),
+                      val italian: Set<SpeedPackRouteMatcher.Match> = emptySet())
 
     /** Fail closed if returned shape differs from the original route vertices,
      * or an edge span is missing/contradictory. Do not compare only a set of IDs.
@@ -40,6 +41,15 @@ internal object SpeedPackWayVerifier {
         return ways.takeIf { array -> array.all { it > 0 } }
     }
 
+    /** Missing or non-Italian admin data never authorizes a device alert. */
+    fun italianWindow(response: JSONObject): Boolean {
+        val admins = response.optJSONArray("admins") ?: return false
+        if (admins.length() == 0) return false
+        return (0 until admins.length()).all {
+            admins.optJSONObject(it)?.optString("country_code","") == "IT"
+        }
+    }
+
     /** At most 16 windows of at most 8 segments / 400 m. Never walk the full
      * route in one native call. Missing/failed windows remain unverified. */
     fun verify(route: List<SpeedPackRouteMatcher.Point>,
@@ -50,6 +60,7 @@ internal object SpeedPackWayVerifier {
         var different = 0
         var requests = 0
         val status = mutableMapOf<SpeedPackRouteMatcher.Match, SpeedPackWayStatus>()
+        val italian = mutableSetOf<SpeedPackRouteMatcher.Match>()
         // Prefer shared bounded windows. If a bucket spans more than 400 m,
         // try its individual candidate segments instead of dropping the bucket.
         fun windowLength(start: Int, end: Int): Double =
@@ -75,9 +86,11 @@ internal object SpeedPackWayVerifier {
             if (windowLength(start,end) !in 1.0..400.0) continue
             val window = route.subList(start,end+1)
             requests++
-            val ways = try { trace(window)?.let { segmentWays(window,it) } }
+            val response = try { trace(window) }
                 catch (e: CancellationException) { throw e }
                 catch (_: Exception) { null }
+            val ways = response?.let { segmentWays(window,it) }
+            val isItalian = response?.let { italianWindow(it) } == true
             checkCancelled()
             if (ways == null) continue
             for (candidate in candidates) {
@@ -85,12 +98,13 @@ internal object SpeedPackWayVerifier {
                 if (way == candidate.evidence.way) {
                     confirmed++
                     status[candidate] = SpeedPackWayStatus.COINCIDENT
+                    if (isItalian) italian.add(candidate)
                 } else {
                     different++
                     status[candidate] = SpeedPackWayStatus.DIFFERENT
                 }
             }
         }
-        return Result(confirmed,different,matches.size-confirmed-different,requests,status)
+        return Result(confirmed,different,matches.size-confirmed-different,requests,status,italian)
     }
 }

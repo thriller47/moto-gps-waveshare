@@ -625,6 +625,8 @@ fun OfflineMapsDialog(
     onImportRoadIndex: () -> Unit = {},
     speedPackBytes: Long = 0L,
     speedPackDiagnostic: Boolean = false,
+    speedPackDeviceEnabled: Boolean = false,
+    onSpeedPackDeviceEnabledChange: (Boolean) -> Unit = {},
     speedPackDiagnosticStatus: String = "Analisi disattivata",
     onSpeedPackDiagnosticChange: (Boolean) -> Unit = {},
     onImportSpeedPack: () -> Unit = {},
@@ -736,7 +738,7 @@ fun OfflineMapsDialog(
                         Text(if (speedPackBytes > 0L)
                             String.format("Installato · %.1f MiB", speedPackBytes / 1048576.0)
                             else "Non installato", style = MaterialTheme.typography.titleSmall)
-                        Text("Archivio sperimentale indipendente dal MotoPack. Avvisi non ancora attivi.",
+                        Text("Archivio sperimentale indipendente dal MotoPack. Solo postazioni potenziali.",
                             style = MaterialTheme.typography.bodySmall, color = MotoChatColors.TextMuted)
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Checkbox(checked = speedPackDiagnostic,
@@ -744,6 +746,14 @@ fun OfflineMapsDialog(
                                 enabled = speedPackBytes > 0L || speedPackDiagnostic)
                             Text("Analisi sperimentale (senza avvisi)")
                         }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(checked = speedPackDeviceEnabled,
+                                onCheckedChange = onSpeedPackDeviceEnabledChange,
+                                enabled = speedPackDiagnostic && speedPackBytes > 0L)
+                            Text("Avvisi sul display · solo Italia")
+                        }
+                        Text("Attivare solo in Italia. Solo rotta Valhalla offline con dati amministrativi IT verificati; non rileva apparecchi attivi.",
+                            style = MaterialTheme.typography.bodySmall,color = MotoChatColors.TextMuted)
                         Text(speedPackDiagnosticStatus, style = MaterialTheme.typography.bodySmall)
                         OutlinedButton(onClick = onImportSpeedPack, enabled = canManage,
                             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
@@ -929,6 +939,8 @@ fun NavigationScreen(
     onImportRoadIndex: () -> Unit = {},
     speedPackBytes: Long = 0L,
     speedPackDiagnostic: Boolean = false,
+    speedPackDeviceEnabled: Boolean = false,
+    onSpeedPackDeviceEnabledChange: (Boolean) -> Unit = {},
     speedPackDiagnosticStatus: String = "Analisi disattivata",
     speedPackPreview: SpeedPackPreviewState = SpeedPackPreviewState(),
     onSpeedPackPreviewAnalyze: () -> Unit = {},
@@ -2081,7 +2093,7 @@ fun NavigationScreen(
                                             style = MaterialTheme.typography.bodySmall)
                                         Text("Avvisi potenziali: ${speedPackReport.alertCount} · coppie OSM–MapAtlas unite: ${speedPackReport.mergedPairs}",
                                             style = MaterialTheme.typography.bodySmall)
-                                        Text("Ambra: direzione non esclude. Solo piano diagnostico, nessun invio al display.",
+                                        Text("Idonei al display (admin IT): ${speedPackReport.italyVerifiedAlerts} · ambra: direzione non esclude.",
                                             style = MaterialTheme.typography.bodySmall)
                                         if (speedPackReport.markers.isNotEmpty()) {
                                             OutlinedButton(onClick = {
@@ -3026,6 +3038,8 @@ fun NavigationScreen(
             roadDnaInstalledBytes = roadDnaInstalledBytes,
             speedPackBytes = speedPackBytes,
             speedPackDiagnostic = speedPackDiagnostic,
+            speedPackDeviceEnabled = speedPackDeviceEnabled,
+            onSpeedPackDeviceEnabledChange = onSpeedPackDeviceEnabledChange,
             speedPackDiagnosticStatus = speedPackDiagnosticStatus,
             onSpeedPackDiagnosticChange = onSpeedPackDiagnosticChange,
             onImportSpeedPack = onImportSpeedPack,

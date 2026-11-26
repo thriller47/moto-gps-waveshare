@@ -367,6 +367,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             val roadDnaInstalledBytes = viewModel.roadDnaInstalledBytes.collectAsState().value
             val speedPackBytes = viewModel.speedPackBytes.collectAsState().value
             val speedPackDiagnostic = viewModel.speedPackDiagnostic.collectAsState().value
+            val speedPackDeviceEnabled = viewModel.speedPackDeviceEnabled.collectAsState().value
             val speedPackDiagnosticStatus = viewModel.speedPackDiagnosticStatus.collectAsState().value
             val speedPackPreview = viewModel.speedPackPreview.collectAsState().value
             val roadIndexBytes = viewModel.roadIndexBytes.collectAsState().value
@@ -544,6 +545,8 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     roadDnaInstalledBytes = roadDnaInstalledBytes,
                     speedPackBytes = speedPackBytes,
                     speedPackDiagnostic = speedPackDiagnostic,
+                    speedPackDeviceEnabled = speedPackDeviceEnabled,
+                    onSpeedPackDeviceEnabledChange = { viewModel.setSpeedPackDeviceEnabled(this@MainActivity,it) },
                     speedPackDiagnosticStatus = speedPackDiagnosticStatus,
                     speedPackPreview = speedPackPreview,
                     onSpeedPackPreviewAnalyze = { viewModel.analyzeSelectedSpeedPack() },

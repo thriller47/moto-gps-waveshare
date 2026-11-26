@@ -19,6 +19,7 @@ import com.motogps.android.jni.MotoBLEMapScene
 import com.motogps.android.jni.MotoBLENavigationSnapshot
 import com.motogps.android.jni.MotoBLEDeviceCommand
 import com.motogps.android.jni.MotoBLERouteGeometry
+import com.motogps.android.jni.MotoBLESpeedAlert
 import kotlin.math.roundToInt
 import com.motogps.android.map.HybridMapRepository
 import com.motogps.android.map.RoadContextJunctions
@@ -930,6 +931,59 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     val speedPackDiagnosticStatus: StateFlow<String> = _speedPackDiagnosticStatus
     private var speedPackAnalysisJob: Job? = null
     private var speedPackAlerts = emptyList<SpeedPackAlertSelection.Alert>()
+    private data class DeviceSpeedAlert(val chainage: Double,val point: GeoPointE6)
+    private var deviceSpeedAlerts = emptyList<DeviceSpeedAlert>()
+    private val _speedPackDeviceEnabled = MutableStateFlow(false)
+    val speedPackDeviceEnabled: StateFlow<Boolean> = _speedPackDeviceEnabled
+    private var lastSpeedAlertSent: MotoBLESpeedAlert? = null
+    private var lastSpeedAlertSession = 0L
+    private var lastSpeedAlertSentMs = 0L
+
+    fun setSpeedPackDeviceEnabled(context: Context, enabled: Boolean) {
+        _speedPackDeviceEnabled.value = enabled && _speedPackDiagnostic.value
+        context.applicationContext.getSharedPreferences("moto_speedpack",Context.MODE_PRIVATE)
+            .edit().putBoolean("device_alerts_italy",_speedPackDeviceEnabled.value).apply()
+        if (!_speedPackDeviceEnabled.value) clearDeviceSpeedAlert()
+    }
+
+    private fun clearDeviceSpeedAlert() {
+        val session = bleManager.getCurrentSessionId()
+        val clear = MotoBLESpeedAlert(0L,0L)
+        if (bleManager.sendSpeedAlert(clear)) {
+            lastSpeedAlertSent = clear
+            lastSpeedAlertSession = session
+            lastSpeedAlertSentMs = SystemClock.elapsedRealtime()
+        }
+    }
+
+    private fun sendDeviceSpeedAlert(snapshot: MotoBLENavigationSnapshot) {
+        val route = currentGeometry
+        val progress = routeProgressMatcher.matchedProgressMeters()
+        val active = if (_speedPackDiagnostic.value && _speedPackDeviceEnabled.value &&
+            _isNavigating.value && !_hasArrived.value && !rerouteInProgress &&
+            offRouteFixCount == 0 && snapshot.stateName == "navigating" &&
+            snapshot.hasFix && !snapshot.gnssStale && !snapshot.offRoute &&
+            !snapshot.routeRequestInFlight && route != null &&
+            route.routeToken == snapshot.routeToken && route.routeGeneration == snapshot.routeGeneration &&
+            progress != null && progress.isFinite())
+            deviceSpeedAlerts.firstOrNull { it.chainage-progress in 0.0..550.0 }
+        else null
+        val message = if (active == null) MotoBLESpeedAlert(0L,0L) else
+            MotoBLESpeedAlert(snapshot.routeToken,snapshot.routeGeneration,
+                (active.chainage-requireNotNull(progress)).roundToInt().coerceIn(0,550),active.point)
+        val session = bleManager.getCurrentSessionId()
+        val now = SystemClock.elapsedRealtime()
+        val previous = lastSpeedAlertSent
+        val changed = previous == null || previous.point != message.point ||
+            previous.routeToken != message.routeToken || previous.routeGeneration != message.routeGeneration ||
+            session != lastSpeedAlertSession
+        if (!changed && (message.point == null || now-lastSpeedAlertSentMs < 750L)) return
+        if (bleManager.sendSpeedAlert(message)) {
+            lastSpeedAlertSent = message
+            lastSpeedAlertSession = session
+            lastSpeedAlertSentMs = now
+        }
+    }
     private var lastSpeedPackNextKey: String? = null
     private val _speedPackPreview = MutableStateFlow(SpeedPackPreviewState())
     val speedPackPreview: StateFlow<SpeedPackPreviewState> = _speedPackPreview
@@ -988,13 +1042,18 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     fun loadSpeedPackDiagnostic(context: Context) {
         _speedPackDiagnostic.value = context.applicationContext.getSharedPreferences(
             "moto_speedpack", Context.MODE_PRIVATE).getBoolean("diagnostic", false)
+        _speedPackDeviceEnabled.value = _speedPackDiagnostic.value && context.applicationContext.getSharedPreferences(
+            "moto_speedpack",Context.MODE_PRIVATE).getBoolean("device_alerts_italy",false)
         _speedPackDiagnosticStatus.value = if (_speedPackDiagnostic.value)
             "In attesa di un percorso" else "Analisi disattivata"
     }
 
     fun setSpeedPackDiagnostic(context: Context, enabled: Boolean) {
         _speedPackDiagnostic.value = enabled
-        if (!enabled) clearSpeedPackPreview()
+        if (!enabled) {
+            clearSpeedPackPreview()
+            setSpeedPackDeviceEnabled(context,false)
+        }
         context.applicationContext.getSharedPreferences("moto_speedpack", Context.MODE_PRIVATE)
             .edit().putBoolean("diagnostic", enabled).apply()
         analyseSpeedPackRoute(if (enabled && _isNavigating.value && !_hasArrived.value)
@@ -1005,6 +1064,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         val serial = ++speedPackAnalysisSerial
         speedPackAnalysisJob?.cancel()
         speedPackAlerts = emptyList()
+        deviceSpeedAlerts = emptyList()
+        clearDeviceSpeedAlert()
         lastSpeedPackNextKey = null
         _speedPackDiagnosticStatus.value = if (_speedPackDiagnostic.value)
             "In attesa di un percorso" else "Analisi disattivata"
@@ -1015,25 +1076,34 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         val preferences = _routePreferences.value
         speedPackAnalysisJob = viewModelScope.launch {
             try {
-                val result = withContext(Dispatchers.IO) {
+                val (result, projectedAlerts) = withContext(Dispatchers.IO) {
                     val route = geometry.points.map {
                         SpeedPackRouteMatcher.Point(it.latitudeE6 / 1e6, it.longitudeE6 / 1e6)
                     }
-                    SpeedPackRouteAnalysis.analyze(app,route,provider,preferences)
+                    val result = SpeedPackRouteAnalysis.analyze(app,route,provider,preferences)
+                    val projected = result.deviceAlerts.mapNotNull { alert ->
+                        SpeedPackRouteMatcher.routePoint(route,alert.match)?.let {
+                            DeviceSpeedAlert(alert.chainage,GeoPointE6(
+                                (it.lat*1e6).roundToInt(),(it.lon*1e6).roundToInt()))
+                        }
+                    }
+                    result to projected
                 }
                 val matches = result.matches
                 val wayCheck = result.verification
                 if (serial != speedPackAnalysisSerial || !_speedPackDiagnostic.value ||
                     !_isNavigating.value || _hasArrived.value || currentGeometry !== geometry) return@launch
                 speedPackAlerts = result.alerts
+                deviceSpeedAlerts = projectedAlerts
                 _speedPackDiagnosticStatus.value = "${result.alerts.size} avvisi potenziali dopo deduplica · " +
-                    "${result.alerts.count { it.sources.size > 1 }} coppie unite (solo diagnostica)"
+                    "${result.alerts.count { it.sources.size > 1 }} coppie unite · ${projectedAlerts.size} con admin IT"
                 DiagnosticLog.event("SPEEDPACK_MATCH", "candidate_passages=${matches.size} " +
                     "osm=${matches.count { it.evidence.source == "osm" }} " +
                     "mapatlas=${matches.count { it.evidence.source == "mapatlas" }} " +
                     "way_confirmed=${wayCheck.confirmed} way_different=${wayCheck.differentWay} " +
                     "way_unverified=${wayCheck.unverified} trace_requests=${wayCheck.requests} " +
-                    "alert_plan=${result.alerts.size} merged_pairs=${result.alerts.count { it.sources.size > 1 }}")
+                    "alert_plan=${result.alerts.size} merged_pairs=${result.alerts.count { it.sources.size > 1 }} " +
+                    "device_it=${projectedAlerts.size}")
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -1085,6 +1155,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
             activeWaypoints.size > nextWaypointIndex
         bleManager.sendNavigationSnapshot(
             snapshot.copy(hasPendingWaypoints = hasPendingStops))
+        sendDeviceSpeedAlert(snapshot)
     }
 
     @Volatile private var currentSnapshot: MotoBLENavigationSnapshot? = null

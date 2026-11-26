@@ -198,6 +198,22 @@ internal object SpeedPackRouteMatcher {
         return result.sortedBy { it.chainage }
     }
 
+    /** Project the verified evidence on its actual route segment for the BLE marker. */
+    fun routePoint(route: List<Point>, match: Match): Point? {
+        val i = match.segmentIndex
+        if (i !in 0 until route.lastIndex) return null
+        val a = route[i]
+        val b = route[i+1]
+        val sx = 111195.0*cos(Math.toRadians((a.lat+b.lat)/2))
+        val dx = (b.lon-a.lon)*sx
+        val dy = (b.lat-a.lat)*111195.0
+        val sq = dx*dx+dy*dy
+        if (!sq.isFinite() || sq < .01) return null
+        val p = match.evidence.point
+        val t = (((p.lon-a.lon)*sx*dx+(p.lat-a.lat)*111195.0*dy)/sq).coerceIn(0.0,1.0)
+        return Point(a.lat+(b.lat-a.lat)*t,a.lon+(b.lon-a.lon)*t).takeIf { valid(it) }
+    }
+
     fun next(matches: List<Match>, progress: Double?, horizon: Double = 550.0): Match? {
         if (progress == null || !progress.isFinite() || progress < 0 || horizon <= 0) return null
         return matches.firstOrNull { it.chainage-progress in 0.0..horizon }
