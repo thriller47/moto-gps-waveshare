@@ -1088,3 +1088,13 @@ python3 scripts/offline_map/inventory_speed_enforcement.py /mnt/c/MotoGPS/PBF/it
 ```
 
 Richiede pyosmium (modulo osmium, già usato dai generatori). Se assente: python -m pip install osmium. Legge il PBF senza modificarlo; il JSON contiene conteggi di oggetti, istogrammi tag, ruoli relazioni e indizi duplicati, non postazioni attive certificate. Nessun nuovo MotoPack richiesto. Nessuna associazione geometrica alla strada in questa fase.
+
+### Database sperimentale autovelox (26/11/2026)
+
+Da WSL, ambiente valhalla-env attivo e checkout NewUI aggiornato:
+
+```bash
+python3 scripts/offline_map/speed_cameras_to_sqlite.py /mnt/c/MotoGPS/PBF/italy-latest.osm.pbf --output /mnt/c/MotoGPS/speed-cameras-italy.sqlite
+```
+
+Tre passaggi PBF senza indice globale delle coordinate. Associazione conservativa solo per nodo condiviso con unica strada; direzione relativa alla way OSM, non al percorso. Nessuna associazione geometrica di postazioni a bordo strada in questa versione. Candidati Tutor conservati separatamente, non utilizzabili per avvisi. Non sovrascrive file esistenti. Inviare il riepilogo JSON stampato. Import Android non ancora implementato; non rigenerare MotoPack.
