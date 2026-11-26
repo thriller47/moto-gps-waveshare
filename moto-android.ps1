@@ -43,6 +43,41 @@ function Update-MotoRepository {
     Invoke-Checked git @('log','-1','--oneline')
 }
 
+function Resolve-MotoAndroidSdk {
+    # Preserve Android Studio's explicit local configuration, including custom paths.
+    $properties = Join-Path (Get-Location).Path 'local.properties'
+    $localSdk = $null
+    if (Test-Path -LiteralPath $properties) {
+        $entry = Get-Content -LiteralPath $properties | Where-Object { $_ -match '^\s*sdk\.dir\s*[:=]' } | Select-Object -Last 1
+        if ($entry) {
+            $localSdk = ($entry -replace '^\s*sdk\.dir\s*[:=]\s*','').Trim()
+            $localSdk = $localSdk.Replace('\:',':').Replace('\\','\').Replace('\ ',' ')
+            if (-not [IO.Path]::IsPathRooted($localSdk)) {
+                $localSdk = Join-Path (Get-Location).Path $localSdk
+            }
+            if (-not (Test-Path -LiteralPath (Join-Path $localSdk 'platforms') -PathType Container)) {
+                throw "Invalid sdk.dir in $properties : $localSdk. Correct it in Android Studio SDK Manager or local.properties."
+            }
+        }
+    }
+    $candidates = @($localSdk, $env:ANDROID_HOME, $env:ANDROID_SDK_ROOT, (Join-Path $env:LOCALAPPDATA 'Android\Sdk'))
+    $sdk = $null
+    foreach ($candidate in $candidates) {
+        if ($candidate -and (Test-Path -LiteralPath (Join-Path $candidate 'platforms') -PathType Container)) {
+            $sdk = (Resolve-Path -LiteralPath $candidate).Path
+            break
+        }
+    }
+    if (-not $sdk) {
+        throw 'Android SDK not found. Open Android Studio > Settings > Languages & Frameworks > Android SDK, install the SDK and set ANDROID_HOME to its location if nonstandard.'
+    }
+    # Session only: Gradle and ADB must use the same SDK. No persistent user settings changed.
+    $env:ANDROID_HOME = $sdk
+    $env:ANDROID_SDK_ROOT = $sdk
+    Write-Host "Android SDK: $sdk"
+    return $sdk
+}
+
 try {
     # Prefer the installed Android Studio JBR (21); allow an explicit JAVA_HOME.
     $jbr = Join-Path $env:ProgramFiles 'Android\Android Studio\jbr'
@@ -57,10 +92,11 @@ try {
     }
     Update-MotoRepository $Branch $PSScriptRoot
     Set-Location platforms/android
+    $sdk = Resolve-MotoAndroidSdk
     Invoke-Checked '.\gradlew.bat' @('testDebugUnitTest','assembleDebug')
     if (-not $BuildOnly) {
-        $adb = Join-Path $env:LOCALAPPDATA 'Android\Sdk\platform-tools\adb.exe'
-        if (-not (Test-Path -LiteralPath $adb)) { throw 'ADB not found.' }
+        $adb = Join-Path $sdk 'platform-tools\adb.exe'
+        if (-not (Test-Path -LiteralPath $adb)) { throw 'ADB not found. Install Android SDK Platform-Tools in Android Studio SDK Manager.' }
         Invoke-Checked $adb @('devices')
         Invoke-Checked $adb @('-s',$Serial,'install','-r','.\app\build\outputs\apk\debug\app-debug.apk')
     }

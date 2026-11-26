@@ -611,6 +611,34 @@ gh run download ID_RUN -R thriller47/moto-gps-waveshare -n ESP32-Firmware -D C:\
 
 **Prima installazione Android Studio (solo nuovo PC):** scaricare Android Studio dal sito ufficiale Android Developers, completare la procedura iniziale, aprire **SDK Manager** e installare **Android SDK Platform 37 (pacchetto 37.0)**, **Platform-Tools** (include `adb`), **Build-Tools** e **NDK (Side by side) 29.0.14206865**. Aprire come progetto **`platforms/android`**, attendere la sincronizzazione Gradle e autorizzare eventuali download. Se `gradlew.bat` non parte, verificare di essere nella cartella `platforms/android`. Per il debug USB: sul telefono attivare *Opzioni sviluppatore → Debug USB*, collegare un cavo dati e confermare la finestra di autorizzazione RSA; `& $adb devices` deve mostrare il seriale con stato `device`, non `unauthorized`. Se il seriale cambia, usare quello visualizzato invece dell'esempio.
 
+### Errore SDK location not found su PC nuovo
+
+Il launcher aggiornato individua l'SDK prima di Gradle: usa sdk.dir valido in local.properties, poi ANDROID_HOME, ANDROID_SDK_ROOT e infine la cartella standard dell'utente. Imposta entrambe le variabili nella sessione del launcher e usa lo stesso SDK per ADB. Non sovrascrive local.properties né modifica permanentemente le variabili Windows. Se sdk.dir è presente ma non valido, correggerlo esplicitamente; non viene ignorato.
+
+Dopo aver aggiornato il repository, reinstallare i launcher:
+
+```powershell
+Set-Location C:\MotoGPS\moto-gps-waveshare
+git switch NewUI
+git pull --ff-only origin NewUI
+.\install-moto-commands.ps1
+```
+
+Chiudere e riaprire PowerShell, quindi `moto-android NewUI`. Usare il branch attivo appropriato dopo l'integrazione.
+
+Se l'SDK non viene trovato, completare SDK Manager in Android Studio e verificare il percorso indicato in Android SDK Location. Per il percorso standard, oppure sostituendo il valore di $sdk con quello effettivo:
+
+```powershell
+$sdk = "$env:LOCALAPPDATA\Android\Sdk"
+Test-Path (Join-Path $sdk 'platforms')
+# Proseguire solo se True
+[Environment]::SetEnvironmentVariable('ANDROID_HOME', $sdk, 'User')
+$env:ANDROID_HOME = $sdk
+$env:ANDROID_SDK_ROOT = $sdk
+```
+
+Se local.properties contiene un vecchio sdk.dir, aprire il progetto in Android Studio e correggere la configurazione SDK oppure modificare soltanto quella riga nel file C:\MotoGPS\moto-gps-waveshare\platforms\android\local.properties (esempio sdk.dir=C:/Users/Utente/AppData/Local/Android/Sdk). Non cancellare altre proprietà locali. Il file è specifico del PC. La rilevazione non installa SDK Platform 37, NDK, CMake o licenze mancanti: completare SDK Manager se richiesto.
+
 **Build Android manuale di recupero (PowerShell):** se si usa Android Studio, aprire `C:\MotoGPS\moto-gps-waveshare\platforms\android` (non la root). Versioni di riferimento per `valhalla`: JDK/JBR 21, Android SDK Platform **37**, Android Gradle Plugin **9.1.1**, Gradle wrapper **9.3.1** e CMake 3.22.1. Android Studio deve supportare AGP 9.1.1 (almeno Panda 3 Patch 1); in CI rimane JDK 17. **Su `valhalla` il NDK richiesto è `29.0.14206865`** per il supporto alle pagine da 16 KB; il vecchio NDK 27 rimane solo nei checkout non aggiornati.
 
 ### Alternativa manuale — aggiornare, testare, compilare e installare Android
