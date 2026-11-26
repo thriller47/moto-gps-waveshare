@@ -53,6 +53,32 @@ class SpeedPackRouteMatcherTest {
             .single().crossTrack in 333.0..335.0)
     }
 
+    @Test fun nearOneMeterFoundWithBothRadiiAndAllWaysRetained() {
+        val original = evidence(lat=45.000009).copy(way=0L)
+        val narrow = SpeedPackRouteMatcher.nearby(listOf(a,b),listOf(original),
+            radiusMeters=50.0)
+        val wide = SpeedPackRouteMatcher.nearby(listOf(a,b),listOf(original),
+            radiusMeters=500.0)
+        assertEquals(1,narrow.size)
+        assertEquals(wide,narrow)
+        assertTrue(narrow.single().crossTrack in .9..1.1)
+        val ways = listOf(
+            evidence().copy(way=11,originalPoint=original.point),
+            evidence(lat=45.0001,bearing=0.0).copy(way=12,originalPoint=original.point),
+            evidence(lat=45.00017).copy(way=13,originalPoint=original.point,grade=true)
+        )
+        val candidates = SpeedPackRouteMatcher.previewCandidates(listOf(a,b),narrow,ways)
+        assertEquals(setOf(11L,12L,13L),candidates.map { it.evidence.way }.toSet())
+        assertEquals(1,candidates.map { it.segmentIndex }.distinct().size)
+    }
+
+    @Test fun wideOnlyRecordDoesNotBecomeWayCandidate() {
+        val raw = evidence(lat=45.003)
+        val nearby = SpeedPackRouteMatcher.nearby(listOf(a,b),listOf(raw))
+        assertEquals(1,nearby.size)
+        assertTrue(SpeedPackRouteMatcher.previewCandidates(listOf(a,b),nearby,listOf(raw)).isEmpty())
+    }
+
     @Test fun nextIsAheadOnly() {
         val m = match(evidence())
         assertNotNull(SpeedPackRouteMatcher.next(m,0.0))

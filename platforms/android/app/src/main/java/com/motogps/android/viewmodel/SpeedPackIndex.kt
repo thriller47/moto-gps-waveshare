@@ -48,6 +48,45 @@ internal object SpeedPackIndex {
         return result
     }
 
+    /** All ways for raw records found near the preview, including ambiguous
+     * and grade/direction review cases. Read once; retain only requested IDs. */
+    fun allRoadEvidence(context: Context, keys: Set<Pair<String,String>>,
+                        cancelled: () -> Unit): List<SpeedPackRouteMatcher.Evidence> {
+        if (keys.isEmpty()) return emptyList()
+        val result = mutableListOf<SpeedPackRouteMatcher.Evidence>()
+        SQLiteDatabase.openDatabase(file(context).path, null, SQLiteDatabase.OPEN_READONLY).use { db ->
+            db.rawQuery("""
+                SELECT e.source,e.record_id,e.osm_way,e.road_lat,e.road_lon,e.bearing,e.oneway,
+                    CASE WHEN e.source='osm' AND c.osm_way=e.osm_way
+                         AND c.confidence='medium' THEN c.direction ELSE NULL END,
+                    COALESCE(c.lat,m.lat),COALESCE(c.lon,m.lon),COALESCE(c.maxspeed,m.limit_kph),
+                    e.offset_m,e.grade,e.highway,a.road_state,a.direction_state
+                FROM road_evidence e
+                JOIN road_assessment a ON a.source=e.source AND a.record_id=e.record_id
+                LEFT JOIN cameras c ON e.source='osm' AND CAST(c.osm_node AS TEXT)=e.record_id
+                LEFT JOIN mapatlas_records m ON e.source='mapatlas' AND m.ref=e.record_id AND m.class='spot'
+                WHERE (c.osm_node IS NOT NULL OR m.ref IS NOT NULL)
+                ORDER BY e.source,e.record_id,e.osm_way
+            """.trimIndent(), null).use { c ->
+                while (c.moveToNext()) {
+                    cancelled()
+                    val source = c.getString(0)
+                    val id = c.getString(1)
+                    if ((source to id) !in keys) continue
+                    require(result.size < 100000) { "Troppi candidati SpeedPack" }
+                    result.add(SpeedPackRouteMatcher.Evidence(source,id,c.getLong(2),
+                        SpeedPackRouteMatcher.Point(c.getDouble(3),c.getDouble(4)),
+                        c.getDouble(5), if (c.isNull(6)) null else c.getString(6),
+                        if (c.isNull(7)) null else c.getString(7),
+                        SpeedPackRouteMatcher.Point(c.getDouble(8),c.getDouble(9)),
+                        if (c.isNull(10)) null else c.getInt(10),
+                        c.getDouble(11),c.getInt(12)!=0,c.getString(13),c.getString(14),c.getString(15)))
+                }
+            }
+        }
+        return result
+    }
+
     /** Unfiltered spot coordinates, exclusively for preview diagnostics. */
     fun rawSpots(context: Context, cancelled: () -> Unit): List<SpeedPackRouteMatcher.Evidence> {
         val target = file(context)

@@ -9,7 +9,12 @@ internal object SpeedPackRouteMatcher {
                         val point: Point, val bearing: Double, val oneway: String?,
                         val relativeDirection: String? = null,
                         val originalPoint: Point = point,
-                        val limitKph: Int? = null)
+                        val limitKph: Int? = null,
+                        val sourceOffsetMeters: Double? = null,
+                        val grade: Boolean = false,
+                        val highway: String? = null,
+                        val roadState: String? = null,
+                        val directionState: String? = null)
     data class Match(val evidence: Evidence, val chainage: Double, val crossTrack: Double,
                      val segmentIndex: Int)
     private const val CELL = .002
@@ -88,9 +93,11 @@ internal object SpeedPackRouteMatcher {
      * Keep the closest projection per source record across the whole route.
      */
     fun nearby(route: List<Point>, spots: List<Evidence>,
-               checkCancelled: () -> Unit = {}): List<Match> {
+               checkCancelled: () -> Unit = {},
+               radiusMeters: Double = PREVIEW_RADIUS_METERS): List<Match> {
         if (route.size < 2 || route.any { !valid(it) }) return emptyList()
-        val radius = PREVIEW_RADIUS_METERS
+        require(radiusMeters.isFinite() && radiusMeters in 1.0..PREVIEW_RADIUS_METERS)
+        val radius = radiusMeters
         val grid = spots.filter { valid(it.originalPoint) }.groupBy { cell(it.originalPoint) }
         val matches = mutableMapOf<Pair<String,String>, Match>()
         var chainage = 0.0
@@ -135,6 +142,49 @@ internal object SpeedPackRouteMatcher {
             chainage += length
         }
         return matches.values.sortedBy { it.chainage }
+    }
+
+    const val PREVIEW_WAY_RADIUS_METERS = 50.0
+
+    /** Raw-first diagnostic: evaluate EVERY retained way on the segment closest
+     * to the original spot. No bearing, grade, direction or preselected-way
+     * exclusion: those attributes remain evidence, not proof of an alert.
+     * The preview uses a single closest occurrence per source record.
+     */
+    fun previewCandidates(route: List<Point>, raw: List<Match>,
+                          evidence: List<Evidence>, checkCancelled: () -> Unit = {}): List<Match> {
+        val byRecord = evidence.groupBy { it.source to it.id }
+        val result = mutableListOf<Match>()
+        for (hit in raw) {
+            checkCancelled()
+            if (hit.crossTrack > PREVIEW_WAY_RADIUS_METERS) continue
+            val i = hit.segmentIndex
+            if (i !in 0 until route.lastIndex) continue
+            val a = route[i]
+            val b = route[i+1]
+            val sx = 111195.0 * cos(Math.toRadians((a.lat+b.lat)/2))
+            val dx = (b.lon-a.lon)*sx
+            val dy = (b.lat-a.lat)*111195.0
+            val length = hypot(dx,dy)
+            if (length < .1 || sx <= 1000) continue
+            fun fraction(p: Point): Double {
+                val ex = (p.lon-a.lon)*sx
+                val ey = (p.lat-a.lat)*111195.0
+                return ((ex*dx+ey*dy)/(length*length)).coerceIn(0.0,1.0)
+            }
+            val start = hit.chainage-fraction(hit.evidence.originalPoint)*length
+            for (e in byRecord[hit.evidence.source to hit.evidence.id].orEmpty()) {
+                checkCancelled()
+                if (e.way <= 0 || !valid(e.point)) continue
+                val t = fraction(e.point)
+                val cross = hypot((e.point.lon-a.lon)*sx-t*dx,
+                    (e.point.lat-a.lat)*111195.0-t*dy)
+                // The ID comparison is local to the ORIGINAL closest segment;
+                // do not silently substitute a different traversal or crossing.
+                result.add(Match(e,start+t*length,cross,i))
+            }
+        }
+        return result.sortedBy { it.chainage }
     }
 
     fun next(matches: List<Match>, progress: Double?, horizon: Double = 550.0): Match? {

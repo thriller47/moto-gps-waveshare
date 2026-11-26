@@ -24,6 +24,18 @@ class SpeedPackWayVerifierTest {
         assertNull(SpeedPackWayVerifier.segmentWays(points,response(edge(11,0,1))))
         assertNull(SpeedPackWayVerifier.segmentWays(points,response(edge(11,0,2),edge(22,1,2))))
     }
+    @Test fun competingWaysAreComparedIndependently() {
+        val e = SpeedPackRouteMatcher.Evidence("mapatlas","test",11,a,90.0,null)
+        val m1 = SpeedPackRouteMatcher.Match(e,5.0,1.0,0)
+        val m2 = m1.copy(evidence=e.copy(way=22))
+        val result = SpeedPackWayVerifier.verify(points,listOf(m1,m2),{}) {
+            response(edge(11,0,1),edge(22,1,2))
+        }
+        assertEquals(SpeedPackWayStatus.COINCIDENT,result.status[m1])
+        assertEquals(SpeedPackWayStatus.DIFFERENT,result.status[m2])
+        assertEquals(1,result.requests)
+    }
+
     @Test fun changedShapeRejected() {
         assertNull(SpeedPackWayVerifier.segmentWays(listOf(a,b,SpeedPackRouteMatcher.Point(0.0,.0003)),
             response(edge(11,0,2))))

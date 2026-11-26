@@ -21,7 +21,8 @@ data class SpeedPackPreviewMarker(
     val roadLatitude: Double, val roadLongitude: Double,
     val chainageMeters: Double, val crossTrackMeters: Double,
     val status: SpeedPackWayStatus, val limitKph: Int?,
-    val originalDistanceMeters: Double? = null
+    val originalDistanceMeters: Double? = null,
+    val candidateDetails: String = ""
 )
 
 data class SpeedPackPreviewReport(
@@ -49,20 +50,37 @@ internal object SpeedPackRouteAnalysis {
                       val rawNearby: List<SpeedPackRouteMatcher.Match> = emptyList(),
                       val rawScanned: Int = 0) {
         fun preview(routeId: String, offline: Boolean): SpeedPackPreviewReport {
-            val rawByRecord = rawNearby.associateBy { it.evidence.source to it.evidence.id }
-            return SpeedPackPreviewReport(
-            routeId, matches.map { m ->
-                val e = m.evidence
-                SpeedPackPreviewMarker(e.source, e.id, e.way, e.originalPoint.lat,
-                    e.originalPoint.lon, e.point.lat, e.point.lon, m.chainage,
-                    m.crossTrack, verification.status[m] ?: SpeedPackWayStatus.UNVERIFIED,
-                    e.limitKph, rawByRecord[e.source to e.id]?.crossTrack)
-            } + nearbyOnly.map { m ->
-                val e = m.evidence
-                SpeedPackPreviewMarker(e.source, e.id, 0L, e.originalPoint.lat,
-                    e.originalPoint.lon, e.originalPoint.lat, e.originalPoint.lon,
-                    m.chainage,m.crossTrack,SpeedPackWayStatus.NEARBY_ONLY,e.limitKph,m.crossTrack)
-            }, verification.requests, offline, rawScanned, rawNearby.size)
+            val byRecord = matches.groupBy { it.evidence.source to it.evidence.id }
+            val markers = rawNearby.map { raw ->
+                val key = raw.evidence.source to raw.evidence.id
+                val alternatives = byRecord[key].orEmpty()
+                fun status(m: SpeedPackRouteMatcher.Match) =
+                    verification.status[m] ?: SpeedPackWayStatus.UNVERIFIED
+                val selected = alternatives.minWithOrNull(
+                    compareBy<SpeedPackRouteMatcher.Match> {
+                        when (status(it)) {
+                            SpeedPackWayStatus.COINCIDENT -> 0
+                            SpeedPackWayStatus.UNVERIFIED -> 1
+                            else -> 2
+                        }
+                    }.thenBy { it.crossTrack }.thenBy { it.evidence.way })
+                val e = selected?.evidence ?: raw.evidence
+                val details = alternatives.sortedBy { it.evidence.way }.joinToString("\n") { m ->
+                    val w = m.evidence
+                    "way ${w.way} · ${status(m).label} · " +
+                        "${w.highway.orEmpty()} · proiezione ${kotlin.math.round(m.crossTrack).toInt()} m" +
+                        (if (w.grade) " · grade review" else "") +
+                        (w.roadState?.let { " · " + it } ?: "") +
+                        (w.directionState?.let { " · " + it } ?: "")
+                }
+                SpeedPackPreviewMarker(e.source,e.id,e.way,raw.evidence.originalPoint.lat,
+                    raw.evidence.originalPoint.lon,e.point.lat,e.point.lon,raw.chainage,
+                    selected?.crossTrack ?: raw.crossTrack,
+                    selected?.let { status(it) } ?: SpeedPackWayStatus.NEARBY_ONLY,
+                    raw.evidence.limitKph,raw.crossTrack,details)
+            }
+            return SpeedPackPreviewReport(routeId,markers,verification.requests,
+                offline,rawScanned,rawNearby.size)
         }
     }
 
@@ -73,17 +91,26 @@ internal object SpeedPackRouteAnalysis {
         require(route.size >= 2) { "Geometria Valhalla assente" }
         val job = currentCoroutineContext()[Job]
         val check: () -> Unit = { job?.ensureActive() }
-        val evidence = SpeedPackIndex.roadEvidence(context, check)
-        val candidates = SpeedPackRouteMatcher.match(route, evidence, check)
+        // Preview coverage is independent of way selection. The wider 500 m
+        // radius only displays records; compare ways within 50 m of the route.
+        val rawSpots = if (includeRawPreview) SpeedPackIndex.rawSpots(context,check) else emptyList()
+        val rawNearby = if (includeRawPreview)
+            SpeedPackRouteMatcher.nearby(route,rawSpots,check) else emptyList()
+        val candidates = if (includeRawPreview) {
+            val keys = rawNearby.filter { it.crossTrack <= SpeedPackRouteMatcher.PREVIEW_WAY_RADIUS_METERS }
+                .map { it.evidence.source to it.evidence.id }.toSet()
+            val evidence = SpeedPackIndex.allRoadEvidence(context,keys,check)
+            SpeedPackRouteMatcher.previewCandidates(route,rawNearby,evidence,check)
+        } else {
+            val evidence = SpeedPackIndex.roadEvidence(context,check)
+            SpeedPackRouteMatcher.match(route,evidence,check)
+        }
         val verification = if (provider == "valhalla-local") {
             SpeedPackWayVerifier.verify(route,candidates,check) { points ->
                 OfflineValhallaRouter.traceWayAttributes(context,
                     points.map { it.lat to it.lon }, preferences)
             }
         } else SpeedPackWayVerifier.Result(0,0,candidates.size,0)
-        val rawSpots = if (includeRawPreview) SpeedPackIndex.rawSpots(context,check) else emptyList()
-        val rawNearby = if (includeRawPreview)
-            SpeedPackRouteMatcher.nearby(route,rawSpots,check) else emptyList()
         val strictRecords = candidates.map { it.evidence.source to it.evidence.id }.toHashSet()
         val nearbyOnly = rawNearby.filter { (it.evidence.source to it.evidence.id) !in strictRecords }
         return Result(candidates,verification,nearbyOnly,rawNearby,rawSpots.size)

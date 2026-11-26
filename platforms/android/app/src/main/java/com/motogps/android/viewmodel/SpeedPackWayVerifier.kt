@@ -50,17 +50,30 @@ internal object SpeedPackWayVerifier {
         var different = 0
         var requests = 0
         val status = mutableMapOf<SpeedPackRouteMatcher.Match, SpeedPackWayStatus>()
-        for ((start, candidates) in matches.groupBy { it.segmentIndex / 8 * 8 }.toSortedMap()) {
-            checkCancelled()
-            if (requests >= 16) break
-            if (start !in 0 until route.lastIndex) continue
-            val end = min(start+8,route.lastIndex)
-            val window = route.subList(start,end+1)
-            val length = window.zipWithNext().sumOf { (a,b) ->
+        // Prefer shared bounded windows. If a bucket spans more than 400 m,
+        // try its individual candidate segments instead of dropping the bucket.
+        fun windowLength(start: Int, end: Int): Double =
+            (start until end).sumOf { i ->
+                val a = route[i]
+                val b = route[i+1]
                 hypot((b.lat-a.lat)*111195.0,(b.lon-a.lon)*111195.0*
                     cos(Math.toRadians((a.lat+b.lat)/2)))
             }
-            if (!length.isFinite() || length !in 1.0..400.0) continue
+        val windows = matches.groupBy { it.segmentIndex / 8 * 8 }.toSortedMap().flatMap { (start, candidates) ->
+            if (start !in 0 until route.lastIndex) emptyList()
+            else {
+                val end = min(start+8,route.lastIndex)
+                if (windowLength(start,end) in 1.0..400.0) listOf(Triple(start,end,candidates))
+                else candidates.groupBy { it.segmentIndex }.toSortedMap()
+                    .filter { (i,_) -> i in 0 until route.lastIndex }
+                    .map { (i,group) -> Triple(i,i+1,group) }
+            }
+        }
+        for ((start,end,candidates) in windows) {
+            checkCancelled()
+            if (requests >= 16) break
+            if (windowLength(start,end) !in 1.0..400.0) continue
+            val window = route.subList(start,end+1)
             requests++
             val ways = try { trace(window)?.let { segmentWays(window,it) } }
                 catch (e: CancellationException) { throw e }

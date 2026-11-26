@@ -385,7 +385,8 @@ fun RouteMapView(
                             " · km " + String.format(java.util.Locale.ITALY,"%.1f",record.chainageMeters/1000.0) +
                             (record.originalDistanceMeters?.let { " · distanza minima dalla rotta " + it.roundToInt() + " m" }
                                 ?: " · distanza originale non misurata nel corridoio") +
-                            (record.limitKph?.let { " · limite fonte " + it + " km/h" } ?: "")
+                            (record.limitKph?.let { " · limite fonte " + it + " km/h" } ?: "") +
+                            (if (record.candidateDetails.isNotBlank()) "\n" + record.candidateDetails else "")
                         icon = speedPackMarkerIcon(mapView,record.status)
                         setAnchor(Marker.ANCHOR_CENTER,Marker.ANCHOR_CENTER)
                     })
@@ -2012,7 +2013,7 @@ fun NavigationScreen(
                         speedPackMarkers = pageItems,
                         modifier = Modifier.fillMaxWidth().weight(1f)
                     )
-                    Text("Ambra: way coincidente · rosso: diversa · grigio: non verificata · blu: solo vicinanza entro 500 m. " +
+                    Text("Ambra: way coincidente · rosso: diversa · grigio: non verificata · blu: solo vicinanza entro 500 m; confronto way entro 50 m. " +
                         "OSM e MapAtlas possono rappresentare la stessa postazione.",
                         style = MaterialTheme.typography.labelSmall)
                     Text("Dati © OpenStreetMap contributors · ODbL; MapAtlas / MapMetrics · CC BY 4.0 (snapshot 2024).",
@@ -2075,7 +2076,7 @@ fun NavigationScreen(
                                     speedPackReport != null -> {
                                         Text("Corridoio diagnostico ±500 m · ${speedPackReport.rawWithinCorridor} di ${speedPackReport.rawScanned} record originali",
                                             style = MaterialTheme.typography.bodySmall)
-                                        Text("${speedPackReport.markers.size - speedPackReport.nearbyOnly} record/passaggi candidati · ${speedPackReport.nearbyOnly} solo vicinanza")
+                                        Text("${speedPackReport.markers.size - speedPackReport.nearbyOnly} record con way candidate · ${speedPackReport.nearbyOnly} solo vicinanza")
                                         Text("Way coincidenti: ${speedPackReport.coincident} · diverse: ${speedPackReport.different} · non verificate: ${speedPackReport.unverified}",
                                             style = MaterialTheme.typography.bodySmall)
                                         if (speedPackReport.markers.isNotEmpty()) {
@@ -2094,7 +2095,7 @@ fun NavigationScreen(
                                 OutlinedButton(onClick = onSpeedPackPreviewAnalyze,
                                     enabled = !speedPackPreview.loading && !isLoading,
                                     modifier = Modifier.fillMaxWidth()) { Text("Ricalcola analisi SpeedPack") }
-                                Text("I marker blu sono record entro 500 m esclusi dal filtro stradale, non avvisi. Nessuna certificazione di attività, direzione o limite; Tutor esclusi.",
+                                Text("I marker blu sono record senza confronto way; entro 50 m vengono esaminate tutte le way candidate, anche ambigue. La coincidenza riguarda solo l’ID, non direzione, attività o limite. Nessun avviso; Tutor esclusi.",
                                     style = MaterialTheme.typography.bodySmall)
                             }
                         }
