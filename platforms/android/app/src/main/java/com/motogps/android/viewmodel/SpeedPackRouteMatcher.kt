@@ -94,12 +94,14 @@ internal object SpeedPackRouteMatcher {
      */
     fun nearby(route: List<Point>, spots: List<Evidence>,
                checkCancelled: () -> Unit = {},
-               radiusMeters: Double = PREVIEW_RADIUS_METERS): List<Match> {
+               radiusMeters: Double = PREVIEW_RADIUS_METERS,
+               retainPassages: Boolean = false): List<Match> {
         if (route.size < 2 || route.any { !valid(it) }) return emptyList()
         require(radiusMeters.isFinite() && radiusMeters in 1.0..PREVIEW_RADIUS_METERS)
         val radius = radiusMeters
         val grid = spots.filter { valid(it.originalPoint) }.groupBy { cell(it.originalPoint) }
         val matches = mutableMapOf<Pair<String,String>, Match>()
+        val passages = mutableMapOf<Pair<String,String>, MutableList<Match>>()
         var chainage = 0.0
         for (i in 0 until route.lastIndex) {
             checkCancelled()
@@ -133,15 +135,24 @@ internal object SpeedPackRouteMatcher {
                             val cross = hypot(ex-t*dx,ey-t*dy)
                             if (cross > radius) continue
                             val m = Match(e,chainage+t*length,cross,i)
-                            val previous = matches[key]
-                            if (previous == null || cross < previous.crossTrack) matches[key] = m
+                            if (retainPassages) {
+                                val list = passages.getOrPut(key) { mutableListOf() }
+                                val previous = list.lastOrNull()
+                                if (previous != null && abs(previous.chainage-m.chainage) <= 16.0) {
+                                    if (cross < previous.crossTrack) list[list.lastIndex] = m
+                                } else list.add(m)
+                            } else {
+                                val previous = matches[key]
+                                if (previous == null || cross < previous.crossTrack) matches[key] = m
+                            }
                         }
                     }
                 }
             }
             chainage += length
         }
-        return matches.values.sortedBy { it.chainage }
+        return (if (retainPassages) passages.values.flatten() else matches.values.toList())
+            .sortedBy { it.chainage }
     }
 
     const val PREVIEW_WAY_RADIUS_METERS = 50.0

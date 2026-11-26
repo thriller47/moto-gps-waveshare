@@ -929,7 +929,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     private val _speedPackDiagnosticStatus = MutableStateFlow("Analisi disattivata")
     val speedPackDiagnosticStatus: StateFlow<String> = _speedPackDiagnosticStatus
     private var speedPackAnalysisJob: Job? = null
-    private var speedPackMatches = emptyList<SpeedPackRouteMatcher.Match>()
+    private var speedPackAlerts = emptyList<SpeedPackAlertSelection.Alert>()
+    private var lastSpeedPackNextKey: String? = null
     private val _speedPackPreview = MutableStateFlow(SpeedPackPreviewState())
     val speedPackPreview: StateFlow<SpeedPackPreviewState> = _speedPackPreview
     private var speedPackPreviewJob: Job? = null
@@ -967,7 +968,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                 DiagnosticLog.event("SPEEDPACK_PREVIEW", "candidate_passages=${report.markers.size} " +
                     "way_confirmed=${report.coincident} way_different=${report.different} " +
                     "way_unverified=${report.unverified} nearby_only=${report.nearbyOnly} " +
-                    "raw_scanned=${report.rawScanned} raw_within_500m=${report.rawWithinCorridor} trace_requests=${report.traceRequests}")
+                    "raw_scanned=${report.rawScanned} raw_within_500m=${report.rawWithinCorridor} trace_requests=${report.traceRequests} " +
+                    "alert_plan=${report.alertCount} merged_pairs=${report.mergedPairs}")
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -1002,7 +1004,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     private fun analyseSpeedPackRoute(geometry: MotoBLERouteGeometry?) {
         val serial = ++speedPackAnalysisSerial
         speedPackAnalysisJob?.cancel()
-        speedPackMatches = emptyList()
+        speedPackAlerts = emptyList()
+        lastSpeedPackNextKey = null
         _speedPackDiagnosticStatus.value = if (_speedPackDiagnostic.value)
             "In attesa di un percorso" else "Analisi disattivata"
         if (!_speedPackDiagnostic.value || geometry == null || geometry.points.size < 2) return
@@ -1022,15 +1025,15 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                 val wayCheck = result.verification
                 if (serial != speedPackAnalysisSerial || !_speedPackDiagnostic.value ||
                     !_isNavigating.value || _hasArrived.value || currentGeometry !== geometry) return@launch
-                speedPackMatches = matches
-                _speedPackDiagnosticStatus.value = "${matches.size} passaggi candidati · " +
-                    "way coincidenti ${wayCheck.confirmed}, diverse ${wayCheck.differentWay}, " +
-                    "non verificate ${wayCheck.unverified}"
+                speedPackAlerts = result.alerts
+                _speedPackDiagnosticStatus.value = "${result.alerts.size} avvisi potenziali dopo deduplica · " +
+                    "${result.alerts.count { it.sources.size > 1 }} coppie unite (solo diagnostica)"
                 DiagnosticLog.event("SPEEDPACK_MATCH", "candidate_passages=${matches.size} " +
                     "osm=${matches.count { it.evidence.source == "osm" }} " +
                     "mapatlas=${matches.count { it.evidence.source == "mapatlas" }} " +
                     "way_confirmed=${wayCheck.confirmed} way_different=${wayCheck.differentWay} " +
-                    "way_unverified=${wayCheck.unverified} trace_requests=${wayCheck.requests}")
+                    "way_unverified=${wayCheck.unverified} trace_requests=${wayCheck.requests} " +
+                    "alert_plan=${result.alerts.size} merged_pairs=${result.alerts.count { it.sources.size > 1 }}")
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -1706,6 +1709,21 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                     }
                     ReplayTraceRecorder.snapshot(activeSnap, lat, lon)
                     sendNavigationSnapshotWithStops(activeSnap)
+                    // Shadow-mode next alert: no modification to BLE, display or routing.
+                    val nextAlert = if (_speedPackDiagnostic.value && hasFirstFix && !gnssStale &&
+                        !_hasArrived.value && !rerouteInProgress)
+                        SpeedPackAlertSelection.next(speedPackAlerts,routeProgressMatcher.matchedProgressMeters())
+                    else null
+                    val nextKey = nextAlert?.let {
+                        "${it.match.evidence.source}:${it.match.evidence.id}:${it.chainage.toLong()}"
+                    }
+                    if (nextKey != lastSpeedPackNextKey) {
+                        lastSpeedPackNextKey = nextKey
+                        DiagnosticLog.event("SPEEDPACK_NEXT", nextAlert?.let {
+                            val progress = routeProgressMatcher.matchedProgressMeters() ?: it.chainage
+                            "potential_distance_m=${(it.chainage-progress).toInt()} sources=${it.sources.size}"
+                        } ?: "none")
+                    }
 
                     // A stationary GPS provider may stop emitting fixes. Keep
                     // offline map lookup / online tile retry alive independently

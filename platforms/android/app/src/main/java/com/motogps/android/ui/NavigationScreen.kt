@@ -2079,6 +2079,10 @@ fun NavigationScreen(
                                         Text("${speedPackReport.markers.size - speedPackReport.nearbyOnly} record con way candidate · ${speedPackReport.nearbyOnly} solo vicinanza")
                                         Text("Way coincidenti: ${speedPackReport.coincident} · diverse: ${speedPackReport.different} · non verificate: ${speedPackReport.unverified}",
                                             style = MaterialTheme.typography.bodySmall)
+                                        Text("Avvisi potenziali: ${speedPackReport.alertCount} · coppie OSM–MapAtlas unite: ${speedPackReport.mergedPairs}",
+                                            style = MaterialTheme.typography.bodySmall)
+                                        Text("Ambra: direzione non esclude. Solo piano diagnostico, nessun invio al display.",
+                                            style = MaterialTheme.typography.bodySmall)
                                         if (speedPackReport.markers.isNotEmpty()) {
                                             OutlinedButton(onClick = {
                                                 speedPackMapFilter = null

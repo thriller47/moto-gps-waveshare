@@ -87,7 +87,27 @@ internal object SpeedPackIndex {
         return result
     }
 
-    /** Unfiltered spot coordinates, exclusively for preview diagnostics. */
+    /** Existing reciprocal cross-source hints; not a new geographic merge. */
+    fun duplicateHints(context: Context, cancelled: () -> Unit): Set<SpeedPackAlertSelection.Hint> {
+        val result = mutableSetOf<SpeedPackAlertSelection.Hint>()
+        SQLiteDatabase.openDatabase(file(context).path, null, SQLiteDatabase.OPEN_READONLY).use { db ->
+            db.rawQuery("""
+                SELECT CAST(osm_node AS TEXT),atlas_ref
+                FROM cross_source_hints
+                WHERE reciprocal_nearest=1 AND distance_m>=0 AND distance_m<=20
+                LIMIT 100001
+            """.trimIndent(),null).use { c ->
+                while (c.moveToNext()) {
+                    cancelled()
+                    require(result.size < 100000) { "Troppi indizi SpeedPack" }
+                    result.add(SpeedPackAlertSelection.Hint(c.getString(0),c.getString(1)))
+                }
+            }
+        }
+        return result
+    }
+
+    /** Unfiltered spot coordinates. */
     fun rawSpots(context: Context, cancelled: () -> Unit): List<SpeedPackRouteMatcher.Evidence> {
         val target = file(context)
         if (!target.isFile) return emptyList()
