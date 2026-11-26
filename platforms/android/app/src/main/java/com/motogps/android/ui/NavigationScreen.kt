@@ -383,6 +383,8 @@ fun RouteMapView(
                         snippet = record.source + " · " + record.recordId +
                             (if (record.way > 0) " · way " + record.way else " · senza associazione") +
                             " · km " + String.format(java.util.Locale.ITALY,"%.1f",record.chainageMeters/1000.0) +
+                            (record.originalDistanceMeters?.let { " · distanza minima dalla rotta " + it.roundToInt() + " m" }
+                                ?: " · distanza originale non misurata nel corridoio") +
                             (record.limitKph?.let { " · limite fonte " + it + " km/h" } ?: "")
                         icon = speedPackMarkerIcon(mapView,record.status)
                         setAnchor(Marker.ANCHOR_CENTER,Marker.ANCHOR_CENTER)
@@ -1964,9 +1966,17 @@ fun NavigationScreen(
     }
     if (showSpeedPackMap && speedPackDiagnostic && speedPackReport != null &&
         speedPackSelectedOption != null && !isNavigating) {
-        val filtered = speedPackReport.markers.filter {
-            speedPackMapFilter == null || it.status == speedPackMapFilter
+        val filtered = remember(speedPackReport, speedPackMapFilter) {
+            speedPackReport.markers.filter {
+                speedPackMapFilter == null || it.status == speedPackMapFilter
+            }.sortedWith(compareBy<SpeedPackPreviewMarker> {
+                it.originalDistanceMeters ?: Double.POSITIVE_INFINITY
+            }.thenBy { it.chainageMeters })
         }
+        var page by remember(speedPackReport, speedPackMapFilter) { mutableStateOf(0) }
+        val pageSize = 250
+        val lastPage = ((filtered.size - 1).coerceAtLeast(0)) / pageSize
+        val pageItems = filtered.drop(page * pageSize).take(pageSize)
         Dialog(onDismissRequest = { showSpeedPackMap = false },
             properties = DialogProperties(usePlatformDefaultWidth = false)) {
             Surface(modifier = Modifier.fillMaxWidth(0.95f).fillMaxHeight(0.88f),
@@ -1985,16 +1995,24 @@ fun NavigationScreen(
                                 label = { Text(status.label) })
                         }
                     }
-                    Text("${minOf(filtered.size,250)} di ${filtered.size} record/passaggi · tocca un marcatore",
+                    Text("${pageItems.size} di ${filtered.size} record/passaggi · distanza crescente",
                         style = MaterialTheme.typography.bodySmall)
+                    if (lastPage > 0) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween) {
+                            TextButton(onClick = { page-- }, enabled = page > 0) { Text("Precedenti") }
+                            Text("${page + 1}/${lastPage + 1}")
+                            TextButton(onClick = { page++ }, enabled = page < lastPage) { Text("Successivi") }
+                        }
+                    }
                     RouteMapView(
                         geoPoints = extractGeoPoints(speedPackSelectedOption,currentLocation,routePreview),
                         routeFitKey = "speedpack:" + speedPackSelectedOption.id,
                         nightMode = true,
-                        speedPackMarkers = filtered,
+                        speedPackMarkers = pageItems,
                         modifier = Modifier.fillMaxWidth().weight(1f)
                     )
-                    Text("Ambra: way coincidente · rosso: diversa · grigio: non verificata · blu: solo vicinanza entro 50 m. " +
+                    Text("Ambra: way coincidente · rosso: diversa · grigio: non verificata · blu: solo vicinanza entro 500 m. " +
                         "OSM e MapAtlas possono rappresentare la stessa postazione.",
                         style = MaterialTheme.typography.labelSmall)
                     Text("Dati © OpenStreetMap contributors · ODbL; MapAtlas / MapMetrics · CC BY 4.0 (snapshot 2024).",
@@ -2055,6 +2073,8 @@ fun NavigationScreen(
                                     speedPackPreview.error != null -> Text(speedPackPreview.error,
                                         color = MaterialTheme.colorScheme.error)
                                     speedPackReport != null -> {
+                                        Text("Corridoio diagnostico ±500 m · ${speedPackReport.rawWithinCorridor} di ${speedPackReport.rawScanned} record originali",
+                                            style = MaterialTheme.typography.bodySmall)
                                         Text("${speedPackReport.markers.size - speedPackReport.nearbyOnly} record/passaggi candidati · ${speedPackReport.nearbyOnly} solo vicinanza")
                                         Text("Way coincidenti: ${speedPackReport.coincident} · diverse: ${speedPackReport.different} · non verificate: ${speedPackReport.unverified}",
                                             style = MaterialTheme.typography.bodySmall)
@@ -2065,7 +2085,7 @@ fun NavigationScreen(
                                             }, modifier = Modifier.fillMaxWidth()) {
                                                 Text("Mostra controlli sulla mappa")
                                             }
-                                        } else Text("Nessun record individuato con i criteri attuali, nemmeno entro 50 m.")
+                                        } else Text("Nessun record individuato con i criteri attuali, nemmeno entro 500 m.")
                                         if (!speedPackReport.offline)
                                             Text("Percorso online: confronto geometrico soltanto.",
                                                 style = MaterialTheme.typography.bodySmall)
@@ -2074,7 +2094,7 @@ fun NavigationScreen(
                                 OutlinedButton(onClick = onSpeedPackPreviewAnalyze,
                                     enabled = !speedPackPreview.loading && !isLoading,
                                     modifier = Modifier.fillMaxWidth()) { Text("Ricalcola analisi SpeedPack") }
-                                Text("I marker blu sono record esclusi dal filtro stradale, non avvisi. Nessuna certificazione di attività, direzione o limite; Tutor esclusi.",
+                                Text("I marker blu sono record entro 500 m esclusi dal filtro stradale, non avvisi. Nessuna certificazione di attività, direzione o limite; Tutor esclusi.",
                                     style = MaterialTheme.typography.bodySmall)
                             }
                         }

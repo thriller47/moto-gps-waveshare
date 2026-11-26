@@ -60,3 +60,5 @@ Motore diagnostico condiviso con navigazione; stato per record/passaggio, sorgen
 
 ## Diagnostica copertura
 Anteprima soltanto: query di tutti gli spot originali OSM/MapAtlas, corridoio 50 m e marker blu per passaggi non rappresentati dal matcher selettivo (stessa fonte/ID entro 100 m di chainage). Sottodivisione spaziale dei segmenti lunghi senza modificare la shape. Nessun fallback nel motore di navigazione e nessuna promozione di vicinanza a identità stradale. Serve a distinguere copertura e filtri; non garantisce assenza di falsi positivi o negativi.
+
+Aggiornamento copertura sperimentale: raggio anteprima 500 m, proiezione minima per record sorgente sull'intera shape; il campo originalDistanceMeters è distinto dal crossTrack della proiezione stradale. Conteggi raw_scanned/raw_within_500m e paginazione 250. Nessun cambio al matcher stretto o alla navigazione; il raggio diagnostico non è una soglia di avviso.

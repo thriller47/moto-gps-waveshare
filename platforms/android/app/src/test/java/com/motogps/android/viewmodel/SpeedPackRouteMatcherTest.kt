@@ -38,7 +38,19 @@ class SpeedPackRouteMatcherTest {
         assertEquals(1,nearby.size)
         assertTrue(nearby.single().crossTrack in 20.0..24.0)
         assertTrue(SpeedPackRouteMatcher.nearby(listOf(a,end),
-            listOf(evidence(lat=45.001))).isEmpty())
+            listOf(evidence(lat=45.005))).isEmpty())
+    }
+
+    @Test fun widePreviewKeepsClosestOriginalPointAndDoesNotRelaxStrictMatcher() {
+        val raw = evidence(lat=45.003)
+        assertTrue(match(raw).isEmpty())
+        val nearby = SpeedPackRouteMatcher.nearby(listOf(a,b,a),listOf(raw))
+        assertEquals(1,nearby.size)
+        assertTrue(nearby.single().crossTrack in 333.0..335.0)
+        val displaced = evidence().copy(originalPoint = raw.originalPoint)
+        assertEquals(1,match(displaced).size)
+        assertTrue(SpeedPackRouteMatcher.nearby(listOf(a,b),listOf(displaced))
+            .single().crossTrack in 333.0..335.0)
     }
 
     @Test fun nextIsAheadOnly() {

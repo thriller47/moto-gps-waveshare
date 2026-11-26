@@ -82,13 +82,17 @@ internal object SpeedPackRouteMatcher {
         return matches.values.flatten().sortedBy { it.chainage }
     }
 
-    /** Preview-only raw proximity, never a road match. */
+    const val PREVIEW_RADIUS_METERS = 500.0
+
+    /** Preview-only raw proximity, never a road match.
+     * Keep the closest projection per source record across the whole route.
+     */
     fun nearby(route: List<Point>, spots: List<Evidence>,
                checkCancelled: () -> Unit = {}): List<Match> {
         if (route.size < 2 || route.any { !valid(it) }) return emptyList()
-        val radius = 50.0
+        val radius = PREVIEW_RADIUS_METERS
         val grid = spots.filter { valid(it.originalPoint) }.groupBy { cell(it.originalPoint) }
-        val matches = mutableMapOf<Pair<String,String>, MutableList<Match>>()
+        val matches = mutableMapOf<Pair<String,String>, Match>()
         var chainage = 0.0
         for (i in 0 until route.lastIndex) {
             checkCancelled()
@@ -122,18 +126,15 @@ internal object SpeedPackRouteMatcher {
                             val cross = hypot(ex-t*dx,ey-t*dy)
                             if (cross > radius) continue
                             val m = Match(e,chainage+t*length,cross,i)
-                            val list = matches.getOrPut(key) { mutableListOf() }
-                            val last = list.lastOrNull()
-                            if (last != null && abs(last.chainage-m.chainage) <= 100.0) {
-                                if (cross < last.crossTrack) list[list.lastIndex] = m
-                            } else list.add(m)
+                            val previous = matches[key]
+                            if (previous == null || cross < previous.crossTrack) matches[key] = m
                         }
                     }
                 }
             }
             chainage += length
         }
-        return matches.values.flatten().sortedBy { it.chainage }
+        return matches.values.sortedBy { it.chainage }
     }
 
     fun next(matches: List<Match>, progress: Double?, horizon: Double = 550.0): Match? {

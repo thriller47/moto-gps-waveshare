@@ -966,7 +966,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                 _speedPackPreview.value = SpeedPackPreviewState(report = report)
                 DiagnosticLog.event("SPEEDPACK_PREVIEW", "candidate_passages=${report.markers.size} " +
                     "way_confirmed=${report.coincident} way_different=${report.different} " +
-                    "way_unverified=${report.unverified} nearby_only=${report.nearbyOnly} trace_requests=${report.traceRequests}")
+                    "way_unverified=${report.unverified} nearby_only=${report.nearbyOnly} " +
+                    "raw_scanned=${report.rawScanned} raw_within_500m=${report.rawWithinCorridor} trace_requests=${report.traceRequests}")
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

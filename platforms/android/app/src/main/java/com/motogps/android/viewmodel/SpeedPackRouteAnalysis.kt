@@ -20,12 +20,14 @@ data class SpeedPackPreviewMarker(
     val latitude: Double, val longitude: Double,
     val roadLatitude: Double, val roadLongitude: Double,
     val chainageMeters: Double, val crossTrackMeters: Double,
-    val status: SpeedPackWayStatus, val limitKph: Int?
+    val status: SpeedPackWayStatus, val limitKph: Int?,
+    val originalDistanceMeters: Double? = null
 )
 
 data class SpeedPackPreviewReport(
     val routeId: String, val markers: List<SpeedPackPreviewMarker>,
-    val traceRequests: Int, val offline: Boolean
+    val traceRequests: Int, val offline: Boolean,
+    val rawScanned: Int = 0, val rawWithinCorridor: Int = 0
 ) {
     val coincident get() = markers.count { it.status == SpeedPackWayStatus.COINCIDENT }
     val different get() = markers.count { it.status == SpeedPackWayStatus.DIFFERENT }
@@ -43,20 +45,25 @@ data class SpeedPackPreviewState(
 internal object SpeedPackRouteAnalysis {
     data class Result(val matches: List<SpeedPackRouteMatcher.Match>,
                       val verification: SpeedPackWayVerifier.Result,
-                      val nearbyOnly: List<SpeedPackRouteMatcher.Match> = emptyList()) {
-        fun preview(routeId: String, offline: Boolean) = SpeedPackPreviewReport(
+                      val nearbyOnly: List<SpeedPackRouteMatcher.Match> = emptyList(),
+                      val rawNearby: List<SpeedPackRouteMatcher.Match> = emptyList(),
+                      val rawScanned: Int = 0) {
+        fun preview(routeId: String, offline: Boolean): SpeedPackPreviewReport {
+            val rawByRecord = rawNearby.associateBy { it.evidence.source to it.evidence.id }
+            return SpeedPackPreviewReport(
             routeId, matches.map { m ->
                 val e = m.evidence
                 SpeedPackPreviewMarker(e.source, e.id, e.way, e.originalPoint.lat,
                     e.originalPoint.lon, e.point.lat, e.point.lon, m.chainage,
                     m.crossTrack, verification.status[m] ?: SpeedPackWayStatus.UNVERIFIED,
-                    e.limitKph)
+                    e.limitKph, rawByRecord[e.source to e.id]?.crossTrack)
             } + nearbyOnly.map { m ->
                 val e = m.evidence
                 SpeedPackPreviewMarker(e.source, e.id, 0L, e.originalPoint.lat,
                     e.originalPoint.lon, e.originalPoint.lat, e.originalPoint.lon,
-                    m.chainage,m.crossTrack,SpeedPackWayStatus.NEARBY_ONLY,e.limitKph)
-            }, verification.requests, offline)
+                    m.chainage,m.crossTrack,SpeedPackWayStatus.NEARBY_ONLY,e.limitKph,m.crossTrack)
+            }, verification.requests, offline, rawScanned, rawNearby.size)
+        }
     }
 
     suspend fun analyze(context: Context, route: List<SpeedPackRouteMatcher.Point>,
@@ -74,12 +81,11 @@ internal object SpeedPackRouteAnalysis {
                     points.map { it.lat to it.lon }, preferences)
             }
         } else SpeedPackWayVerifier.Result(0,0,candidates.size,0)
-        val nearbyOnly = if (includeRawPreview) {
-            val strictByRecord = candidates.groupBy { it.evidence.source to it.evidence.id }
-            SpeedPackRouteMatcher.nearby(route,SpeedPackIndex.rawSpots(context,check),check)
-                .filter { raw -> strictByRecord[raw.evidence.source to raw.evidence.id].orEmpty()
-                    .none { kotlin.math.abs(it.chainage-raw.chainage) <= 100.0 } }
-        } else emptyList()
-        return Result(candidates,verification,nearbyOnly)
+        val rawSpots = if (includeRawPreview) SpeedPackIndex.rawSpots(context,check) else emptyList()
+        val rawNearby = if (includeRawPreview)
+            SpeedPackRouteMatcher.nearby(route,rawSpots,check) else emptyList()
+        val strictRecords = candidates.map { it.evidence.source to it.evidence.id }.toHashSet()
+        val nearbyOnly = rawNearby.filter { (it.evidence.source to it.evidence.id) !in strictRecords }
+        return Result(candidates,verification,nearbyOnly,rawNearby,rawSpots.size)
     }
 }
