@@ -7,6 +7,7 @@ import math
 from pathlib import Path
 import sqlite3
 import osmium
+from speed_camera_geometry import Geometry, resolve_geometry
 
 ROAD_TYPES = set("motorway trunk primary secondary tertiary unclassified residential living_street motorway_link trunk_link primary_link secondary_link tertiary_link service".split())
 
@@ -119,6 +120,8 @@ def build(pbf, output):
     nodes.apply_file(str(pbf))
     roads = Roads(nodes.nodes)
     roads.apply_file(str(pbf))
+    geometry = Geometry(nodes.nodes)
+    geometry.apply_file(str(pbf), locations=True, idx='flex_mem')
     stats = Counter()
     try:
         with sqlite3.connect(part) as db:
@@ -127,7 +130,8 @@ def build(pbf, output):
                 CREATE TABLE cameras(osm_node INTEGER PRIMARY KEY, lat REAL NOT NULL,
                     lon REAL NOT NULL, osm_way INTEGER, direction TEXT,
                     confidence TEXT NOT NULL, reason TEXT NOT NULL,
-                    maxspeed INTEGER, raw_tags TEXT NOT NULL, relation_ids TEXT NOT NULL);
+                    maxspeed INTEGER, raw_tags TEXT NOT NULL, relation_ids TEXT NOT NULL,
+                    road_lat REAL, road_lon REAL, road_bearing REAL, offset_m REAL);
                 CREATE INDEX cameras_location ON cameras(lat,lon);
                 CREATE TABLE average_speed_candidates(osm_relation INTEGER PRIMARY KEY,
                     raw_tags TEXT NOT NULL, members TEXT NOT NULL);
@@ -135,19 +139,22 @@ def build(pbf, output):
             for ref, (lat, lon, tags) in nodes.nodes.items():
                 relations = rel.fixed.get(ref, [])
                 way, direction, confidence, reason = association(ref, tags, roads.matches[ref], relations)
+                candidate = geometry.candidates.get(ref, {})
+                way, direction, confidence, reason, projection = resolve_geometry(
+                    tags, candidate, way, direction, confidence, reason)
                 limits = {v for v in [speed(tags.get("maxspeed"))] +
                           [speed(t.get("maxspeed")) for _, t, _ in relations] if v is not None}
                 limit = next(iter(limits)) if len(limits) == 1 else None
-                db.execute("INSERT INTO cameras VALUES (?,?,?,?,?,?,?,?,?,?)",
+                db.execute("INSERT INTO cameras VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                            (ref, lat, lon, way, direction, confidence, reason, limit,
-                            json.dumps(tags), json.dumps([r[0] for r in relations])))
+                            json.dumps(tags), json.dumps([r[0] for r in relations]), *projection))
                 stats[confidence] += 1
                 stats[reason] += 1
             for ref, (_, tags, members) in rel.average.items():
                 db.execute("INSERT INTO average_speed_candidates VALUES (?,?,?)",
                            (ref, json.dumps(tags), json.dumps(members)))
             db.executemany("INSERT INTO metadata VALUES (?,?)", [
-                ("schema", "speed-cameras-experimental-v1"), ("source", pbf.name),
+                ("schema", "speed-cameras-experimental-v2"), ("source", pbf.name),
                 ("license", "OpenStreetMap contributors, ODbL"),
                 ("rows", str(len(nodes.nodes)))])
             if db.execute("PRAGMA quick_check").fetchone()[0] != "ok":

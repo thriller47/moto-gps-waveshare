@@ -1098,3 +1098,13 @@ python3 scripts/offline_map/speed_cameras_to_sqlite.py /mnt/c/MotoGPS/PBF/italy-
 ```
 
 Tre passaggi PBF senza indice globale delle coordinate. Associazione conservativa solo per nodo condiviso con unica strada; direzione relativa alla way OSM, non al percorso. Nessuna associazione geometrica di postazioni a bordo strada in questa versione. Candidati Tutor conservati separatamente, non utilizzabili per avvisi. Non sovrascrive file esistenti. Inviare il riepilogo JSON stampato. Import Android non ancora implementato; non rigenerare MotoPack.
+
+### Autovelox V2 sperimentale
+
+Eseguire lo stesso generatore con output distinto:
+
+```bash
+python3 scripts/offline_map/speed_cameras_to_sqlite.py /mnt/c/MotoGPS/PBF/italy-latest.osm.pbf --output /mnt/c/MotoGPS/speed-cameras-italy-v2.sqlite
+```
+
+V2 aggiunge proiezione geometrica entro 30 m, indice locale e indice coordinate osmium flex_mem (RAM maggiore); associazione media geometrica solo senso unico entro 15 m, margine 12 m sul secondo candidato, senza indizi di separazione verticale o tag direzione non interpretati. Soglie sperimentali. Relazioni multi-way e dedup geografico non implementati. Inviare riepilogo e database. V1 conservata.
