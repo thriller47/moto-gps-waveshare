@@ -1078,3 +1078,13 @@ La prossima verifica consiste in **test nativi C++ con segnali sintetici coerent
 | Esportare GPS + ESP32 + Android | Android | Ferma ed esporta tutto (ZIP): `motogps-diagnostica-completa.zip` |
 
 **Conservare come storico**, non come procedura corrente: [vecchio manuale](archive/MANUALE_OPERATIVO_PRE_CLEANUP_2026-11-15.md), [cronologia tecnica completa al 19/11](archive/PROJECT_STATE_PRE_CLEANUP_2026-11-19.md). Stato e attività aperte: [PROJECT_STATE.md](../PROJECT_STATE.md) e [ROADMAP.md](ROADMAP.md). Non cancellare source PBF o archivi validi per fare spazio senza averne un backup.
+
+### Inventario sperimentale controlli velocità (26/11/2026)
+
+Da WSL, checkout NewUI aggiornato e ambiente valhalla-env attivo:
+
+```bash
+python3 scripts/offline_map/inventory_speed_enforcement.py /mnt/c/MotoGPS/PBF/italy-latest.osm.pbf > /mnt/c/MotoGPS/inventario-autovelox.json
+```
+
+Richiede pyosmium (modulo osmium, già usato dai generatori). Se assente: python -m pip install osmium. Legge il PBF senza modificarlo; il JSON contiene conteggi di oggetti, istogrammi tag, ruoli relazioni e indizi duplicati, non postazioni attive certificate. Nessun nuovo MotoPack richiesto. Nessuna associazione geometrica alla strada in questa fase.
