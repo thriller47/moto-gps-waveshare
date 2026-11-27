@@ -98,6 +98,8 @@ class HybridValhallaAndPhotonTest {
         assertFalse(policy.confident("Parigi",italy))
         assertEquals(france,policy.merge("Paris, France",listOf(italy),listOf(france)).first())
         assertEquals(listOf(italy),policy.merge("Paris, France",listOf(italy),emptyList()))
+        val weakLocal = (0..7).map { italy.copy(latitude=45.0+it*.01) }
+        assertTrue(policy.merge("Parigi",weakLocal,listOf(france)).contains(france))
         assertFalse(PhotonPlaceSearch.endpoint("Paris, France",45.0 to 7.0).contains("&lat="))
     }
 

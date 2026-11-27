@@ -26,10 +26,17 @@ internal object HybridPlaceSearch {
 
     fun merge(query: String, local: List<PlaceSearchResult>,
               online: List<PlaceSearchResult>, limit: Int = 8): List<PlaceSearchResult> {
-        val combined = local + online
-        // Stable ordering retains the respective provider's ranking; exact
-        // online results outrank weak local results.
-        val ranked = combined.sortedByDescending { confident(query,it) }
+        val strongLocal = local.filter { confident(query,it) }
+        val strongOnline = online.filter { confident(query,it) }
+        val weakLocal = local.filterNot { confident(query,it) }
+        val weakOnline = online.filterNot { confident(query,it) }
+        // Keep exact matches first. If neither source can confirm a match,
+        // interleave the partial results, remote first: the local eight
+        // must never hide all online results (e.g. translated place names).
+        val ranked = strongLocal + strongOnline +
+            (0 until maxOf(weakLocal.size,weakOnline.size)).flatMap { i ->
+                listOfNotNull(weakOnline.getOrNull(i),weakLocal.getOrNull(i))
+            }
         val unique = ArrayList<PlaceSearchResult>()
         for (place in ranked) {
             val duplicate = unique.any {
