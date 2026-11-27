@@ -46,9 +46,9 @@ class MotoPackTests(unittest.TestCase):
             tourist.execute("INSERT INTO tourist_poi VALUES ('n',1,'belvedere','Belvedere',7,45,7,45,7,45,'point','exact')")
             tourist.execute("CREATE INDEX tourist_category_lat_lon ON tourist_poi(category,lat,lon)")
         self.road_index = self.directory / "road-dna-italy.sqlite"
-        from road_dna_to_sqlite import SCHEMA
+        from road_dna_to_sqlite import SCHEMA_V1
         with sqlite3.connect(self.road_index) as db:
-            db.executescript(SCHEMA)
+            db.executescript(SCHEMA_V1)
             db.executemany("INSERT INTO metadata VALUES (?,?)", [("schema","road-dna-roads-v1"),("rows","1")])
             db.execute("INSERT INTO roads VALUES (1,123,0,'Test','secondary','asphalt',45,7,45,7,45.01,7.01,1000,4,1,NULL,.8,900,140)")
             db.execute("CREATE INDEX roads_cell ON roads(cell_lat,cell_lon)")
@@ -81,6 +81,16 @@ class MotoPackTests(unittest.TestCase):
         self.assertEqual(result["components"]["elevation"]["bytes"], self.dem.stat().st_size)
         self.assertEqual(result["components"]["tourist"]["bytes"], self.tourist.stat().st_size)
         self.assertEqual(result["components"]["photon"]["bytes"], self.db.stat().st_size)
+
+    def test_road_index_v2_roundtrip(self):
+        from road_dna_to_sqlite import EXTRA_TAGS
+        with sqlite3.connect(self.road_index) as db:
+            for tag in EXTRA_TAGS:
+                db.execute(f"ALTER TABLE roads ADD COLUMN {tag} TEXT")
+            db.execute("UPDATE metadata SET value='road-dna-roads-v2' WHERE key='schema'")
+            db.execute("UPDATE roads SET smoothness='good', lanes='2'")
+        self.build()
+        self.assertEqual(mp.verify(self.out)["version"],4)
 
     def test_corrupt_component(self):
         self.build()

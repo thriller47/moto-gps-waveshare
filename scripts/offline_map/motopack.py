@@ -82,9 +82,11 @@ def validate_inputs(paths):
     with sqlite3.connect(paths["road_index"].resolve().as_uri() + "?mode=ro", uri=True) as db:
         metadata = dict(db.execute("SELECT key,value FROM metadata"))
         count = db.execute("SELECT COUNT(*) FROM roads").fetchone()[0]
-        if metadata.get("schema") != "road-dna-roads-v1" or count < 1 or metadata.get("rows") != str(count):
+        if metadata.get("schema") not in ("road-dna-roads-v1","road-dna-roads-v2") or count < 1 or metadata.get("rows") != str(count):
             raise ValueError("Invalid Road DNA road index")
         db.execute("SELECT osm_way,part,name,highway,surface,lat,lon,a_lat,a_lon,b_lat,b_lon,length_m,bends,hairpins,relief_m,curve_score,cell_lat,cell_lon FROM roads LIMIT 1").fetchone()
+        if metadata["schema"] == "road-dna-roads-v2":
+            db.execute("SELECT smoothness,width,lanes,maxspeed,lit,incline,bridge,tunnel FROM roads LIMIT 1").fetchone()
         if not db.execute("SELECT 1 FROM sqlite_master WHERE type='index' AND name='roads_cell'").fetchone():
             raise ValueError("Road DNA road spatial index missing")
         if db.execute("PRAGMA quick_check").fetchone() != ("ok",):

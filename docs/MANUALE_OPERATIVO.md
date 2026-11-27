@@ -296,6 +296,34 @@ Se disponibile, aggiungere al comando Python **--elevation /percorso/esatto/elev
 
 Da PowerShell: `moto-android NewUI`. Copiare il file SQLite nella cartella Download del telefono (USB/MTP), aprire **Mappe offline → Opzioni avanzate → Importa DNA stradale SQLite** e selezionarlo. In **Crea tour**, con Explorer attivo e senza tappe obbligatorie, si può attivare/disattivare **DNA stradale · giri mirati**. Gli otto candidati originali rimangono disponibili; fino a quattro aggiuntivi mirano a tratti indicizzati, le schede selezionate di questo tipo hanno il suffisso Mirato. La geometria e il percorso sono comunque calcolati da Valhalla. Con tappe obbligatorie il generatore resta quello precedente. Non occorre flash ESP32. Collaudo utente dell'indice separato: 301.929 tratti, 39,2 MiB; proposte mirate simili alle tradizionali. La versione con costing motorcycle nativo e MotoPack v4 resta da collaudare. Dati OSM © OpenStreetMap contributors, ODbL.
 
+#### DNA stradale V2 — copertura dei tag OSM (NewUI, 27/11)
+
+Il V2 aggiunge smoothness, width, lanes, maxspeed, lit, incline, bridge e tunnel; conserva i valori originali come testo, NULL se assenti. Non cambia la selezione delle sezioni curve del V1. Il rapporto indica la copertura per sezioni e per lunghezza, non sull'intera rete italiana. Il ranking Explorer rimane invariato fino al confronto dei dati reali. L'APK NewUI accetta entrambi i formati, così come il generatore MotoPack v4; il vecchio APK valhalla accetta solo V1. Per non perdere il rilievo usare il DEM già generato. In WSL:
+
+```bash
+cd ~/MotoGPS/moto-gps-waveshare
+git fetch origin
+git switch NewUI
+git pull --ff-only origin NewUI
+source ~/valhalla-env/bin/activate
+mkdir -p ~/motogps-build/RoadDNA-Italia
+set -o pipefail
+python3 scripts/offline_map/road_dna_to_sqlite.py \
+  /mnt/c/MotoGPS/PBF/italy-latest.osm.pbf \
+  --output ~/motogps-build/RoadDNA-Italia/road-dna-italy-v2.sqlite \
+  --elevation ~/motogps-build/ItaliaUnificata/elevation-italy.zip \
+  | tee ~/motogps-build/RoadDNA-Italia/road-dna-v2-coverage.txt
+```
+
+Verificare che PBF e DEM esistano; se il DEM è altrove sostituire il percorso. Se manca, omettere il parametro (rilievo non disponibile). Solo se il comando termina correttamente, copiare il nuovo SQLite e il report in Windows:
+
+```bash
+cp ~/motogps-build/RoadDNA-Italia/road-dna-italy-v2.sqlite /mnt/c/MotoGPS/
+cp ~/motogps-build/RoadDNA-Italia/road-dna-v2-coverage.txt /mnt/c/MotoGPS/
+```
+
+Conservare il vecchio indice V1. Dopo aggiornamento APK con `moto-android NewUI`, importare il nuovo SQLite dalla sezione DNA stradale (sostituzione atomica); non è necessario rigenerare il MotoPack. Prima di tornare a valhalla ripristinare il V1 se necessario. Il report completo JSON è anche nel campo metadata.tag_coverage. Non interpretare dati mancanti come strada in buono stato; non dedurre condizioni attuali dal tag OSM.
+
 ## 1.2. Road DNA online — chiavi Geoapify e OpenTripMap
 
 **Non serve alcuna chiave per la navigazione o per Road DNA offline.** Le funzioni online sono integrate in `valhalla`; il funzionamento dei singoli provider e la completezza delle schede dipendono dalle credenziali, dalla rete e dai dati disponibili.

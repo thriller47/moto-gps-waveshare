@@ -6,6 +6,7 @@ import argparse
 from array import array
 from functools import lru_cache
 import gzip
+import json
 import math
 import os
 from pathlib import Path
@@ -18,7 +19,7 @@ PAVED = {"asphalt", "paved", "concrete", "concrete:lanes", "concrete:plates",
          "paving_stones", "sett", "chipseal"}
 RESTRICTED = {"no", "private", "destination", "customers", "delivery",
               "agricultural", "forestry", "permit"}
-SCHEMA = """
+SCHEMA_V1 = """
 CREATE TABLE metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE roads(
     id INTEGER PRIMARY KEY, osm_way INTEGER NOT NULL, part INTEGER NOT NULL,
@@ -29,6 +30,42 @@ CREATE TABLE roads(
     curve_score REAL NOT NULL, cell_lat INTEGER NOT NULL, cell_lon INTEGER NOT NULL
 );
 """
+# OSM values remain text (e.g. maxspeed=IT:urban, width=3.5, incline=10%).
+# Missing data is NULL, never an inferred rating. Keep the v1 column layout.
+EXTRA_TAGS = ("smoothness", "width", "lanes", "maxspeed", "lit", "incline", "bridge", "tunnel")
+SCHEMA = SCHEMA_V1 + "\n".join(f"ALTER TABLE roads ADD COLUMN {tag} TEXT;" for tag in EXTRA_TAGS)
+
+def road_tags(tags):
+    return tuple(value.strip() if value and value.strip() else None
+                 for value in (tags.get(tag) for tag in EXTRA_TAGS))
+
+def coverage(db):
+    """Section and length-weighted coverage for INDEXED sections, not all OSM roads.
+    An OSM way split into several sections contributes each section's length once.
+    Missing values are separate from explicit negatives (e.g. lit=no).
+    """
+    total, length = db.execute("SELECT COUNT(*), COALESCE(SUM(length_m),0) FROM roads").fetchone()
+    result = {"sections": total, "length_m": length, "tags": {}}
+    for tag in ("surface", *EXTRA_TAGS):
+        values = db.execute(f"""SELECT {tag}, COUNT(*), COALESCE(SUM(length_m),0)
+            FROM roads GROUP BY {tag} ORDER BY COUNT(*) DESC, {tag}""").fetchall()
+        counts = {}
+        for value, n, metres in values:
+            key = value.strip() if value is not None else ""
+            if key.lower() in ("", "unknown"):
+                key = "(missing)"
+            entry = counts.setdefault(key, {"sections": 0, "length_m": 0})
+            entry["sections"] += n
+            entry["length_m"] += metres
+        missing = counts.get("(missing)", {"sections": 0, "length_m": 0})
+        result["tags"][tag] = {
+            "known_sections": total - missing["sections"],
+            "known_length_m": length - missing["length_m"],
+            "section_coverage_pct": round(100*(total-missing["sections"])/max(total,1),2),
+            "length_coverage_pct": round(100*(length-missing["length_m"])/max(length,1),2),
+            "values": counts,
+        }
+    return result
 
 def eligible(tags):
     if tags.get("highway") not in CLASSES or tags.get("junction") in ("roundabout", "circular"):
@@ -162,7 +199,7 @@ def build(pbf, output, elevation):
     try:
         db.executescript(SCHEMA)
         db.executemany("INSERT INTO metadata VALUES (?,?)",[
-            ("schema","road-dna-roads-v1"),("source",Path(pbf).name),
+            ("schema","road-dna-roads-v2"),("source",Path(pbf).name),
             ("license","OpenStreetMap contributors, ODbL"),
             ("dem","Skadi" if elevation else "none")])
         class Handler(osmium.SimpleHandler):
@@ -172,7 +209,10 @@ def build(pbf, output, elevation):
                 self.batch = []
             def flush(self):
                 if self.batch:
-                    db.executemany("INSERT INTO roads(osm_way,part,name,highway,surface,lat,lon,a_lat,a_lon,b_lat,b_lon,length_m,bends,hairpins,relief_m,curve_score,cell_lat,cell_lon) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",self.batch)
+                    columns = ("osm_way,part,name,highway,surface,lat,lon,a_lat,a_lon,b_lat,b_lon,"
+                               "length_m,bends,hairpins,relief_m,curve_score,cell_lat,cell_lon,"
+                               + ",".join(EXTRA_TAGS))
+                    db.executemany(f"INSERT INTO roads({columns}) VALUES ({','.join('?' for _ in range(18+len(EXTRA_TAGS)))})",self.batch)
                     db.commit()
                     self.batch.clear()
             def way(self,w):
@@ -189,7 +229,7 @@ def build(pbf, output, elevation):
                     self.batch.append((w.id,i,(w.tags.get("name") or w.tags.get("ref") or "")[:120],
                         w.tags.get("highway"),w.tags.get("surface") or "unknown",
                         *mid,*a,*b,round(length),bends,hairpins,dem.relief(part) if elevation else None,
-                        score,math.floor(mid[0]*20),math.floor(mid[1]*20)))
+                        score,math.floor(mid[0]*20),math.floor(mid[1]*20),*road_tags(w.tags)))
                     self.count += 1
                     if len(self.batch)>=5000:
                         self.flush()
@@ -202,12 +242,25 @@ def build(pbf, output, elevation):
             raise ValueError("No eligible curved road sections")
         db.execute("CREATE INDEX roads_cell ON roads(cell_lat,cell_lon)")
         db.execute("INSERT INTO metadata VALUES ('rows',?)",(str(handler.count),))
+        report = coverage(db)
+        db.execute("INSERT INTO metadata VALUES ('tag_coverage',?)",
+                   (json.dumps(report,ensure_ascii=False,separators=(",",":")),))
         db.commit()
         if db.execute("PRAGMA quick_check").fetchone()[0]!="ok":
             raise ValueError("SQLite integrity failure")
         db.close()
         os.replace(pending,output)
-        print(f"Road DNA: {handler.count:,} sections, {output.stat().st_size/1048576:.1f} MiB: {output}")
+        print(f"Road DNA V2: {handler.count:,} sections, {output.stat().st_size/1048576:.1f} MiB: {output}")
+        print("Tag coverage (indexed curved sections only):")
+        for tag, stats in report["tags"].items():
+            print(f"  {tag:12} {stats['known_sections']:>8,}/{report['sections']:,} sections "
+                  f"({stats['section_coverage_pct']:.2f}%), "
+                  f"{stats['known_length_m']/1000:,.1f} km ({stats['length_coverage_pct']:.2f}%)")
+        for tag in ("surface", "smoothness"):
+            print(f"Distribution {tag}:")
+            for value, stats in report["tags"][tag]["values"].items():
+                print(f"  {value}: {stats['sections']:,} sections, {stats['length_m']/1000:,.1f} km")
+        print("Full report stored in metadata.tag_coverage (JSON)")
     finally:
         db.close()
         dem.close()

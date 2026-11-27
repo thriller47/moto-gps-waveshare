@@ -36,8 +36,15 @@ internal object RoadDnaRoadIndex {
                 db.rawQuery("PRAGMA quick_check", null).use { c ->
                     require(c.moveToFirst() && c.getString(0) == "ok") { "Indice SQLite danneggiato" }
                 }
-                db.rawQuery("SELECT value FROM metadata WHERE key='schema'", null).use { c ->
-                    require(c.moveToFirst() && c.getString(0) == "road-dna-roads-v1") { "Formato Road DNA non valido" }
+                val schema = db.rawQuery("SELECT value FROM metadata WHERE key='schema'", null).use { c ->
+                    require(c.moveToFirst()) { "Formato Road DNA non valido" }
+                    c.getString(0)
+                }
+                require(schema in setOf("road-dna-roads-v1","road-dna-roads-v2")) { "Formato Road DNA non valido" }
+                if (schema == "road-dna-roads-v2") {
+                    db.rawQuery("SELECT smoothness,width,lanes,maxspeed,lit,incline,bridge,tunnel FROM roads LIMIT 1",null).use { c ->
+                        require(c.moveToFirst()) { "Indice V2 vuoto" }
+                    }
                 }
                 db.rawQuery("SELECT osm_way,part,name,highway,surface,lat,lon,a_lat,a_lon,b_lat,b_lon,length_m,bends,hairpins,relief_m,curve_score,cell_lat,cell_lon FROM roads LIMIT 1", null).use { c ->
                     require(c.moveToFirst()) { "Indice vuoto" }
