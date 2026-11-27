@@ -1,6 +1,6 @@
 # Moto Chat GPS — Manuale operativo
 
-**Aggiornato:** 27 novembre 2026 · **Repository:** thriller47/moto-gps-waveshare · **Branch stabile:** valhalla · **Branch di lavoro:** NewUI.
+**Aggiornato:** 27 novembre 2026 · **Repository:** thriller47/moto-gps-waveshare · **Branch stabile:** valhalla · **Branch sperimentale mantenuto:** NewUI.
 
 ## Prima di cominciare — i quattro comandi quotidiani
 
@@ -13,7 +13,7 @@ Aprire **PowerShell di Windows** dal menu Start. Il prompt deve iniziare con `PS
 | `moto-motopack NewUI` | Aggiorna il checkout WSL, genera e verifica le mappe, copia il pacchetto in Windows. |
 | `moto-simulator NewUI` | Aggiorna WSL, compila WASM, avvia il server locale e apre il browser. |
 
-Sostituire NewUI con il branch desiderato, per esempio valhalla dopo l'integrazione. I launcher sono disponibili sul branch NewUI e vengono installati fuori dal checkout; il branch da compilare deve avere una configurazione compatibile. **Collaudi riferiti dall'utente:** launcher ESP32 COM4 funzionante, MotoPack v3 generato manualmente e copiato con CopyOnly, import e quote offline funzionanti, simulatore avviato con apertura browser. Restano da verificare la nuova gestione Ctrl+C e gli altri percorsi automatici non ancora provati. La build Android manuale e il nuovo layout Road DNA sono stati confermati dall'utente.
+Usare `valhalla` per la versione consolidata e `NewUI` per le prove e i prossimi sviluppi. Dopo l'integrazione entrambi i branch contengono i launcher, che vengono installati fuori dal checkout; il branch da compilare deve avere una configurazione compatibile. **Collaudi riferiti dall'utente:** launcher ESP32 COM4 funzionante, MotoPack v3 generato manualmente e copiato con CopyOnly, import e quote offline funzionanti, simulatore avviato con apertura browser. Restano da verificare la nuova gestione Ctrl+C e gli altri percorsi automatici non ancora provati. La build Android manuale e il nuovo layout Road DNA sono stati confermati dall'utente.
 
 ### PC pulito — clonare il repository da zero (Windows)
 
@@ -1174,6 +1174,8 @@ Aggiornare con `moto-android NewUI` e `moto-esp32 NewUI COM4` (sostituire COM4 c
 
 
 ### Collaudo SpeedPack — contesto locale navigazione (27/11/2026)
+
+**Esito:** prova su strada positiva riferita dall'utente, inclusi ricalcoli, inversione con secondo passaggio e strada nuova. ZIP verificato: 40 elaborazioni, 528 ms iniziali, poi 5–62 ms (mediana 14 ms), nessun SPEEDPACK_ERROR. Copertura delle postazioni non garantita; restano candidati non verificati. La versione stabile è `valhalla`, NewUI resta per i test.
 
 L'anteprima Road DNA continua ad analizzare l'intero itinerario. In navigazione offline Android indicizza una volta i record SpeedPack installati e usa una finestra di 2 km davanti al progresso GPS associato alla rotta (25 m dietro, selezione geografica 2,2 km); aggiorna ogni 400 m o dopo cambio rotta. Pubblica prima i candidati verificati entro 850 m e poi estende il contesto. L'avviso sul display resta entro 550 m, solo con way ID coincidente e admin IT verificato. Non è necessario rigenerare/importare SpeedPack né riflashare un ESP32 già compatibile. Le posizioni vicine fuori rotta non producono avvisi.
 

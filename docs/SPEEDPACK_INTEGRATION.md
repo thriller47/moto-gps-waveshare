@@ -76,3 +76,8 @@ SpeedAlert 0x15 capability bit9, payload rev1 24 byte: session u32, route token 
 ## Aggiornamento 27/11 — contesto mobile Android
 
 Il percorso attivo non usa più l'analisi globale Road DNA. Cache statica geografica legata al file installato, finestra locale legata alla chainage Valhalla (2 km davanti, 25 m dietro), refresh ogni 400 m e reset immediato per nuova geometria; verifica immediata 850 m e poi estensione. Trace esatte memorizzate solo per la stessa istanza di rotta, fallback conservativo a singoli segmenti se la finestra multipla non verifica la shape. I candidati restano raw-first, way coincidente e admin IT per BLE, deduplica reciproca e 550 m invariati. Nessun nuovo tipo di messaggio o marker fuori rotta. Il limite di 16 tentativi per fase e il motore nativo sincronizzato sono ancora vincoli sperimentali. Log contesto con tempi e numero di chiamate native; test sintetici aggiunti ma non ancora eseguiti.
+
+
+### Collaudo del 27/11/2026
+
+Utente conferma avvisi ESP32 anche dopo inversione, ricalcolo e su strada diversa dalla rotta iniziale. ZIP diagnostico: 40 elaborazioni contesto, 528 ms primo caricamento, successive 5–62 ms (mediana 14 ms), nessun SPEEDPACK_ERROR. Alcune way non verificate restano escluse. Integrazione autorizzata in valhalla; NewUI resta sperimentale. CI consolidata da verificare sul push valhalla.
