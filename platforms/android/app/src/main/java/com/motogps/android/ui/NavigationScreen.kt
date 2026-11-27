@@ -3731,7 +3731,7 @@ fun NavigationScreen(
                             ListItem(
                                 headlineContent = { Text(place.name) },
                                 supportingContent = {
-                                    val subtitle = listOf(place.displayArea, place.address,
+                                    val subtitle = listOf(place.photonKind, place.displayArea, place.address,
                                         place.distanceLabel, place.searchSource).filter { it.isNotBlank() }
                                         .joinToString(" · ")
                                     Text(subtitle)

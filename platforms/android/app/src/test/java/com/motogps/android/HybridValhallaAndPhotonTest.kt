@@ -103,6 +103,30 @@ class HybridValhallaAndPhotonTest {
         assertFalse(PhotonPlaceSearch.endpoint("Paris, France",45.0 to 7.0).contains("&lat="))
     }
 
+    @Test fun namedSettlementOrAddressPrecedesAdministrativeNamesake() {
+        fun feature(name: String, lat: Double, lon: Double, key: String, value: String,
+                    type: String, street: String = "", house: String = "", country: String = "FR") =
+            JSONObject().put("geometry",JSONObject().put("type","Point")
+                .put("coordinates",JSONArray().put(lon).put(lat)))
+                .put("properties",JSONObject().put("name",name).put("osm_key",key)
+                    .put("osm_value",value).put("type",type).put("street",street)
+                    .put("housenumber",house).put("countrycode",country).put("state","Region"))
+        val area = feature("Barcelonnette",44.45,6.8,"boundary","administrative","city")
+        val address = feature("Barcelonnette",44.39,6.65,"amenity","townhall","other","Rue du Centre","3")
+        val settlement = feature("Barcelonnette",44.39,6.66,"place","town","city")
+        fun rank(vararg features: JSONObject) = PhotonPlaceSearch.rank(
+            JSONObject().put("features",JSONArray(features.toList())),
+            "Barcelonnette",44.45 to 7.8)
+        val pair = rank(area,address)
+        assertEquals(2,pair.size)
+        assertEquals("Indirizzo",pair.first().photonKind)
+        assertEquals("Area amministrativa",pair.last().photonKind)
+        assertEquals("Centro abitato",rank(area,address,settlement).first().photonKind)
+        val different = PhotonPlaceSearch.parse(JSONObject().put("features",JSONArray()
+            .put(area).put(feature("Barcelonnette",44.39,6.65,"place","town","city",country="IT"))))
+        assertEquals(different,com.motogps.android.viewmodel.PhotonDestinationRanking.preferNavigableNamesakes(different))
+    }
+
     @Test fun searchDistanceLabelsUseMetersAndKilometers() {
         val near = PlaceSearchResult("Via Roma", "", "Italia", 45.0, 8.0, 350.0)
         val far = near.copy(distanceMeters = 1850.0)

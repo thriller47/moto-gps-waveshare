@@ -62,7 +62,10 @@ data class PlaceSearchResult(
     val longitude: Double,
     val distanceMeters: Double? = null,
     val requiresRoadAccess: Boolean = false,
-    val searchSource: String = ""
+    val searchSource: String = "",
+    val photonKind: String = "",
+    val photonScope: String = "",
+    val photonStreetAddress: Boolean = false
 ) {
     val distanceLabel: String
         get() = distanceMeters?.takeIf { it.isFinite() && it >= 0 }?.let {

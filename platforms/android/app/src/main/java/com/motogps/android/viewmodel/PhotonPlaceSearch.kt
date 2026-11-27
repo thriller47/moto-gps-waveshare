@@ -62,7 +62,12 @@ internal object PhotonPlaceSearch {
             val address = listOf(road, locality).filter { it.isNotBlank() }
                 .distinct().joinToString(", ")
             val key = "${lat},${lon},${name}"
-            if (visited.add(key)) output.add(PlaceSearchResult(name, address, area, lat, lon))
+            if (visited.add(key)) output.add(PlaceSearchResult(name, address, area, lat, lon,
+                photonKind = PhotonDestinationRanking.kind(field("osm_key"),field("osm_value"),
+                    field("type"),field("street"),field("housenumber")),
+                photonScope = listOf(field("countrycode").ifBlank { field("country") },field("state"))
+                    .joinToString("|"),
+                photonStreetAddress = field("street").isNotBlank() && field("housenumber").isNotBlank()))
         }
         return output
     }
@@ -93,6 +98,8 @@ internal object PhotonPlaceSearch {
                     street = props.optString("street", "").trim()
                     val osmValue = props.optString("osm_value", "")
                     kind = when {
+                        place.photonKind == "Area amministrativa" -> "other"
+                        place.photonKind == "Centro abitato" -> "city"
                         props.optString("type") == "street" || osmValue == "residential" ||
                             osmValue == "pedestrian" || osmValue == "tertiary" ||
                             osmValue == "secondary" -> "street"
@@ -114,12 +121,13 @@ internal object PhotonPlaceSearch {
         }
         val ordered = if (validGps == null) parsed else {
             val ranked = PhotonOfflineRanking.rank(mapped.map { it.first }, query, validGps,
-                if (query.contains(',')) parsed.size else 8)
+                parsed.size)
             ranked.mapNotNull { candidate -> mapped.firstOrNull { it.first === candidate }?.second }
         }
-        return if (query.contains(',')) ordered.sortedByDescending {
+        val relevant = if (query.contains(',')) ordered.sortedByDescending {
             HybridPlaceSearch.confident(query,it)
-        }.take(8) else ordered.take(8)
+        } else ordered
+        return PhotonDestinationRanking.preferNavigableNamesakes(relevant).take(8)
     }
 
 
