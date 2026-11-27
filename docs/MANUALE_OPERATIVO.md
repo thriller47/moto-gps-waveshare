@@ -1,6 +1,6 @@
 # Moto Chat GPS — Manuale operativo
 
-**Aggiornato:** 25 novembre 2026 · **Repository:** thriller47/moto-gps-waveshare · **Branch stabile:** valhalla · **Branch di lavoro:** NewUI.
+**Aggiornato:** 27 novembre 2026 · **Repository:** thriller47/moto-gps-waveshare · **Branch stabile:** valhalla · **Branch di lavoro:** NewUI.
 
 ## Prima di cominciare — i quattro comandi quotidiani
 
@@ -1171,3 +1171,12 @@ Aggiornare Android con `moto-android NewUI`, mantenere il file SpeedPack già in
 #### Avvisi SpeedPack sul display (sperimentale, solo Italia)
 
 Aggiornare con `moto-android NewUI` e `moto-esp32 NewUI COM4` (sostituire COM4 con la porta effettiva). SpeedPack invariato. In Mappe offline attivare Analisi sperimentale e separatamente Avvisi sul display · solo Italia; default spento. Road DNA mostra idonei al display (admin IT). Solo rotta Valhalla locale e way coincidente con finestra amministrativa IT verificata, direzione dichiarata non esclude; se il grafo non restituisce admin IT nessun avviso. Disattivare prima di uscire dall'Italia: controllo della posizione GPS nazionale non ancora implementato. Il dispositivo mostra la prossima postazione potenziale entro 550 m, camera ambra sulla linea quando è nella finestra, distanza nel box libero sotto arrivo, precedenza svolta/rotonda entro 200 m e arrivo. Nessuna rilevazione di attività dei dispositivi; rispettare limiti. Verificare cancellazione dopo superamento, stop, ricalcolo, fix perso e BLE reconnect. Non rigenerare SpeedPack. Per il simulatore `moto-simulator NewUI` (supporto replay del nuovo messaggio non ancora verificato).
+
+
+### Collaudo SpeedPack — contesto locale navigazione (27/11/2026)
+
+L'anteprima Road DNA continua ad analizzare l'intero itinerario. In navigazione offline Android indicizza una volta i record SpeedPack installati e usa una finestra di 2 km davanti al progresso GPS associato alla rotta (25 m dietro, selezione geografica 2,2 km); aggiorna ogni 400 m o dopo cambio rotta. Pubblica prima i candidati verificati entro 850 m e poi estende il contesto. L'avviso sul display resta entro 550 m, solo con way ID coincidente e admin IT verificato. Non è necessario rigenerare/importare SpeedPack né riflashare un ESP32 già compatibile. Le posizioni vicine fuori rotta non producono avvisi.
+
+1. Da PowerShell eseguire `moto-android NewUI` (test, build, installazione). Verificare che MotoPack/SpeedPack siano installati, routing locale e switch diagnostica/avvisi dispositivo attivi.
+2. Con dati mobili disattivati, avviare un percorso noto. Verificare avvisi e distanza, poi deviare per ottenere un ricalcolo; seguire la nuova rotta e ripassare sulla stessa strada in sicurezza, senza interagire col telefono in movimento.
+3. Controllare i log `SPEEDPACK_CONTEXT_RESET`, `SPEEDPACK_CONTEXT` (phase near/full, token/generation, elapsed_ms, native_calls, way_confirmed, way_unverified, device_it), `SPEEDPACK_SEND`, `SPEEDPACK_NEXT`, `REROUTE`. Il contesto deve ricomparire col nuovo token; confrontare tempi prima/dopo. Nessun avviso durante ricalcolo o con GNSS non valido. Se manca un avviso, esportare lo ZIP diagnostico per distinguere verifica, progresso e invio BLE. Limiti trace e prestazioni restano da collaudare.

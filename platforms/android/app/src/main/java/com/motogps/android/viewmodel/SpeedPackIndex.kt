@@ -12,6 +12,35 @@ import kotlinx.coroutines.CancellationException
 internal object SpeedPackIndex {
     fun file(context: Context) = File(context.filesDir, "speedpack/speedpack-italy.sqlite")
 
+    private data class CachedLocal(val path: String, val size: Long, val modified: Long,
+                                   val data: SpeedPackLocalData)
+    private var cachedLocal: CachedLocal? = null
+
+    /** Immutable static context, independent of route, shared across recalculations.
+     * Install is serialized with this read; no database handles are retained. */
+    @Synchronized
+    fun localData(context: Context, cancelled: () -> Unit): SpeedPackLocalData {
+        val target = file(context)
+        require(target.isFile) { "SpeedPack non installato" }
+        val size = target.length()
+        val modified = target.lastModified()
+        cachedLocal?.let {
+            if (it.path == target.absolutePath && it.size == size && it.modified == modified)
+                return it.data
+        }
+        cancelled()
+        val raw = rawSpots(context,cancelled)
+        val evidence = allRoadEvidence(context,raw.map { it.source to it.id }.toSet(),cancelled)
+        val hints = duplicateHints(context,cancelled)
+        val data = SpeedPackLocalData(raw,evidence,hints)
+        cancelled()
+        require(target.length() == size && target.lastModified() == modified) {
+            "SpeedPack modificato durante la lettura"
+        }
+        cachedLocal = CachedLocal(target.absolutePath,size,modified,data)
+        return data
+    }
+
     /** Only selected non-grade road candidates; not a verified road identity. */
     fun roadEvidence(context: Context, cancelled: () -> Unit): List<SpeedPackRouteMatcher.Evidence> {
         val target = file(context)
@@ -63,7 +92,7 @@ internal object SpeedPackIndex {
                     e.offset_m,e.grade,e.highway,a.road_state,a.direction_state
                 FROM road_evidence e
                 JOIN road_assessment a ON a.source=e.source AND a.record_id=e.record_id
-                LEFT JOIN cameras c ON e.source='osm' AND CAST(c.osm_node AS TEXT)=e.record_id
+                LEFT JOIN cameras c ON e.source='osm' AND c.osm_node=CAST(e.record_id AS INTEGER)
                 LEFT JOIN mapatlas_records m ON e.source='mapatlas' AND m.ref=e.record_id AND m.class='spot'
                 WHERE (c.osm_node IS NOT NULL OR m.ref IS NOT NULL)
                 ORDER BY e.source,e.record_id,e.osm_way
@@ -181,8 +210,12 @@ internal object SpeedPackIndex {
                 }
             }
             if (cancelled()) throw CancellationException()
-            Files.move(pending.toPath(), target.toPath(), StandardCopyOption.ATOMIC_MOVE,
-                StandardCopyOption.REPLACE_EXISTING)
+            synchronized(this) {
+                if (cancelled()) throw CancellationException()
+                Files.move(pending.toPath(), target.toPath(), StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING)
+                cachedLocal = null
+            }
         } finally {
             pending.delete()
         }

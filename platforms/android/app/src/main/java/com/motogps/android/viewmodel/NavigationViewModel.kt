@@ -930,6 +930,9 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     private val _speedPackDiagnosticStatus = MutableStateFlow("Analisi disattivata")
     val speedPackDiagnosticStatus: StateFlow<String> = _speedPackDiagnosticStatus
     private var speedPackAnalysisJob: Job? = null
+    private var speedPackLocalRoute: SpeedPackLocalRoute? = null
+    private var speedPackContextAnchor: Double? = null
+    private var speedPackRetryAfterMs = 0L
     private var speedPackAlerts = emptyList<SpeedPackAlertSelection.Alert>()
     private data class DeviceSpeedAlert(val chainage: Double,val point: GeoPointE6)
     private var deviceSpeedAlerts = emptyList<DeviceSpeedAlert>()
@@ -982,6 +985,8 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
             lastSpeedAlertSent = message
             lastSpeedAlertSession = session
             lastSpeedAlertSentMs = now
+            if (changed) DiagnosticLog.event("SPEEDPACK_SEND",
+                "active=${message.point != null} token=${message.routeToken} generation=${message.routeGeneration}")
         }
     }
     private var lastSpeedPackNextKey: String? = null
@@ -1061,56 +1066,123 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
     }
 
     private fun analyseSpeedPackRoute(geometry: MotoBLERouteGeometry?) {
-        val serial = ++speedPackAnalysisSerial
+        ++speedPackAnalysisSerial
         speedPackAnalysisJob?.cancel()
+        speedPackAnalysisJob = null
+        speedPackLocalRoute = null
+        speedPackContextAnchor = null
+        speedPackRetryAfterMs = 0L
         speedPackAlerts = emptyList()
         deviceSpeedAlerts = emptyList()
         clearDeviceSpeedAlert()
         lastSpeedPackNextKey = null
-        _speedPackDiagnosticStatus.value = if (_speedPackDiagnostic.value)
-            "In attesa di un percorso" else "Analisi disattivata"
-        if (!_speedPackDiagnostic.value || geometry == null || geometry.points.size < 2) return
+        _speedPackDiagnosticStatus.value = when {
+            !_speedPackDiagnostic.value -> "Analisi disattivata"
+            geometry == null || geometry.points.size < 2 -> "In attesa di un percorso"
+            lastRoutingProvider != "valhalla-local" -> "Avvisi disponibili solo con Valhalla offline"
+            else -> "In attesa del contesto locale"
+        }
+        DiagnosticLog.event("SPEEDPACK_CONTEXT_RESET",
+            "token=${geometry?.routeToken ?: 0L} generation=${geometry?.routeGeneration ?: 0L} provider=${lastRoutingProvider.orEmpty()}")
+    }
+
+    /** Called from the existing navigation loop after matching the current fix.
+     * No work on the BLE/UI thread except publishing the immutable results. */
+    private fun refreshSpeedPackContext(snapshot: MotoBLENavigationSnapshot) {
+        if (!_speedPackDiagnostic.value || !_isNavigating.value || _hasArrived.value ||
+            lastRoutingProvider != "valhalla-local" || rerouteInProgress || offRouteFixCount != 0 ||
+            !snapshot.hasFix || snapshot.gnssStale || snapshot.offRoute ||
+            snapshot.routeRequestInFlight || speedPackAnalysisJob?.isActive == true) return
+        val geometry = currentGeometry ?: return
+        if (geometry.points.size < 2 || geometry.routeToken != snapshot.routeToken ||
+            geometry.routeGeneration != snapshot.routeGeneration) return
+        val progress = routeProgressMatcher.matchedProgressMeters() ?: return
+        if (!progress.isFinite() || progress < 0.0) return
+        val now = SystemClock.elapsedRealtime()
+        if (now < speedPackRetryAfterMs) return
+        val previous = speedPackContextAnchor
+        if (previous != null && kotlin.math.abs(progress-previous) < SpeedPackLocalRoute.REFRESH_METERS)
+            return
         val app = appContext ?: navigationMapsContext ?: return
-        _speedPackDiagnosticStatus.value = "Analisi geometrica in corso"
-        val provider = lastRoutingProvider
         val preferences = _routePreferences.value
+        val serial = ++speedPackAnalysisSerial
+        val existing = speedPackLocalRoute
+        speedPackContextAnchor = progress
+        _speedPackDiagnosticStatus.value = "Analisi contesto locale in corso"
+        fun current() = serial == speedPackAnalysisSerial && _speedPackDiagnostic.value &&
+            _isNavigating.value && !_hasArrived.value && currentGeometry === geometry
         speedPackAnalysisJob = viewModelScope.launch {
+            val started = SystemClock.elapsedRealtime()
             try {
-                val (result, projectedAlerts) = withContext(Dispatchers.IO) {
-                    val route = geometry.points.map {
-                        SpeedPackRouteMatcher.Point(it.latitudeE6 / 1e6, it.longitudeE6 / 1e6)
+                val (local,plan) = withContext(Dispatchers.IO) {
+                    val job = currentCoroutineContext()[Job]
+                    val check: () -> Unit = { job?.ensureActive() }
+                    val route = existing ?: SpeedPackLocalRoute(geometry.points.map {
+                        SpeedPackRouteMatcher.Point(it.latitudeE6/1e6,it.longitudeE6/1e6)
+                    })
+                    val data = SpeedPackIndex.localData(app,check)
+                    route to route.prepare(data,progress,check)
+                }
+                if (!current()) return@launch
+                speedPackLocalRoute = local
+                suspend fun verify(immediate: Boolean) = withContext(Dispatchers.IO) {
+                    val job = currentCoroutineContext()[Job]
+                    val check: () -> Unit = { job?.ensureActive() }
+                    local.verify(plan,immediate,check) { points ->
+                        OfflineValhallaRouter.traceWayAttributes(app,
+                            points.map { it.lat to it.lon },preferences)
                     }
-                    val result = SpeedPackRouteAnalysis.analyze(app,route,provider,preferences)
+                }
+                fun publish(result: SpeedPackLocalRoute.Verified, phase: String) {
+                    if (!current()) return
                     val projected = result.deviceAlerts.mapNotNull { alert ->
-                        SpeedPackRouteMatcher.routePoint(route,alert.match)?.let {
+                        SpeedPackRouteMatcher.routePoint(local.points,alert.match)?.let {
                             DeviceSpeedAlert(alert.chainage,GeoPointE6(
                                 (it.lat*1e6).roundToInt(),(it.lon*1e6).roundToInt()))
                         }
                     }
-                    result to projected
+                    // Do not discard already verified future alerts on the same
+                    // geometry while publishing the imminent partial result.
+                    val boundary = plan.anchor+SpeedPackLocalRoute.IMMEDIATE_METERS
+                    speedPackAlerts = if (phase == "near")
+                        (result.alerts+speedPackAlerts.filter { it.chainage > boundary }).sortedBy { it.chainage }
+                    else result.alerts
+                    deviceSpeedAlerts = if (phase == "near")
+                        (projected+deviceSpeedAlerts.filter { it.chainage > boundary }).sortedBy { it.chainage }
+                    else projected
+                    _speedPackDiagnosticStatus.value = "${deviceSpeedAlerts.size} avvisi locali con admin IT"
+                    DiagnosticLog.event("SPEEDPACK_CONTEXT",
+                        "phase=$phase token=${geometry.routeToken} generation=${geometry.routeGeneration} " +
+                        "anchor_m=${plan.anchor.toInt()} local_spots=${plan.localSpots} raw_matches=${plan.rawMatches} " +
+                        "candidates=${result.candidates} way_confirmed=${result.verification.confirmed} " +
+                        "way_unverified=${result.verification.unverified} trace_requests=${result.verification.requests} " +
+                        "native_calls=${result.nativeCalls} device_it=${projected.size} elapsed_ms=${SystemClock.elapsedRealtime()-started}")
                 }
-                val matches = result.matches
-                val wayCheck = result.verification
-                if (serial != speedPackAnalysisSerial || !_speedPackDiagnostic.value ||
-                    !_isNavigating.value || _hasArrived.value || currentGeometry !== geometry) return@launch
-                speedPackAlerts = result.alerts
-                deviceSpeedAlerts = projectedAlerts
-                _speedPackDiagnosticStatus.value = "${result.alerts.size} avvisi potenziali dopo deduplica · " +
-                    "${result.alerts.count { it.sources.size > 1 }} coppie unite · ${projectedAlerts.size} con admin IT"
-                DiagnosticLog.event("SPEEDPACK_MATCH", "candidate_passages=${matches.size} " +
-                    "osm=${matches.count { it.evidence.source == "osm" }} " +
-                    "mapatlas=${matches.count { it.evidence.source == "mapatlas" }} " +
-                    "way_confirmed=${wayCheck.confirmed} way_different=${wayCheck.differentWay} " +
-                    "way_unverified=${wayCheck.unverified} trace_requests=${wayCheck.requests} " +
-                    "alert_plan=${result.alerts.size} merged_pairs=${result.alerts.count { it.sources.size > 1 }} " +
-                    "device_it=${projectedAlerts.size}")
+                val near = verify(true)
+                if (!current()) return@launch
+                publish(near,"near")
+                if (near.candidates < plan.candidates.size) {
+                    val full = verify(false)
+                    if (!current()) return@launch
+                    // Full verification has its own budget. Preserve any
+                    // positively verified imminent alerts from the first pass.
+                    val boundary = plan.anchor+SpeedPackLocalRoute.IMMEDIATE_METERS
+                    publish(full.copy(
+                        alerts=(near.alerts+full.alerts.filter { it.chainage > boundary }).sortedBy { it.chainage },
+                        deviceAlerts=(near.deviceAlerts+full.deviceAlerts.filter { it.chainage > boundary }).sortedBy { it.chainage }
+                    ),"full")
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                if (serial == speedPackAnalysisSerial) {
-                    _speedPackDiagnosticStatus.value = "Analisi SpeedPack non disponibile"
+                if (current()) {
+                    speedPackContextAnchor = null
+                    speedPackRetryAfterMs = SystemClock.elapsedRealtime()+5000L
+                    _speedPackDiagnosticStatus.value = "Contesto SpeedPack non disponibile"
                     DiagnosticLog.event("SPEEDPACK_ERROR", e.javaClass.simpleName)
                 }
+            } finally {
+                if (serial == speedPackAnalysisSerial) speedPackAnalysisJob = null
             }
         }
     }
@@ -1764,6 +1836,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                         gnssStale = gnssStale
                     )
                     currentSnapshot = activeSnap
+                    refreshSpeedPackContext(activeSnap)
                     if (activeDestination?.displayArea == "Tour circolare" &&
                         SystemClock.elapsedRealtime() - lastTourCheckpointMillis >= 30_000L) {
                         try { saveTourCheckpoint(paused = false) } catch (e: Exception) {
@@ -1780,7 +1853,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                     }
                     ReplayTraceRecorder.snapshot(activeSnap, lat, lon)
                     sendNavigationSnapshotWithStops(activeSnap)
-                    // Shadow-mode next alert: no modification to BLE, display or routing.
+                    // Log changes of the next verified local candidate.
                     val nextAlert = if (_speedPackDiagnostic.value && hasFirstFix && !gnssStale &&
                         !_hasArrived.value && !rerouteInProgress)
                         SpeedPackAlertSelection.next(speedPackAlerts,routeProgressMatcher.matchedProgressMeters())

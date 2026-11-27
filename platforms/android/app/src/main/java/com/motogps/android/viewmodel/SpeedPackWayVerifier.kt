@@ -55,6 +55,7 @@ internal object SpeedPackWayVerifier {
     fun verify(route: List<SpeedPackRouteMatcher.Point>,
                matches: List<SpeedPackRouteMatcher.Match>,
                checkCancelled: () -> Unit,
+               fallbackToSegments: Boolean = false,
                trace: (List<SpeedPackRouteMatcher.Point>) -> JSONObject?): Result {
         var confirmed = 0
         var different = 0
@@ -80,10 +81,9 @@ internal object SpeedPackWayVerifier {
                     .map { (i,group) -> Triple(i,i+1,group) }
             }
         }
-        for ((start,end,candidates) in windows) {
+        fun evaluate(start: Int, end: Int, candidates: List<SpeedPackRouteMatcher.Match>): Boolean {
             checkCancelled()
-            if (requests >= 16) break
-            if (windowLength(start,end) !in 1.0..400.0) continue
+            if (requests >= 16 || windowLength(start,end) !in 1.0..400.0) return false
             val window = route.subList(start,end+1)
             requests++
             val response = try { trace(window) }
@@ -92,7 +92,7 @@ internal object SpeedPackWayVerifier {
             val ways = response?.let { segmentWays(window,it) }
             val isItalian = response?.let { italianWindow(it) } == true
             checkCancelled()
-            if (ways == null) continue
+            if (ways == null) return false
             for (candidate in candidates) {
                 val way = ways.getOrNull(candidate.segmentIndex-start) ?: continue
                 if (way == candidate.evidence.way) {
@@ -102,6 +102,20 @@ internal object SpeedPackWayVerifier {
                 } else {
                     different++
                     status[candidate] = SpeedPackWayStatus.DIFFERENT
+                }
+            }
+            return true
+        }
+        for ((start,end,candidates) in windows) {
+            checkCancelled()
+            if (requests >= 16) break
+            val success = evaluate(start,end,candidates)
+            // Navigation only: a group containing a junction or a clipped
+            // shape may fail even when the candidate segment is verifiable.
+            if (!success && fallbackToSegments && end-start > 1) {
+                for ((i,group) in candidates.groupBy { it.segmentIndex }.toSortedMap()) {
+                    if (requests >= 16) break
+                    if (i in start until end) evaluate(i,i+1,group)
                 }
             }
         }
