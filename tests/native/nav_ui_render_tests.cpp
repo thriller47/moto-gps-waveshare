@@ -263,7 +263,14 @@ void test_frames_are_deterministic() {
   fill_route(state, 12);
   fill_streets(state);
   moto_nav_ui_set_state(&state);
+  // Reduced motion disables animation, not the 920 ms CONNECTED hold.
+  // Capture the transient separately, then establish the actual navigation
+  // frame after the connection lifecycle has finished. Otherwise the page
+  // loop advances the LVGL clock past the hold and compares unlike states.
+  const Frame connected = capture();
+  pump(260);
   const Frame first = capture();
+  CHECK(connected.hash != first.hash);
 
   moto_nav_ui_set_state(&state);
   const Frame second = capture();
