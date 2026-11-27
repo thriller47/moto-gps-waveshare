@@ -158,21 +158,22 @@ fun RoutePreferencesDialog(
                 )
             }
             if (shortest) {
-                Text("Il profilo Breve ignora le penalità stradali.",
+                Text("Breve ignora le penalità stradali, ma mantiene l'esclusione dei traghetti.",
                     color = MotoChatColors.TextMuted,
                     style = MaterialTheme.typography.bodySmall)
             }
 
             @Composable
-            fun PreferenceItem(label: String, checked: Boolean, toggle: (Boolean) -> Unit) {
+            fun PreferenceItem(label: String, checked: Boolean, active: Boolean = enabled,
+                               toggle: (Boolean) -> Unit) {
                 Row(
                     modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
-                        .clickable(enabled = enabled) { toggle(!checked) },
+                        .clickable(enabled = active) { toggle(!checked) },
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Checkbox(
                         checked = checked,
-                        enabled = enabled,
+                        enabled = active,
                         onCheckedChange = toggle
                     )
                     Spacer(Modifier.width(8.dp))
@@ -185,11 +186,11 @@ fun RoutePreferencesDialog(
             PreferenceItem("Evita pedaggi", preferences.avoidTolls) {
                 onChange(preferences.copy(avoidTolls = it))
             }
-            PreferenceItem("Evita traghetti", preferences.avoidFerries) {
+            PreferenceItem("Escludi traghetti", preferences.avoidFerries, active = true) {
                 onChange(preferences.copy(avoidFerries = it))
             }
             Text(
-                "Le esclusioni non sono divieti assoluti. Le modifiche aggiornano il percorso.",
+                "Autostrade e pedaggi sono preferenze; i traghetti sono esclusi. Le modifiche aggiornano il percorso.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MotoChatColors.TextMuted
             )

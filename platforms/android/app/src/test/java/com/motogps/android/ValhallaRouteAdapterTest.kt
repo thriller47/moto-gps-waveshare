@@ -129,6 +129,36 @@ class ValhallaRouteAdapterTest {
     }
 
     @Test
+    fun rejectsOutOfCoverageAndFerryEvenWhenEngineReturnsSuccess() {
+        val a = 45.0 to 7.0
+        val b = 45.01 to 7.01
+        val c = 45.02 to 7.02
+        fun leg(from: Pair<Double,Double>, to: Pair<Double,Double>, ferry: Boolean = false) =
+            JSONObject().put("shape",encode(listOf(from,to)))
+                .put("summary",JSONObject().put("has_ferry",false))
+                .put("maneuvers",JSONArray().put(JSONObject().put("type",if(ferry) 28 else 8)))
+        fun response(vararg legs: JSONObject) = JSONObject().put("trip",
+            JSONObject().put("legs",JSONArray(legs.toList())))
+        fun validate(raw: JSONObject, requested: List<Pair<Double,Double>>, avoid: Boolean = true) =
+            com.motogps.android.routing.ValhallaRouteValidation.requireValid(raw,requested,avoid)
+        validate(response(leg(a,b),leg(b,c)),listOf(a,b,c))
+        org.junit.Assert.assertThrows(IllegalArgumentException::class.java) {
+            validate(response(leg(a,b)),listOf(a,c))
+        }
+        org.junit.Assert.assertThrows(IllegalArgumentException::class.java) {
+            validate(response(leg(a,c),leg(c,b)),listOf(a,b,b))
+        }
+        org.junit.Assert.assertThrows(IllegalArgumentException::class.java) {
+            validate(response(leg(a,b,true)),listOf(a,b))
+        }
+        validate(response(leg(a,b,true)),listOf(a,b),false)
+        val marked = leg(a,b).put("summary",JSONObject().put("has_ferry",true))
+        org.junit.Assert.assertThrows(IllegalArgumentException::class.java) {
+            validate(response(marked),listOf(a,b))
+        }
+    }
+
+    @Test
     fun identifiesOnlineRoutesWithoutChangingMotoBleEnvelope() {
         val points = listOf(45.0 to 9.0, 45.001 to 9.001)
         val leg = JSONObject()

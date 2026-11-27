@@ -59,7 +59,17 @@ data class RoutePreferences(
         if (style != RouteStyle.SHORTEST) {
             if (avoidHighways) auto.put("use_highways", 0.0)
             if (avoidTolls) auto.put("use_tolls", 0.0)
-            if (avoidFerries) auto.put("use_ferry", 0.0)
+        }
+        // Hard exclusion applies to all profiles. Exclude ferry correlation at
+        // every break as well: Valhalla otherwise permits ferry endpoints.
+        if (avoidFerries) {
+            auto.put("use_ferry", 0.0).put("exclude_ferries", true)
+            val locations = request.optJSONArray("locations")
+            for (i in 0 until (locations?.length() ?: 0)) {
+                val point = locations?.optJSONObject(i) ?: continue
+                val filter = point.optJSONObject("search_filter") ?: JSONObject()
+                point.put("search_filter", filter.put("exclude_ferry", true))
+            }
         }
         if (auto.length() > 0)
             request.put("costing_options", JSONObject().put(costing, auto))

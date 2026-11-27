@@ -3732,7 +3732,7 @@ fun NavigationScreen(
                                 headlineContent = { Text(place.name) },
                                 supportingContent = {
                                     val subtitle = listOf(place.displayArea, place.address,
-                                        place.distanceLabel).filter { it.isNotBlank() }
+                                        place.distanceLabel, place.searchSource).filter { it.isNotBlank() }
                                         .joinToString(" · ")
                                     Text(subtitle)
                                 },

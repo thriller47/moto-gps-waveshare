@@ -3,6 +3,7 @@ package com.motogps.android.routing
 import android.content.Context
 import com.valhalla.valhalla.Valhalla
 import com.valhalla.valhalla.config.ValhallaConfigFactory
+import com.valhalla.valhalla.config.ValhallaConfigManager
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -53,7 +54,17 @@ internal object OfflineValhallaRouter {
             val demDir = File(tiles.parentFile, "elevation")
             val config = ValhallaConfigFactory.usingTileExtract(
                 path, elevationDir = demDir.takeIf { it.isDirectory }?.absolutePath)
-            engine = Valhalla(context.applicationContext, config)
+            // The pinned mobile library supports loading a config file directly.
+            // Set the native hard-exclusion flag without depending on generated
+            // model support for that optional setting.
+            val manager = ValhallaConfigManager(context.applicationContext)
+            manager.writeConfig(config)
+            val configFile = File(manager.getAbsolutePath())
+            val json = JSONObject(configFile.readText())
+            val limits = json.optJSONObject("service_limits") ?: JSONObject()
+            json.put("service_limits", limits.put("allow_hard_exclusions", true))
+            configFile.writeText(json.toString())
+            engine = Valhalla(configFile.absolutePath)
             loadedTilePath = path
             loadedTileLength = length
             loadedTileLastModified = mtime
@@ -69,9 +80,12 @@ internal object OfflineValhallaRouter {
             .put("directions_options", JSONObject().put("units", "kilometers").put("language", "it-IT"))
         ValhallaRouteLocations.suppressUnsupportedAlternates(preferences.applyTo(request))
         val raw = requireNotNull(engine).routeRaw(request.toString())
+        val response = JSONObject(raw)
+        ValhallaRouteValidation.requireValid(response,
+            listOf(originLat to originLon) + waypoints + (destinationLat to destinationLon),
+            preferences.avoidFerries)
         return ValhallaRouteAdapter.toMotoRoute(
-            JSONObject(raw),
-            originLat, originLon, destinationLat, destinationLon)
+            response, originLat, originLon, destinationLat, destinationLon)
     }
 
     /** Diagnostic only: reuse the already loaded graph, never rematch via map_snap. */

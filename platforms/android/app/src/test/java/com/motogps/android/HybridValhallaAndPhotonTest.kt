@@ -87,6 +87,20 @@ class HybridValhallaAndPhotonTest {
     }
 
 
+    @Test fun internationalQueryDoesNotTrustPartialItalianMatches() {
+        val italy = PlaceSearchResult("Via Parigi","Via Parigi, Torino","Torino, Italia",45.0,7.0)
+        val france = PlaceSearchResult("Paris","","Île-de-France, France",48.8566,2.3522)
+        val local = PlaceSearchResult("Torino","","Piemonte, Italia",45.07,7.68)
+        val policy = com.motogps.android.viewmodel.HybridPlaceSearch
+        assertFalse(policy.confident("Paris, France",italy))
+        assertTrue(policy.confident("Paris, France",france))
+        assertTrue(policy.confident("Torino",local))
+        assertFalse(policy.confident("Parigi",italy))
+        assertEquals(france,policy.merge("Paris, France",listOf(italy),listOf(france)).first())
+        assertEquals(listOf(italy),policy.merge("Paris, France",listOf(italy),emptyList()))
+        assertFalse(PhotonPlaceSearch.endpoint("Paris, France",45.0 to 7.0).contains("&lat="))
+    }
+
     @Test fun searchDistanceLabelsUseMetersAndKilometers() {
         val near = PlaceSearchResult("Via Roma", "", "Italia", 45.0, 8.0, 350.0)
         val far = near.copy(distanceMeters = 1850.0)

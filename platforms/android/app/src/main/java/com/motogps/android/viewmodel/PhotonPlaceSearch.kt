@@ -20,7 +20,9 @@ internal object PhotonPlaceSearch {
             // as a response language and rejects unsupported values with HTTP 400.
             // Without lang Photon uses its default/local OSM place names.
             .append("&limit=30")
-        if (gpsLocation != null) {
+        // A qualified destination (e.g. Paris, France) must not be
+        // suppressed by the current Italian location bias.
+        if (gpsLocation != null && !query.contains(',')) {
             val (lat, lon) = gpsLocation
             if (lat.isFinite() && lon.isFinite() &&
                 lat in -90.0..90.0 && lon in -180.0..180.0) {
@@ -110,11 +112,14 @@ internal object PhotonPlaceSearch {
             it.first.isFinite() && it.second.isFinite() &&
                 it.first in -90.0..90.0 && it.second in -180.0..180.0
         }
-        if (validGps == null) return parsed.take(8)
-        val ranked = PhotonOfflineRanking.rank(mapped.map { it.first }, query, validGps, 8)
-        return ranked.mapNotNull { candidate ->
-            mapped.firstOrNull { it.first === candidate }?.second
+        val ordered = if (validGps == null) parsed else {
+            val ranked = PhotonOfflineRanking.rank(mapped.map { it.first }, query, validGps,
+                if (query.contains(',')) parsed.size else 8)
+            ranked.mapNotNull { candidate -> mapped.firstOrNull { it.first === candidate }?.second }
         }
+        return if (query.contains(',')) ordered.sortedByDescending {
+            HybridPlaceSearch.confident(query,it)
+        }.take(8) else ordered.take(8)
     }
 
 

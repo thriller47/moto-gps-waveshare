@@ -81,9 +81,12 @@ internal object OnlineValhallaRouter {
                 }
                 sb.toString()
             }
+            val response = JSONObject(body)
+            ValhallaRouteValidation.requireValid(response,
+                listOf(fromLat to fromLon) + waypoints + (toLat to toLon),
+                preferences.avoidFerries)
             return ValhallaRouteAdapter.toMotoRoute(
-                JSONObject(body),
-                fromLat, fromLon, toLat, toLon, "valhalla-online")
+                response, fromLat, fromLon, toLat, toLon, "valhalla-online")
         } finally {
             conn.disconnect()
         }

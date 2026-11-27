@@ -21,7 +21,8 @@ class RoutePreferencesTest {
         assertTrue(options.getBoolean("shortest"))
         assertFalse(options.has("use_highways"))
         assertFalse(options.has("use_tolls"))
-        assertFalse(options.has("use_ferry"))
+        assertEquals(0.0, options.getDouble("use_ferry"), 0.0)
+        assertTrue(options.getBoolean("exclude_ferries"))
     }
 
     @Test fun touringAvoidsUnpavedAndPrefersSecondaryAsphalt() {
@@ -77,6 +78,11 @@ class RoutePreferencesTest {
         assertEquals(0.0, options.getDouble("use_highways"), 0.0)
         assertEquals(0.0, options.getDouble("use_tolls"), 0.0)
         assertEquals(0.0, options.getDouble("use_ferry"), 0.0)
+        assertTrue(options.getBoolean("exclude_ferries"))
+        assertTrue(json.getJSONArray("locations").getJSONObject(0)
+            .getJSONObject("search_filter").getBoolean("exclude_ferry"))
+        assertTrue(json.getJSONArray("locations").getJSONObject(1)
+            .getJSONObject("search_filter").getBoolean("exclude_ferry"))
         assertEquals(90.0, json.getJSONArray("locations")
             .getJSONObject(0).getDouble("heading"), 0.0)
     }

@@ -61,7 +61,8 @@ data class PlaceSearchResult(
     val latitude: Double,
     val longitude: Double,
     val distanceMeters: Double? = null,
-    val requiresRoadAccess: Boolean = false
+    val requiresRoadAccess: Boolean = false,
+    val searchSource: String = ""
 ) {
     val distanceLabel: String
         get() = distanceMeters?.takeIf { it.isFinite() && it >= 0 }?.let {
@@ -1363,36 +1364,41 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
             Log.w("MotoGPS_Photon", "Tourist name search unavailable", e)
             emptyList()
         } else emptyList()
-        if (context != null && OfflinePhotonPlaceSearch.installed(context)) {
+        val local = if (context != null && OfflinePhotonPlaceSearch.installed(context)) {
             try {
-                val local = OfflinePhotonPlaceSearch.search(context, query, gps, signal)
-                if (local.isNotEmpty() || touristHits.isNotEmpty()) {
-                    // Exact city/place names always lead; a nearby partial street
-                    // must not hide an exact named lake or destination.
-                    val q = PhotonOfflineRanking.normalize(query)
-                    val exactLocal = local.filter {
-                        PhotonOfflineRanking.normalize(it.name) == q &&
-                            !it.name.startsWith("Via ", ignoreCase = true) &&
-                            !it.name.startsWith("Viale ", ignoreCase = true)
-                    }
-                    val merged = exactLocal + touristHits +
-                        local.filterNot { it in exactLocal }
-                    return withSearchDistances(merged.distinctBy {
-                        PhotonOfflineRanking.normalize(it.name) + "|" +
-                            it.latitude.toString() + "|" + it.longitude.toString()
-                    }.take(8), gps)
-                }
+                OfflinePhotonPlaceSearch.search(context, query, gps, signal)
             } catch (e: Exception) {
+                signal?.throwIfCanceled()
+                if (e is CancellationException) throw e
                 Log.w("MotoGPS_Photon", "Offline Photon v2 search failed; using online", e)
+                emptyList()
             }
+        } else emptyList()
+        signal?.throwIfCanceled()
+        val q = PhotonOfflineRanking.normalize(query)
+        val exactLocal = local.filter {
+            PhotonOfflineRanking.normalize(it.name) == q &&
+                !it.name.startsWith("Via ", ignoreCase = true) &&
+                !it.name.startsWith("Viale ", ignoreCase = true)
         }
-        if (touristHits.isNotEmpty()) return withSearchDistances(touristHits, gps)
-        return try {
-            withSearchDistances(PhotonPlaceSearch.search(query, gps), gps)
+        val offline = (exactLocal + touristHits + local.filterNot { it in exactLocal })
+            .map { it.copy(searchSource = "Offline") }
+        val confident = offline.any { HybridPlaceSearch.confident(query,it) }
+        if (confident) {
+            DiagnosticLog.event("PHOTON_HYBRID","local=${offline.size} decision=offline_confident")
+            return withSearchDistances(HybridPlaceSearch.merge(query,offline,emptyList()),gps)
+        }
+        val remote = try {
+            PhotonPlaceSearch.search(query, gps).map { it.copy(searchSource = "Online") }
         } catch (e: Exception) {
+            signal?.throwIfCanceled()
+            if (e is CancellationException) throw e
             Log.w("MotoGPS_Photon", "Online Photon fallback unavailable", e)
             emptyList()
         }
+        signal?.throwIfCanceled()
+        DiagnosticLog.event("PHOTON_HYBRID","local=${offline.size} online=${remote.size} decision=merge")
+        return withSearchDistances(HybridPlaceSearch.merge(query,offline,remote),gps)
     }
 
     private var destinationSearchJob: Job? = null
@@ -1655,7 +1661,11 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                 _routeOptions.value = options
                 DiagnosticLog.event("ROUTE_PREVIEW",
                     "ready stops=${_routeWaypoints.value.size} options=${options.size}")
-                _routingSource.value = if (options.isNotEmpty()) "Valhalla" else null
+                _routingSource.value = when(options.firstOrNull()?.rawRouteJson?.optString("provider")) {
+                    "valhalla-local" -> "Valhalla offline"
+                    "valhalla-online" -> "Valhalla online"
+                    else -> null
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -3125,14 +3135,16 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         strictBearing: Boolean = false
     ): JSONObject {
         var localError = "nessuna regione Valhalla installata"
+        val preferences = _routePreferences.value
         val context = appContext ?: navigationMapsContext
         if (context != null && OfflineValhallaRouter.hasTiles(context)) {
             try {
                 val result = OfflineValhallaRouter.route(
                     context, originLat, originLon, place.latitude, place.longitude,
-                    isReroute, bearing, _routePreferences.value,
+                    isReroute, bearing, preferences,
                     waypoints.map { it.latitude to it.longitude }, strictBearing)
                 if (result != null) {
+                    DiagnosticLog.event("ROUTING_HYBRID","provider=offline validated=true")
                     Log.i("NavigationVM", "Routing: Valhalla offline")
                     return result
                 }
@@ -3141,6 +3153,7 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                 throw e
             } catch (e: Exception) {
                 localError = e.message ?: "grafo locale non utilizzabile"
+                DiagnosticLog.event("ROUTING_HYBRID","provider=offline rejected=$localError")
                 Log.w("NavigationVM", "Local Valhalla unavailable: $localError")
             }
         }
@@ -3151,13 +3164,15 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
         return try {
             val result = OnlineValhallaRouter.route(
                 originLat, originLon, place.latitude, place.longitude, isReroute, bearing,
-                _routePreferences.value, waypoints.map { it.latitude to it.longitude },
+                preferences, waypoints.map { it.latitude to it.longitude },
                 strictBearing)
+            DiagnosticLog.event("ROUTING_HYBRID","provider=online validated=true")
             Log.i("NavigationVM", "Routing: Valhalla online (local: $localError)")
             result
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
+            DiagnosticLog.event("ROUTING_HYBRID","provider=online rejected=${e.message}")
             throw IllegalStateException(
                 "Grafo locale: $localError; servizio di routing: ${e.message}. " +
                     "Controlla connessione o scarica la regione.", e)
