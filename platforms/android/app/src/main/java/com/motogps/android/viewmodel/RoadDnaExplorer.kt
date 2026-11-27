@@ -15,7 +15,8 @@ data class ExplorerMetrics(
 
 internal object RoadDnaExplorer {
     const val MAX_ATTEMPTS = 8
-    const val FINALISTS = 4
+    const val FINALISTS = 6
+    const val MAX_SIMILARITY = 0.75
 
     fun stopPlans(lat: Double, lon: Double, km: Int, orientation: Int,
                   mandatory: List<PlaceSearchResult>): List<List<PlaceSearchResult>> {
@@ -69,14 +70,23 @@ internal object RoadDnaExplorer {
         val km = (option.distanceMeters / 1000.0).coerceAtLeast(1.0)
         val distanceFit = (1.0 - abs(km - targetKm) / targetKm * 2.0).coerceIn(0.0, 1.0)
         val maneuvers = option.rawRouteJson.optJSONArray("maneuvers")
+        // Exclude the local geometry around explicit maneuvers when raw vertex
+        // indices align. If not, retain the previous conservative correction.
+        val shape = RoadDnaAnalysis.geometry(option.rawRouteJson)
+        val raw = option.rawRouteJson.optJSONArray("geometry_gcj02")
+        val exclusions = if (raw?.length() == shape.size) maneuverExclusions(shape, maneuvers) else null
+        val curves = if (exclusions != null)
+            RoadDnaTerrainAnalysis.curveMetrics(shape, option.distanceMeters.toDouble(), exclusions)
+            else terrain.curves
         var artificial = 0
-        for (i in 0 until (maneuvers?.length() ?: 0)) {
+        if (exclusions == null) for (i in 0 until (maneuvers?.length() ?: 0)) {
             when (maneuvers?.optJSONObject(i)?.optString("type")) {
                 "roundabout" -> artificial++
                 "u_turn" -> artificial += 3
+                "turn_left", "turn_right" -> artificial++
             }
         }
-        val bends = (terrain.curves.total - artificial).coerceAtLeast(0) / km
+        val bends = (curves.total - artificial).coerceAtLeast(0) / km
         val curveFit = if (profile == ExplorerProfile.TOURING)
             (1.0 - abs(bends - 1.5) / 3.0).coerceIn(0.0, 1.0)
             else (bends / 3.0).coerceIn(0.0, 1.0)
@@ -97,8 +107,38 @@ internal object RoadDnaExplorer {
             available += weights[i]
         }
         return ExplorerMetrics((100 * weighted / available.coerceAtLeast(1)).roundToInt().coerceIn(0, 100),
-            terrain.curves.total, terrain.curves.hairpins, ascent, tourism,
+            (curves.total-artificial).coerceAtLeast(0), curves.hairpins.coerceAtMost((curves.total-artificial).coerceAtLeast(0)), ascent, tourism,
             (footprint.repeated * 100).roundToInt())
+    }
+
+    /** Convert adapter vertex indices to local chainage. No guess if invalid. */
+    internal fun maneuverExclusions(shape: List<Pair<Double,Double>>,
+                                    maneuvers: org.json.JSONArray?): List<ClosedFloatingPointRange<Double>>? {
+        if (shape.size < 2 || maneuvers == null) return null
+        val chain = DoubleArray(shape.size)
+        for (i in 1 until shape.size) {
+            val d = RoadDnaTerrainAnalysis.distance(shape[i-1],shape[i])
+            if (d < .5 || d > 2000 || !d.isFinite()) return null
+            chain[i] = chain[i-1]+d
+        }
+        val ranges = ArrayList<ClosedFloatingPointRange<Double>>()
+        for (i in 0 until maneuvers.length()) {
+            val m = maneuvers.optJSONObject(i) ?: continue
+            val type = m.optString("type")
+            if (type !in setOf("turn_left","turn_right","u_turn","roundabout")) continue
+            val start = m.optInt("route_point_index",-1)
+            val end = if(type == "roundabout") m.optInt("roundabout_end_point_index",start) else start
+            if (start !in shape.indices || end !in start..shape.lastIndex) return null
+            ranges.add((chain[start]-50).coerceAtLeast(0.0)..(chain[end]+50))
+        }
+        val merged = ArrayList<ClosedFloatingPointRange<Double>>()
+        for (range in ranges.sortedBy { it.start }) {
+            val last = merged.lastOrNull()
+            if (last != null && range.start <= last.endInclusive)
+                merged[merged.lastIndex] = last.start..max(last.endInclusive,range.endInclusive)
+            else merged.add(range)
+        }
+        return merged
     }
 
     fun touristCount(summary: RoadDnaSummary?, profile: ExplorerProfile): Int? {

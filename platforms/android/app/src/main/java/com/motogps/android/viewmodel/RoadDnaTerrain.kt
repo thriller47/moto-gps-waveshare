@@ -61,7 +61,7 @@ internal object RoadDnaTerrainAnalysis {
         )
     }
 
-    private fun distance(a: Pair<Double, Double>, b: Pair<Double, Double>): Double {
+    internal fun distance(a: Pair<Double, Double>, b: Pair<Double, Double>): Double {
         val lat1 = Math.toRadians(a.first)
         val lat2 = Math.toRadians(b.first)
         val dLat = lat2 - lat1
@@ -86,7 +86,8 @@ internal object RoadDnaTerrainAnalysis {
     }
 
     internal fun curveMetrics(
-        shape: List<Pair<Double, Double>>, nominalDistance: Double = 0.0
+        shape: List<Pair<Double, Double>>, nominalDistance: Double = 0.0,
+        excluded: List<ClosedFloatingPointRange<Double>> = emptyList()
     ): RoadDnaCurves {
         val empty = RoadDnaCurves(0, 0, 0, 0, 0.0, "Dati insufficienti")
         if (shape.size < 3) return empty
@@ -148,7 +149,15 @@ internal object RoadDnaTerrainAnalysis {
             peak = 0.0
             direction = 0
         }
+        var exclusion = 0
         for (i in 1 until sampled.lastIndex) {
+            val chainage = i * CURVE_STEP_METERS
+            while (exclusion < excluded.size && excluded[exclusion].endInclusive < chainage) exclusion++
+            if (exclusion < excluded.size && chainage in excluded[exclusion]) {
+                if (sumAngle > 0) finish()
+                firstIndex = -1
+                continue
+            }
             val delta = bend(sampled[i - 1], sampled[i], sampled[i + 1])
             val magnitude = abs(delta)
             if (magnitude < 7.0 || magnitude > 175.0) continue

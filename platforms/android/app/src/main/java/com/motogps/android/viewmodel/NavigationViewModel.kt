@@ -1544,7 +1544,10 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                 val options = withContext(Dispatchers.IO) {
                     val candidates = mutableListOf<Pair<RouteOption, RoadDnaExplorer.Footprint>>()
                     val targeted = if (useRoadIndex && mandatory.isEmpty()) try {
-                        RoadDnaRoadIndex.targeted(context, lat to lon, distanceKm, profile, plans)
+                        val jobContext = currentCoroutineContext()
+                        RoadDnaRoadIndex.targeted(context, lat to lon, distanceKm, profile, plans,
+                            checkCancelled = { jobContext.ensureActive() },
+                            diagnostic = { DiagnosticLog.event("ROAD_DNA_EXPLORER_INDEX",it) })
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
@@ -1573,17 +1576,22 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                             continue
                         }
                         val shape = RoadDnaAnalysis.geometry(option.rawRouteJson)
-                        if (shape.size < 2 || !RoadDnaRoadIndex.anchorsReached(stops, shape)) continue
+                        if (shape.size < 2 || !RoadDnaRoadIndex.anchorsReached(stops, shape)) {
+                            DiagnosticLog.event("ROAD_DNA_EXPLORER_CANDIDATE","index=$index rejected=geometry_or_anchors")
+                            continue
+                        }
                         val footprint = RoadDnaExplorer.footprint(shape, lat to lon)
-                        candidates.add(option.copy(explorerMetrics = RoadDnaExplorer.metrics(
-                            option, distanceKm, profile, footprint)) to footprint)
+                        val metrics = RoadDnaExplorer.metrics(option, distanceKm, profile, footprint)
+                        candidates.add(option.copy(explorerMetrics = metrics) to footprint)
+                        DiagnosticLog.event("ROAD_DNA_EXPLORER_CANDIDATE",
+                            "index=$index targeted=${index>=plans.size} distance_m=${option.distanceMeters} score=${metrics.score} curves=${metrics.curves} repeated=${metrics.repeatedPercent}")
                     }
                     val shortlist = mutableListOf<Pair<RouteOption, RoadDnaExplorer.Footprint>>()
                     val near = candidates.filter {
                         kotlin.math.abs(it.first.distanceMeters / 1000.0 - distanceKm) <= distanceKm * 0.25
                     }.ifEmpty { candidates }
                     for (candidate in near.sortedByDescending { it.first.explorerMetrics?.score ?: 0 }) {
-                        if (shortlist.none { RoadDnaExplorer.similarity(it.second, candidate.second) >= 0.80 })
+                        if (shortlist.none { RoadDnaExplorer.similarity(it.second, candidate.second) >= RoadDnaExplorer.MAX_SIMILARITY })
                             shortlist.add(candidate)
                         if (shortlist.size >= RoadDnaExplorer.FINALISTS) break
                     }
@@ -1597,8 +1605,10 @@ class NavigationViewModel(internal val bleManager: MotoBLEManager, private val a
                             Log.w("NavigationVM", "Explorer tourist index unavailable", e)
                             null
                         }
-                        option.copy(explorerMetrics = RoadDnaExplorer.metrics(
-                            option, distanceKm, profile, footprint, tourism))
+                        val metrics = RoadDnaExplorer.metrics(option, distanceKm, profile, footprint, tourism)
+                        DiagnosticLog.event("ROAD_DNA_EXPLORER_FINALIST",
+                            "id=${option.id} score=${metrics.score} tourism=$tourism repeated=${metrics.repeatedPercent}")
+                        option.copy(explorerMetrics = metrics)
                     }.sortedByDescending { it.explorerMetrics?.score ?: 0 }.take(3)
                         .mapIndexed { index, option -> option.copy(name = "Explorer ${profile.label} · ${index + 1}" +
                             if (option.explorerStops.orEmpty().any { it.displayArea == "DNA stradale" }) " · Mirato" else "") }

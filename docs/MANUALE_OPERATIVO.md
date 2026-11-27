@@ -298,7 +298,7 @@ Da PowerShell: `moto-android NewUI`. Copiare il file SQLite nella cartella Downl
 
 #### DNA stradale V2 — copertura dei tag OSM (NewUI, 27/11)
 
-Il V2 aggiunge smoothness, width, lanes, maxspeed, lit, incline, bridge e tunnel; conserva i valori originali come testo, NULL se assenti. Non cambia la selezione delle sezioni curve del V1. Il rapporto indica la copertura per sezioni e per lunghezza, non sull'intera rete italiana. Il ranking Explorer rimane invariato fino al confronto dei dati reali. L'APK NewUI accetta entrambi i formati, così come il generatore MotoPack v4; il vecchio APK valhalla accetta solo V1. Per non perdere il rilievo usare il DEM già generato. In WSL:
+Il V2 aggiunge smoothness, width, lanes, maxspeed, lit, incline, bridge e tunnel; conserva i valori originali come testo, NULL se assenti. Non cambia la selezione delle sezioni curve del V1. Il rapporto indica la copertura per sezioni e per lunghezza, non sull'intera rete italiana. Il report reale V2 (301.929 sezioni, 42,2 MiB) mostra copertura per km surface 58,28%, smoothness 3,31%, width 2,29%, lanes 20,46%: Explorer 2.0 usa i tag dichiarati come correzioni limitate al ranking e lascia neutri quelli assenti o non standard. Esclude impassable solo dagli anchor candidati, non dall'intero grafo Valhalla. L'APK NewUI accetta entrambi i formati, così come il generatore MotoPack v4; il vecchio APK valhalla accetta solo V1. Per non perdere il rilievo usare il DEM già generato. In WSL:
 
 ```bash
 cd ~/MotoGPS/moto-gps-waveshare
@@ -311,7 +311,7 @@ set -o pipefail
 python3 scripts/offline_map/road_dna_to_sqlite.py \
   /mnt/c/MotoGPS/PBF/italy-latest.osm.pbf \
   --output ~/motogps-build/RoadDNA-Italia/road-dna-italy-v2.sqlite \
-  --elevation ~/motogps-build/ItaliaUnificata/elevation-italy.zip \
+  --elevation ~/motogps-build/ItaliaUnificata-RoadDNA-v4/elevation-italy.zip \
   | tee ~/motogps-build/RoadDNA-Italia/road-dna-v2-coverage.txt
 ```
 
@@ -323,6 +323,8 @@ cp ~/motogps-build/RoadDNA-Italia/road-dna-v2-coverage.txt /mnt/c/MotoGPS/
 ```
 
 Conservare il vecchio indice V1. Dopo aggiornamento APK con `moto-android NewUI`, importare il nuovo SQLite dalla sezione DNA stradale (sostituzione atomica); non è necessario rigenerare il MotoPack. Prima di tornare a valhalla ripristinare il V1 se necessario. Il report completo JSON è anche nel campo metadata.tag_coverage. Non interpretare dati mancanti come strada in buono stato; non dedurre condizioni attuali dal tag OSM.
+
+**Collaudo Explorer 2.0 (NewUI):** usare l'indice V2 già generato, senza ripetere la generazione. Installare con `moto-android NewUI`, importare il solo SQLite V2, attivare DNA stradale · giri mirati. Confrontare lo stesso punto di partenza/distanza/orientamento nei profili Curve, Panorami, Touring, con e senza DNA. Le proposte Mirato collegano fino a due sezioni attraverso Valhalla; massimo cinque tappe generate, nessun accesso turistico inventato. Se non trova una coppia valida tenta una sezione; mantiene gli otto piani base e le tappe obbligatorie. Il punteggio curve filtra le manovre esplicite dove gli indici sono validi; è una stima. Diagnostica ROAD_DNA_EXPLORER_INDEX (schema, settori, sezioni, score e distanza minima), CANDIDATE (score, curve, ripetizioni, rifiuti), FINALIST (turismo e score). Verificare che siano distinti, percorribili, di durata ragionevole e che le tappe automatiche non richiedano fermate inutili. Non è stato eseguito il collaudo; nessuna modifica firmware.
 
 ## 1.2. Road DNA online — chiavi Geoapify e OpenTripMap
 
