@@ -1,6 +1,6 @@
 # Moto Chat GPS — Manuale operativo
 
-**Aggiornato:** 27 novembre 2026 · **Repository:** thriller47/moto-gps-waveshare · **Branch stabile:** valhalla · **Branch sperimentale mantenuto:** NewUI.
+**Aggiornato:** 28 novembre 2026 · **Repository:** thriller47/moto-gps-waveshare · **Branch stabile:** valhalla · **Branch sperimentale mantenuto:** NewUI.
 
 ## Prima di cominciare — i quattro comandi quotidiani
 
@@ -14,6 +14,14 @@ Aprire **PowerShell di Windows** dal menu Start. Il prompt deve iniziare con `PS
 | `moto-simulator NewUI` | Aggiorna WSL, compila WASM, avvia il server locale e apre il browser. |
 
 Usare `valhalla` per la versione consolidata e `NewUI` per le prove e i prossimi sviluppi. Dopo l'integrazione entrambi i branch contengono i launcher, che vengono installati fuori dal checkout; il branch da compilare deve avere una configurazione compatibile. **Collaudi riferiti dall'utente:** launcher ESP32 COM4 funzionante, MotoPack v3 generato manualmente e copiato con CopyOnly, import e quote offline funzionanti, simulatore avviato con apertura browser. Restano da verificare la nuova gestione Ctrl+C e gli altri percorsi automatici non ancora provati. La build Android manuale e il nuovo layout Road DNA sono stati confermati dall'utente.
+
+### Collaudo Explorer — meteo itinerari (NewUI)
+
+1. Da PowerShell eseguire `moto-android NewUI`. Non occorre aggiornare firmware, MotoPack o DNA stradale.
+2. Generare un tour Explorer come prima; nella schermata delle varianti premere **Meteo itinerari · confronta**, poi **Carica previsioni** con Internet disponibile. L'app invia a Open-Meteo solo coordinate campionate, fino a 63 per confronto. API gratuita riservata all'uso non commerciale; dati CC BY 4.0 con attribuzione.
+3. Controllare temperatura, probabilità massima precipitazioni, raffiche e profili (Mostra profilo). Cambiare la partenza (ora/+1/+2/+3/+6 ore): nessuna nuova richiesta necessaria. Gli orari sono stime proporzionali alla distanza e alla durata Valhalla, senza soste.
+4. Chiudere e riaprire, verificare cache; in modalità aereo la medesima richiesta può riutilizzare dati fino a 6 ore, altrimenti mostra indisponibilità senza bloccare gli itinerari. Cambiare itinerari e verificare che non appaiano dati di rotte precedenti.
+5. Il confronto indica solo la minore probabilità massima di precipitazioni, quando tutti i campioni sono disponibili e non a pari merito. Non è un indice di sicurezza. Verificare che scelta, MotoScore e navigazione restino invariati.
 
 ### PC pulito — clonare il repository da zero (Windows)
 

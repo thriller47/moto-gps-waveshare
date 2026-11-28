@@ -3361,6 +3361,7 @@ fun NavigationScreen(
                             CircularProgressIndicator()
                         }
                     } else if (routeOptions.isNotEmpty()) {
+                        ExplorerWeatherPreview(routeOptions)
                         LazyColumn(modifier = Modifier.weight(1f)) {
                             itemsIndexed(routeOptions) { index, option ->
                                 val isSelected = index == selectedRouteIndex
